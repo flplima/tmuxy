@@ -84,13 +84,30 @@ interface KillFlags {
 }
 
 /**
+ * Whether a `kill-session` target is this session. Only a plain name can be
+ * told apart: `=name` is exact, and a bare name is another session when it
+ * is neither this one's name nor a prefix of it (tmux matches prefixes). An
+ * id (`$0`), a quoted name, a pattern or a `name:window` form is not read:
+ * it may be this session, so it is null and the kill is asked about.
+ */
+function namesThisSession(target: string | undefined, sessionName: string): boolean | null {
+  if (target === undefined) return true;
+  const exact = target.startsWith('=');
+  const name = target.replace(/^=/, '').replace(/:$/, '');
+  if (!/^[\w.@+-]+$/.test(name)) return null;
+  if (name === sessionName) return true;
+  return !exact && sessionName.startsWith(name) ? null : false;
+}
+
+/**
  * Another session's panes are not this client's to count, unless `-a` makes
- * this one of "every other session".
+ * this one of "every other session". A target that cannot be shown to be
+ * another session counts as this one.
  */
 function closedBySessionKill(verb: string, flags: KillFlags, model: GuardModel): Closed | null {
-  const named = flags.target?.replace(/^=|:$/g, '');
-  const elsewhere = /session/.test(verb) && named !== undefined && named !== model.sessionName;
-  return elsewhere === flags.others ? { scope: 'several', panes: model.panes } : null;
+  const here = /server/.test(verb) ? true : namesThisSession(flags.target, model.sessionName);
+  const spared = here === null ? false : here === flags.others;
+  return spared ? null : { scope: 'several', panes: model.panes };
 }
 
 function closedByPaneKill({ target, others }: KillFlags, model: GuardModel): Closed {

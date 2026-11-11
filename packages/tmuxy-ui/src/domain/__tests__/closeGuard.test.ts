@@ -97,6 +97,15 @@ describe('busyPanesClosedBy', () => {
     expect(ids('kill-session -t main')).toEqual(['%2', '%3', '%4']);
     expect(ids('kill-session -a -t other')).toEqual(['%2', '%3', '%4']);
     expect(ids('kill-session -a')).toBeNull();
+    // A target that cannot be shown to be another session is asked about:
+    // an id, a prefix of this session's name, a quoted name, a name:window.
+    for (const target of ['$0', 'mai', "'main'", '"other"', 'main:1', 'ma*']) {
+      expect(ids(`kill-session -t ${target}`), target).toEqual(['%2', '%3', '%4']);
+      expect(ids(`kill-session -a -t ${target}`), target).toEqual(['%2', '%3', '%4']);
+    }
+    // `=name` is exact: a prefix written that way is another session.
+    expect(ids('kill-session -t =mai')).toBeNull();
+    expect(ids('kill-session -t =main')).toEqual(['%2', '%3', '%4']);
     // The menu's Kill Session has its own question.
     expect(busyPanesClosedBy(killSession, { ...model, typed: false })).toBeNull();
     expect(ids('kill-window -t :2')).toEqual(['%2', '%3', '%4']);
