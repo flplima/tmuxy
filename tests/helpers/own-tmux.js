@@ -56,6 +56,9 @@ function ownTmuxWorld({ root, port = null }) {
   });
   delete env.TMUX_SOCKET;
   env.TMUX_TMPDIR = tmpdir;
+  // The app lists the sockets it finds; left to itself it also looks in
+  // /tmp, where the developer's real ones are.
+  env.TMUXY_SOCKET_DIR = socketDir;
   const bin = process.env.TMUX_BIN || 'tmux';
   /**
    * The names in play here are the live ones: `default` is the developer's
@@ -65,7 +68,7 @@ function ownTmuxWorld({ root, port = null }) {
    * live session beside it.
    */
   const assertIsolated = () => {
-    const inside = env.TMUX_TMPDIR === tmpdir && tmpdir.startsWith(root + path.sep);
+    const inside = env.TMUX_TMPDIR === tmpdir && env.TMUXY_SOCKET_DIR === socketDir;
     const leaked = ['TMUX', 'TMUX_PANE', 'TMUX_SOCKET'].filter((name) => name in env);
     if (!inside || leaked.length > 0) {
       throw new Error(
