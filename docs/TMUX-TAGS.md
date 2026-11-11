@@ -20,8 +20,8 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | --- | --- | --- | --- |
 | `@tmuxy-window-type` | window | `float` \| `sidebar-left` \| `sidebar-right` | non-tab chrome windows only (tabs are untagged) |
 | `@tmuxy-float-parent` | window | `@<window-id>` | floats |
-| `@tmuxy-float-width` | window | integer (columns) | floats |
-| `@tmuxy-float-height` | window | integer (rows) | floats |
+| `@tmuxy-float-width` | window | integer (columns) | floats: the width it is drawn at, and its window's (below) |
+| `@tmuxy-float-height` | window | integer (rows) | floats: likewise its height |
 | `@tmuxy-float-drawer` | window | `top` \| `bottom` \| `left` \| `right` \| unset | drawer-style floats |
 | `@tmuxy-float-bg` | window | `blur` \| `dim` \| unset | floats with a backdrop |
 | `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
@@ -55,6 +55,8 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 **A finished agent is idle.** An agent only ever says `idle` when it stops, and that is what its pane shows, whether or not the user was looking: the state mark goes and the process icon comes back, with nothing left to dismiss. `unread` is a send's: one that skips its question (`@tmuxy-send-ask off`, `@tmuxy-send-allow`) marks the target `unread`, so keys never land in a pane unseen, and the client clears it once that pane is in front. The value rides the ordinary `list-panes` subscription (it is a fixed tail field, like `@tmuxy-group-id`) and is carried verbatim. The words are core's `PaneStateName` (`tmuxy-core/src/state_types.rs`), and everything reads them the same exact way: `tmuxy pane state` refuses any other word with exit 2, and a word written past the CLI with a raw `set-option` is `idle` in the tab and no state at all to the push notification and the screen corrector. As with every user option, tmux emits no notification when it changes — the value lands on the next metadata sync, which any pane producing output triggers continuously.
 
 `@tmuxy-pane-widget` is what makes a widget a widget. The `__TMUXY_WIDGET__:<name>` marker a widget prints is ordinary pane **output**, and anything a pane prints carries the same weight — a crafted file passed to `cat`, a commit message in `git log`, an ssh MOTD. So the marker alone renders nothing: the client honours it only when this option, written out of band by `tmuxy-widget` through `run-shell`, names the same widget. It rides the `list-panes` tail like `@tmuxy-pane-state`, and `tmuxy-widget` unsets it on the way out, so a pane that has gone back to being a shell cannot print its way into a widget again.
+
+A float's window is sized to its size tags, not to the viewport: by the list that makes it (`tmuxy-core/src/float.rs`), and from then on by the sizing pass (`control_mode/monitor_core/sizing.rs`), which holds it to the viewport. The pane is the window's only one and the window has no border row, so a program in it is told the size the UI draws. A drawer takes only the side it docks by; the other follows the viewport. A window is given its border row and its size once `list-windows` has described it, not on `%window-add`, which does not say what the window is.
 
 On a float the parent is also **which tab the float belongs to**. A float is an overlay over the tab it was opened from, not over the session: the client shows only the floats whose parent is the active window (`selectVisibleFloats`), so one opened on tab 1 is off screen on tab 2 and comes back when that tab does. A float with no parent, or whose parent window has since closed, is shown on every tab — an orphan nothing could bring on screen could not be closed either. Its backdrop is rendered inside the pane container rather than portaled to the document body, so it dims that tab's content and leaves the sidebars, the tab strip and the status line usable.
 
