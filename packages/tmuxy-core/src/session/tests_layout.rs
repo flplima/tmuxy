@@ -305,3 +305,48 @@ fn the_chain_is_in_the_state_dir_and_publishes_the_data_dir_first() {
     );
     assert!(lines[4].starts_with("source-file ") && lines[4].ends_with("tmuxy.essentials.conf'"));
 }
+
+/// On the user's own tmux server the chain is the essentials and nothing of
+/// tmuxy's taste: `source-file` is server-global, and the defaults sourced
+/// there rebound the prefix for every terminal attached to that server.
+#[test]
+fn the_chain_for_the_users_own_server_sources_the_essentials_alone() {
+    let s = Scratch::new("adopted");
+    std::fs::create_dir_all(&s.layout.config).unwrap();
+    std::fs::write(s.layout.user_conf(), "set -g prefix C-x\n").unwrap();
+
+    let chain = super::config::adopted_conf(&s.layout, "/usr/bin/tmux");
+    let lines: Vec<&str> = chain
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+
+    // What the essentials' aliases name is published first, and the chain a
+    // reload sources again is this one, not the full one.
+    assert_eq!(
+        lines[..2],
+        [
+            format!(
+                "set-environment -g TMUXY_DATA_DIR '{}'",
+                s.layout.data.display()
+            ),
+            format!(
+                "set-environment -g TMUXY_ENTRY_CONF '{}'",
+                s.layout.adopted_conf().display()
+            ),
+        ]
+    );
+    let sourced: Vec<&&str> = lines
+        .iter()
+        .filter(|l| l.starts_with("source-file"))
+        .collect();
+    assert_eq!(
+        sourced,
+        [&format!(
+            "source-file '{}'",
+            s.layout.path(&crate::paths::ESSENTIALS_CONF).display()
+        )
+        .as_str()]
+    );
+    assert_ne!(s.layout.adopted_conf(), s.layout.entry_conf());
+}

@@ -34,6 +34,7 @@ machine (`--json` for a script).
 | `bin/`                  | data   | tmuxy | no           | no              | The `tmuxy` CLI and its helper scripts.                                                                  |
 | `README.md`             | data   | tmuxy | no           | no              | This file.                                                                                               |
 | `tmuxy.entry.conf`      | state  | tmuxy | no           | no              | The chain tmux starts with, built from your files and this machine's choices.                            |
+| `tmuxy.adopted.conf`    | state  | tmuxy | no           | no              | The chain for your own tmux server when tmuxy attaches to it: only what tmuxy cannot work without.       |
 | `tmuxy.state.json`      | state  | tmuxy | no           | no              | Choices made in the app's menus (theme, mode, cursor blink, `use-tmux-conf`).                            |
 | `servers.json`          | state  | tmuxy | yes          | no              | The servers `tmuxy session connect` saved; ssh hosts as this machine reaches them.                       |
 | `trace.json`            | state  | tmuxy | yes          | no              | The Debug menu's trace switch.                                                                           |

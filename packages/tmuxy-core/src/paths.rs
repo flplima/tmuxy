@@ -302,6 +302,11 @@ pub const ENTRY_CONF: File = File::state(
     false,
     "The chain tmux starts with, built from your files and this machine's choices.",
 );
+pub const ADOPTED_CONF: File = File::state(
+    "tmuxy.adopted.conf",
+    false,
+    "The chain for your own tmux server when tmuxy attaches to it: only what tmuxy cannot work without.",
+);
 pub const STATE_FILE: File = File::state(
     "tmuxy.state.json",
     false,
@@ -368,6 +373,7 @@ pub const FILES: &[File] = &[
     BIN,
     README,
     ENTRY_CONF,
+    ADOPTED_CONF,
     STATE_FILE,
     SERVERS,
     TRACE_PREFS,
@@ -427,6 +433,10 @@ impl Layout {
 
     pub fn entry_conf(&self) -> PathBuf {
         self.path(&ENTRY_CONF)
+    }
+
+    pub fn adopted_conf(&self) -> PathBuf {
+        self.path(&ADOPTED_CONF)
     }
 
     pub fn state_file(&self) -> PathBuf {
