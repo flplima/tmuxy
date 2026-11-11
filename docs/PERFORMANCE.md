@@ -200,6 +200,10 @@ npm run perf:interactions -- --url http://localhost:9000 --samples 12 \
 npm run perf:compare -- --report tests/perf/interaction-report.json
 ```
 
+The suite types, splits, zooms and makes tabs in the session it is pointed at:
+`--url` names a throwaway server on its own tmux socket, never one serving a
+session somebody works in.
+
 Add `--cdp http://localhost:9222` to attach to the Chrome the dev environment
 already runs instead of launching one (the devcontainer deliberately does not
 install Playwright's browsers; CI is the reverse and launches). Refresh the

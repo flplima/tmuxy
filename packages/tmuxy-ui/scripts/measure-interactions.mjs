@@ -12,6 +12,10 @@
  * report's target is then `web-rtt<MS>`, so it is never judged against the
  * baseline of a run on the bare link.
  *
+ * The suite types, splits, zooms and makes tabs in the session it is
+ * pointed at. `--url` must name a throwaway server on its own tmux socket,
+ * never one serving a session somebody works in.
+ *
  * Usage:
  *   node measure-interactions.mjs [--url URL] [--samples N] [--out FILE]
  *                                 [--label NAME] [--session NAME] [--cdp URL]
