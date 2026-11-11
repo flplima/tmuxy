@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { guestMachine } = require('./helpers/guest-verbs');
+const { SOCKET } = require('./helpers/env');
 
 /**
  * The in-browser guests (the v86 snapshot behind the demo and the v86
@@ -26,7 +27,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     return runCLI(args, {
       cli: machine.cli,
       path: machine.path,
-      env: { HOME: machine.home, TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%5', ...env },
+      env: { HOME: machine.home, TMUX_PANE: '%5', ...env },
     });
   }
 
@@ -54,7 +55,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     expect(exitCode).toBe(0);
     const ran = tmuxCalls.find((c) => c.args[0] === 'run-shell');
     expect(ran.target).toBe('%5');
-    expect(ran.args[1]).toMatch(/tmux -L tmuxy list-panes/);
+    expect(ran.args[1]).toContain(`tmux -L ${SOCKET} list-panes`);
   });
 
   // Into the caller's own pane, which asks nobody: the pane's process is an
@@ -149,9 +150,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
   // `pane group` runs the pane-group script inside run-shell, which the mock
   // does not play; the script is run here as run-shell would run it.
   test('the pane-group script runs the group verb', () => {
-    const { stderr, exitCode } = machine.runScript('pane-group', ['move', '%4', 'x'], {
-      TMUX_SOCKET: 'tmuxy',
-    });
+    const { stderr, exitCode } = machine.runScript('pane-group', ['move', '%4', 'x'], {});
     expect(stderr).toContain('pane-group move:');
     expect(stderr).not.toContain('not found');
     expect(exitCode).toBe(1);

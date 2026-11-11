@@ -8,10 +8,10 @@
 const fs = require('fs');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
+const { SOCKET } = require('./helpers/env');
 
 // A caller that really runs in pane %1.
 const IN_PANE_1 = {
-  TMUX_SOCKET: 'tmuxy',
   TMUX_PANE: '%1',
   MOCK_TMUX_PANE_PID: String(process.pid),
 };
@@ -51,7 +51,7 @@ describe('exit codes', () => {
     const env = { MOCK_TMUX_NO_SERVER: '1' };
     const list = runCLI(['pane', 'list'], { env });
     expect(list.exitCode).toBe(4);
-    expect(list.stderr).toContain("no tmux server on socket 'tmuxy'");
+    expect(list.stderr).toContain(`no tmux server on socket '${SOCKET}'`);
 
     const split = runCLI(['pane', 'split'], { env });
     expect(split.exitCode).toBe(4);
@@ -61,7 +61,7 @@ describe('exit codes', () => {
     expect(json.exitCode).toBe(4);
     expect(JSON.parse(json.stdout)).toEqual({
       ok: false,
-      error: "no tmux server on socket 'tmuxy'",
+      error: `no tmux server on socket '${SOCKET}'`,
       code: 4,
     });
   });
@@ -91,7 +91,7 @@ describe('label targets', () => {
       env: { MOCK_TMUX_LABELS: LABELS },
     });
     expect(exitCode).toBe(0);
-    expect(runShells(tmuxCalls)).toEqual(["tmux -L tmuxy killp -t '%4'"]);
+    expect(runShells(tmuxCalls)).toEqual([`tmux -L ${SOCKET} killp -t '%4'`]);
     expect(JSON.parse(stdout)).toEqual({ ok: true, paneId: '%4' });
   });
 
@@ -100,7 +100,7 @@ describe('label targets', () => {
       env: { MOCK_TMUX_LABELS: LABELS },
     });
     expect(exitCode).toBe(0);
-    expect(runShells(tmuxCalls)).toEqual(["tmux -L tmuxy selectp -t '%5'"]);
+    expect(runShells(tmuxCalls)).toEqual([`tmux -L ${SOCKET} selectp -t '%5'`]);
   });
 
   test('3: no such label, and nothing changed', () => {
@@ -164,7 +164,7 @@ describe('label targets', () => {
     const names = { MOCK_TMUX_TAB_NAMES: ['@0\tmain\ttmuxy', '@3\teditor\ttmuxy'].join('\\n') };
     const one = runCLI(['tab', 'select', 'editor'], { env: names });
     expect(one.exitCode).toBe(0);
-    expect(runShells(one.tmuxCalls)).toEqual(["tmux -L tmuxy select-window -t '@3'"]);
+    expect(runShells(one.tmuxCalls)).toEqual([`tmux -L ${SOCKET} select-window -t '@3'`]);
 
     const none = runCLI(['tab', 'kill', 'logs'], { env: names });
     expect(none.exitCode).toBe(3);
@@ -193,7 +193,7 @@ describe('the caller’s pane is the target', () => {
   ])('%j names pane %%1', (args, expected) => {
     const { exitCode, tmuxCalls } = runCLI(args, { env: IN_PANE_1 });
     expect(exitCode).toBe(0);
-    expect(runShells(tmuxCalls)).toEqual([`TMUX_PANE=%1 tmux -L tmuxy ${expected}`]);
+    expect(runShells(tmuxCalls)).toEqual([`TMUX_PANE=%1 tmux -L ${SOCKET} ${expected}`]);
   });
 
   test('capture reads the caller’s pane, and list its tab, not the active one', () => {
@@ -239,10 +239,12 @@ describe('pane run', () => {
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe('%99');
     const [split, label] = runShells(tmuxCalls);
-    expect(split).toMatch(
-      /^TMUX_PANE=%1 tmux -L tmuxy splitw -t %1 -h -d -l 30% -c '\/tmp\/x y' -P -F '##\{pane_id\}' 'bash [^']*\/tmuxy-run\.[^/]+\/run\.sh'$/,
+    const onTheSocket = `TMUX_PANE=%1 tmux -L ${SOCKET} `;
+    expect(split.startsWith(onTheSocket)).toBe(true);
+    expect(split.slice(onTheSocket.length)).toMatch(
+      /^splitw -t %1 -h -d -l 30% -c '\/tmp\/x y' -P -F '##\{pane_id\}' 'bash [^']*\/tmuxy-run\.[^/]+\/run\.sh'$/,
     );
-    expect(label).toBe("TMUX_PANE=%1 tmux -L tmuxy set-option -p -t %99 @tmuxy-label 'logs'");
+    expect(label).toBe(`TMUX_PANE=%1 tmux -L ${SOCKET} set-option -p -t %99 @tmuxy-label 'logs'`);
   });
 
   test('the command reaches the wrapper word for word: a quoted word stays one word', () => {
@@ -291,7 +293,9 @@ describe('pane wait', () => {
       env: { MOCK_TMUX_PANE_DEAD: '1', MOCK_TMUX_PANE_DEAD_STATUS: '2' },
     });
     expect(exitCode).toBe(2);
-    expect(runShells(tmuxCalls)).toEqual(["tmux -L tmuxy set-option -p -t '%4' remain-on-exit on"]);
+    expect(runShells(tmuxCalls)).toEqual([
+      `tmux -L ${SOCKET} set-option -p -t '%4' remain-on-exit on`,
+    ]);
     expect(JSON.parse(stdout)).toEqual({ ok: false, paneId: '%4', status: 2 });
   });
 

@@ -15,7 +15,6 @@ const { runCLI } = require('./helpers/run-cli');
  * ancestor of the CLI (jest itself), which is what makes the claim true.
  */
 const IN_PANE_1 = {
-  TMUX_SOCKET: 'tmuxy',
   TMUX_PANE: '%1',
   MOCK_TMUX_PANE_PID: String(process.pid),
 };
@@ -57,7 +56,6 @@ describe('tmuxy pane send', () => {
 
   test('a caller in no pane names none, and the keys go to the pane in view', () => {
     const { stdout } = send(['ls', 'Enter'], {
-      TMUX_SOCKET: 'tmuxy',
       MOCK_TMUX_CALLER_PANES: '1\\tmain\\t%2',
       MOCK_TMUX_PANE_ID: '%2',
     });
@@ -66,7 +64,6 @@ describe('tmuxy pane send', () => {
 
   test('claiming the target as your own pane is not believed', () => {
     const { stdout } = send(['-t', '%3', 'id', 'Enter'], {
-      TMUX_SOCKET: 'tmuxy',
       TMUX_PANE: '%3',
       MOCK_TMUX_PANE_PID: '999999',
     });
