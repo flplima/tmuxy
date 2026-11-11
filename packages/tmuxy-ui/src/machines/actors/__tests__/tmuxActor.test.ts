@@ -180,3 +180,39 @@ describe('tmuxActor — cancellable scrollback', () => {
     actor.stop();
   });
 });
+
+describe('tmuxActor — taking the offer of the user’s own tmux', () => {
+  const take = { type: 'TAKE_OWN_TMUX_OFFER', serverId: 'my-tmux', session: 'work' } as const;
+  const verdicts = (events: Array<{ type: string }>) =>
+    events.filter((e) => e.type === 'OWN_TMUX_OFFER_TAKEN');
+
+  it('connects, and only then closes the offer on the host and tells the parent', async () => {
+    const transport = fakeTransport();
+    const { actor, events } = spawnTmuxActor(transport.runtime);
+    actor.getSnapshot().children.tmux!.send(take);
+    await waitFor(() => transport.invocations.length === 2);
+    expect(transport.invocations).toEqual([
+      { cmd: 'connect_server', args: { id: 'my-tmux', session: 'work' } },
+      { cmd: 'close_own_tmux_offer', args: {} },
+    ]);
+    expect(verdicts(events)).toEqual([{ type: 'OWN_TMUX_OFFER_TAKEN', taken: true }]);
+    actor.stop();
+  });
+
+  // That server has gone since the offer was made: the host knows no such
+  // server, and an offer that was never taken must stay open.
+  it('a connect the host refuses closes nothing, and the parent hears it was not taken', async () => {
+    const transport = fakeTransport({
+      send: async () => {
+        throw { error: "unknown server 'my-tmux'", kind: 'invalid' };
+      },
+    });
+    const { actor, events } = spawnTmuxActor(transport.runtime);
+    actor.getSnapshot().children.tmux!.send(take);
+    await waitFor(() => verdicts(events).length > 0);
+    expect(verdicts(events)).toEqual([{ type: 'OWN_TMUX_OFFER_TAKEN', taken: false }]);
+    expect(transport.invocations.map((call) => call.cmd)).toEqual(['connect_server']);
+    expect(events.some((e) => e.type === 'TMUX_ERROR')).toBe(true);
+    actor.stop();
+  });
+});

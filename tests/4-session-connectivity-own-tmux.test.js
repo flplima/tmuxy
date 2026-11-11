@@ -116,7 +116,15 @@ describe('Scenario 22e: The user has tmux sessions of their own', () => {
     expect(await (await answered).json()).toEqual({ result: null });
     expect(await notice.count()).toBe(0);
 
-    // 5. Looking at the user's tmux changed nothing on it.
+    // 5. What is remembered is that this host told, not an answer to the
+    //    switch only the desktop app can offer: that one is still to be made.
+    expect(JSON.parse(fs.readFileSync(world.stateFile, 'utf8'))).toMatchObject({
+      own_tmux_told: true,
+    });
+    expect(JSON.parse(fs.readFileSync(world.stateFile, 'utf8')).own_tmux_asked).toBeUndefined();
+
+    // 6. Looking at the user's tmux changed nothing on it.
     expect(world.usersSessions()).toEqual(['notes', 'work']);
+    expect(world.usersSettings().prefix).toBe('C-q');
   }, 180000);
 });

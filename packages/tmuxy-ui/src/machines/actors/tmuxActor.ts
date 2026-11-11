@@ -40,6 +40,8 @@ export type TmuxActorEvent =
   | { type: 'FETCH_THEMES_LIST' }
   | { type: 'SWITCH_SESSION'; sessionName: string }
   | { type: 'RESTORE_SESSION'; sessionName: string }
+  /** Take the launch notice's offer: switch to the user's own tmux server. */
+  | { type: 'TAKE_OWN_TMUX_OFFER'; serverId: string; session?: string }
   | { type: 'RECONNECT_NOW' }
   /** Read the plugin inventory (`@tmuxy-plugins`) and send PLUGINS_RECEIVED. */
   | { type: 'FETCH_PLUGINS' }
@@ -86,6 +88,8 @@ export function createTmuxActor(runtime: AppRuntime) {
 
     interface RunOptions<T> {
       onSuccess?: (value: T) => void;
+      /** Called for any failure, before it is reported. */
+      onFailure?: () => void;
       /** A context label for the LOG_APPEND error entry (e.g. the command). */
       logPrefix?: string;
       /**
@@ -107,6 +111,7 @@ export function createTmuxActor(runtime: AppRuntime) {
             opts.onSuccess?.(exit.value);
             return;
           }
+          opts.onFailure?.();
           const display = failureText(exit.cause);
           if (display === null) return;
           if (opts.silentFail) {
@@ -226,6 +231,26 @@ export function createTmuxActor(runtime: AppRuntime) {
         run(
           withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
           { logPrefix: 'set_client_size' },
+        );
+      } else if (event.type === 'TAKE_OWN_TMUX_OFFER') {
+        logCommand(`connect_server ${event.serverId}`);
+        run(
+          withTransport((t) =>
+            t.call('connect_server', { id: event.serverId, session: event.session ?? null }),
+          ),
+          {
+            logPrefix: 'connect_server',
+            // Only an offer the host took is answered: one it refused (that
+            // server has gone since) is still open, here and on the host.
+            onSuccess: () => {
+              run(
+                withTransport((t) => t.call('close_own_tmux_offer', {})),
+                { logPrefix: 'close_own_tmux_offer', silentFail: true },
+              );
+              parent.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: true });
+            },
+            onFailure: () => parent.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: false }),
+          },
         );
       } else if (event.type === 'RESTORE_SESSION') {
         logCommand(`restore_session ${event.sessionName}`);

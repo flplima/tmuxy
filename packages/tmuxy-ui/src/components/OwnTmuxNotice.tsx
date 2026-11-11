@@ -2,9 +2,11 @@
  * Shown once, at launch, to someone whose own tmux server (the one a bare
  * `tmux` talks to) has sessions: tmuxy runs on a socket of its own, so the
  * app opens on an empty session and their work looks gone. The desktop offers
- * to switch there; a web server serves the socket it was started on, so the
- * notice says how to start it there instead. Either answer closes it for good
- * (`own_tmux_asked` in the host's state file). Nothing covers the panes.
+ * to switch there, and says it is there only once the host took the switch; a
+ * web server serves the socket it was started on, so the notice says how to
+ * start it there instead. Closing it is remembered in the host's state file
+ * (`own_tmux_asked`, or `own_tmux_told` for a host that could only tell).
+ * Nothing covers the panes.
  */
 
 import { useAppSelector, useAppSend } from '../machines/appHooks';
@@ -18,18 +20,19 @@ export function OwnTmuxNotice() {
   const send = useAppSend();
   if (!notice) return null;
 
-  const { offer, switched } = notice;
+  const { offer, stage } = notice;
+  const switched = stage === 'switched';
   const answer = (choice: 'use' | 'dismiss') =>
     send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: choice });
   const count = `${offer.sessions} ${offer.sessions === 1 ? 'session' : 'sessions'}`;
-  const offersSwitch = offer.canSwitch && !switched;
+  const offersSwitch = offer.canSwitch && stage === 'ask';
 
   return (
     <div
       className="snackbar is-info snackbar-own-tmux"
       role="status"
       data-testid="own-tmux-notice"
-      data-stage={switched ? 'switched' : 'ask'}
+      data-stage={stage}
     >
       <span className="snackbar-text">
         {switched ? (
@@ -50,7 +53,8 @@ export function OwnTmuxNotice() {
           </>
         )}
       </span>
-      <span className="snackbar-actions">
+      {/* No answer to give while the switch is on its way to the host. */}
+      <span className="snackbar-actions" hidden={stage === 'switching'}>
         {offersSwitch && (
           <button
             type="button"

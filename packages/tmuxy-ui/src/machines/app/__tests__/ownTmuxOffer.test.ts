@@ -23,9 +23,17 @@ function app() {
   const tmux = recorder();
   const servers = recorder();
   const actor = startApp({ actors: { tmuxActor: tmux.logic, serversActor: servers.logic } });
-  const calls = () =>
-    tmux.received.flatMap((event) => (event.type === 'INVOKE' ? [[event.cmd, event.args]] : []));
-  return { actor, calls, servers };
+  /** What the tmux actor was asked for, less the bookkeeping every app start sends. */
+  const asked = () =>
+    tmux.received.flatMap((event) =>
+      event.type === 'INVOKE'
+        ? [[event.cmd, event.args]]
+        : event.type === 'TAKE_OWN_TMUX_OFFER'
+          ? [['take', event.serverId, event.session]]
+          : [],
+    );
+  const notice = () => actor.getSnapshot().context.ownTmuxNotice;
+  return { actor, asked, notice, servers };
 }
 
 describe('the launch notice about the user’s own tmux', () => {
@@ -39,65 +47,82 @@ describe('the launch notice about the user’s own tmux', () => {
   });
 
   it('shows the offer the host makes, and nothing when it makes none', () => {
-    const { actor } = app();
+    const { actor, notice } = app();
     actor.send({ type: 'OWN_TMUX_OFFERED', offer: null });
-    expect(actor.getSnapshot().context.ownTmuxNotice).toBeNull();
+    expect(notice()).toBeNull();
 
     actor.send({ type: 'OWN_TMUX_OFFERED', offer: desktopOffer });
-    expect(actor.getSnapshot().context.ownTmuxNotice).toEqual({
-      offer: desktopOffer,
-      switched: false,
-    });
+    expect(notice()).toEqual({ offer: desktopOffer, stage: 'ask' });
   });
 
-  it('taking it switches to that server and its session, and keeps the notice to say how to stay', () => {
-    const { actor, calls } = app();
+  it('taking it asks the host to switch, and says it is there only once the host took it', () => {
+    const { actor, asked, notice } = app();
     actor.send({ type: 'OWN_TMUX_OFFERED', offer: desktopOffer });
 
     actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'use' });
 
-    expect(calls()).toEqual([
-      ['close_own_tmux_offer', {}],
-      ['connect_server', { id: 'my-tmux', session: 'work' }],
-    ]);
-    const { ownTmuxNotice, currentServerId } = actor.getSnapshot().context;
-    expect(currentServerId).toBe('my-tmux');
-    expect(ownTmuxNotice).toEqual({ offer: desktopOffer, switched: true });
-
-    // The switch reconnects, and the host is asked nothing new by an answer
-    // that arrives late: the notice on screen is the user's, not the host's.
+    // Nothing is claimed yet, and nothing is closed on the host from here:
+    // the tmux actor closes the offer when the switch is taken.
+    expect(asked()).toEqual([['take', 'my-tmux', 'work']]);
+    expect(notice()?.stage).toBe('switching');
+    expect(actor.getSnapshot().context.currentServerId).toBeNull();
+    // A second click, or a late answer from the host, changes nothing.
+    actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'use' });
+    actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'dismiss' });
     actor.send({ type: 'OWN_TMUX_OFFERED', offer: desktopOffer });
-    expect(actor.getSnapshot().context.ownTmuxNotice?.switched).toBe(true);
+    expect(asked()).toHaveLength(1);
+    expect(notice()?.stage).toBe('switching');
+
+    actor.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: true });
+
+    expect(notice()).toEqual({ offer: desktopOffer, stage: 'switched' });
+    expect(actor.getSnapshot().context.currentServerId).toBe('my-tmux');
 
     actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'dismiss' });
-    expect(actor.getSnapshot().context.ownTmuxNotice).toBeNull();
-    expect(calls()).toHaveLength(2);
+    expect(notice()).toBeNull();
+    expect(asked()).toHaveLength(1);
+  });
+
+  // That server went away between the offer and the click: the host refuses,
+  // and "Now on your own tmux" over the old session would be a lie that also
+  // cost the user the offer.
+  it('a switch the host refused leaves the offer open', () => {
+    const { actor, asked, notice } = app();
+    actor.send({ type: 'OWN_TMUX_OFFERED', offer: desktopOffer });
+    actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'use' });
+
+    actor.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: false });
+
+    expect(notice()).toEqual({ offer: desktopOffer, stage: 'ask' });
+    expect(actor.getSnapshot().context.currentServerId).toBeNull();
+    expect(asked()).toEqual([['take', 'my-tmux', 'work']]);
   });
 
   it('declining it closes the offer on the host and connects nowhere', () => {
-    const { actor, calls } = app();
+    const { actor, asked, notice } = app();
     actor.send({ type: 'OWN_TMUX_OFFERED', offer: desktopOffer });
 
     actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'dismiss' });
 
-    expect(calls()).toEqual([['close_own_tmux_offer', {}]]);
-    expect(actor.getSnapshot().context.ownTmuxNotice).toBeNull();
+    expect(asked()).toEqual([['close_own_tmux_offer', {}]]);
+    expect(notice()).toBeNull();
     expect(actor.getSnapshot().context.currentServerId).toBeNull();
   });
 
   it('a host that cannot switch servers is never asked to', () => {
-    const { actor, calls } = app();
+    const { actor, asked, notice } = app();
     actor.send({ type: 'OWN_TMUX_OFFERED', offer: webOffer });
 
     actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'use' });
 
-    expect(calls()).toEqual([['close_own_tmux_offer', {}]]);
-    expect(actor.getSnapshot().context.ownTmuxNotice).toBeNull();
+    expect(asked()).toEqual([['close_own_tmux_offer', {}]]);
+    expect(notice()).toBeNull();
   });
 
   it('an answer with no notice on screen does nothing', () => {
-    const { actor, calls } = app();
+    const { actor, asked } = app();
     actor.send({ type: 'ANSWER_OWN_TMUX_OFFER', answer: 'use' });
-    expect(calls()).toEqual([]);
+    actor.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: true });
+    expect(asked()).toEqual([]);
   });
 });

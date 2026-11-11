@@ -36,11 +36,16 @@ pub struct ManagedState {
     /// into the config chain, so it has to be known before that chain is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_tmux_conf: Option<bool>,
-    /// Whether the user has answered the launch notice about their own tmux
-    /// server ([`crate::servers::own_tmux_offer`]). It is shown until then,
-    /// and never again after.
+    /// Whether the user has answered the offer to switch to their own tmux
+    /// server ([`crate::servers::own_tmux_offer`]), which only a host that
+    /// can switch makes. No host shows the launch notice again after.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub own_tmux_asked: Option<bool>,
+    /// Whether a host that cannot switch (the web server) has told the user
+    /// where their sessions are. It does not tell again; a host that can
+    /// switch still makes its offer once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_tmux_told: Option<bool>,
 }
 
 /// An option the menus can change: one [`ManagedState`] remembers and the

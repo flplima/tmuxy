@@ -73,6 +73,10 @@ describe('The user has tmux sessions of their own', () => {
     expect(asked.buttons).toEqual(['Use my tmux', 'Stay here']);
     expect(await attachedSession()).toBe('tmuxy');
     expect(world.usersAttachedSessions()).toEqual([]);
+    const sessionsBefore = world.usersSessions();
+    const settingsBefore = world.usersSettings();
+    expect(sessionsBefore).toEqual(['notes', 'work']);
+    expect(settingsBefore.prefix).toBe('C-q');
 
     // 2. Taking the offer lands in a session of theirs, on screen.
     await (await driver.$('[data-testid="own-tmux-use"]')).click();
@@ -81,6 +85,12 @@ describe('The user has tmux sessions of their own', () => {
     expect(world.usersAttachedSessions()).toEqual(['notes']);
 
     // 3. The notice stays to say how to start there next time, until closed.
+    await waitForCondition(
+      null,
+      async () => (await notice())?.stage === 'switched',
+      15000,
+      'the notice to say the switch was made',
+    );
     const switched = await notice();
     expect(switched.stage).toBe('switched');
     expect(switched.text).toContain('TMUX_SOCKET=default');
@@ -88,12 +98,13 @@ describe('The user has tmux sessions of their own', () => {
     await (await driver.$('[data-testid="own-tmux-dismiss"]')).click();
     await waitForCondition(null, async () => (await notice()) === null, 10000, 'the notice to go');
 
-    // 4. The answer is on disk, so no later launch asks again; and the user's
-    //    tmux holds the sessions it held, with none of tmuxy's own made there.
+    // 4. The answer is on disk, so no later launch asks again.
     expect(JSON.parse(fs.readFileSync(world.stateFile, 'utf8')).own_tmux_asked).toBe(true);
-    expect(world.usersSessions().filter((name) => !name.startsWith('__'))).toEqual([
-      'notes',
-      'work',
-    ]);
+
+    // 5. Their tmux is as they left it: the same sessions and no other
+    //    (tmuxy made none of its own there), their prefix, their status line
+    //    and their binding.
+    expect(world.usersSessions()).toEqual(sessionsBefore);
+    expect(world.usersSettings()).toEqual(settingsBefore);
   });
 });

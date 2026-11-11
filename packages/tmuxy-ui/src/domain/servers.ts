@@ -134,10 +134,14 @@ export const OwnTmuxOffer = Schema.Struct({
 });
 export type OwnTmuxOffer = Schema.Schema.Type<typeof OwnTmuxOffer>;
 
-/** The launch notice on screen: the offer, then, once taken, how to make it stick. */
+/**
+ * The launch notice on screen: the offer (`ask`), the switch on its way to
+ * the host (`switching`), then, once the host took it, how to make it stick
+ * (`switched`).
+ */
 export interface OwnTmuxNotice {
   offer: OwnTmuxOffer;
-  switched: boolean;
+  stage: 'ask' | 'switching' | 'switched';
 }
 
 /**

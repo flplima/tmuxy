@@ -125,30 +125,48 @@ export const connectionActions = {
   // and tab that asks, and an answer must not undo a click.
   connection_ownTmuxOffered: assignCtx(({ context, event }) =>
     event.type === 'OWN_TMUX_OFFERED' && event.offer && !context.ownTmuxNotice
-      ? { ownTmuxNotice: { offer: event.offer, switched: false } }
+      ? { ownTmuxNotice: { offer: event.offer, stage: 'ask' as const } }
       : {},
   ),
 
-  // Either answer closes the offer for good on the host. Taking it switches
-  // the way the session menu's "my tmux" does, and the notice stays to say how
-  // to start there next time.
+  // Declining closes the offer on the host. Taking it asks the host to
+  // switch, the way the session menu's "my tmux" does; what the notice says
+  // next waits for the host's word (connection_ownTmuxOfferTaken).
   connection_answerOwnTmuxOffer: act(({ context, event, enqueue }) => {
     if (event.type !== 'ANSWER_OWN_TMUX_OFFER') return;
     const notice = context.ownTmuxNotice;
-    if (!notice) return;
-    if (!notice.switched) {
-      enqueue(sendTo('tmux', invokeEvent({ cmd: 'close_own_tmux_offer', args: {} })));
-    }
-    if (event.answer === 'use' && notice.offer.canSwitch && !notice.switched) {
-      enqueue(assign({ ownTmuxNotice: { ...notice, switched: true } }));
-      enqueue.raise({
-        type: 'CONNECT_SERVER' as const,
-        serverId: notice.offer.serverId,
-        session: notice.offer.session,
-      });
+    if (!notice || notice.stage === 'switching') return;
+    const { offer } = notice;
+    if (event.answer === 'use' && offer.canSwitch && notice.stage === 'ask') {
+      enqueue(assign({ ownTmuxNotice: { offer, stage: 'switching' as const } }));
+      enqueue(
+        sendTo('tmux', {
+          type: 'TAKE_OWN_TMUX_OFFER' as const,
+          serverId: offer.serverId,
+          session: offer.session,
+        }),
+      );
       return;
     }
+    if (notice.stage === 'ask') {
+      enqueue(sendTo('tmux', invokeEvent({ cmd: 'close_own_tmux_offer', args: {} })));
+    }
     enqueue(assign({ ownTmuxNotice: null }));
+  }),
+
+  // Taken: the host label names that server at once, as after a switch from
+  // the session menu, and the notice says how to start there. Refused (that
+  // server has gone since): the offer is open again, and the error the host
+  // gave is in the corner beside it.
+  connection_ownTmuxOfferTaken: assignCtx(({ context, event }) => {
+    const notice = context.ownTmuxNotice;
+    if (event.type !== 'OWN_TMUX_OFFER_TAKEN' || notice?.stage !== 'switching') return {};
+    return event.taken
+      ? {
+          currentServerId: notice.offer.serverId,
+          ownTmuxNotice: { ...notice, stage: 'switched' as const },
+        }
+      : { ownTmuxNotice: { ...notice, stage: 'ask' as const } };
   }),
 
   connection_reconnectNow: act(({ enqueue }) => {

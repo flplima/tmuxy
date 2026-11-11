@@ -54,10 +54,17 @@ describe('OwnTmuxNotice', () => {
     expect(screen.getByTestId('own-tmux-dismiss').textContent).toBe('Got it');
   });
 
-  it('after the switch says how to start there every time, until dismissed', () => {
+  it('says it is on the other server only once the host took the switch, then until dismissed', () => {
     const { actor } = mount(offer());
 
     fireEvent.click(screen.getByTestId('own-tmux-use'));
+
+    // On its way: the offer's own words, and no answer left to give.
+    expect(notice()?.getAttribute('data-stage')).toBe('switching');
+    expect(notice()?.textContent).not.toContain('Now on your own tmux');
+    expect(screen.getByTestId('own-tmux-dismiss').closest('[hidden]')).not.toBeNull();
+
+    act(() => actor.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: true }));
 
     expect(actor.getSnapshot().context.currentServerId).toBe('my-tmux');
     expect(notice()?.getAttribute('data-stage')).toBe('switched');
@@ -66,5 +73,15 @@ describe('OwnTmuxNotice', () => {
 
     fireEvent.click(screen.getByTestId('own-tmux-dismiss'));
     expect(notice()).toBeNull();
+  });
+
+  it('offers the switch again when the host refused it', () => {
+    const { actor } = mount(offer());
+    fireEvent.click(screen.getByTestId('own-tmux-use'));
+
+    act(() => actor.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: false }));
+
+    expect(notice()?.getAttribute('data-stage')).toBe('ask');
+    expect(screen.getByTestId('own-tmux-use').closest('[hidden]')).toBeNull();
   });
 });

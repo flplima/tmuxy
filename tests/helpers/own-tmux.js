@@ -63,6 +63,19 @@ function ownTmuxWorld({ root, port = null }) {
       if (!fs.existsSync(usersSocket)) {
         throw new Error(`tmux did not put its default socket at ${usersSocket}`);
       }
+      // Settings of the user's own, none of them tmux's defaults, so a tmuxy
+      // that attaches and overwrites one shows in `usersSettings`.
+      onSocket('default', ['set-option', '-g', 'prefix', 'C-q']);
+      onSocket('default', ['set-option', '-g', 'status-left', '[own] ']);
+      onSocket('default', ['bind-key', '-T', 'prefix', 'F9', 'display-message', 'own binding']);
+    },
+    /** The user's prefix, status line and key binding, as their tmux holds them now. */
+    usersSettings() {
+      return {
+        prefix: onSocket('default', ['show-options', '-gv', 'prefix']),
+        statusLeft: onSocket('default', ['show-options', '-gv', 'status-left']),
+        binding: onSocket('default', ['list-keys', '-T', 'prefix', 'F9']),
+      };
     },
     /** The sessions the user's own tmux holds now. */
     usersSessions() {

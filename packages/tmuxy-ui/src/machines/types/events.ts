@@ -293,6 +293,8 @@ export type AppMachineEvent =
   | { type: 'OWN_TMUX_OFFERED'; offer: OwnTmuxOffer | null }
   /** The launch notice's buttons: switch to that server, or close the notice. */
   | { type: 'ANSWER_OWN_TMUX_OFFER'; answer: 'use' | 'dismiss' }
+  /** Whether the host took the switch the notice asked for (tmuxActor). */
+  | { type: 'OWN_TMUX_OFFER_TAKEN'; taken: boolean }
   | { type: 'DETACH_CLIENT' }
   | { type: 'RECONNECT_NOW' }
   | { type: 'TMUX_DETACHED'; reason: string | null }

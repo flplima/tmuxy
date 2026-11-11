@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{read_servers_strict, slug, write_servers, Server, ServerKind, MY_TMUX_ID};
 use crate::constants::STASH_SESSION;
@@ -142,6 +143,37 @@ fn dead_socket_cache(
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// How long a look at another tmux server on this machine may take. A server
+/// that is stopped (a `SIGSTOP`, a debugger) keeps its socket and never
+/// answers, and a look is taken on every connect and every poll of the tree.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// What `command` printed, or `None` when it could not be run or has not
+/// ended within `limit`; it is killed then, so a look leaves no process
+/// behind. For a command that prints little: its output is read at the end.
+pub(super) fn output_within(mut command: Command, limit: Duration) -> Option<Output> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
 /// The non-stash sessions on a local tmux socket that is NOT the live
 /// control-mode socket, in tmux's order. `None` when no server is running on
 /// that socket, or it holds nothing but the stash.
@@ -154,10 +186,11 @@ pub fn local_socket_session_names(socket: &str) -> Option<Vec<String>> {
             }
         }
     }
-    let out = crate::session::local_tmux_on(socket)
-        .args(["list-sessions", "-F", "#{session_name}"])
-        .output()
-        .ok()?;
+    let mut look = crate::session::local_tmux_on(socket);
+    look.args(["list-sessions", "-F", "#{session_name}"]);
+    // No answer in time is not "no server": nothing is cached, so the server
+    // is found again once it answers.
+    let out = output_within(look, PROBE_TIMEOUT)?;
     if !out.status.success() {
         if let Ok(mut cache) = dead_socket_cache().lock() {
             cache.insert(socket.to_string(), mtime);

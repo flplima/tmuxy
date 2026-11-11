@@ -127,7 +127,7 @@ pub enum ClientCommand {
     /// What a launch tells a tmux user about their own server
     /// (`servers::OwnTmuxOffer`), or `null` when there is nothing to tell.
     OwnTmuxOffer,
-    /// The user answered that notice: never show it again.
+    /// The user closed that notice: this host does not show it again.
     CloseOwnTmuxOffer,
     /// Write the invocation token a plugin's menu action opens with,
     /// carrying the selected text.
@@ -445,7 +445,8 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             to_json(offer, "own tmux offer")
         }
         ClientCommand::CloseOwnTmuxOffer => {
-            tokio::task::spawn_blocking(crate::servers::close_own_tmux_offer)
+            let can_switch = ctx.switches_servers();
+            tokio::task::spawn_blocking(move || crate::servers::close_own_tmux_offer(can_switch))
                 .await
                 .map_err(|e| CommandError::unavailable(e.to_string()))?
                 .map_err(|e| CommandError::unavailable(e.to_string()))?;
