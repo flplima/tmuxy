@@ -150,7 +150,9 @@ The suites kill panes, windows and whole servers, and they are usually started f
 | --- | --- | --- |
 | CLI (`tests/cli/`) | A mock, never a real one | A socket name and a tmux socket directory (`TMUX_TMPDIR`) made for the run and handed to every CLI under test. No child process starts unless its environment is sealed to them: no inherited `$TMUX`, no `TMUX_BIN`, the mock first on `PATH`, never the socket names people work in (`tmuxy`, `tmuxy-dev`, `default`, `tmuxy-test`). A socket found in the run's directory afterwards fails the run. `tests/cli/helpers/seal.js`, `tests/cli/setup/` |
 | Web E2E, desktop | A real tmux on `tmuxy-test` | Every child is given the socket with `$TMUX` and `$TMUX_PANE` removed, and a `TMUX_SOCKET` that is `tmuxy`, `tmuxy-dev` or `default` (by name, or by its path in tmux's own socket directory) or the one the shell runs in is refused (`tests/helpers/tmux-socket.js`, `tests/helpers/live-socket-guard.js`) |
-| Rust | A scratch server per test binary, on a socket named after its pid | `tmuxy-core/tests/common/scratch.rs` |
+| Rust | A scratch server per test binary, on a socket named after its pid | `tmuxy-core/tests/common/scratch.rs`. The server drops an inherited `TMUX_SOCKET` from its own environment, which its hooks would otherwise follow to another server |
+
+To run any of them by hand from inside tmux, and a script that is none of these, give the run a tmux socket directory of its own and nothing of the shell's: `TMUX_TMPDIR` set to a short private directory (a socket's path has about a hundred characters), with `TMUX`, `TMUX_PANE`, `TMUX_BIN` and `TMUX_SOCKET` unset. No socket name then resolves to a server someone works in.
 
 A new helper that starts a child process in `tests/cli/` takes its environment from `scriptEnv()` or `sealedEnv()` (`tests/cli/helpers/env.js`); anything else throws before the child runs. `tests/cli/harness-seal.test.js` holds each refusal.
 
