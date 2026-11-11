@@ -3,32 +3,62 @@
 //!
 //! Three things are looked for, each with its file and line:
 //!
-//! - what tmux's own parser refuses (`source-file -n`: the file is parsed and
-//!   nothing in it runs), asked of a tmux server started for the question on
-//!   a socket of its own, which exits with it. tmux reports the first such
-//!   error of a file;
-//! - an option name tmux does not have (`set -g staus off`), which the parse
-//!   lets through because a name is only looked up when the command runs.
-//!   The verdict is tmux's too: the same throwaway server is asked for the
-//!   option;
-//! - a `source-file` whose target is not there ([`super::doctor`]): tmux
-//!   stops reading a config at that line.
+//! - what tmux's own parser refuses ([`ProblemKind::Parse`]), from
+//!   `source-file -n` (the file is parsed and nothing in it runs), asked of
+//!   a tmux server started for the question on a socket of its own, which
+//!   exits with it. tmux reports the first such error of a file, and applies
+//!   nothing of a file it cannot parse;
+//! - an option name tmux does not have ([`ProblemKind::Option`],
+//!   `set -g staus off`), which the parse lets through because a name is
+//!   only looked up when the command runs. The verdict is tmux's too: the
+//!   same throwaway server is asked for the option;
+//! - a `source-file` whose target is not there ([`ProblemKind::Source`],
+//!   [`super::doctor`]).
 //!
-//! A reload asks first ([`reload_blockers`]): sourcing a file with any of
-//! these re-applies tmuxy's defaults and then none, or only part, of the
-//! user's own settings over them.
+//! The last two are read line by line, which cannot tell whether a line
+//! inside a `%if` runs on this machine (a guard for a newer tmux's option, a
+//! file sourced on another host), so lines inside a conditional are left to
+//! tmux's parse alone.
+//!
+//! A reload asks first, and only the first kind stops it
+//! ([`reload_blockers`]): the chain starts by putting tmuxy's defaults back,
+//! and a file tmux then cannot parse leaves none of the user's own settings
+//! over them. tmux reports the other two when it runs the file and carries
+//! on, as it always has.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
 use super::doctor::{dead_sources_in, resolve_target};
-use crate::paths::{self, Layout};
+use crate::paths::Layout;
 use crate::tmux_command::{self, SET_OPTION, SET_WINDOW_OPTION, SOURCE_FILE};
+
+mod probe;
+#[cfg(test)]
+pub(super) use probe::parse_errors;
+use probe::Probe;
 
 /// What every refused reload ends with: how to see the whole list.
 pub const CHECK_HINT: &str = "run: tmuxy config check";
+
+/// What kind of thing is wrong; see the module's opening.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProblemKind {
+    Parse,
+    Option,
+    Source,
+}
+
+impl ProblemKind {
+    /// The word `--json` gives it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Parse => "parse",
+            Self::Option => "option",
+            Self::Source => "source",
+        }
+    }
+}
 
 /// One thing wrong with a config file, and where.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +66,7 @@ pub struct ConfigProblem {
     pub file: PathBuf,
     /// 1-based, as an editor counts; `None` when tmux named no line.
     pub line: Option<usize>,
+    pub kind: ProblemKind,
     pub message: String,
 }
 
@@ -59,9 +90,6 @@ pub struct ConfigReport {
 /// How many files one check follows `source-file` lines into: a config that
 /// sources itself must end somewhere.
 const MAX_FILES: usize = 64;
-
-/// How long the throwaway tmux may take over one question.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The path words of one `source-file` command, `-q` or not: a file that may
 /// be missing is still a file to check when it is there. None for `-F`,
@@ -89,7 +117,43 @@ fn sourced_words<'a>(command: &tmux_command::Command<'a>) -> Vec<&'a str> {
     paths
 }
 
-/// The files `conf` sources by a path known before tmux runs, that exist.
+/// The lines of `conf` that are a `%if` … `%endif` block, the directives
+/// included: what a line-by-line reading cannot judge, since only tmux knows
+/// which branch runs here.
+pub(super) fn conditional_lines(conf: &str) -> BTreeSet<usize> {
+    let mut inside = BTreeSet::new();
+    let mut depth = 0usize;
+    for (index, line) in conf.lines().enumerate() {
+        let word = line.split_whitespace().next().unwrap_or("");
+        if word == "%if" {
+            depth += 1;
+        }
+        if depth > 0 {
+            inside.insert(index + 1);
+        }
+        if word == "%endif" {
+            depth = depth.saturating_sub(1);
+        }
+    }
+    inside
+}
+
+/// The numbered lines of `conf` a line-by-line check reads: not blank, not a
+/// comment, not inside a conditional.
+fn judged_lines(conf: &str) -> impl Iterator<Item = (usize, &str)> {
+    let conditional = conditional_lines(conf);
+    conf.lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line))
+        .filter(move |(number, line)| {
+            let trimmed = line.trim_start();
+            !trimmed.is_empty() && !trimmed.starts_with('#') && !conditional.contains(number)
+        })
+}
+
+/// The files `conf` sources by a path known before tmux runs, that exist. A
+/// `source-file` inside a conditional counts here: when the file is there it
+/// is worth reading, whichever machine runs the line.
 fn sourced_files(conf: &str, home: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for line in conf.lines() {
@@ -177,180 +241,36 @@ fn option_named<'a>(command: &tmux_command::Command<'a>) -> Option<&'a str> {
     literal.then_some(name)
 }
 
-/// Every option `conf` sets by a literal name, with the line it is on.
-fn options_set(conf: &str) -> Vec<(usize, &str)> {
+/// Every option `conf` sets by a literal name outside a conditional, with
+/// the line it is on.
+pub(super) fn options_set(conf: &str) -> Vec<(usize, &str)> {
     let mut set = Vec::new();
-    for (index, line) in conf.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        // `parse` borrows from the line, so the names it finds live as long
-        // as `conf` does.
+    for (number, line) in judged_lines(conf) {
         let list = tmux_command::parse(line);
         for command in list.top_level() {
             if let Some(name) = option_named(command) {
-                set.push((index + 1, name));
+                set.push((number, name));
             }
         }
     }
     set
 }
 
-/// Whether `command` succeeded, or `None` when it could not be run or has not
-/// ended within `limit`; it is killed then. What it prints goes wherever the
-/// caller pointed it: never down a pipe read here, which a process the
-/// command leaves behind (a tmux server) would hold open.
-fn status_within(mut command: Command, limit: Duration) -> Option<bool> {
-    let mut child = command.stdin(Stdio::null()).spawn().ok()?;
-    let deadline = Instant::now() + limit;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Some(status.success()),
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
+fn cannot_ask(what: impl std::fmt::Display) -> String {
+    format!("could not ask tmux about {what}")
 }
 
-/// A tmux server for questions about a config: started by each question on a
-/// socket of its own, with no config (`-f /dev/null`), and gone when the
-/// question is answered — a server with no session exits with its client,
-/// and the probe kills whatever is left on the socket when it is dropped.
-/// Nothing the user runs tmux on is asked, so a check can neither disturb a
-/// session nor be skewed by one.
-struct Probe {
-    socket: PathBuf,
-    /// Where each question's answer is written, to be read once tmux is done.
-    answer: PathBuf,
-    essentials: PathBuf,
-}
-
-impl Probe {
-    fn new(layout: &Layout) -> Self {
-        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let name = format!(
-            "tmuxy-check-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+/// What tmux's parser refuses in `files`, each asked of `probe`.
+fn parse_problems(probe: &Probe, files: &[PathBuf]) -> Result<Vec<ConfigProblem>, String> {
+    let mut problems = Vec::new();
+    for path in files.iter().filter(|path| path.is_file()) {
+        problems.extend(
+            probe
+                .parse(path)
+                .ok_or_else(|| cannot_ask(path.display()))?,
         );
-        // A unix socket's path has ~100 bytes: a state dir deep in a tree
-        // gives way to the temp dir.
-        let short = layout.state.is_dir() && layout.state.as_os_str().len() < 60;
-        let dir = if short {
-            layout.state.clone()
-        } else {
-            std::env::temp_dir()
-        };
-        Self {
-            socket: dir.join(format!("{name}.sock")),
-            answer: dir.join(format!("{name}.out")),
-            essentials: layout.path(&paths::ESSENTIALS_CONF),
-        }
     }
-
-    /// What tmux said to `commands`, run in a server born for them: its
-    /// status, and stdout then stderr.
-    /// tmux on this probe's socket, started the one reviewed way
-    /// ([`super::local_tmux_on`]): the socket is a path, so `-S`.
-    fn tmux(&self) -> Command {
-        let mut tmux = super::local_tmux_on(&self.socket.to_string_lossy());
-        tmux.env_remove("TMUX").env_remove("TMUX_PANE");
-        tmux
-    }
-
-    fn ask(&self, commands: &[&str]) -> Option<(bool, String)> {
-        let answer = std::fs::File::create(&self.answer).ok()?;
-        let mut tmux = self.tmux();
-        tmux.args(["-f", "/dev/null", "start-server", ";"])
-            .args(commands)
-            .stdout(answer.try_clone().ok()?)
-            .stderr(answer);
-        let ok = status_within(tmux, PROBE_TIMEOUT)?;
-        let said = std::fs::read(&self.answer).ok()?;
-        Some((ok, String::from_utf8_lossy(&said).into_owned()))
-    }
-
-    /// What tmux's parser refuses in `file`. The essentials are sourced
-    /// first, so the command aliases a config may use are known, as they
-    /// are when the chain sources the file; `exit-empty`, which they turn
-    /// off, goes back on, or this server would outlive its question.
-    fn parse(&self, file: &Path) -> Option<Vec<ConfigProblem>> {
-        let essentials = self.essentials.to_string_lossy();
-        let path = file.to_string_lossy();
-        let (ok, said) = self.ask(&[
-            "source-file",
-            "-q",
-            &essentials,
-            ";",
-            "set-option",
-            "-s",
-            "exit-empty",
-            "on",
-            ";",
-            "source-file",
-            "-n",
-            &path,
-        ])?;
-        let mut problems = parse_errors(&said, file);
-        if !ok && problems.is_empty() {
-            problems.push(ConfigProblem {
-                file: file.to_path_buf(),
-                line: None,
-                message: said.trim().to_string(),
-            });
-        }
-        Some(problems)
-    }
-
-    /// What tmux says of an option called `name`: nothing when it has one
-    /// (an unambiguous prefix counts, as it does to `set`), else its words.
-    fn option_error(&self, name: &str) -> Option<String> {
-        let (ok, said) = self.ask(&["show-options", "-g", name])?;
-        let said = said.trim();
-        let refused = ["invalid option", "unknown option", "ambiguous option"]
-            .iter()
-            .any(|refusal| said.contains(refusal));
-        (!ok && refused).then(|| said.to_string())
-    }
-}
-
-impl Drop for Probe {
-    fn drop(&mut self) {
-        // Belt and braces: a question cut short by an error may have left
-        // its server up.
-        if self.socket.exists() {
-            let mut kill = self.tmux();
-            kill.arg("kill-server")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let _ = status_within(kill, PROBE_TIMEOUT);
-        }
-        let _ = std::fs::remove_file(&self.socket);
-        let _ = std::fs::remove_file(&self.answer);
-    }
-}
-
-/// The `<file>:<line>: <message>` lines of what tmux printed about `file`.
-fn parse_errors(said: &str, file: &Path) -> Vec<ConfigProblem> {
-    let prefix = format!("{}:", file.to_string_lossy());
-    said.lines()
-        .filter_map(|line| {
-            let rest = line.strip_prefix(&prefix)?;
-            let (number, message) = rest.split_once(':')?;
-            Some(ConfigProblem {
-                file: file.to_path_buf(),
-                line: Some(number.trim().parse().ok()?),
-                message: message.trim().to_string(),
-            })
-        })
-        .collect()
+    Ok(problems)
 }
 
 /// Check `file` and everything it sources, or, with none named, the user's
@@ -358,67 +278,85 @@ fn parse_errors(said: &str, file: &Path) -> Vec<ConfigProblem> {
 /// be asked at all.
 pub fn check_config(layout: &Layout, file: Option<&Path>) -> Result<ConfigReport, String> {
     let files = checked_files(layout, file);
-    let probe = Probe::new(layout);
+    let probe = Probe::new(layout).map_err(|e| cannot_ask(format!("the config: {e}")))?;
+    let parsed = parse_problems(&probe, &files)?;
     let mut problems = Vec::new();
     // One verdict per name: a config sets the same option in many places.
     let mut refused: std::collections::BTreeMap<String, Option<String>> = Default::default();
     for path in &files {
-        let conf = match std::fs::read_to_string(path) {
-            Ok(conf) => conf,
-            Err(e) => {
-                problems.push(ConfigProblem {
-                    file: path.clone(),
-                    line: None,
-                    message: e.to_string(),
-                });
-                continue;
-            }
-        };
-        let parsed = probe
-            .parse(path)
-            .ok_or_else(|| format!("could not ask tmux about {}", path.display()))?;
-        let mut found: BTreeSet<(Option<usize>, String)> = parsed
-            .into_iter()
-            .map(|problem| (problem.line, problem.message))
+        let mut found: BTreeSet<(Option<usize>, ProblemKind, String)> = parsed
+            .iter()
+            .filter(|problem| &problem.file == path)
+            .map(|problem| (problem.line, problem.kind, problem.message.clone()))
             .collect();
-        for (line, name) in options_set(&conf) {
-            let verdict = refused
-                .entry(name.to_string())
-                .or_insert_with(|| probe.option_error(name));
-            if let Some(message) = verdict {
-                found.insert((Some(line), message.clone()));
+        match std::fs::read_to_string(path) {
+            Ok(conf) => {
+                for (line, name) in options_set(&conf) {
+                    let verdict = refused
+                        .entry(name.to_string())
+                        .or_insert_with(|| probe.option_error(name));
+                    if let Some(message) = verdict {
+                        found.insert((Some(line), ProblemKind::Option, message.clone()));
+                    }
+                }
+                let conditional = conditional_lines(&conf);
+                for dead in dead_sources_in(&conf, path, &layout.home) {
+                    if conditional.contains(&dead.line) {
+                        continue;
+                    }
+                    found.insert((
+                        Some(dead.line),
+                        ProblemKind::Source,
+                        format!(
+                            "source-file {}: {} does not exist",
+                            dead.written,
+                            dead.target.display()
+                        ),
+                    ));
+                }
+            }
+            Err(e) => {
+                found.insert((None, ProblemKind::Source, e.to_string()));
             }
         }
-        for dead in dead_sources_in(&conf, path, &layout.home) {
-            found.insert((
-                Some(dead.line),
-                format!(
-                    "source-file {}: {} does not exist",
-                    dead.written,
-                    dead.target.display()
-                ),
-            ));
-        }
-        problems.extend(found.into_iter().map(|(line, message)| ConfigProblem {
-            file: path.clone(),
-            line,
-            message,
-        }));
+        problems.extend(
+            found
+                .into_iter()
+                .map(|(line, kind, message)| ConfigProblem {
+                    file: path.clone(),
+                    line,
+                    kind,
+                    message,
+                }),
+        );
     }
     Ok(ConfigReport { files, problems })
 }
 
-/// What stops a reload: the problems of the user's part of the chain. None
-/// when tmux could not be asked, since a check that cannot run must not be
-/// what keeps a config from loading.
+/// What stops a reload: what tmux's parser refuses in the user's part of the
+/// chain, and nothing else (see the module's opening). None when tmux could
+/// not be asked, since a check that cannot run must not be what keeps a
+/// config from loading.
 pub fn reload_blockers(layout: &Layout) -> Vec<ConfigProblem> {
-    match check_config(layout, None) {
-        Ok(report) => report.problems,
+    let files = checked_files(layout, None);
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let asked = Probe::new(layout)
+        .map_err(|e| e.to_string())
+        .and_then(|probe| parse_problems(&probe, &files));
+    match asked {
+        Ok(problems) => problems,
         Err(e) => {
             tracing::warn!(error = %e, "the config was not checked before its reload");
             Vec::new()
         }
     }
+}
+
+/// [`reload_blockers`] for the layout in use.
+pub fn current_reload_blockers() -> Vec<ConfigProblem> {
+    reload_blockers(&Layout::current())
 }
 
 /// What a refused reload says: the first problem, how many more there are,

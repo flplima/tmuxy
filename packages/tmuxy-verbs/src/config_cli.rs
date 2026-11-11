@@ -20,7 +20,7 @@ enum ConfigVerb {
     /// to symlink.
     Paths,
     /// Ask every running app to re-source the config chain. Refused, with
-    /// what is wrong, when `check` finds a problem: the running config is
+    /// the line, while tmux cannot parse your config: the running one is
     /// kept.
     Reload,
     /// What is wrong with your config, found without applying it: a line
@@ -105,8 +105,8 @@ pub fn run(args: ConfigArgs) {
     }
 }
 
-/// `tmuxy config reload`: refused, with what is wrong, while the config has
-/// a problem; else the marker every running app watches is touched.
+/// `tmuxy config reload`: refused, with the line, while tmux cannot parse
+/// the config; else the marker every running app watches is touched.
 fn reload(layout: &Layout, answer: &Answer) {
     let blockers = tmuxy_core::session::reload_blockers(layout);
     if !blockers.is_empty() {
@@ -141,9 +141,10 @@ fn problems_json(problems: &[tmuxy_core::session::ConfigProblem]) -> String {
         .iter()
         .map(|p| {
             format!(
-                r#"{{"file":{},"line":{},"message":{}}}"#,
+                r#"{{"file":{},"line":{},"kind":{},"message":{}}}"#,
                 cli_json::string(&p.file.display().to_string()),
                 p.line.map_or("null".to_string(), |line| line.to_string()),
+                cli_json::string(p.kind.as_str()),
                 cli_json::string(&p.message)
             )
         })

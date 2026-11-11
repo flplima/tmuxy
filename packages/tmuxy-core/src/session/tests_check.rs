@@ -90,6 +90,7 @@ fn a_problem_reads_as_file_line_message() {
     let problem = ConfigProblem {
         file: PathBuf::from("/c/tmuxy.conf"),
         line: Some(7),
+        kind: ProblemKind::Parse,
         message: "unknown command: bindd".to_string(),
     };
     assert_eq!(
@@ -113,4 +114,41 @@ fn a_problem_reads_as_file_line_message() {
     assert!(refusal(&[problem.clone(), unplaced])
         .unwrap()
         .contains("bindd (and 1 more); run:"));
+}
+
+/// A line-by-line reading cannot tell which branch of a `%if` runs on this
+/// machine. A guard for a newer tmux's option, or a file sourced only on
+/// another host, must not be called a problem here.
+#[test]
+fn lines_inside_a_conditional_are_left_to_tmuxs_own_parse() {
+    let conf = "set -g mouse on\n\
+                %if #{>=:#{version},9.9}\n\
+                set -g option-of-a-newer-tmux on\n\
+                %if #{==:#{host},elsewhere}\n\
+                set -g another-one on\n\
+                %endif\n\
+                %else\n\
+                set -g staus off\n\
+                %endif\n\
+                set -g staus-left x\n";
+    assert_eq!(
+        conditional_lines(conf).into_iter().collect::<Vec<_>>(),
+        (2..=9).collect::<Vec<_>>()
+    );
+    assert_eq!(options_set(conf), [(1, "mouse"), (10, "staus-left")]);
+}
+
+#[test]
+fn what_tmux_prints_about_a_file_is_read_as_its_parse_errors() {
+    let file = Path::new("/c/tmuxy.conf");
+    let said = "/c/tmuxy.conf:3: unknown command: bindd\n/other.conf:1: not this file\nnoise\n";
+    assert_eq!(
+        parse_errors(said, file),
+        [ConfigProblem {
+            file: file.to_path_buf(),
+            line: Some(3),
+            kind: ProblemKind::Parse,
+            message: "unknown command: bindd".to_string(),
+        }]
+    );
 }

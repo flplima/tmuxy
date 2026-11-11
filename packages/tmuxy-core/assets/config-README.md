@@ -89,18 +89,17 @@ doctor` lists them and exits 1 while there are any, and `tmuxy config doctor
 --fix` comments each one out in place behind a `# tmuxy config doctor:`
 mark, keeping the file as it was beside it as `tmuxy.conf.bak-<date>`.
 
-`tmuxy config check` tells you what is wrong with your config before tmux
-does, with the file and the line: a line tmux cannot parse, an option it does
-not have (`set -g staus off`), a `source-file` whose file is not there. It
-reads your `tmuxy.conf`, your `~/.tmux.conf` when it is sourced, and every
-file they source; `tmuxy config check <file>` reads one you name. Nothing in
-the files is run: they are parsed by a tmux started for the question, which is
-gone when it is answered. It exits 1 while there is anything to fix.
+`tmuxy config check` says what is wrong with your config, with file and line,
+without applying it: a line tmux cannot parse, an option it does not have, a
+`source-file` whose file is not there. It reads your `tmuxy.conf`, your
+`~/.tmux.conf` when it is sourced, and the files they source, or the file you
+name, and exits 1 while there is anything to fix.
 
-A reload asks the same question first. While the check finds a problem,
-`tmuxy config reload`, the app's Reload Config and a saved `tmuxy.conf` change
-nothing and say why, so a typo cannot take your prefix and bindings out of the
-session you are working in.
+While tmux cannot parse your files, `tmuxy config reload`, Reload Config and a
+saved `tmuxy.conf` change nothing and say which line, and a restarted app
+leaves a running server's config alone: a reload puts tmuxy's defaults back
+first, so a typo used to take your prefix with it. An unknown option or a
+missing file does not stop a reload. Lines inside a `%if` are left to tmux.
 
 ## Config beats menu state
 

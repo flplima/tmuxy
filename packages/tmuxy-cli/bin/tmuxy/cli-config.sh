@@ -47,8 +47,8 @@ Settings:
   reload                   Re-apply the config to the running app: the whole
                            chain (defaults, your tmuxy.conf, essentials) is
                            re-sourced and every @tmuxy-* option re-read.
-                           Refused when `check` finds a problem: the running
-                           config is kept.
+                           Refused while tmux cannot parse your config: the
+                           running one is kept.
   check [file] [--json]    What is wrong with your config, with file and line,
                            found without applying it: a line tmux cannot
                            parse, an option it does not have, a source-file

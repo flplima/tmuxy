@@ -69,12 +69,37 @@ impl<C: ControlLink> TmuxMonitor<C> {
 /// and only for what the user's tmuxy.conf leaves unset — an option it sets
 /// is pinned, and config beats menu state.
 fn attach_config() -> Vec<String> {
+    let blockers = crate::session::current_reload_blockers();
+    if let Some(refusal) = crate::session::refusal(&blockers) {
+        warn!("{refusal}");
+    }
     let mut commands: Vec<String> = crate::session::get_config_path()
-        .map(|path| format!("source-file {}", crate::tmux_quote(&path.to_string_lossy())))
+        .map(|path| source_chain(&path.to_string_lossy(), !blockers.is_empty()))
         .into_iter()
         .collect();
     commands.extend(crate::session::current_managed_state_commands());
     commands
+}
+
+/// The command that sources the chain file `path` on attach.
+///
+/// With a file of the user's that tmux cannot parse (`broken`), the chain is
+/// sourced only on a server that has never had it (no `@tmuxy-cli`, which the
+/// chain's first lines set): there it is what makes the app work at all. On
+/// a server that is already running with it, sourcing it again would put
+/// tmuxy's defaults back and then apply none of the user's own file, taking
+/// their prefix and bindings out of sessions they are in. An app that is
+/// restarted beside a typo keeps what was running.
+pub(super) fn source_chain(path: &str, broken: bool) -> String {
+    let source = format!("source-file {}", crate::tmux_quote(path));
+    if !broken {
+        return source;
+    }
+    format!(
+        "if-shell -F '#{{?{},0,1}}' {}",
+        crate::session::CLI_OPTION,
+        crate::tmux_quote(&source)
+    )
 }
 
 /// Which binary runs this build's server verbs (`session::SERVER_BIN_ENV`),

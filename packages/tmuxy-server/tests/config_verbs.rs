@@ -142,7 +142,12 @@ fn config_check_reports_each_problem_with_its_file_and_line_and_applies_nothing(
     );
     assert_eq!(
         answer["problems"][0],
-        serde_json::json!({ "file": conf, "line": 2, "message": "invalid option: staus" })
+        serde_json::json!({
+            "file": conf,
+            "line": 2,
+            "kind": "option",
+            "message": "invalid option: staus"
+        })
     );
     assert_eq!(answer["problems"].as_array().unwrap().len(), 4);
 }
@@ -162,6 +167,23 @@ fn config_check_passes_a_clean_config_a_named_file_and_no_config_at_all() {
     let clean = h.verb(&["config", "check"]);
     assert_eq!(clean.status.code(), Some(0), "{}", stderr(&clean));
     assert!(stdout(&clean).contains("Nothing wrong in 1 file(s)"));
+
+    // A branch that does not run on this machine is not this machine's
+    // problem: an option only a newer tmux has behind a version guard, a
+    // file sourced on another host. tmux's own parse still reads the block.
+    std::fs::write(
+        h.conf(),
+        "set -g mouse on\n\
+         %if #{==:#{host},some-other-machine}\n\
+         set -g option-of-another-tmux on\n\
+         source-file ~/only-over-there.conf\n\
+         %endif\n",
+    )
+    .unwrap();
+    let guarded = h.verb(&["config", "check"]);
+    assert_eq!(guarded.status.code(), Some(0), "{}", stderr(&guarded));
+    let reloaded = h.verb(&["config", "reload"]);
+    assert_eq!(reloaded.status.code(), Some(0), "{}", stderr(&reloaded));
     assert_eq!(h.left_by_a_check(), Vec::<String>::new());
 
     // A file of the caller's choosing, wherever it is; the user's own
@@ -190,7 +212,7 @@ fn config_check_passes_a_clean_config_a_named_file_and_no_config_at_all() {
 /// cannot read, the user's own settings are gone from the session they are
 /// in. So a broken file is not reloaded at all.
 #[test]
-fn config_reload_is_refused_while_the_config_has_a_problem() {
+fn config_reload_is_refused_while_tmux_cannot_parse_the_config() {
     let h = ConfigHome::new("reload");
     std::fs::write(h.conf(), "set -g prefix C-x\nbind y { display unclosed\n").unwrap();
 
@@ -209,6 +231,21 @@ fn config_reload_is_refused_while_the_config_has_a_problem() {
     assert_eq!(answer["ok"], false);
     assert_eq!(answer["problems"].as_array().unwrap().len(), 1);
     assert!(!h.reload_requested());
+
+    // An option tmux does not have, or a file that is not there, is what
+    // `check` reports and tmux says again as it runs the file, carrying on
+    // with the rest: not a reason to keep the whole file from loading.
+    std::fs::write(
+        h.conf(),
+        "set -g prefix C-x\nset -g staus off\nsource-file ~/gone.conf\n",
+    )
+    .unwrap();
+    let checked = h.verb(&["config", "check"]);
+    assert_eq!(checked.status.code(), Some(1));
+    let reloaded = h.verb(&["config", "reload"]);
+    assert_eq!(reloaded.status.code(), Some(0), "{}", stderr(&reloaded));
+    assert!(h.reload_requested());
+    std::fs::remove_file(h.home.join("state/config-reload")).unwrap();
 
     std::fs::write(h.conf(), "set -g prefix C-x\nbind y display closed\n").unwrap();
     let reloaded = h.verb(&["config", "reload"]);
