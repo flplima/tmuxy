@@ -122,6 +122,9 @@ function playedTmux(socket = suite().socket) {
   return `${path.join(suite().tmpdir, socket)},4242,0`;
 }
 
+/** Where a sealed module keeps the way back, and how a second seal knows. */
+const UNSEAL = Symbol.for('tmuxy.tests.cli.unseal');
+
 const CHILD_STARTERS = [
   'spawn',
   'spawnSync',
@@ -141,6 +144,9 @@ const CHILD_STARTERS = [
  * @returns {() => void}
  */
 function sealChildProcesses(childProcess = require('child_process')) {
+  // Once per module: a worker loads this for every test file, and a second
+  // wrapping would check each child twice.
+  if (childProcess[UNSEAL]) return childProcess[UNSEAL];
   const real = {};
   const checked = (start) =>
     function sealed(...args) {
@@ -163,7 +169,12 @@ function sealChildProcesses(childProcess = require('child_process')) {
     const promised = real[name]?.[util.promisify.custom];
     if (promised) childProcess[name][util.promisify.custom] = checked(promised);
   }
-  return () => Object.assign(childProcess, real);
+  const unseal = () => {
+    Object.assign(childProcess, real);
+    delete childProcess[UNSEAL];
+  };
+  Object.defineProperty(childProcess, UNSEAL, { value: unseal, configurable: true });
+  return unseal;
 }
 
 module.exports = {

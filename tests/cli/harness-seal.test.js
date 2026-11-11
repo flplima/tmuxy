@@ -203,6 +203,10 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
     expect(() => fake.spawn('tmux', ['kill-server'])).toThrow(/`tmux` was not started/);
     fake.spawn('tmux', ['list-panes'], { env });
     expect(calls).toEqual([['spawn', 'tmux']]);
+    // Sealed twice is sealed once: one check per child, one way back.
+    expect(sealChildProcesses(fake)).toBe(unseal);
+    fake.spawn('tmux', ['list-panes'], { env });
+    expect(calls).toHaveLength(2);
     unseal();
     expect(fake).toEqual(before);
 
