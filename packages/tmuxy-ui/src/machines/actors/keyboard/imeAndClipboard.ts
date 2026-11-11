@@ -24,7 +24,7 @@ import {
 import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
 import { noteFocus } from '../../../infra/dom/chromeTab';
 import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
-import { writeClipboard } from '../../../infra/clipboard';
+import { clipboardBlockedMessage, writeClipboard } from '../../../infra/clipboard';
 import { isModelPaneId, realId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
@@ -178,16 +178,25 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     if (selected.text === copiedOnSelect) return;
     copiedOnSelect = selected.text;
     pendingCopyText = selected.text;
-    const wrote = document.execCommand('copy');
-    if (!wrote) {
-      pendingCopyText = null;
-      void writeClipboard(selected.text, null);
-    }
     const count = [...selected.text].length;
-    deps.parent.send({
-      type: 'NOTIFY',
-      kind: 'info',
-      text: `Copied ${count} character${count === 1 ? '' : 's'}`,
+    const sayCopied = () =>
+      deps.parent.send({
+        type: 'NOTIFY',
+        kind: 'info',
+        text: `Copied ${count} character${count === 1 ? '' : 's'}`,
+      });
+    if (document.execCommand('copy')) {
+      sayCopied();
+      return;
+    }
+    // The browser took no copy command: the clipboard API is asked, and what
+    // is said waits for its answer. "Copied" over a write that was refused
+    // is how a user pastes something else.
+    pendingCopyText = null;
+    const { text } = selected;
+    void writeClipboard(text, null).then((wrote) => {
+      if (wrote) sayCopied();
+      else deps.parent.send({ type: 'NOTIFY', text: clipboardBlockedMessage(text, null) });
     });
   };
   const handleMouseUp = (event: MouseEvent) => {

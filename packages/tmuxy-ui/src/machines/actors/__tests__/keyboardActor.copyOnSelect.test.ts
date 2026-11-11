@@ -167,6 +167,55 @@ describe('keyboardActor — copy on select', () => {
     expect(selectedText()).toBe('DRAG_ME');
   });
 
+  describe('when the browser takes no copy command', () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const clipboard = (writeText?: (text: string) => Promise<void>) =>
+      Object.defineProperty(navigator, 'clipboard', {
+        value: writeText ? { writeText } : undefined,
+        configurable: true,
+      });
+
+    beforeEach(() => {
+      document.execCommand = vi.fn(() => false);
+    });
+    afterEach(() => clipboard());
+
+    it('says copied once the clipboard has taken the text', async () => {
+      const written: string[] = [];
+      clipboard(async (text) => void written.push(text));
+      select(row, 'DRAG_ME');
+      release();
+      expect(notices(handle.events)).toEqual([]);
+      await settle();
+      expect(written).toEqual(['DRAG_ME']);
+      expect(notices(handle.events)).toEqual(['Copied 7 characters']);
+    });
+
+    // A page served over http off localhost: the user read "Copied" and
+    // pasted whatever the clipboard held before.
+    it('says it could not copy on a page with no clipboard', async () => {
+      clipboard();
+      select(row, 'DRAG_ME');
+      release();
+      await settle();
+      expect(notices(handle.events)).toEqual([
+        'Could not copy 7 chars: no clipboard without https or localhost',
+      ]);
+    });
+
+    it('says it could not copy when the clipboard refuses the write', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      clipboard(() => Promise.reject(new DOMException('denied', 'NotAllowedError')));
+      select(row, 'DRAG_ME');
+      release();
+      await settle();
+      expect(notices(handle.events)).toEqual([
+        'Could not copy 7 chars: the browser wants a key or a click first',
+      ]);
+    });
+  });
+
   it('the same text selected again after the selection went is copied again', () => {
     select(row, 'DRAG_ME');
     release();
