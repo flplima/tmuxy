@@ -155,6 +155,32 @@ export async function postCommandJson(
 }
 
 /**
+ * Tell the server which numbered POSTs failed with no answer, when no later
+ * command is there to say so: the ones already waiting behind them run now
+ * and not after the server's timeout. Resolves to whether it was heard.
+ */
+export async function postCommandsLost(
+  session: string,
+  connectionId: number,
+  lost: readonly number[],
+): Promise<boolean> {
+  try {
+    const response = await fetch(buildEndpointUrl('/commands', session), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Connection-Id': String(connectionId),
+        'X-Command-Lost': lost.join(','),
+      },
+      body: JSON.stringify({ cmd: 'commands_lost', args: {} }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Stage a preview pane's page (`POST /api/preview/{pane}`). A refusal is the
  * server's `{ error, kind }`, thrown as `postCommandJson` throws one.
  */

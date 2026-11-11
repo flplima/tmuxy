@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tmuxy_core::host::{
     self, ClientCommand, HostCtx, HostEvent, RuntimeConfig, SessionRuntime, Sink,
 };
+use tmuxy_core::session::SessionName;
 use tmuxy_core::CommandError;
 
 use super::clients::open_client;
@@ -91,22 +92,8 @@ pub async fn commands_handler(
         Ok(value) => value,
         Err((status, error)) => return refuse(command_failure(status, error)),
     };
-    // `ensure_session` is this door's own request, not a client command:
-    // it creates the session `GET /events` will attach to, under the
-    // server's session cap, and its refusals have HTTP statuses of their own.
-    if value.get("cmd").and_then(serde_json::Value::as_str) == Some(ENSURE_SESSION) {
-        return refuse(
-            match super::clients::ensure_session(&state, &session).await {
-                Ok(()) => (
-                    StatusCode::OK,
-                    Json(CommandResponse {
-                        result: serde_json::Value::Null,
-                    }),
-                )
-                    .into_response(),
-                Err(rejection) => rejection.into_command_failure(),
-            },
-        );
+    if let Some(response) = door_request(&value, &state, &session).await {
+        return refuse(response);
     }
 
     let cmd = match ClientCommand::from_value(value) {
@@ -141,6 +128,35 @@ pub async fn commands_handler(
     match handle_command(cmd, &session, &state, conn_id).await {
         Ok(result) => (StatusCode::OK, Json(CommandResponse { result })).into_response(),
         Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
+    }
+}
+
+/// The answer to one of this door's own requests, which are not client
+/// commands and never reach the monitor.
+async fn door_request(
+    value: &serde_json::Value,
+    state: &Arc<AppState>,
+    session: &SessionName,
+) -> Option<Response> {
+    let done = || {
+        (
+            StatusCode::OK,
+            Json(CommandResponse {
+                result: serde_json::Value::Null,
+            }),
+        )
+            .into_response()
+    };
+    match value.get("cmd").and_then(serde_json::Value::as_str)? {
+        // The notice that numbered POSTs failed: its header was all of it.
+        COMMANDS_LOST => Some(done()),
+        // Creates the session `GET /events` will attach to, under the
+        // server's session cap; its refusals have HTTP statuses of their own.
+        ENSURE_SESSION => Some(match super::clients::ensure_session(state, session).await {
+            Ok(()) => done(),
+            Err(rejection) => rejection.into_command_failure(),
+        }),
+        _ => None,
     }
 }
 
@@ -190,6 +206,11 @@ async fn read_command(
         )
     })
 }
+
+/// The web door's own request: nothing to run, sent for its
+/// `X-Command-Lost` header when a numbered POST fails and no command
+/// follows to carry it.
+pub(super) const COMMANDS_LOST: &str = "commands_lost";
 
 /// The web door's own request: make `?session=` exist (with a monitor)
 /// before `GET /events` attaches to it, so the stream itself stays free of

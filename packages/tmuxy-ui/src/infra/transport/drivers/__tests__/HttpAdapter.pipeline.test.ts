@@ -140,11 +140,28 @@ describe('HttpAdapter pipelines the command lane', () => {
     expect(posts.map((p) => [p.command.slice(-3), p.seq, p.lost])).toEqual([
       ["'a'", '1', undefined],
       ["'b'", '2', undefined],
+      ['ost', undefined, '2'],
+      // Left before the notice was answered: the server may not have heard yet.
       ["'c'", '3', '2'],
-      // Left before the answer to 'c': the server may not have heard yet.
       ["'d'", '4', '2'],
       ["'e'", '5', undefined],
     ]);
+  });
+
+  it('a POST that fails while later ones are in flight is reported at once, with no key typed after', async () => {
+    // 'b' and 'c' are at the server behind the lost 'a'. The user has
+    // stopped typing, so no later command will name number 1: without a
+    // notice of its own they sit there for the server's 5 s timeout.
+    const posts = slowLink(['a']);
+    const start = Date.now();
+    const typed = ['a', 'b', 'c'].map((key) => typeKey(key).catch(() => undefined));
+    await vi.advanceTimersByTimeAsync(40);
+    await vi.advanceTimersByTimeAsync(RTT);
+    await Promise.all(typed);
+
+    const notice = posts[posts.length - 1];
+    expect([notice?.command, notice?.seq, notice?.lost]).toEqual(['commands_lost', undefined, '1']);
+    expect((notice?.at ?? Infinity) - start).toBeLessThanOrEqual(RTT + 40);
   });
 
   it('a new connection counts from 1 again, and keys typed while it was down keep their order', async () => {

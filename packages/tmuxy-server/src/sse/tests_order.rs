@@ -225,6 +225,31 @@ async fn a_number_the_client_reports_lost_is_passed_over() {
     assert_eq!(third.await.unwrap(), StatusCode::OK);
 }
 
+/// The user types three keys and stops; the first one's POST fails. The two
+/// after it are already waiting here and no later command will name the
+/// lost number, so the client sends a bare notice, and they run at once.
+#[tokio::test(start_paused = true)]
+async fn a_lost_number_reported_with_no_command_frees_the_ones_waiting() {
+    let state = Arc::new(AppState::default());
+    let seen = session_recording_commands(&state).await;
+    let second = type_numbered(&state, Some(2), "k2");
+    let third = type_numbered(&state, Some(3), "k3");
+    settle().await;
+    assert!(typed(&seen).is_empty(), "ran ahead of number 1");
+
+    let notice = post(
+        &state,
+        None,
+        &[("x-command-lost", "1")],
+        r#"{"cmd":"commands_lost","args":{}}"#.to_string(),
+    );
+    settle().await;
+    assert_eq!(typed(&seen), ["k2", "k3"], "still waiting for number 1");
+    for request in [notice, second, third] {
+        assert_eq!(request.await.unwrap(), StatusCode::OK);
+    }
+}
+
 /// The server can see a stream close before its client does, and the client
 /// goes on posting under the old id meanwhile: those commands are still
 /// ordered, for `GATE_GRACE`.

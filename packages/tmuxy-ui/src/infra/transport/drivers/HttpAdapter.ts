@@ -10,6 +10,7 @@ import {
   installNetworkHints,
   openSseConnection,
   postCommandJson,
+  postCommandsLost,
   postPreviewPage,
   probeRefusalReason,
   RECONNECT_SCHEDULE,
@@ -291,7 +292,9 @@ export class HttpAdapter implements SequencedDriver {
       // Reported by `answer` to the caller; the next call only needs to know
       // whether the server ever saw this number.
       answer.catch(() => {
-        if (!answered && this.connectionId === connection) this.lostSeqs.push(seq);
+        if (answered || this.connectionId !== connection) return;
+        this.lostSeqs.push(seq);
+        void this.reportLost(connection);
       });
       return answer;
     };
@@ -307,6 +310,18 @@ export class HttpAdapter implements SequencedDriver {
     this.numbered = turn.catch(() => undefined);
     await turn;
     return answer;
+  }
+
+  /**
+   * Say now which numbers were lost: commands posted after them may already
+   * wait at the server, and if the user stops typing no later POST names
+   * them. Unheard, they stay listed for the next ordered POST.
+   */
+  private async reportLost(connection: number): Promise<void> {
+    const lost = this.lostSeqs.slice(0, LOST_SEQS_PER_POST);
+    const heard = await postCommandsLost(this.getEffectiveSession(), connection, lost);
+    if (!heard || this.connectionId !== connection) return;
+    this.lostSeqs = this.lostSeqs.filter((n) => !lost.includes(n));
   }
 
   /** Through the same-origin `/trace` ingest, which a closing page's last batch still reaches. */
