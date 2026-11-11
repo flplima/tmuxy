@@ -90,6 +90,37 @@ describe('keyboardActor — copy on select', () => {
     expect(selectedText()).toBe('DRAG_ME');
   });
 
+  /**
+   * Firefox, in the pointer event that ends a drag over a pane: the range
+   * holds the text and `Selection.toString()` is empty. The pane's wrapper
+   * has the focus, as the press gave it; nothing was selected as far as a
+   * `toString()` could tell, so the release handed the keyboard to the hidden
+   * input and the selection was gone before it was copied.
+   */
+  it('keeps and copies a selection the browser stringifies as empty', () => {
+    const wrapper = document.createElement('div');
+    wrapper.dataset.paneId = '%3';
+    wrapper.tabIndex = -1;
+    document.body.appendChild(wrapper);
+    wrapper.appendChild(row.parentElement as HTMLElement);
+    // The hidden input outlives a test's document: back in the page, so that
+    // focusing it is a focus that happens.
+    const input = mobileKeyboard.getMobileInput();
+    if (input) document.body.appendChild(input);
+    vi.spyOn(Selection.prototype, 'toString').mockReturnValue('');
+
+    window.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true }));
+    wrapper.focus();
+    select(row, 'DRAG_ME');
+    window.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true }));
+    release();
+
+    expect(document.activeElement).toBe(wrapper);
+    expect(window.getSelection()?.getRangeAt(0).toString()).toBe('DRAG_ME');
+    expect(copied).toEqual(['DRAG_ME']);
+    expect(notices(handle.events)).toEqual(['Copied 7 characters']);
+  });
+
   it('a release with the same text still selected copies nothing twice', () => {
     select(row, 'DRAG_ME');
     release();

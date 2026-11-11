@@ -16,7 +16,11 @@ import {
   setupMobileKeyboard,
 } from '../../../infra/dom/mobileKeyboard';
 import { flashCopiedRange } from '../../../infra/dom/copyFlash';
-import { terminalSelection, terminalTextOf } from '../../../infra/dom/nativeSelection';
+import {
+  hasNativeSelection,
+  terminalSelection,
+  terminalTextOf,
+} from '../../../infra/dom/nativeSelection';
 import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
 import { noteFocus } from '../../../infra/dom/chromeTab';
 import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
@@ -73,7 +77,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
    * hidden input takes it for the active pane, so typing works at once.
    */
   const reclaimKeyboard = () => {
-    if (touchIsPrimary() || primaryPointerDown || hasSelection()) return;
+    if (touchIsPrimary() || primaryPointerDown || hasNativeSelection()) return;
     if (deps.keys.get().owner.kind === 'left') return;
     const active = document.activeElement as HTMLElement | null;
     if (active === getMobileInput()) return;
@@ -161,11 +165,6 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     flashCopiedRange(range);
   };
 
-  const hasSelection = (): boolean => {
-    const selection = window.getSelection();
-    return !!selection && !selection.isCollapsed && selection.toString().length > 0;
-  };
-
   // What the last release copied, so the same selection is not copied again
   // until it has gone and come back.
   let copiedOnSelect: string | null = null;
@@ -198,11 +197,11 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   // The selection going — a key cleared it, a click collapsed it — frees the
   // same text to be copied again when it is selected again.
   const handleSelectionChange = () => {
-    if (copiedOnSelect !== null && !hasSelection()) copiedOnSelect = null;
+    if (copiedOnSelect !== null && !hasNativeSelection()) copiedOnSelect = null;
   };
 
   const restoreKeyboardFocus = (byPointer: boolean) => {
-    if (touchIsPrimary() || hasSelection()) return;
+    if (touchIsPrimary() || hasNativeSelection()) return;
     const active = document.activeElement as HTMLElement | null;
     if (byPointer && active?.matches?.('[role="tab"], [role="tablist"]')) {
       const paneId = realId(deps.keys.get().activePaneId);
