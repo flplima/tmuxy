@@ -4,6 +4,7 @@ use std::sync::{OnceLock, RwLock};
 use crate::error::TmuxError;
 
 mod assets;
+mod check;
 mod config;
 mod doctor;
 mod launcher;
@@ -12,6 +13,7 @@ pub mod scoped;
 mod state;
 
 pub use assets::*;
+pub use check::*;
 pub use config::*;
 pub use doctor::*;
 pub use launcher::*;
@@ -412,6 +414,8 @@ pub fn on_users_own_server() -> bool {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_check;
 #[cfg(test)]
 mod tests_doctor;
 #[cfg(test)]

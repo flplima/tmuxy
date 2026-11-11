@@ -364,8 +364,13 @@ impl SessionRuntime {
                         tracing::info!(session = %self.session(), "sourced the saved tmuxy.conf");
                         self.push_config().await;
                     }
+                    // The user is looking at their editor, not at a log:
+                    // why the save changed nothing goes to the app.
                     Err(e) => {
-                        tracing::warn!(session = %self.session(), error = %e, "could not source the saved tmuxy.conf")
+                        tracing::warn!(session = %self.session(), error = %e, "could not source the saved tmuxy.conf");
+                        self.emit(HostEvent::Error {
+                            message: e.to_string(),
+                        });
                     }
                 }
             }

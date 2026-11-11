@@ -19,6 +19,10 @@ cmd_config() {
     reload)
       config_verb reload
       ;;
+    check)
+      shift
+      cmd_config_check "$@"
+      ;;
     use-tmux-conf)
       shift
       cmd_config_use_tmux_conf "$@"
@@ -43,6 +47,15 @@ Settings:
   reload                   Re-apply the config to the running app: the whole
                            chain (defaults, your tmuxy.conf, essentials) is
                            re-sourced and every @tmuxy-* option re-read.
+                           Refused when `check` finds a problem: the running
+                           config is kept.
+  check [file] [--json]    What is wrong with your config, with file and line,
+                           found without applying it: a line tmux cannot
+                           parse, an option it does not have, a source-file
+                           whose file is not there. Reads your tmuxy.conf
+                           (and ~/.tmux.conf when it is sourced) and what they
+                           source, or the file you name. Exit 1 when there is
+                           anything.
   use-tmux-conf [on|off]   Source your own ~/.tmux.conf on tmuxy's socket.
                            With no value, prints the current setting.
   init                     Write the starter tmuxy.conf into the config dir.
@@ -125,4 +138,26 @@ cmd_config_doctor() {
     esac
   done
   config_verb doctor ${fix[@]+"${fix[@]}"}
+}
+
+cmd_config_check() {
+  local file=()
+  for arg in "$@"; do
+    case "$arg" in
+      --help|-h)
+        echo "Usage: tmuxy config check [file] [--json]"
+        echo "What is wrong with your config, with file and line, found without applying it"
+        echo "(exit 1 if anything): a line tmux cannot parse, an option it does not have, a"
+        echo "source-file whose file is not there. Reads your tmuxy.conf (and ~/.tmux.conf"
+        echo "when it is sourced) and what they source, or the file you name."
+        return 0
+        ;;
+      -*) _die_usage "invalid argument '$arg'" ;;
+      *)
+        [ ${#file[@]} -eq 0 ] || _die_usage "Usage: tmuxy config check [file] [--json]"
+        file=("$arg")
+        ;;
+    esac
+  done
+  config_verb check ${file[@]+"${file[@]}"}
 }

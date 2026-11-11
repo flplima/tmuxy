@@ -316,4 +316,63 @@ describeE2E('Scenario 31: Personalizing tmuxy from its config dir', {}, (ctx) =>
       async () => `Reload Config to source ~/.tmux.conf; tmux has "${fromTmuxConf()}"`,
     );
   });
+  // A reload starts by putting tmuxy's defaults back. With a file tmux then
+  // cannot read, the user's own prefix and bindings were gone from the
+  // session they were working in, and nothing said why.
+  test('a tmuxy.conf saved with a typo is refused with its file and line → the running config is kept → the fixed file loads', async () => {
+    unsetConfigVariable();
+    stopServer = await startConfigServer();
+    const page = ctx.page;
+    await openSession(page, ctx.session.name, CONFIG_URL);
+    await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
+    const conf = path.join(CONFIG_DIR, 'tmuxy.conf');
+    const prefix = () => tmuxExec('show-options -gv prefix');
+    const mark = () => tmuxExec('show-options -gqv @tmuxy-e2e-mark');
+    const loaded = (value) =>
+      waitForCondition(
+        page,
+        async () => mark() === value,
+        10000,
+        async () => `the saved tmuxy.conf to load; its mark is "${mark()}", wanted "${value}"`,
+      );
+
+    // 1. A good save applies: the user's prefix replaces tmuxy's.
+    fs.writeFileSync(conf, 'set -g prefix C-x\nset -g @tmuxy-e2e-mark one\n');
+    await loaded('one');
+    expect(prefix()).toBe('C-x');
+
+    // 2. A save with a typo. The app says where it is, on screen.
+    fs.writeFileSync(conf, 'set -g prefix C-x\nset -g @tmuxy-e2e-mark two\nbindd y display hi\n');
+    const refusal = page.locator('[data-testid="snackbar-item"]', {
+      hasText: 'unknown command: bindd',
+    });
+    await refusal.waitFor({ state: 'visible', timeout: 15000 });
+    const text = await refusal.innerText();
+    expect(text).toContain(`${conf}:3: unknown command: bindd`);
+    expect(text).toContain('config not reloaded');
+    expect(text).toContain('tmuxy config check');
+    const box = await refusal.boundingBox();
+    expect(box.width).toBeGreaterThan(100);
+    expect(box.height).toBeGreaterThan(10);
+    // None of the file was applied, and tmuxy's defaults were not put back
+    // over what was running: the prefix is still the user's.
+    expect(mark()).toBe('one');
+    expect(prefix()).toBe('C-x');
+
+    // 3. Reload Config from the menu is refused the same way.
+    await clickMenuItem(page, ['Reload Config']);
+    await waitForCondition(
+      page,
+      async () => (await refusal.count()) > 0 && noMenuOpen(page),
+      10000,
+      'the menu to close with the refusal on screen',
+    );
+    expect(mark()).toBe('one');
+    expect(prefix()).toBe('C-x');
+
+    // 4. The typo fixed, the file loads.
+    fs.writeFileSync(conf, 'set -g prefix C-x\nset -g @tmuxy-e2e-mark three\nbind y display hi\n');
+    await loaded('three');
+    expect(prefix()).toBe('C-x');
+  });
 });
