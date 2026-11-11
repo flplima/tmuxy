@@ -66,30 +66,45 @@ function closedByCommand(command: string, model: GuardModel): Closed | null {
   const match = KILL.exec(command.trim());
   if (!match) return null;
   const [, verb, rest] = match;
-  const respawn = verb.startsWith('respawn');
-  if (respawn && !/(^|\s)-\w*k/.test(rest)) return null;
-  const target = /(?:^|\s)-t\s*(\S+)/.exec(rest)?.[1];
-  const others = /(^|\s)-\w*a/.test(rest);
-  const pane = /^(kill-pane|killp|respawn-pane|respawnp)$/.test(verb);
-  const windowOf = (id: PaneId | null) => model.panes.find((p) => p.tmuxId === id)?.windowId;
+  if (verb.startsWith('respawn') && !/(^|\s)-\w*k/.test(rest)) return null;
+  const flags: KillFlags = {
+    target: /(?:^|\s)-t\s*(\S+)/.exec(rest)?.[1],
+    others: /(^|\s)-\w*a/.test(rest),
+  };
+  if (/^kill-(session|server)$/.test(verb)) return closedBySessionKill(verb, flags, model);
+  return /^(kill-pane|killp|respawn-pane|respawnp)$/.test(verb)
+    ? closedByPaneKill(flags, model)
+    : closedByWindowKill(flags, model);
+}
 
-  if (/^kill-(session|server)$/.test(verb)) {
-    // Another session's panes are not this client's to count, unless `-a`
-    // makes this one of "every other session".
-    const named = target?.replace(/^=|:$/g, '');
-    const elsewhere = /session/.test(verb) && named !== undefined && named !== model.sessionName;
-    return elsewhere === others ? { scope: 'several', panes: model.panes } : null;
-  }
-  if (pane) {
-    if (target && !/^%\d+$/.test(target)) return { scope: 'several', panes: model.panes };
-    const paneId = target ?? model.focusPaneId;
-    if (!others) return { scope: 'pane', panes: model.panes.filter((p) => p.tmuxId === paneId) };
-    const windowId = windowOf(paneId as PaneId | null);
-    return {
-      scope: 'several',
-      panes: model.panes.filter((p) => p.windowId === windowId && p.tmuxId !== paneId),
-    };
-  }
+/** A kill's `-t` target as written, and whether `-a` turns it into "every other". */
+interface KillFlags {
+  readonly target: string | undefined;
+  readonly others: boolean;
+}
+
+/**
+ * Another session's panes are not this client's to count, unless `-a` makes
+ * this one of "every other session".
+ */
+function closedBySessionKill(verb: string, flags: KillFlags, model: GuardModel): Closed | null {
+  const named = flags.target?.replace(/^=|:$/g, '');
+  const elsewhere = /session/.test(verb) && named !== undefined && named !== model.sessionName;
+  return elsewhere === flags.others ? { scope: 'several', panes: model.panes } : null;
+}
+
+function closedByPaneKill({ target, others }: KillFlags, model: GuardModel): Closed {
+  if (target && !/^%\d+$/.test(target)) return { scope: 'several', panes: model.panes };
+  const paneId = target ?? model.focusPaneId;
+  if (!others) return { scope: 'pane', panes: model.panes.filter((p) => p.tmuxId === paneId) };
+  const windowId = model.panes.find((p) => p.tmuxId === paneId)?.windowId;
+  return {
+    scope: 'several',
+    panes: model.panes.filter((p) => p.windowId === windowId && p.tmuxId !== paneId),
+  };
+}
+
+function closedByWindowKill({ target, others }: KillFlags, model: GuardModel): Closed {
   if (target && !/^@\d+$/.test(target)) return { scope: 'several', panes: model.panes };
   const windowId = target ?? model.activeWindowId;
   return others
