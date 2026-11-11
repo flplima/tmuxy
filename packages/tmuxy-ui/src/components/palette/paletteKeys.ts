@@ -14,7 +14,9 @@ export type PaletteKey =
   | { kind: 'page'; by: 1 | -1 }
   | { kind: 'end'; which: 'first' | 'last' };
 
-type Key = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>;
+type Key = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & {
+  repeat?: boolean;
+};
 
 /** Down or up, for a key that moves the highlight; 0 for one that does not. */
 function direction(event: Key): 1 | -1 | 0 {
@@ -41,7 +43,9 @@ function moveOf(event: Key): PaletteKey | null {
 export function paletteKeyOf(event: Key): PaletteKey | null {
   // The chord that opened the palette closes it, as Escape does.
   if (isPaletteChord(event) || event.key === 'Escape') return { kind: 'close' };
-  if (event.key === 'Enter') return { kind: 'run' };
+  // Enter held down runs nothing more: its repeats would be the second
+  // press a row that asks first is waiting for.
+  if (event.key === 'Enter') return event.repeat ? { kind: 'stay' } : { kind: 'run' };
   if (event.key === 'Tab') return { kind: 'stay' };
   return moveOf(event);
 }

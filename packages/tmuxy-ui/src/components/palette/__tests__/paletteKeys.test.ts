@@ -14,6 +14,8 @@ describe('paletteKeyOf', () => {
 
   it('runs on Enter and keeps Tab in the box', () => {
     expect(key('Enter')).toEqual({ kind: 'run' });
+    // Held down, its repeats run nothing: one press, one run.
+    expect(paletteKeyOf({ key: 'Enter', ...NONE, repeat: true })).toEqual({ kind: 'stay' });
     expect(key('Tab')).toEqual({ kind: 'stay' });
   });
 

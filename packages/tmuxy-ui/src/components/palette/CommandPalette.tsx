@@ -185,7 +185,9 @@ function PaletteDialog({ mode, surface }: { mode: PaletteMode; surface: AppMenuS
     if (!key) return;
     event.preventDefault();
     event.stopPropagation();
-    if (key.kind !== 'run') disarm();
+    // A key that moves or closes takes the first Enter back; one that does
+    // nothing (Tab, Enter still held down) leaves it.
+    if (key.kind !== 'run' && key.kind !== 'stay') disarm();
     if (key.kind === 'close') close();
     else if (key.kind === 'step') step(key.by);
     else if (key.kind === 'page') page(key.by);
