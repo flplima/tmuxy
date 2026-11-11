@@ -15,10 +15,16 @@ const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 /**
  * @param {string} home - The scratch directory the script takes as `HOME`
  * @param {Record<string, string>} [env] - What the test sets, over the rest
- * @returns {Record<string, string>} The mocks first on PATH, nothing leaked
+ * @returns {Record<string, string>} The mocks first on PATH, nothing leaked, and no `TMUX_BIN` to run in their place
  */
 function scriptEnv(home, env = {}) {
-  return { ...scrubbedEnv(), HOME: home, PATH: `${MOCKS_DIR}:${process.env.PATH}`, ...env };
+  const inherited = scrubbedEnv();
+  // tmuxy exports `TMUX_BIN` into every pane it runs, and the CLI runs that
+  // binary rather than the `tmux` on PATH. Inherited here, it took the mock's
+  // place: a suite run from a tmuxy pane sent the CLI's tmux commands to the
+  // real tmux, on whatever socket the test named.
+  delete inherited.TMUX_BIN;
+  return { ...inherited, HOME: home, PATH: `${MOCKS_DIR}:${process.env.PATH}`, ...env };
 }
 
 /**
