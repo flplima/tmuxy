@@ -5,7 +5,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{read_servers_strict, slug, write_servers, Server, ServerKind, MY_TMUX_ID};
 use crate::constants::STASH_SESSION;
-use crate::session::USERS_OWN_SOCKET;
+use crate::session::{tmux_socket_dirs, USERS_OWN_SOCKET};
 
 /// Reachability state displayed as the status dot on a server row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,52 +73,6 @@ pub fn is_ephemeral_test_socket(name: &str) -> bool {
         return true;
     }
     false
-}
-
-/// Candidate `tmux-<uid>` directories owned/readable by the current user.
-pub fn tmux_socket_dirs() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    if let Ok(custom) = std::env::var("TMUXY_SOCKET_DIR") {
-        let p = PathBuf::from(custom);
-        if p.is_dir() {
-            dirs.push(std::fs::canonicalize(&p).unwrap_or(p));
-            return dirs;
-        }
-    }
-    let mut roots = Vec::new();
-    if let Ok(tmpdir) = std::env::var("TMUX_TMPDIR") {
-        if !tmpdir.is_empty() {
-            roots.push(PathBuf::from(tmpdir));
-        }
-    }
-    roots.push(PathBuf::from("/tmp"));
-    roots.push(PathBuf::from("/private/tmp"));
-
-    for root in roots {
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name_str) = name.to_str() else {
-                continue;
-            };
-            if !name_str.starts_with("tmux-") {
-                continue;
-            }
-            let path = entry.path();
-            // Tmux creates `tmux-$UID` mode 0700, so `read_dir` succeeds only
-            // for the current user's socket directory. Canonicalize so `/tmp`
-            // and `/private/tmp` on macOS do not scan the same directory twice.
-            if std::fs::read_dir(&path).is_ok() {
-                let canonical = std::fs::canonicalize(&path).unwrap_or(path);
-                if !dirs.contains(&canonical) {
-                    dirs.push(canonical);
-                }
-            }
-        }
-    }
-    dirs
 }
 
 fn socket_mtime(socket: &str) -> Option<SystemTime> {

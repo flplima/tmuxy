@@ -17,10 +17,11 @@ use crate::session::{DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
 
 pub mod connect;
 pub mod discovery;
+pub use crate::session::tmux_socket_dirs;
 pub use discovery::{
     enrich_and_scan_sockets, is_ephemeral_test_socket, local_socket_session_names, now_unix_secs,
-    parse_session_list, query_local_socket_sessions, tmux_socket_dirs, touch_server,
-    RemoteSessionInfo, ServerReachability, LIST_SESSIONS, LIST_SESSIONS_FORMAT,
+    parse_session_list, query_local_socket_sessions, touch_server, RemoteSessionInfo,
+    ServerReachability, LIST_SESSIONS, LIST_SESSIONS_FORMAT,
 };
 
 pub const LOCALHOST_ID: &str = "localhost";

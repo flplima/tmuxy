@@ -62,7 +62,8 @@ describe('OwnTmuxNotice', () => {
     // On its way: the offer's own words, and no answer left to give.
     expect(notice()?.getAttribute('data-stage')).toBe('switching');
     expect(notice()?.textContent).not.toContain('Now on your own tmux');
-    expect(screen.getByTestId('own-tmux-dismiss').closest('[hidden]')).not.toBeNull();
+    expect(screen.queryByTestId('own-tmux-use')).toBeNull();
+    expect(screen.queryByTestId('own-tmux-dismiss')).toBeNull();
 
     act(() => actor.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: true }));
 
@@ -82,6 +83,6 @@ describe('OwnTmuxNotice', () => {
     act(() => actor.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: false }));
 
     expect(notice()?.getAttribute('data-stage')).toBe('ask');
-    expect(screen.getByTestId('own-tmux-use').closest('[hidden]')).toBeNull();
+    expect(screen.getByTestId('own-tmux-use').textContent).toBe('Use my tmux');
   });
 });

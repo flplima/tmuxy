@@ -21,6 +21,24 @@ const { execFileSync } = require('child_process');
 const { startExtraServer } = require('./extra-server');
 const { tmuxEnv } = require('./tmux-socket');
 
+/**
+ * The server-wide options a tmuxy that attaches is known to set: what
+ * `tmuxy.essentials.conf` holds, and the two the monitor enforces on every
+ * attach (`enforced_settings`, tmuxy-core). They are what it cannot work
+ * without, and so the only ones an attach to the user's own server may
+ * change. The README lists them for the user.
+ */
+const ESSENTIAL_OPTIONS = [
+  'destroy-unattached',
+  'exit-empty',
+  'default-terminal',
+  'terminal-overrides',
+  'escape-time',
+  'history-limit',
+  'focus-events',
+  'set-clipboard',
+];
+
 function ownTmuxWorld({ root, port = null }) {
   const tmpdir = path.join(root, 'tmp');
   const socketDir = path.join(tmpdir, `tmux-${process.getuid()}`);
@@ -70,12 +88,26 @@ function ownTmuxWorld({ root, port = null }) {
       onSocket('default', ['set-option', '-g', 'status-left', '[own] ']);
       onSocket('default', ['bind-key', '-T', 'prefix', 'F9', 'display-message', 'own binding']);
     },
-    /** The user's prefix, status line and key binding, as their tmux holds them now. */
+    /**
+     * The user's tmux as it is configured now: every key binding, every
+     * hook, and every option but the ones a tmuxy that attaches is known to
+     * set ({@link ESSENTIAL_OPTIONS}, its `@tmuxy-*` options and its command
+     * aliases). Compared before and after an attach, it fails for anything
+     * else tmuxy changes there.
+     */
     usersSettings() {
+      const kept = (line) =>
+        !line.startsWith('@tmuxy-') &&
+        !line.startsWith('command-alias[') &&
+        !ESSENTIAL_OPTIONS.includes(line.split(/[ []/)[0]);
+      const options = (flag) => usersTmux(['show-options', flag]).filter(kept);
       return {
         prefix: onSocket('default', ['show-options', '-gv', 'prefix']),
-        statusLeft: onSocket('default', ['show-options', '-gv', 'status-left']),
-        binding: onSocket('default', ['list-keys', '-T', 'prefix', 'F9']),
+        keys: usersTmux(['list-keys']),
+        hooks: usersTmux(['show-hooks', '-g']),
+        sessionOptions: options('-g'),
+        windowOptions: options('-gw'),
+        serverOptions: options('-s'),
       };
     },
     /** The sessions the user's own tmux holds now. */

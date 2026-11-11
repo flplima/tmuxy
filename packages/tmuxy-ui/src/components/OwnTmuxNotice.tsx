@@ -54,26 +54,28 @@ export function OwnTmuxNotice() {
         )}
       </span>
       {/* No answer to give while the switch is on its way to the host. */}
-      <span className="snackbar-actions" hidden={stage === 'switching'}>
-        {offersSwitch && (
+      {stage !== 'switching' && (
+        <span className="snackbar-actions">
+          {offersSwitch && (
+            <button
+              type="button"
+              className="snackbar-action is-primary"
+              data-testid="own-tmux-use"
+              onClick={() => answer('use')}
+            >
+              Use my tmux
+            </button>
+          )}
           <button
             type="button"
-            className="snackbar-action is-primary"
-            data-testid="own-tmux-use"
-            onClick={() => answer('use')}
+            className="snackbar-action"
+            data-testid="own-tmux-dismiss"
+            onClick={() => answer('dismiss')}
           >
-            Use my tmux
+            {offersSwitch ? 'Stay here' : 'Got it'}
           </button>
-        )}
-        <button
-          type="button"
-          className="snackbar-action"
-          data-testid="own-tmux-dismiss"
-          onClick={() => answer('dismiss')}
-        >
-          {offersSwitch ? 'Stay here' : 'Got it'}
-        </button>
-      </span>
+        </span>
+      )}
     </div>
   );
 }

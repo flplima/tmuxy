@@ -405,8 +405,74 @@ pub fn session_names() -> Vec<String> {
 /// person's own `tmux` command talks to.
 pub const USERS_OWN_SOCKET: &str = "default";
 
+/// Whether `socket` is the user's own server: that name, or the path of
+/// the socket file with that name in one of tmux's socket directories
+/// (`TMUX_SOCKET=/tmp/tmux-1000/default` reaches the same server).
+pub fn is_users_own_socket(socket: &str, socket_dirs: &[std::path::PathBuf]) -> bool {
+    if !is_socket_path(socket) {
+        return socket == USERS_OWN_SOCKET;
+    }
+    let path = std::path::Path::new(socket);
+    path.file_name()
+        .is_some_and(|name| name == USERS_OWN_SOCKET)
+        && path.parent().is_some_and(|dir| {
+            let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+            socket_dirs.contains(&dir)
+        })
+}
+
 pub fn on_users_own_server() -> bool {
-    tmux_socket() == USERS_OWN_SOCKET
+    let socket = tmux_socket();
+    if !is_socket_path(&socket) {
+        return socket == USERS_OWN_SOCKET;
+    }
+    is_users_own_socket(&socket, &tmux_socket_dirs())
+}
+
+/// Candidate `tmux-<uid>` directories owned/readable by the current user.
+pub fn tmux_socket_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(custom) = std::env::var("TMUXY_SOCKET_DIR") {
+        let p = std::path::PathBuf::from(custom);
+        if p.is_dir() {
+            dirs.push(std::fs::canonicalize(&p).unwrap_or(p));
+            return dirs;
+        }
+    }
+    let mut roots = Vec::new();
+    if let Ok(tmpdir) = std::env::var("TMUX_TMPDIR") {
+        if !tmpdir.is_empty() {
+            roots.push(std::path::PathBuf::from(tmpdir));
+        }
+    }
+    roots.push(std::path::PathBuf::from("/tmp"));
+    roots.push(std::path::PathBuf::from("/private/tmp"));
+
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name_str) = name.to_str() else {
+                continue;
+            };
+            if !name_str.starts_with("tmux-") {
+                continue;
+            }
+            let path = entry.path();
+            // Tmux creates `tmux-$UID` mode 0700, so `read_dir` succeeds only
+            // for the current user's socket directory. Canonicalize so `/tmp`
+            // and `/private/tmp` on macOS do not scan the same directory twice.
+            if std::fs::read_dir(&path).is_ok() {
+                let canonical = std::fs::canonicalize(&path).unwrap_or(path);
+                if !dirs.contains(&canonical) {
+                    dirs.push(canonical);
+                }
+            }
+        }
+    }
+    dirs
 }
 
 #[cfg(test)]

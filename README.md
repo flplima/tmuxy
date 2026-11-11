@@ -117,7 +117,10 @@ To point it at your own tmux server instead:
 
 Attaching to your own server applies only the settings tmuxy cannot work
 without — it will not touch your prefix, your status line or your bindings
-there. Your own `~/.tmux.conf` is not loaded on tmuxy's own socket by default
+there. It does set eight options on that server (`escape-time`,
+`history-limit`, `default-terminal`, `terminal-overrides`, `destroy-unattached`,
+`exit-empty`, `focus-events`, `set-clipboard`), turns `mouse` and `set-titles`
+on for the session it shows, and adds its command aliases. Your own `~/.tmux.conf` is not loaded on tmuxy's own socket by default
 either; `tmuxy config use-tmux-conf on` changes that (see
 [docs/TMUX.md](docs/TMUX.md)).
 
