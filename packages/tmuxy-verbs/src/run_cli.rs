@@ -55,14 +55,17 @@ pub fn run(args: RunArgs) {
         CliRun::Refused(why) => answer.exit(EXIT_FAILED, &why),
         CliRun::NewTab { name } => {
             eprintln!("Note: new-window intercepted for safety. Using split-window + break-pane.");
-            new_tab(&answer, name.as_deref());
+            let id = new_tab(&answer, name.as_deref(), None, None);
+            answer.done(&[("tabId", cli_json::string(&id))], &id);
         }
         CliRun::Run => run_words(&answer, &words),
     }
 }
 
 pub fn tab_create(args: NewTabArgs) {
-    new_tab(&Answer::new(args.json), args.name.as_deref());
+    let answer = Answer::new(args.json);
+    let id = new_tab(&answer, args.name.as_deref(), None, None);
+    answer.done(&[("tabId", cli_json::string(&id))], &id);
 }
 
 fn run_words(answer: &Answer, words: &[String]) {
@@ -105,8 +108,14 @@ fn fail_to_run(answer: &Answer, e: RunShellError) -> ! {
     }
 }
 
-/// A new tab beside the caller's pane, in the caller's session.
-fn new_tab(answer: &Answer, name: Option<&str>) {
+/// A new tab beside the caller's pane, in the caller's session, in `cwd`
+/// and running `program` (one shell line) when given; its id.
+pub(crate) fn new_tab(
+    answer: &Answer,
+    name: Option<&str>,
+    cwd: Option<&str>,
+    program: Option<&str>,
+) -> String {
     let caller = run_shell::caller_pane();
     let mut read = vec!["display-message".to_string(), "-p".to_string()];
     if let Some(pane) = &caller {
@@ -124,6 +133,8 @@ fn new_tab(answer: &Answer, name: Option<&str>) {
         from: caller.as_deref(),
         into: Some(&session).filter(|s| !s.is_empty()).map(String::as_str),
         name,
+        cwd,
+        program,
         print_id: true,
         ..NewTab::default()
     };
@@ -131,11 +142,10 @@ fn new_tab(answer: &Answer, name: Option<&str>) {
         Ok(out) => out,
         Err(e) => fail_to_run(answer, e),
     };
-    let id = out
-        .split_whitespace()
+    out.split_whitespace()
         .rfind(|w| w.starts_with('@'))
-        .unwrap_or_default();
-    answer.done(&[("tabId", cli_json::string(id))], id);
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// A command written as one argument, split as a shell splits words: on

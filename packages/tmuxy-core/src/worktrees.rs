@@ -15,6 +15,7 @@ use std::process::Command;
 use serde::Serialize;
 use thiserror::Error;
 
+pub mod create;
 pub mod guard;
 
 /// Hard limit for one discovery request. tmux provides one path per pane, so
