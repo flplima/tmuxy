@@ -157,6 +157,72 @@ export const EscapeAndTheChordCloseIt: Story = {
   },
 };
 
+export const ARowThatEndsSomethingAsksTwice: Story = {
+  args: {
+    fixture: asFixture(panes),
+    start: 'side-by-side',
+    transitions: [{ match: /^kill-pane\b/, to: 'one' }],
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Enter runs the highlighted row, and the highlight is not always where the user aimed. A row that ends something (Close Pane, Close Tab) takes Enter twice, the pointer resting on a row does not make it Enter's row, and what was closed last time is not offered first the next time the palette opens.",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const user = userEvent.setup({ delay: 5 });
+    const doc = canvasElement.ownerDocument;
+    const canvas = await appReady(canvasElement);
+    await waitFor(() => expect(paneGroups(canvas)).toHaveLength(2), { timeout: 10000 });
+    const killed = () => held.adapter!.commands.filter((c) => c.startsWith('kill-'));
+
+    await openPalette(user);
+    let panel = await waitForPalette(doc);
+    await user.keyboard('close');
+    await waitFor(() => expect(rows(panel)[0]?.label).toBe('Close Pane'));
+    // Menu order, not the shortest label: Close Tab does not jump the queue.
+    expect(rows(panel)[1]?.label).toBe('Close Tab');
+
+    // The first Enter only asks.
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(rows(panel)[0].el.textContent).toContain('Enter again to run'));
+    expect(doc.querySelector(PALETTE)).not.toBeNull();
+    expect(killed()).toEqual([]);
+
+    // The pointer over another row moves nothing: Enter's row is still the first.
+    await user.hover(rows(panel)[1].el);
+    expect(rows(panel)[0].selected).toBe(true);
+    expect(rows(panel)[1].selected).toBe(false);
+
+    // Moving the highlight takes the first Enter back, there and back again.
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => expect(rows(panel)[1].selected).toBe(true));
+    await user.keyboard('{ArrowUp}');
+    await waitFor(() => expect(rows(panel)[0].selected).toBe(true));
+    expect(rows(panel)[0].el.textContent).not.toContain('Enter again to run');
+    await user.keyboard('{Enter}');
+    expect(killed()).toEqual([]);
+
+    // The second Enter on the same row runs it.
+    await user.keyboard('{Enter}');
+    await paletteClosed(doc);
+    await waitFor(() => expect(paneGroups(canvas)).toHaveLength(1), { timeout: 10000 });
+    expect(killed()).toHaveLength(1);
+
+    // Opened again and untyped, Enter is not on Close Pane.
+    await openPalette(user);
+    panel = await waitForPalette(doc);
+    const first = rows(panel)[0];
+    expect(first.selected).toBe(true);
+    expect(first.label).not.toBe('Close Pane');
+    expect(panel.textContent).not.toContain('Recent');
+    await user.keyboard('{Escape}');
+    await paletteClosed(doc);
+  },
+};
+
 export const GoToListsPlacesOnly: Story = {
   args: {
     fixture: asFixture(tabs),
@@ -209,6 +275,21 @@ export const GoToListsPlacesOnly: Story = {
     // A name no session has is offered as a new session, after what matched.
     const offered = rows(panel);
     expect(offered[offered.length - 1]?.label).toBe('New Session “main”');
+
+    // A typo that matches nothing leaves that row alone on the list. One
+    // Enter does not make a session of the typo: it asks.
+    await user.keyboard('{Backspace>4/}wrok');
+    await waitFor(() =>
+      expect(rows(panel).map((row) => row.label)).toEqual(['New Session “wrok”']),
+    );
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(rows(panel)[0].el.textContent).toContain('Enter again to run'));
+    expect(held.adapter!.commands.some((c) => c.startsWith('new-session'))).toBe(false);
+    await user.keyboard('{Backspace>4/}main');
+    await waitFor(() => {
+      const first = rows(panel)[0];
+      expect([first?.kind, first?.label]).toEqual(['tab', 'main']);
+    });
     await user.keyboard('{Enter}');
     await paletteClosed(doc);
     await waitFor(() => expect(activeTab()).toBe('main'), { timeout: 10000 });

@@ -2,9 +2,8 @@ import { sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 
 /**
- * How long a place in another session is waited for after the switch. Past
- * it the tab or pane is taken to be gone, and the session is left as tmux
- * showed it.
+ * How long the first frame of the session switched to is waited for. Past it
+ * the place is forgotten, and the session is left as tmux shows it.
  */
 const GO_TO_PATIENCE_MS = 10_000;
 
@@ -50,26 +49,23 @@ export const paletteActions = {
   ),
 
   /**
-   * After a model update: pick the remembered place once its session's state
-   * names it. A frame of the session just left may still arrive first; it
-   * holds none of the other session's panes, and is waited through.
+   * After a model update: pick the remembered place on the first frame of
+   * its session, and forget it either way. A place that frame does not name
+   * is gone, and waiting on would move the focus under a user who has since
+   * picked something else. A frame of the session just left may still arrive
+   * first; it is not the session's, and is waited through.
    */
   palette_land: act(({ context, enqueue }) => {
     const goTo = context.pendingGoTo;
     if (!goTo) return;
-    if (Date.now() - goTo.at > GO_TO_PATIENCE_MS) {
-      enqueue.assign({ pendingGoTo: null });
-      return;
-    }
-    if (goTo.sessionName !== context.sessionName) return;
+    const late = Date.now() - goTo.at > GO_TO_PATIENCE_MS;
+    if (!late && (goTo.sessionName !== context.sessionName || context.panes.length === 0)) return;
+    enqueue.assign({ pendingGoTo: null });
+    if (late) return;
     const { paneId, windowId } = goTo;
-    if (paneId) {
-      if (!context.panes.some((pane) => pane.tmuxId === paneId)) return;
-      enqueue.assign({ pendingGoTo: null });
+    if (paneId && context.panes.some((pane) => pane.tmuxId === paneId)) {
       enqueue.raise({ type: 'SELECT_PANE', paneId });
-    } else {
-      if (!context.windows.some((window) => window.id === windowId)) return;
-      enqueue.assign({ pendingGoTo: null });
+    } else if (!paneId && context.windows.some((window) => window.id === windowId)) {
       enqueue.raise({ type: 'SELECT_TAB', windowId });
     }
   }),

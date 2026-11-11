@@ -26,6 +26,11 @@ export interface PaletteEntry<A> {
   icon?: MenuIconName;
   /** A checkbox or radio item's state; undefined for the rest. */
   checked?: boolean;
+  /**
+   * Enter has to be pressed twice to run it, and it is never offered as what
+   * was run last: the row Enter is on is not always one the user aimed at.
+   */
+  confirm?: boolean;
   action: A;
 }
 
@@ -50,7 +55,11 @@ function choicesOf<A>(node: Choosable<A>): Array<[string, Chosen<A>]> {
       ]);
   }
   if (node.disabled) return [];
-  const shared = { keyHint: node.keyHint, action: node.action };
+  const shared = {
+    keyHint: node.keyHint,
+    action: node.action,
+    ...(node.destructive ? { confirm: true } : {}),
+  };
   return node.kind === 'checkbox'
     ? [[node.id, { ...shared, label: node.label, checked: node.checked }]]
     : [[node.id, { ...shared, label: node.label.replace(/…$/, ''), icon: node.icon }]];
@@ -97,13 +106,15 @@ export function entryText(entry: Pick<PaletteEntry<unknown>, 'detail' | 'keyword
 
 /**
  * `entries` with the recently chosen ones first, most recent first. `recent`
- * holds entry ids; one that names nothing listed now is skipped.
+ * holds entry ids; one that names nothing listed now is skipped, and so is
+ * one that asks before it runs: the first row is what Enter runs untyped,
+ * and "what was run last" must never make that Close Pane.
  */
-export function recentFirst<E extends { id: string }>(
+export function recentFirst<E extends { id: string; confirm?: boolean }>(
   entries: readonly E[],
   recent: readonly string[],
 ): { recent: E[]; rest: E[] } {
-  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const byId = new Map(entries.filter((entry) => !entry.confirm).map((entry) => [entry.id, entry]));
   const first: E[] = [];
   for (const id of recent) {
     const entry = byId.get(id);

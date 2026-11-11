@@ -288,6 +288,7 @@ export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'
     env.isTauri && {
       kind: 'item',
       id: 'restart-app',
+      destructive: true,
       label: 'Restart App',
       icon: 'restart',
       action: command('restart-app'),
@@ -312,6 +313,7 @@ export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'
       !env.isMac && {
         kind: 'item',
         id: 'quit',
+        destructive: true,
         label: 'Quit',
         icon: 'quit',
         accelerator: 'Ctrl+Q',
@@ -344,6 +346,7 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSp
     {
       kind: 'item',
       id: 'session-detach',
+      destructive: true,
       label: 'Detach Session',
       icon: 'detach',
       keyHint: commandHint(keybindings, 'session-detach'),

@@ -92,6 +92,53 @@ function usePaletteRefs(activeId: string | undefined) {
   return { inputRef, listRef };
 }
 
+/**
+ * A row that ends something, or makes a session of what was typed, takes
+ * Enter twice: the highlight is not always where the user aimed. `armedId`
+ * is the row the first Enter was pressed on. It is taken back by any other
+ * key and by the highlight or the text moving, so the second Enter is always
+ * for the row the first one was.
+ */
+function useArmed(activeId: string | undefined, query: string) {
+  const [armed, setArmed] = useState<{ id: string; query: string } | null>(null);
+  const armedId = armed && armed.id === activeId && armed.query === query ? armed.id : null;
+  const arm = (id: string) => setArmed({ id, query });
+  const disarm = useCallback(() => setArmed(null), []);
+  return { armedId, arm, disarm };
+}
+
+/** The palette's box over the app: a press outside it closes it, one inside keeps the keyboard in the text box. */
+function PaletteFrame({
+  mode,
+  inputRef,
+  onClose,
+  children,
+}: {
+  mode: PaletteMode;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="command-palette" data-testid="command-palette" data-mode={mode}>
+      <div className="command-palette-scrim" onPointerDown={onClose} />
+      <div
+        className="command-palette-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === 'all' ? 'Command palette' : 'Go to session, tab or pane'}
+        // A press anywhere but in the box must not take the focus out of it:
+        // with the focus on the page, keys would go to the pane behind.
+        onPointerDown={(event) => {
+          if (event.target !== inputRef.current) event.preventDefault();
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function PaletteDialog({ mode, surface }: { mode: PaletteMode; surface: AppMenuSurface }) {
   const send = useAppSend();
   const { dispatch, options } = surface;
@@ -106,6 +153,8 @@ function PaletteDialog({ mode, surface }: { mode: PaletteMode; surface: AppMenuS
   const optionId = (entry: AppPaletteEntry) => `${baseId}-${entry.id}`;
 
   const { inputRef, listRef } = usePaletteRefs(active?.id);
+  const { armedId, arm, disarm } = useArmed(active?.id, query);
+
   const close = useCallback(() => send({ type: 'CLOSE_PALETTE' }), [send]);
 
   /** New text is a new list: the highlight goes back to its first row. */
@@ -113,8 +162,9 @@ function PaletteDialog({ mode, surface }: { mode: PaletteMode; surface: AppMenuS
     (text: string) => {
       setQuery(text);
       setActiveId(null);
+      disarm();
     },
-    [setActiveId],
+    [setActiveId, disarm],
   );
 
   const choose = (entry: AppPaletteEntry) => {
@@ -135,48 +185,45 @@ function PaletteDialog({ mode, surface }: { mode: PaletteMode; surface: AppMenuS
     if (!key) return;
     event.preventDefault();
     event.stopPropagation();
+    if (key.kind !== 'run') disarm();
     if (key.kind === 'close') close();
     else if (key.kind === 'step') step(key.by);
     else if (key.kind === 'page') page(key.by);
     else if (key.kind === 'end') end(key.which);
-    else if (key.kind === 'run' && active) choose(active);
+    else if (key.kind === 'run' && active) {
+      if (active.confirm && armedId !== active.id) arm(active.id);
+      else choose(active);
+    }
   };
 
   const all = mode === 'all';
   return (
-    <div className="command-palette" data-testid="command-palette" data-mode={mode}>
-      <div className="command-palette-scrim" onPointerDown={close} />
-      <div
-        className="command-palette-panel"
-        role="dialog"
-        aria-label={all ? 'Command palette' : 'Go to session, tab or pane'}
-      >
-        <ComboboxInput
-          inputRef={inputRef}
-          className="command-palette-input"
-          label={all ? 'Search actions and places' : 'Search places'}
-          listId={listId}
-          activeId={active ? optionId(active) : undefined}
-          placeholder={
-            all
-              ? 'Search actions, sessions, tabs and panes…'
-              : 'Go to a session, tab or pane… (type > for actions)'
-          }
-          value={query}
-          onValue={onQuery}
-          onKeyDown={onKeyDown}
-        />
-        <PaletteList
-          listRef={listRef}
-          listId={listId}
-          rows={rows}
-          activeId={active?.id}
-          optionId={optionId}
-          empty={needle === '' ? 'Nothing to go to yet' : `Nothing matches “${needle}”`}
-          onHover={(entry) => setActiveId(entry.id)}
-          onChoose={choose}
-        />
-      </div>
-    </div>
+    <PaletteFrame mode={mode} inputRef={inputRef} onClose={close}>
+      <ComboboxInput
+        inputRef={inputRef}
+        className="command-palette-input"
+        label={all ? 'Search actions and places' : 'Search places'}
+        listId={listId}
+        activeId={active ? optionId(active) : undefined}
+        placeholder={
+          all
+            ? 'Search actions, sessions, tabs and panes…'
+            : 'Go to a session, tab or pane… (type > for actions)'
+        }
+        value={query}
+        onValue={onQuery}
+        onKeyDown={onKeyDown}
+      />
+      <PaletteList
+        listRef={listRef}
+        listId={listId}
+        rows={rows}
+        activeId={active?.id}
+        optionId={optionId}
+        armedId={armedId}
+        empty={needle === '' ? 'Nothing to go to yet' : `Nothing matches “${needle}”`}
+        onChoose={choose}
+      />
+    </PaletteFrame>
   );
 }

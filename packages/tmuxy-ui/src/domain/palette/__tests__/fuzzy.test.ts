@@ -73,6 +73,39 @@ describe('rank', () => {
     ]);
   });
 
+  // "close" fits Close Pane, Close Tab and Close Window alike, and "re"
+  // fits Reload Config, Rename Session and Restart App: a row that ends
+  // something never leads on a tie, and among such rows the shortest label
+  // has no claim either.
+  it('never puts a row marked last ahead of an equal match that is not', () => {
+    const items = [
+      { label: 'Restart App', last: true },
+      { label: 'Reload Config' },
+      { label: 'Rename Session' },
+    ];
+    expect(rank(items, 're').map((r) => r.item.label)).toEqual([
+      'Reload Config',
+      'Rename Session',
+      'Restart App',
+    ]);
+    const closes = [
+      { label: 'Close Pane', last: true },
+      { label: 'Close Tab', last: true },
+      { label: 'Close Window', last: true },
+    ];
+    expect(rank(closes, 'close').map((r) => r.item.label)).toEqual([
+      'Close Pane',
+      'Close Tab',
+      'Close Window',
+    ]);
+    // A better match still leads, marked or not.
+    expect(rank(items, 'restart')[0].item.label).toBe('Restart App');
+  });
+
+  it('prefers the shorter label between equal matches that are not marked', () => {
+    expect(labels('pa', ['Paste Buffer Here', 'Paste'])).toEqual(['Paste', 'Paste Buffer Here']);
+  });
+
   it('finds an item by what is beside its label, below one found by the label', () => {
     const items = [
       { label: 'Dark Mode', extra: 'View › Theme' },

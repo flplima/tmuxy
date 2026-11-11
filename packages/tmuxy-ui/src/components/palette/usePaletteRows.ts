@@ -4,7 +4,8 @@
  */
 
 import { useMemo } from 'react';
-import { useAppSelector } from '../../machines/appHooks';
+import { useAppActor, useAppSelector, useAppSelectorShallow } from '../../machines/appHooks';
+import type { AppMachineContext } from '../../machines/types/context';
 import { entryText, recentFirst, type PaletteMode } from '../../domain/palette/entries';
 import { rank } from '../../domain/palette/fuzzy';
 import { useMenuEnv } from '../menus/menuEnv';
@@ -56,11 +57,51 @@ function matching(entries: PaletteEntries, everything: boolean, needle: string):
   const places = [...entries.sessions, ...entries.tabs, ...entries.panes];
   const pool = everything ? [...entries.actions, ...places] : places;
   return rank(
-    pool.map((entry) => ({ entry, label: entry.label, extra: entryText(entry) })),
+    pool.map((entry) => ({
+      entry,
+      label: entry.label,
+      extra: entryText(entry),
+      last: entry.confirm,
+    })),
     needle,
   )
     .slice(0, MAX_RESULTS)
     .map(({ item, positions }) => ({ kind: 'entry', entry: item.entry, positions }));
+}
+
+/**
+ * The machine's context, as often as the palette's rows can change: when a
+ * session, tab or pane comes, goes or is renamed, a plugin or a binding
+ * changes, or a setting a row shows flips. Not on every model update: a
+ * pane that keeps printing changes the context many times a second, and
+ * each of those would rebuild and score every row.
+ */
+function usePaletteContext(): AppMachineContext {
+  const actor = useAppActor();
+  const places = useAppSelector((ctx) =>
+    [
+      ctx.sessionName,
+      ...ctx.windows.map((w) => `${w.id}:${w.name}:${w.windowType}`),
+      ...ctx.panes.map((p) => `${p.tmuxId}:${p.windowId}:${p.command}:${p.title}:${p.groupId}`),
+    ].join('\n'),
+  );
+  const rest = useAppSelectorShallow((ctx) => [
+    ctx.sessions,
+    ctx.restorableSessions,
+    ctx.plugins,
+    ctx.keybindings,
+    ctx.availableThemes,
+    ctx.themeName,
+    ctx.themeMode,
+    ctx.traceSettings,
+    ctx.pinnedOptions,
+  ]);
+  // The two selections are what say the snapshot is worth taking again.
+  return useMemo(() => {
+    void places;
+    void rest;
+    return actor.getSnapshot().context;
+  }, [actor, places, rest]);
 }
 
 export interface PaletteRows {
@@ -78,7 +119,7 @@ export function usePaletteRows(
   options: AppMenuOptions,
 ): PaletteRows {
   const env = useMenuEnv();
-  const ctx = useAppSelector((context) => context);
+  const ctx = usePaletteContext();
   // `>` asks for the actions from the places-only list, as it does in an editor.
   const everything = mode === 'all' || query.trimStart().startsWith('>');
   const needle = query.trimStart().replace(/^>/, '').trim();

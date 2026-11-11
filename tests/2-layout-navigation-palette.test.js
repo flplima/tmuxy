@@ -164,6 +164,13 @@ describeE2E('Command palette', {}, (ctx) => {
       15000,
       'a command typed after the palette closed to run in the pane',
     );
+
+    // The prefix and P is the other way in, for a browser that keeps the
+    // chord to itself; Escape puts it away.
+    await sendPrefixCommand(ctx.page, 'P');
+    expect((await waitForPalette(ctx.page)).mode).toBe('all');
+    await ctx.page.keyboard.press('Escape');
+    await waitForPaletteGone(ctx.page);
   }, 120000);
 
   test('a pane in another session: the palette lists it, and Enter switches session and lands on that pane', async () => {

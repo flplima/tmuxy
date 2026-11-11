@@ -162,6 +162,9 @@ export function newSessionEntry(
     label: `New Session “${name}”`,
     detail: 'create it and switch',
     icon: 'new',
+    // A mistyped name with nothing else to match would make this the only
+    // row, and one Enter a session named after the typo.
+    confirm: true,
     action: event({ type: 'NEW_SESSION', name }),
   };
 }

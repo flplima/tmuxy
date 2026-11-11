@@ -11,6 +11,7 @@ const SPEC: MenuSpec<string> = [
     label: 'Pane',
     children: [
       { kind: 'item', id: 'split', label: 'Split', action: 'split', icon: 'split-right' },
+      { kind: 'item', id: 'close', label: 'Close', action: 'close', destructive: true },
       { kind: 'item', id: 'off', label: 'Off', action: 'off', disabled: true },
       { kind: 'predefined', which: 'copy' },
       {
@@ -61,6 +62,7 @@ describe('specEntries', () => {
     expect(entries.map((entry) => entry.id)).toEqual([
       'action:top',
       'action:split',
+      'action:close',
       'action:plugin:notes:open',
       'action:plugin:x:run',
       'action:blink',
@@ -93,6 +95,11 @@ describe('specEntries', () => {
     expect(byId('action:level:full')).toMatchObject({ checked: true, detail: 'View' });
   });
 
+  it('marks an item that ends something as one to ask before running', () => {
+    expect(byId('action:close')?.confirm).toBe(true);
+    expect(byId('action:split')?.confirm).toBeUndefined();
+  });
+
   it('leaves out the ids it is asked to', () => {
     const ids = specEntries(SPEC, { omit: new Set(['top']) }).map((entry) => entry.id);
     expect(ids).not.toContain('action:top');
@@ -107,6 +114,15 @@ describe('recent entries', () => {
     const { recent, rest } = recentFirst(entries, ['c', 'gone', 'a']);
     expect(recent.map((e) => e.id)).toEqual(['c', 'a']);
     expect(rest.map((e) => e.id)).toEqual(['b']);
+  });
+
+  // Untyped, the first row is the one Enter runs: it is never "the pane was
+  // closed last time, so close this one".
+  it('never offers a row that asks first as what was run last', () => {
+    const rows = [{ id: 'a' }, { id: 'close', confirm: true }, { id: 'c' }];
+    const { recent, rest } = recentFirst(rows, ['close', 'c']);
+    expect(recent.map((e) => e.id)).toEqual(['c']);
+    expect(rest.map((e) => e.id)).toEqual(['a', 'close']);
   });
 
   it('remembers the latest choice first, once, up to the limit', () => {

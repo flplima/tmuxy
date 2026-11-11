@@ -108,6 +108,21 @@ describe('paletteEntries', () => {
     ).not.toContain('action:tab-next');
   });
 
+  it('asks before the rows that end something, and before nothing else', () => {
+    const asking = entries.actions.filter((e) => e.confirm).map((e) => e.id);
+    expect(asking).toEqual(['action:pane-close', 'action:tab-close']);
+    const desktop = paletteEntries(ctx(), { ...WEB, isTauri: true }).actions;
+    expect(desktop.filter((e) => e.confirm).map((e) => e.id)).toEqual([
+      'action:pane-close',
+      'action:tab-close',
+      'action:session-detach',
+      'action:restart-app',
+      'action:quit',
+    ]);
+    // Kill Session asks in a dialog of its own.
+    expect(action('session-kill')?.confirm).toBeUndefined();
+  });
+
   it('lists the other sessions to switch to, and the saved ones that are not running', () => {
     expect(entries.sessions.map((e) => [e.id, e.detail, e.action])).toEqual([
       [
@@ -160,6 +175,7 @@ describe('newSessionEntry', () => {
   it('offers a session named as typed, made safe', () => {
     expect(newSessionEntry(ctx(), WEB, 'side project')).toMatchObject({
       label: 'New Session “side-project”',
+      confirm: true,
       action: { kind: 'event', event: { type: 'NEW_SESSION', name: 'side-project' } },
     });
   });

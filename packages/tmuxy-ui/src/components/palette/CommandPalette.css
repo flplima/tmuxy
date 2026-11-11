@@ -83,7 +83,12 @@
   user-select: none;
 }
 
-/* The row Enter would run; hover moves it, so there is one highlight. */
+/* Under the pointer: a click runs it, Enter does not. */
+.command-palette-item:hover {
+  background-color: color-mix(in srgb, var(--bg-highlight) 45%, transparent);
+}
+
+/* The row Enter would run. */
 .command-palette-item.is-active {
   background-color: var(--bg-highlight);
 }
@@ -122,7 +127,19 @@
   color: var(--text-secondary);
 }
 
+/* Shown in place of the key: Enter was pressed once on a row that asks first. */
+.command-palette-confirm {
+  flex: none;
+  margin-left: auto;
+  color: var(--theme-accent);
+  font-weight: bold;
+}
+
 .command-palette-empty {
   padding: 6px 12px;
   color: var(--text-muted);
+}
+
+.command-palette-empty:empty {
+  display: none;
 }

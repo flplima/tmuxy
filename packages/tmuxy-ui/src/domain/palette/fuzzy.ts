@@ -52,7 +52,10 @@ function scoreTable(lowerNeedle: string, lowerHay: string, hay: string): ScoreTa
   for (let i = 0; i < n; i++) {
     best.push(new Array<number>(m).fill(-Infinity));
     ending.push(new Array<number>(m).fill(-Infinity));
-    const gap = i === n - 1 ? GAP_LEADING : GAP_INNER;
+    // What follows the last letter costs nothing: a match is not worse for
+    // the text being longer. `rank` breaks such ties itself, so a row it
+    // must not put first cannot win one by having the shortest label.
+    const gap = i === n - 1 ? 0 : GAP_INNER;
     let running = -Infinity;
     for (let j = i; j < m; j++) {
       if (lowerNeedle[i] !== lowerHay[j]) {
@@ -116,6 +119,8 @@ export interface Searchable {
   label: string;
   /** What is not on the row's main line but should still find it: its menu, other names for it. */
   extra?: string;
+  /** Never ahead of an equal match that lacks it (a row that ends something). */
+  last?: boolean;
 }
 
 export interface Ranked<T> {
@@ -128,9 +133,21 @@ export interface Ranked<T> {
 /** What a word found only in `extra` is worth beside one found in the label. */
 const EXTRA_WEIGHT = 0.5;
 
+/** One word of the query against one item: its score and the label letters it took, or null. */
+function wordMatch(item: Searchable, word: string): { score: number; positions: number[] } | null {
+  const inLabel = fuzzyMatch(word, item.label);
+  const inExtra = item.extra ? fuzzyMatch(word, item.extra) : null;
+  const extraScore = inExtra ? inExtra.score * EXTRA_WEIGHT : -Infinity;
+  if (inLabel && inLabel.score >= extraScore) return inLabel;
+  return inExtra ? { score: extraScore, positions: [] } : null;
+}
+
 /**
- * `items` that match every word of `query`, best first; ties keep the order
- * they came in. An empty query keeps them all, in order.
+ * `items` that match every word of `query`, best first. Between equal
+ * matches, one marked `last` comes after one that is not; then the shorter
+ * label (the query covers more of it), unless both are `last`, which keep
+ * the order they came in; then that order. An empty query keeps them all, in
+ * order.
  */
 export function rank<T extends Searchable>(items: readonly T[], query: string): Ranked<T>[] {
   const words = query.trim().split(/\s+/).filter(Boolean);
@@ -140,22 +157,16 @@ export function rank<T extends Searchable>(items: readonly T[], query: string): 
     let score = 0;
     const positions = new Set<number>();
     for (const word of words) {
-      const inLabel = fuzzyMatch(word, item.label);
-      const inExtra = item.extra ? fuzzyMatch(word, item.extra) : null;
-      const extraScore = inExtra ? inExtra.score * EXTRA_WEIGHT : -Infinity;
-      if (inLabel && inLabel.score >= extraScore) {
-        score += inLabel.score;
-        for (const p of inLabel.positions) positions.add(p);
-      } else if (inExtra) {
-        score += extraScore;
-      } else {
-        return;
-      }
+      const match = wordMatch(item, word);
+      if (!match) return;
+      score += match.score;
+      for (const p of match.positions) positions.add(p);
     }
-    // A short label that the query covers beats a long one that merely holds it.
-    score -= item.label.length * 0.001;
     out.push({ item, score, positions: [...positions].sort((a, b) => a - b), order });
   });
-  out.sort((a, b) => b.score - a.score || a.order - b.order);
+  const tieBreak = (a: T, b: T) =>
+    Number(Boolean(a.last)) - Number(Boolean(b.last)) ||
+    (a.last ? 0 : a.label.length - b.label.length);
+  out.sort((a, b) => b.score - a.score || tieBreak(a.item, b.item) || a.order - b.order);
   return out.map(({ item, score, positions }) => ({ item, score, positions }));
 }

@@ -121,17 +121,30 @@ describe('the command palette', () => {
     actor.stop();
   });
 
-  it('gives up on a place that never shows, and on one in a session it left', () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+  // The first frame of the session decides: a place it does not name is
+  // gone. Waiting on would move the focus later, under a user who has since
+  // picked something else.
+  it('forgets a place the session does not have, on its first frame', () => {
     const { actor, commands, ctx } = app();
     actor.send({ type: 'GO_TO', sessionName: 'other', windowId: FAR_TAB, paneId: pid('%99') });
-    actor.send(there());
-    // Not there yet: still waited for.
+    // A last frame of the session it left is not the one that decides.
+    actor.send(here());
     expect(ctx().pendingGoTo).not.toBeNull();
-    now.mockReturnValue(60_000);
+
     actor.send(there());
     expect(ctx().pendingGoTo).toBeNull();
     expect(commands().some((c) => c.includes('%99'))).toBe(false);
+    actor.stop();
+  });
+
+  it('forgets a place when the wait runs out, and one in a session it left', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const { actor, commands, ctx } = app();
+    actor.send({ type: 'GO_TO', sessionName: 'other', windowId: FAR_TAB, paneId: FAR_PANE });
+    now.mockReturnValue(60_000);
+    actor.send(there());
+    expect(ctx().pendingGoTo).toBeNull();
+    expect(commands().some((c) => c.includes(`select-pane -t ${FAR_PANE}`))).toBe(false);
 
     actor.send({ type: 'GO_TO', sessionName: 'other2', windowId: FAR_TAB, paneId: FAR_PANE });
     actor.send({ type: 'SWITCH_SESSION', sessionName: 'third' });
