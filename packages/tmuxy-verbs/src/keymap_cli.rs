@@ -9,6 +9,9 @@ use tmuxy_core::session::keymap::{keymap, Binding, Keymap, Layer, Shadow, Source
 
 use crate::cli_json::{Answer, EXIT_FAILED};
 
+mod plugins;
+use plugins::Plugins;
+
 #[derive(clap::Args, Debug)]
 pub struct KeymapArgs {
     /// Only this key table (`prefix`, `root`, `pane`, `tab`, …).
@@ -25,6 +28,8 @@ pub fn run(args: KeymapArgs) {
     let layout = Layout::current();
     let answer = Answer::new(args.json);
     let mut map = keymap(&layout);
+    // Before the server's listing, so a plugin's key it lists is the plugin's.
+    let mut plugins = plugins::add(&mut map, &layout);
     // What tmux binds by itself is only known to a running server. A read,
     // on the socket tmuxy is on; none running is no error. `-N`: never start
     // one to answer, since a server tmux starts reads the user's
@@ -46,12 +51,15 @@ pub fn run(args: KeymapArgs) {
     }
     if let Some(table) = &args.table {
         map.only_table(table);
+        plugins.skipped.retain(|skipped| &skipped.table == table);
     }
     if let Some(key) = &args.key {
         map.bindings.retain(|binding| &binding.key == key);
         map.shadows.retain(|shadow| &shadow.lost.key == key);
+        plugins.skipped.retain(|skipped| &skipped.key == key);
     }
-    if map.bindings.is_empty() && map.shadows.is_empty() {
+    let filtered = args.table.is_some() || args.key.is_some();
+    if map.bindings.is_empty() && map.shadows.is_empty() && plugins.skipped.is_empty() {
         let what = match (&args.table, &args.key) {
             (Some(table), Some(key)) => format!("{key} in the {table} table"),
             (Some(table), None) => format!("the {table} table"),
@@ -68,6 +76,7 @@ pub fn run(args: KeymapArgs) {
                 ("bindings", json(&map.bindings)),
                 ("shadowed", json(&shadows)),
                 ("warnings", json(&map.warnings)),
+                ("plugins", json(&plugins)),
                 ("serverRead", live.is_some().to_string()),
             ],
             "",
@@ -75,6 +84,7 @@ pub fn run(args: KeymapArgs) {
         return;
     }
     print!("{}", text(&map, &layout.home, live.is_some()));
+    print!("{}", plugins_text(&plugins, &layout.home, filtered));
 }
 
 fn json<T: serde::Serialize>(value: &T) -> String {
@@ -85,6 +95,9 @@ fn json<T: serde::Serialize>(value: &T) -> String {
 /// by name (they live in its data dir, which is not the user's), the user's
 /// with `~` for their home.
 fn from(source: &Source, home: &Path) -> String {
+    if let Some(plugin) = &source.plugin {
+        return format!("plugin {plugin}");
+    }
     let line = source.line.map(|l| format!(":{l}")).unwrap_or_default();
     match (&source.file, source.layer) {
         (_, Layer::Tmux) | (None, _) => source.layer.label().to_string(),
@@ -176,6 +189,58 @@ fn text(map: &Keymap, home: &Path, server_read: bool) -> String {
     out
 }
 
+/// The plugins' part of the text answer: the keys a plugin asked for that
+/// something else holds, and, unless the answer is for one table or key, the
+/// user's own actions and verbs.
+fn plugins_text(plugins: &Plugins, home: &Path, filtered: bool) -> String {
+    let mut out = String::new();
+    if !plugins.skipped.is_empty() {
+        out.push_str("\nPlugin keys not bound, held by something else:\n");
+        for skipped in &plugins.skipped {
+            out.push_str(&format!(
+                "  {} {}  {}:{}  held by {}\n",
+                skipped.table,
+                skipped.key,
+                skipped.plugin,
+                skipped.action,
+                from(&skipped.held_by, home)
+            ));
+        }
+    }
+    if let Some(user) = plugins.user.as_ref().filter(|_| !filtered) {
+        let file = match user.manifest.strip_prefix(home) {
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => user.manifest.display().to_string(),
+        };
+        out.push_str(&format!("\nYour actions and verbs ({file}):\n"));
+        for action in &user.actions {
+            let menu = action
+                .menu
+                .map(|menu| format!("{menu} menu, "))
+                .unwrap_or_default();
+            let keys = if action.keys.is_empty() {
+                String::new()
+            } else {
+                format!("  key {}", action.keys.join(", "))
+            };
+            out.push_str(&format!(
+                "  action  {}  {}  ({menu}{}){keys}\n",
+                action.id, action.title, action.surface
+            ));
+        }
+        for verb in &user.verbs {
+            out.push_str(&format!(
+                "  verb    tmuxy plugin {}  {}\n",
+                verb.verb, verb.description
+            ));
+        }
+    }
+    for broken in &plugins.broken {
+        out.push_str(&format!("\nA plugin was left out: {broken}\n"));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +251,7 @@ mod tests {
         let home = Path::new("/h");
         let at = |layer, file: &str| Source {
             layer,
+            plugin: None,
             file: Some(PathBuf::from(file)),
             line: Some(4),
         };
@@ -206,6 +272,7 @@ mod tests {
         );
         let tmux = Source {
             layer: Layer::Tmux,
+            plugin: None,
             file: None,
             line: None,
         };

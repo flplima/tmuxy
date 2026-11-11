@@ -120,3 +120,88 @@ fn a_running_server_adds_what_tmux_binds_by_itself() {
         .unwrap()
         .contains("tmuxy.defaults.conf:"));
 }
+
+/// The user's own plugin (`tmuxy-plugin.toml`): its keys are listed as its,
+/// one a file of theirs already binds is said to be held (their bindings
+/// always win), and its actions and verbs are listed with the keys that run
+/// them.
+#[test]
+fn keymap_lists_the_users_own_plugin_and_the_keys_it_could_not_have() {
+    let server = scratch::ScratchServer::new("keymap-plugin");
+    let home = &server.home;
+    let config = home.join("config/tmuxy");
+    std::fs::create_dir_all(config.join("bin")).unwrap();
+    std::fs::write(config.join("tmuxy.conf"), "bind M-u display-message mine\n").unwrap();
+    let script = config.join("bin/hello");
+    std::fs::write(&script, "#!/bin/sh\necho hello\n").unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::fs::write(
+        config.join("tmuxy-plugin.toml"),
+        r#"[plugin]
+api = 1
+name = "user"
+version = "0.1.0"
+
+[[actions]]
+id = "hello"
+title = "Say hello"
+menu = "pane"
+surface = "popup"
+command = ["bin/hello"]
+
+[[actions]]
+id = "taken"
+title = "Wants a held key"
+surface = "popup"
+command = ["bin/hello"]
+
+[[cli]]
+verb = "hello"
+description = "Say hello in your shell"
+command = ["bin/hello"]
+
+[[keys]]
+key = "M-h"
+action = "hello"
+
+[[keys]]
+key = "M-u"
+action = "taken"
+"#,
+    )
+    .unwrap();
+
+    let out = keymap(home, &server.socket, &[]);
+    let (stdout, stderr) = text(&out);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    let key = row(&stdout, "prefix", "M-h").unwrap_or_else(|| panic!("{stdout}"));
+    assert!(key.contains("plugin user"), "{key}");
+    assert!(key.ends_with("plugin action user:hello"), "{key}");
+    let held = row(&stdout, "prefix", "M-u").unwrap();
+    assert!(held.contains("~/config/tmuxy/tmuxy.conf:1"), "{held}");
+    assert!(stdout.contains(
+        "Plugin keys not bound, held by something else:\n  prefix M-u  user:taken  held by ~/config/tmuxy/tmuxy.conf:1\n"
+    ), "{stdout}");
+    assert!(stdout.contains("Your actions and verbs (~/config/tmuxy/tmuxy-plugin.toml):\n"));
+    assert!(
+        stdout.contains("  action  hello  Say hello  (pane menu, popup)  key prefix M-h\n"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("  action  taken  Wants a held key  (popup)  key prefix M-u\n"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("  verb    tmuxy plugin hello  Say hello in your shell\n"),
+        "{stdout}"
+    );
+
+    let out = keymap(home, &server.socket, &["--json"]);
+    let answer: serde_json::Value = serde_json::from_str(&text(&out).0).unwrap();
+    assert_eq!(answer["plugins"]["user"]["verbs"][0]["verb"], "hello");
+    assert_eq!(answer["plugins"]["skipped"][0]["key"], "M-u");
+    assert_eq!(
+        answer["plugins"]["skipped"][0]["heldBy"]["layer"],
+        "user-conf"
+    );
+}

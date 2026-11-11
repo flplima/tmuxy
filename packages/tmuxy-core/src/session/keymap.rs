@@ -50,6 +50,9 @@ pub enum Layer {
     Defaults,
     TmuxConf,
     UserConf,
+    /// A plugin's `[[keys]]`, bound after the chain into a key no file
+    /// binds: tmuxy binds it over its own connection.
+    Plugin,
 }
 
 impl Layer {
@@ -61,6 +64,7 @@ impl Layer {
             Self::Defaults => "tmuxy.defaults.conf",
             Self::TmuxConf => "~/.tmux.conf",
             Self::UserConf => "tmuxy.conf",
+            Self::Plugin => "plugin",
         }
     }
 
@@ -74,6 +78,9 @@ impl Layer {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Source {
     pub layer: Layer,
+    /// The plugin, for [`Layer::Plugin`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
     /// `None` for [`Layer::Tmux`].
     pub file: Option<PathBuf>,
     /// 1-based, as an editor counts.
@@ -86,7 +93,18 @@ impl Source {
     pub fn tmux() -> Self {
         Self {
             layer: Layer::Tmux,
+            plugin: None,
             file: None,
+            line: None,
+        }
+    }
+
+    /// A key `plugin` asks for in its manifest, `manifest`.
+    pub fn plugin(plugin: &str, manifest: &Path) -> Self {
+        Self {
+            layer: Layer::Plugin,
+            plugin: Some(plugin.to_string()),
+            file: Some(manifest.to_path_buf()),
             line: None,
         }
     }
@@ -94,6 +112,9 @@ impl Source {
 
 impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(plugin) = &self.plugin {
+            return write!(f, "plugin {plugin}");
+        }
         match (&self.file, self.line) {
             (Some(file), Some(line)) => write!(f, "{}:{line}", file.display()),
             (Some(file), None) => write!(f, "{}", file.display()),
@@ -337,6 +358,7 @@ impl Chain {
         for (line, statement) in statements(conf) {
             let source = Source {
                 layer,
+                plugin: None,
                 file: Some(file.to_path_buf()),
                 line: Some(line),
             };
@@ -495,6 +517,26 @@ impl Keymap {
         }
         self.bindings
             .sort_by(|a, b| (&a.table, &a.key).cmp(&(&b.table, &b.key)));
+    }
+
+    /// Bind a key a plugin asks for, as tmuxy does once the chain is
+    /// applied: unless the key is already bound — by a file, which always
+    /// wins, or by a plugin that asked first. Answers who holds the key when
+    /// it is not this plugin's. Call it before
+    /// [`Keymap::add_unattributed`], so the server's listing of a plugin's
+    /// key is not taken for tmux's own.
+    pub fn add_plugin_key(&mut self, binding: Binding) -> Option<Source> {
+        if let Some(holder) = self
+            .bindings
+            .iter()
+            .find(|known| known.table == binding.table && known.key == binding.key)
+        {
+            return Some(holder.source.clone());
+        }
+        self.bindings.push(binding);
+        self.bindings
+            .sort_by(|a, b| (&a.table, &a.key).cmp(&(&b.table, &b.key)));
+        None
     }
 
     /// Only `table`'s bindings and shadows.
