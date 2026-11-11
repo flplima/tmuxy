@@ -26,7 +26,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     return runCLI(args, {
       cli: machine.cli,
       path: machine.path,
-      env: { HOME: machine.home, TMUX_BIN: '', TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%5', ...env },
+      env: { HOME: machine.home, TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%5', ...env },
     });
   }
 
