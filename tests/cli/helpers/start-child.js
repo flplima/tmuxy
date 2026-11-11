@@ -5,6 +5,7 @@
  */
 
 const childProcess = require('child_process');
+const util = require('util');
 
 /**
  * @param {'spawn' | 'spawnSync' | 'execFile' | 'execFileSync' | 'exec' | 'execSync' | 'fork'} how
@@ -14,4 +15,9 @@ function startChild(how, ...args) {
   return childProcess[how](...args);
 }
 
-module.exports = { startChild };
+/** {@link startChild} through `util.promisify`, as code that awaits a child does. */
+function startChildPromised(how, ...args) {
+  return util.promisify(childProcess[how])(...args);
+}
+
+module.exports = { startChild, startChildPromised };

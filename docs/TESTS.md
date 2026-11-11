@@ -144,12 +144,12 @@ npm run perf:requests -- --url http://localhost:9000
 
 ### No suite touches a tmux server someone works in
 
-The suites kill panes, windows and whole servers, and they are usually started from a pane of the tmuxy being developed. Each one is kept off that session by construction, not by care:
+The suites kill panes, windows and whole servers, and they are usually started from a pane of the tmuxy being developed. The CLI suite is kept off that session by construction. The E2E and desktop suites are kept off it by the socket they are given and a list of the ones they refuse, so a server someone started under another name is still theirs to name:
 
 | Suite | Its tmux | What stops it reaching another |
 | --- | --- | --- |
 | CLI (`tests/cli/`) | A mock, never a real one | A socket name and a tmux socket directory (`TMUX_TMPDIR`) made for the run and handed to every CLI under test. No child process starts unless its environment is sealed to them: no inherited `$TMUX`, no `TMUX_BIN`, the mock first on `PATH`, never the socket names people work in (`tmuxy`, `tmuxy-dev`, `default`, `tmuxy-test`). A socket found in the run's directory afterwards fails the run. `tests/cli/helpers/seal.js`, `tests/cli/setup/` |
-| Web E2E, desktop | A real tmux on `tmuxy-test` | Every child is given the socket with `$TMUX` and `$TMUX_PANE` removed, and `TMUX_SOCKET` set to a socket people work in, or to the one the shell runs in, is refused (`tests/helpers/tmux-socket.js`, `tests/helpers/live-socket-guard.js`) |
+| Web E2E, desktop | A real tmux on `tmuxy-test` | Every child is given the socket with `$TMUX` and `$TMUX_PANE` removed, and a `TMUX_SOCKET` that is `tmuxy`, `tmuxy-dev` or `default` (by name, or by its path in tmux's own socket directory) or the one the shell runs in is refused (`tests/helpers/tmux-socket.js`, `tests/helpers/live-socket-guard.js`) |
 | Rust | A scratch server per test binary, on a socket named after its pid | `tmuxy-core/tests/common/scratch.rs` |
 
 A new helper that starts a child process in `tests/cli/` takes its environment from `scriptEnv()` or `sealedEnv()` (`tests/cli/helpers/env.js`); anything else throws before the child runs. `tests/cli/harness-seal.test.js` holds each refusal.

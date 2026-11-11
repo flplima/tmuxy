@@ -19,6 +19,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const util = require('util');
 const {
   isSocketFile,
   liveSocketProblem,
@@ -87,6 +88,9 @@ function sealProblem(env, own = suite()) {
   if (env.TMUX_BIN) {
     return `TMUX_BIN names a tmux (${env.TMUX_BIN}) the CLI would run in the mock’s place`;
   }
+  if (!env.PATH) {
+    return 'it has no PATH, so its shell would search a default one, where the real tmux is';
+  }
   const tmux = firstOnPath('tmux', env.PATH);
   if (tmux && !isTheMock(tmux)) {
     return `the first tmux on its PATH is ${tmux}, not the mock`;
@@ -138,9 +142,8 @@ const CHILD_STARTERS = [
  */
 function sealChildProcesses(childProcess = require('child_process')) {
   const real = {};
-  for (const name of CHILD_STARTERS) {
-    real[name] = childProcess[name];
-    childProcess[name] = function sealed(...args) {
+  const checked = (start) =>
+    function sealed(...args) {
       const options = args.find(
         (arg, i) => i > 0 && arg && typeof arg === 'object' && !Array.isArray(arg),
       );
@@ -151,8 +154,14 @@ function sealChildProcesses(childProcess = require('child_process')) {
             'Build a child’s environment with scriptEnv() or sealedEnv() (tests/cli/helpers/env.js).',
         );
       }
-      return real[name].apply(this, args);
+      return start.apply(this, args);
     };
+  for (const name of CHILD_STARTERS) {
+    real[name] = childProcess[name];
+    childProcess[name] = checked(real[name]);
+    // `util.promisify(exec)` goes by this, and must meet the seal too.
+    const promised = real[name]?.[util.promisify.custom];
+    if (promised) childProcess[name][util.promisify.custom] = checked(promised);
   }
   return () => Object.assign(childProcess, real);
 }
