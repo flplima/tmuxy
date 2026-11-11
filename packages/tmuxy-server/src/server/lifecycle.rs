@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, warn};
 
+use super::delivery;
 use crate::dev;
 use crate::state::{build_response, AppState};
 
@@ -79,8 +80,11 @@ pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Res
     response
 }
 
-pub(super) async fn serve_embedded(uri: axum::http::Uri) -> Response {
-    with_app_headers(embedded_file(uri.path()), APP_CSP)
+pub(super) async fn serve_embedded(
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    with_app_headers(embedded_file(uri.path(), &headers), APP_CSP)
 }
 
 /// The user's stylesheets are the server's to serve in dev mode too: Vite
@@ -110,33 +114,31 @@ fn titled_index_html(html: &[u8], host: &str) -> Vec<u8> {
     }
 }
 
-fn embedded_file(path: &str) -> Response {
+fn embedded_file(path: &str, request: &axum::http::HeaderMap) -> Response {
     let path = path.trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
     if let Some(response) = serve_user_css(path) {
-        response
-    } else if path == "index.html" {
-        match FrontendAssets::get("index.html") {
-            Some(index) => build_response(
-                StatusCode::OK,
-                "text/html; charset=utf-8",
-                titled_index_html(&index.data, &tmuxy_core::host::server_host_name()),
-            ),
-            None => StatusCode::NOT_FOUND.into_response(),
-        }
-    } else if let Some(file) = FrontendAssets::get(path) {
-        let mime = tmuxy_core::mime::content_type_for_path(path);
-        build_response(StatusCode::OK, mime, file.data.into_owned())
-    } else if let Some(index) = FrontendAssets::get("index.html") {
-        // SPA fallback
-        build_response(
-            StatusCode::OK,
+        return response;
+    }
+    // Anything that is not a file of the bundle is a route of the app's own.
+    let file = (path != "index.html")
+        .then(|| FrontendAssets::get(path))
+        .flatten();
+    match (file, FrontendAssets::get("index.html")) {
+        (Some(file), _) => delivery::cached(
+            path,
+            tmuxy_core::mime::content_type_for_path(path),
+            file.data.into_owned(),
+            request,
+        ),
+        (None, Some(index)) => delivery::cached(
+            "index.html",
             "text/html; charset=utf-8",
             titled_index_html(&index.data, &tmuxy_core::host::server_host_name()),
-        )
-    } else {
-        StatusCode::NOT_FOUND.into_response()
+            request,
+        ),
+        (None, None) => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
