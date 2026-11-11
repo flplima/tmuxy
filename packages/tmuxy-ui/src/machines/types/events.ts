@@ -50,6 +50,12 @@ export type AppMachineEvent =
    * next full server snapshot.
    */
   | { type: 'TMUX_RECONNECTED' }
+  /**
+   * A session switch opened a new stream (the web's reconnect under the new
+   * session's name), and it is up. It has sent no state yet, and an idle
+   * session never will on its own.
+   */
+  | { type: 'SESSION_STREAM_OPENED' }
   /** A clipboard write; `paneId` is null for the paste-buffer mirror. */
   | { type: 'TMUX_CLIPBOARD'; paneId: PaneId | null; text: string }
   | { type: 'CONNECTION_INFO'; defaultShell: string; hostname: string | null }

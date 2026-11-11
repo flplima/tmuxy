@@ -182,6 +182,15 @@ export const connectionActions = {
     });
   }),
 
+  // The stream of the session just switched to is up. Its state is asked for,
+  // as after a reconnect: a session whose monitor is already synced (another
+  // tab is on it, or this client left it a moment ago and came back inside the
+  // server's grace) sends nothing while it is idle, and the page stayed empty
+  // until something in it changed.
+  connection_onSessionStreamOpened: act(({ context, enqueue }) => {
+    fetchStateAtViewport(context, enqueue);
+  }),
+
   // The size actor answers RESEND_SIZE by sending the target size again, and
   // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
   // the client measured).

@@ -38,6 +38,7 @@ export const connectionGlobalEvents = {
     actions: 'connection_detachClient',
   },
   SWITCH_SESSION: { actions: 'connection_switchSession' },
+  SESSION_STREAM_OPENED: { actions: 'connection_onSessionStreamOpened' },
   NEW_SESSION: { actions: 'connection_newSession' },
   KEYBINDINGS_RECEIVED: { actions: 'connection_keybindingsReceived' },
 } as const;

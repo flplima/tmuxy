@@ -62,6 +62,27 @@ describe('SWITCH_SESSION', () => {
   });
 });
 
+describe('SESSION_STREAM_OPENED', () => {
+  // The session switched to may be one whose monitor is already synced and
+  // idle (another tab is on it, or this client left it a moment ago): it
+  // sends nothing on its own, and the page showed no panes until it did.
+  it('asks for the state of the session switched to, at the viewport', () => {
+    const { actor, sent } = recordingApp();
+    actor.send({ type: 'TMUX_CONNECTED' });
+    actor.send({ type: 'SET_TARGET_SIZE', cols: 100, rows: 30 });
+    actor.send(oneTab(100, 30));
+    actor.send({ type: 'SWITCH_SESSION', sessionName: 'other' });
+    sent.length = 0;
+
+    // The switch alone asks for nothing: the stream is not up yet.
+    expect(initialFetches(sent)).toEqual([]);
+    actor.send({ type: 'SESSION_STREAM_OPENED' });
+
+    expect(initialFetches(sent)).toEqual([{ type: 'FETCH_INITIAL_STATE', cols: 100, rows: 30 }]);
+    actor.stop();
+  });
+});
+
 describe('TMUX_CONNECTED', () => {
   it('fetches the initial state once, at the default 80×24', () => {
     const { actor, sent } = recordingApp();

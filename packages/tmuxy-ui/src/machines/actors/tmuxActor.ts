@@ -430,6 +430,9 @@ export function createTmuxActor(runtime: AppRuntime) {
           withTransport((t) => t.switchSession(event.sessionName)),
           {
             logPrefix: `switch-session ${event.sessionName}`,
+            onSuccess: (newStream) => {
+              if (newStream) parent.send({ type: 'SESSION_STREAM_OPENED' });
+            },
           },
         );
       }

@@ -16,6 +16,7 @@ The `C`, `Q` and `P` rows of the ledger in [INVARIANTS.md](INVARIANTS.md), which
 | C8 | States coalesce to one per frame (latest wins); older states never paint after newer ones. | ordering | `stateFeed.ts` | — |
 | C9 | Each pane id appears at most once in client state, and a delta removes exactly the panes it nulls. | safety | `deltaProtocol.ts` | `deltaProtocol.props.test.ts` (property) |
 | C10 | Dropped/silent streams retry with backoff, online/visibility/Retry reconnect immediately, refused streams stop, and `EventSource` is singleton. | liveness | `HttpAdapter.ts` | `HttpAdapter.test.ts › keeps retrying…`, `› ten drops…`, `› a pinged stream…`, `› a stream the server refuses…`, `› dedupes concurrent…`; `tests/4-session-connectivity.test.js › six drops…` [nightly] |
+| C11 | After a session switch that opened a new stream, the client asks for the session's state at its viewport: a session whose monitor is already synced and idle sends none on its own. | liveness | `tmuxActor.ts`, `connection.ts` (`connection_onSessionStreamOpened`), `TmuxTransport.ts` (`switchSession`) | `switchSession.test.ts › asks for the state of the session switched to, at the viewport`; `tmuxActor.test.ts › tells the parent when the switch opened a new stream, which has no state yet` |
 
 ## Q — command queue and input
 
