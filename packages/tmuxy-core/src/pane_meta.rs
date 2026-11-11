@@ -50,11 +50,32 @@ pub fn check_key(key: &str) -> Result<(), String> {
     }
 }
 
-/// `value` as a field's value: control characters taken out (a value is
-/// one line of text in a row), surrounding spaces trimmed, and refused when
-/// empty or longer than [`MAX_VALUE_CHARS`].
+/// Characters that are there but not seen: zero-width ones, and the ones
+/// that turn text right to left, which could make a field read as something
+/// it does not say. Taken out with the controls.
+fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+    )
+}
+
+/// `value` as a field's value: control and invisible characters taken out
+/// (a value is one line of plain text in a row), surrounding spaces trimmed,
+/// and refused when empty or longer than [`MAX_VALUE_CHARS`].
 pub fn clean_value(value: &str) -> Result<String, String> {
-    let cleaned: String = value.chars().filter(|c| !c.is_control()).collect();
+    let cleaned: String = value
+        .chars()
+        .filter(|c| !c.is_control() && !is_invisible(*c))
+        .collect();
     let cleaned = cleaned.trim().to_string();
     if cleaned.is_empty() {
         return Err("a field's value is empty (unset the field instead)".into());

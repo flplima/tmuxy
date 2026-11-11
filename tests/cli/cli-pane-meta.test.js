@@ -6,7 +6,8 @@
 
 const { runCLI } = require('./helpers/run-cli');
 
-const IN_PANE_1 = { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%1' };
+// The run's own socket (the seal's), as every CLI test's.
+const IN_PANE_1 = { TMUX_PANE: '%1' };
 
 const meta = (args, env = IN_PANE_1) => runCLI(['pane', 'meta', ...args], { env });
 
@@ -47,7 +48,7 @@ describe('tmuxy pane meta', () => {
       expect(verbArgs(stdout)).toBeNull();
     }
     // Outside any pane, and no -t: nothing to set fields on.
-    const nowhere = meta(['set', 'x=y'], { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '' });
+    const nowhere = meta(['set', 'x=y'], { TMUX_PANE: '' });
     expect(nowhere.exitCode).toBe(2);
     expect(nowhere.stderr).toContain('pass -t');
   });

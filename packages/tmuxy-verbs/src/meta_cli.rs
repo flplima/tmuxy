@@ -86,7 +86,12 @@ async fn meta<T: ask::Tmux>(
         }
         MetaAction::Set { ttl, pairs } => {
             let until = match ttl {
-                Some(ttl) => Some(now + pane_meta::parse_ttl(&ttl).map_err(usage)?),
+                Some(ttl) => {
+                    let seconds = pane_meta::parse_ttl(&ttl).map_err(usage)?;
+                    Some(now.checked_add(seconds).ok_or_else(|| {
+                        usage(format!("`{ttl}` is longer than a time to live can be"))
+                    })?)
+                }
                 None => None,
             };
             for pair in &pairs {

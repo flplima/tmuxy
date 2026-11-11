@@ -15,7 +15,10 @@ export interface PaneField {
 const MAX_FIELDS = 8;
 const MAX_VALUE_CHARS = 80;
 const KEY = /^[a-z][a-z0-9_-]{0,23}$/;
-const CONTROL = /\p{Cc}/u;
+/** Control characters, and the invisible ones core takes out
+ *  (`pane_meta::is_invisible`): zero-width and right-to-left overrides. */
+const CONTROL =
+  /[\p{Cc}\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB]/u;
 
 function decodeBase64(text: string): string | null {
   try {

@@ -27,6 +27,8 @@ describe('a pane’s custom fields', () => {
       b64({ ci: 'not an object' }),
       b64({ CI: { v: 'upper-case key' } }),
       b64({ ci: { v: 'line\nbreak' } }),
+      b64({ ci: { v: 'pass\u202Eliaf' } }),
+      b64({ ci: { v: 'zero\u200Bwidth' } }),
       b64({ ci: { v: '' } }),
       b64({ ci: { v: ' padded ' } }),
       b64({ ci: { v: 'x'.repeat(81) } }),

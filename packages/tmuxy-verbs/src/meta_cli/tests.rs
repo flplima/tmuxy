@@ -121,6 +121,8 @@ async fn what_breaks_the_rules_is_refused_and_writes_nothing() {
         (set(&["ci=   "], None), EXIT_USAGE),
         (set(&[&format!("ci={}", "x".repeat(81))], None), EXIT_USAGE),
         (set(&["ci=x"], Some("soon")), EXIT_USAGE),
+        // Days enough to pass u64 seconds when added to now.
+        (set(&["ci=x"], Some("213503982334601d")), EXIT_USAGE),
         (
             MetaAction::Unset {
                 keys: vec!["Bad Key".into()],

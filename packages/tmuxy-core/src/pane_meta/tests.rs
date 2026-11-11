@@ -37,6 +37,13 @@ fn a_value_is_one_line_of_plain_text_and_never_cut() {
     assert_eq!(clean_value("  passing  ").as_deref(), Ok("passing"));
     assert_eq!(clean_value("a\tb\nc\x1b[31m").as_deref(), Ok("abc[31m"));
     assert_eq!(clean_value("✓ 12/12 tests").as_deref(), Ok("✓ 12/12 tests"));
+    // Right-to-left overrides and zero-width characters, which make text
+    // read as what it does not say, go with the controls.
+    assert_eq!(
+        clean_value("pass\u{202E}gnil\u{202C}iaf\u{200B}ed\u{FEFF}").as_deref(),
+        Ok("passgniliafed")
+    );
+    assert!(clean_value("\u{200B}\u{202E}").is_err());
     assert!(clean_value("").is_err());
     assert!(clean_value(" \n\t ").is_err());
     let long = "x".repeat(MAX_VALUE_CHARS + 1);
