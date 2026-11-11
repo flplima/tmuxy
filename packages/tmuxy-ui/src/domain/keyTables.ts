@@ -65,6 +65,27 @@ export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
 };
 
 /**
+ * Client keys that came after users had the key to themselves: a binding the
+ * user's own config gives the key wins over them, so a long-standing
+ * `bind A …` keeps working. The older client keys are tmuxy's own defaults.
+ */
+const YIELDING_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set(['activity', 'activity-most-urgent']);
+
+/**
+ * The client key `key` is in `table`, unless it is one that yields and tmux
+ * has a binding for the key there (`bound`).
+ */
+export function clientKeyFor(
+  table: string,
+  key: string,
+  bound: (key: string) => boolean,
+): ClientKey | undefined {
+  const clientKey = CLIENT_KEYS[table]?.[key];
+  if (clientKey && YIELDING_CLIENT_KEYS.has(clientKey) && bound(key)) return undefined;
+  return clientKey;
+}
+
+/**
  * The chords the keyboard actor answers before any table (its ctrl+digit
  * branch): ctrl+0 opens the Tab Overview, and ctrl+1-9 picks a tab by its
  * position in the strip (`TAB_POSITION_CHORDS`).

@@ -88,6 +88,15 @@ describe('parseActivity', () => {
     expect(activityPlace(build!)).toBe('work · ci');
   });
 
+  // The desktop's second window is a grouped session (`work~1`) with the
+  // first one's panes: list-panes -a lists each of them twice.
+  it('lists a pane once, from the first session that has it', () => {
+    const twice = [row('work', '@1', 0, '%1', 'error'), row('work~1', '@1', 0, '%1', 'error')].join(
+      '\n',
+    );
+    expect(parseActivity(twice).map((r) => [r.paneId, r.session])).toEqual([['%1', 'work']]);
+  });
+
   it('keeps a tab name that has a tab in it whole', () => {
     const [only] = parseActivity(row('work', '@1', 0, '%1', 'working', { tab: 'a\tb' }));
     expect(only.tab).toBe('a\tb');

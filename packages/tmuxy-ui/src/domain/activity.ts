@@ -59,11 +59,16 @@ const KNOWN_STATES = new Set<string>(PANE_STATES);
  */
 export function parseActivity(listing: string): ActivityRow[] {
   const rows: ActivityRow[] = [];
+  // A pane is listed once per session it is in: a grouped session (the
+  // desktop's second window, `main~1`) shares the first one's panes.
+  const seen = new Set<string>();
   for (const line of listing.split('\n')) {
     const [session, windowId, index, paneId, state, status, command, label, title, ...tab] =
       line.split(SEP);
     if (!session || session === STASH_SESSION) continue;
     if (!isWindowId(windowId) || !isPaneId(paneId) || !KNOWN_STATES.has(state)) continue;
+    if (seen.has(paneId)) continue;
+    seen.add(paneId);
     const known = readPaneState(state);
     rows.push({
       paneId,

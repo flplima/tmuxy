@@ -359,6 +359,42 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
   });
 });
 
+describe("keyboardActor — the activity keys yield to the user's own binding", () => {
+  const PIN = 'select-window -t @0 \\; select-pane -t %1 \\; ';
+  const unbound = { prefix_key: 'C-a', prefix_bindings: [], root_bindings: [], tables: {} };
+  const owned = {
+    ...unbound,
+    prefix_bindings: [
+      { key: 'A', command: 'command-prompt -I "#W" "rename-window -- \'%%\'"', description: '' },
+    ],
+  };
+
+  it('prefix A opens the inbox and prefix U goes to who needs you, while the user binds neither', () => {
+    const { events, set } = spawnWithLiveContext(pid('%1'));
+    set({ keybindings: unbound });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'A', shiftKey: true });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'U', shiftKey: true });
+    expect(events.map((e) => e.type)).toEqual(
+      expect.arrayContaining(['TOGGLE_ACTIVITY', 'ACTIVITY_GO_MOST_URGENT']),
+    );
+  });
+
+  it("a user's `bind A …` keeps running, and U, which they left alone, is still the client's", () => {
+    const { events, set } = spawnWithLiveContext(pid('%1'));
+    set({ keybindings: owned });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'A', shiftKey: true });
+    expect(events.some((e) => e.type === 'TOGGLE_ACTIVITY')).toBe(false);
+    expect(lastSendCommand(events)).toBe(`${PIN}command-prompt -I "#W" "rename-window -- '%%'"`);
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'U', shiftKey: true });
+    expect(events.some((e) => e.type === 'ACTIVITY_GO_MOST_URGENT')).toBe(true);
+  });
+});
+
 describe('keyboardActor — copy and paste on ctrl+shift, as in a terminal emulator', () => {
   const execCommand = document.execCommand;
   let copy = vi.fn<typeof document.execCommand>();

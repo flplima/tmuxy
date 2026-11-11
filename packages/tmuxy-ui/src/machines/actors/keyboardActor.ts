@@ -8,7 +8,7 @@ import { fromCallback, type AnyActorRef, type EventObject } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
 import { getMobileInput, markKeyboardTarget } from '../../infra/dom/mobileKeyboard';
 import { TmuxOp } from '../../domain/commands';
-import { CLIENT_KEYS, type ClientKey, splitTableSwitch } from '../../domain/keyTables';
+import { clientKeyFor, type ClientKey, splitTableSwitch } from '../../domain/keyTables';
 import { tabWalksChrome } from '../../infra/dom/chromeTab';
 import {
   bindingKeyOf,
@@ -293,7 +293,7 @@ export function createKeyboardActor() {
         event.preventDefault();
         const bindingKey = bindingKeyOf(event);
 
-        const clientKey = CLIENT_KEYS.prefix[bindingKey];
+        const clientKey = clientKeyFor('prefix', bindingKey, (key) => prefix.has(key));
         if (clientKey) {
           runClientKey(clientKey);
           prefixMode.exit();
@@ -328,7 +328,10 @@ export function createKeyboardActor() {
       if (keyTable !== null) {
         event.preventDefault();
         const bindingKey = bindingKeyOf(event);
-        const clientKey = CLIENT_KEYS[keyTable]?.[bindingKey];
+        const table = keyTable;
+        const clientKey = clientKeyFor(table, bindingKey, (key) =>
+          Boolean(tables.get(table)?.has(key)),
+        );
         if (event.key === 'Escape') {
           setKeyTable(null);
         } else if (clientKey) {
