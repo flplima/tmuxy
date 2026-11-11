@@ -2,13 +2,15 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { scriptEnv, withScratchDir } = require('./env');
+const { suite } = require('./seal');
 
 const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-cli');
 
 /**
- * Every tmux invocation the CLI makes MUST target the dedicated socket
- * (`-L <name>`, or `-S <path>` when TMUX_SOCKET holds a path) — never the
- * user's default tmux server. Assert that invariant on every recorded call,
+ * Every tmux invocation the CLI makes MUST target the socket it was told to
+ * use (`-L <name>`, or `-S <path>` when TMUX_SOCKET holds a path): the run's
+ * own unless the test names another, and never the user's default tmux
+ * server. Assert that invariant on every recorded call,
  * then strip the flag pair so tests assert on the actual subcommand argv.
  *
  * @param {Array<{args: string[]}>} tmuxCalls - Raw recorded calls
@@ -16,7 +18,7 @@ const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-
  * @returns {Array<{args: string[]}>} Calls with the socket pair stripped
  */
 function stripSocketArgs(tmuxCalls, extraEnv = {}) {
-  const socket = extraEnv.TMUX_SOCKET || 'tmuxy';
+  const socket = extraEnv.TMUX_SOCKET || suite().socket;
   const expectedFlag = socket.includes('/') ? '-S' : '-L';
   return tmuxCalls.map((call) => {
     const [flag, value, ...rest] = call.args;
