@@ -47,12 +47,12 @@ describe('the environment a test hands its children', () => {
   // real tmux, on the socket the test named (`tmuxy`, a released build's
   // own), where the mock was meant to answer: four `pane send` tests failed
   // on what a live server said, and a test that kills a pane would have
-  // asked the developer's own server to. A test that names a tmux of its own
-  // still gets it.
+  // asked the developer's own server to. No test names one of its own
+  // either: a child that carries a `TMUX_BIN` is not started
+  // (`harness-seal.test.js`).
   test('a CLI script runs the mock tmux, whatever tmux the shell exports', () => {
     process.env.TMUX_BIN = '/opt/tmuxy/bin/tmux';
     expect(scriptEnv('/tmp/home')).not.toHaveProperty('TMUX_BIN');
-    expect(scriptEnv('/tmp/home', { TMUX_BIN: '/usr/bin/false' }).TMUX_BIN).toBe('/usr/bin/false');
 
     // And through a whole run: the mock recorded the call, so it was the
     // mock that ran. A binary that is not there would have failed the CLI.

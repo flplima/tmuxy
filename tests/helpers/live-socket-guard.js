@@ -24,6 +24,23 @@ function isSocketFile(file) {
   }
 }
 
+/** The directory tmux keeps this user's sockets in, when nothing moves it. */
+function liveSocketDirectory() {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+  return path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${uid}`);
+}
+
+function isInLiveDirectory(socketPath) {
+  const real = (dir) => {
+    try {
+      return fs.realpathSync(dir);
+    } catch {
+      return path.resolve(dir);
+    }
+  };
+  return real(path.dirname(socketPath)) === real(liveSocketDirectory());
+}
+
 /**
  * Why a suite may not use `socket` (a name for `tmux -L`, or a path for
  * `tmux -S`), or `null` when it may.
@@ -45,7 +62,10 @@ function liveSocketProblem({
   if (!socket) {
     return 'no socket is named, so tmux and the CLI would fall back to $TMUX or to the default socket';
   }
-  if ([...LIVE_SOCKET_NAMES, ...reserved].includes(socket)) {
+  // By name, or by the path that name has in the directory tmux keeps its
+  // sockets in (`tmux -S /tmp/tmux-<uid>/tmuxy` is `tmux -L tmuxy`).
+  const named = socket.includes('/') && isInLiveDirectory(socket) ? path.basename(socket) : socket;
+  if ([...LIVE_SOCKET_NAMES, ...reserved].includes(named)) {
     return `"${socket}" is a socket people work in (a released tmuxy, the dev server, plain tmux, another suite), never a suite's own`;
   }
   const shell = socketOfTmuxEnv(shellTmux);
@@ -60,4 +80,10 @@ function liveSocketProblem({
   return null;
 }
 
-module.exports = { LIVE_SOCKET_NAMES, isSocketFile, liveSocketProblem, socketOfTmuxEnv };
+module.exports = {
+  LIVE_SOCKET_NAMES,
+  isSocketFile,
+  liveSocketDirectory,
+  liveSocketProblem,
+  socketOfTmuxEnv,
+};

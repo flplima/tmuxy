@@ -2,11 +2,11 @@ const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
-const { liveSocketProblem } = require('../helpers/live-socket-guard');
+const { liveSocketDirectory, liveSocketProblem } = require('../helpers/live-socket-guard');
 const { tmuxSocket } = require('../helpers/tmux-socket');
 const { MOCKS_DIR, SOCKET, scriptEnv, sealedEnv } = require('./helpers/env');
 const { runCLI } = require('./helpers/run-cli');
-const { startChild } = require('./helpers/start-child');
+const { startChild, startChildPromised } = require('./helpers/start-child');
 const { MOCK_TMUX, sealChildProcesses, sealProblem, suite } = require('./helpers/seal');
 const { realTmux, serverAnswers, suiteSocketProblem } = require('./setup/global-setup');
 const globalTeardown = require('./setup/global-teardown');
@@ -163,6 +163,9 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
     fs.symlinkSync(MOCK_TMUX, path.join(linked, 'tmux'));
     expect(sealProblem(sealedEnv({ PATH: `${linked}:/usr/bin:/bin` }))).toBeNull();
     expect(sealProblem(sealedEnv({ PATH: path.join(scratch, 'empty') }))).toBeNull();
+    // No PATH is not "no tmux": a shell then searches a default one.
+    expect(sealProblem(sealedEnv({ PATH: '' }))).toContain('it has no PATH');
+    expect(sealProblem(sealedEnv({ PATH: undefined }))).toContain('it has no PATH');
 
     // `$TMUX` is a test's to set, to play a pane: never one that is there.
     const listening = path.join(scratch, 'live.sock');
@@ -177,7 +180,7 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
     expect(sealProblem(sealedEnv({ TMUX: '/tmp/tmuxy,123,0', TMUX_PANE: '%4' }))).toBeNull();
   });
 
-  test('a sealed child starts, every way a child is started, and the guard comes off again', () => {
+  test('a sealed child starts, every way a child is started, and the guard comes off again', async () => {
     const env = sealedEnv();
     expect(sealProblem(env)).toBeNull();
     expect(startChild('spawnSync', 'true', [], { env }).status).toBe(0);
@@ -202,6 +205,15 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
     expect(calls).toEqual([['spawn', 'tmux']]);
     unseal();
     expect(fake).toEqual(before);
+
+    // The promise form of exec and execFile goes through the seal as well.
+    await expect(startChildPromised('exec', 'echo ok', { env })).resolves.toMatchObject({
+      stdout: 'ok\n',
+    });
+    await expect(startChildPromised('execFile', 'echo', ['ok'], { env })).resolves.toMatchObject({
+      stdout: 'ok\n',
+    });
+    expect(() => startChildPromised('exec', 'echo ok')).toThrow(/was not started/);
   });
 
   // The E2E suite runs a real tmux on a socket of its own name. It may be
@@ -212,10 +224,27 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
       delete process.env.TMUX_SOCKET;
       process.env.TMUX = '/tmp/tmux-1000/tmuxy,4242,0';
       expect(tmuxSocket()).toBe('tmuxy-test');
-      for (const live of ['tmuxy', 'tmuxy-dev', 'default', '/tmp/tmux-1000/tmuxy']) {
+      const liveDir = liveSocketDirectory();
+      for (const live of [
+        'tmuxy',
+        'tmuxy-dev',
+        'default',
+        '/tmp/tmux-1000/tmuxy',
+        path.join(liveDir, 'tmuxy'),
+        path.join(liveDir, 'default'),
+      ]) {
         process.env.TMUX_SOCKET = live;
         expect(tmuxSocket).toThrow(/will not run on/);
       }
+      // A live name by its path, from a shell outside any tmux.
+      delete process.env.TMUX;
+      for (const live of [path.join(liveDir, 'tmuxy'), path.join(liveDir, 'tmuxy-dev')]) {
+        process.env.TMUX_SOCKET = live;
+        expect(tmuxSocket).toThrow(/a socket people work in/);
+      }
+      // The same name in a directory of the suite's own is the suite's.
+      process.env.TMUX_SOCKET = path.join(scratch, 'tmux-0', 'default');
+      expect(tmuxSocket()).toBe(path.join(scratch, 'tmux-0', 'default'));
       process.env.TMUX_SOCKET = 'tmuxy-mine-e2e';
       expect(tmuxSocket()).toBe('tmuxy-mine-e2e');
       expect(liveSocketProblem({ socket: 'tmuxy-mine-e2e', shellTmux: '' })).toBeNull();
