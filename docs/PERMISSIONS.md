@@ -64,19 +64,21 @@ A section binds its caller even with no rules in it: naming a caller says the fi
 
 A send into the caller's own pane is never the file's business.
 
-The file is read from disk for every send (`tmuxy_core::permissions`, called by `tmuxy-verbs/src/send_cli.rs` and `tmuxy-server/src/mcp/tools/open.rs`). Nothing caches it and nothing mirrors its rules into tmux options, where a process on the socket could rewrite them. An edit holds from the next send on. A question already on screen is not asked again.
+The file is read from disk for every send (`tmuxy_core::permissions`, called by `tmuxy-verbs/src/send_cli.rs` and `tmuxy-server/src/mcp/tools/open.rs`). Nothing caches it and nothing mirrors its rules into tmux options, where a process on the socket could rewrite them one by one (the directory it is read from is named by an option: see below). An edit holds from the next send on. A question already on screen is not asked again.
 
 `tmuxy config permissions` says whether the file reads as rules and which callers it has a section for, and `tmuxy config permissions --caller claude --into zsh -- 'gh pr list' Enter` says what that send would get, without sending anything.
 
 ## What the caller does not get to decide
 
-`tmuxy pane send` runs in the caller's own process, so nothing the caller hands it decides whether the rules are read (`tmuxy-verbs/src/permissions_file.rs`):
+`tmuxy pane send` runs in the caller's own process, so two things a caller could simply say are not taken on its word (`tmuxy-verbs/src/permissions_file.rs`):
 
 - **Where the file is.** It is read from the config directory of the app that configured the tmux server, which the server holds as the option `@tmuxy-config-dir`. The caller's own `XDG_CONFIG_HOME` does not move it. A tmux server no tmuxy of this version configured has no such option, and the caller's own config directory is then all there is.
 - **Which pane the caller runs in.** "The target is my own pane" is believed only when the pane's process is the caller or an ancestor of it. A caller that cannot show it is treated as running in no pane, so its send is checked and asked.
 - **Over MCP** neither arises: the server reads the file in its own environment and binds every client under its own name, `mcp` and `*`.
 
-What the caller does decide is **its name**. A caller is named by the program in its pane or by what it says its process is, and it can send from a pane it opened. So a named section holds only for a caller that gives that name, and **`*` is the only section a caller cannot leave**. Rules that must hold for everyone go under `*`. `tmuxy config permissions` says so when the file has none.
+Both answers come from tmux, and the caller still picks the tmux that is asked: `TMUX_BIN`, then `PATH`, are its own (and `ps`, on macOS). A caller that puts a program of its own there has stepped outside tmuxy as surely as one that runs raw `tmux`, and it can also rewrite `@tmuxy-config-dir` on the socket. Those are the doors SECURITY.md says to close in the agent's own permissions; the file does not close them.
+
+What the caller does decide inside tmuxy is **its name**. A caller is named by the program in its pane or by what it says its process is, and it can send from a pane it opened. So a named section holds only for a caller that gives that name, and **`*` is the only section a caller cannot leave**. Rules that must hold for everyone go under `*`. `tmuxy config permissions` says so when the file has none.
 
 ## Known limits
 
@@ -86,6 +88,7 @@ What the caller does decide is **its name**. A caller is named by the program in
 - A `deny` rule also refuses its text where it is no command, such as a message to another agent's prompt that begins with `rm `.
 - Any process of the same user can empty or remove the file, and nothing says so afterwards.
 - A program can start in the target pane between the check and the keys.
+- A caller in a sandbox with its own process ids cannot show that it runs in its pane, so a send into its own pane is asked.
 
 ## Not in this version
 

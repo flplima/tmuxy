@@ -281,6 +281,15 @@ impl Delivery<'_> {
 
 /// `text` into a named tmux buffer, from stdin: `load-buffer` changes no
 /// window, pane or client, so it runs as a plain client.
+///
+/// It is the one tmux call here that does not go through [`ask::Tmux`], so a
+/// test's fake does not stand in for it: under test it reaches no tmux.
+#[cfg(test)]
+fn load_buffer(_buffer: &str, _text: &str) -> Result<(), String> {
+    Err("a test's paste is loaded into no tmux".into())
+}
+
+#[cfg(not(test))]
 fn load_buffer(buffer: &str, text: &str) -> Result<(), String> {
     use std::io::Write;
     let mut child = tmuxy_core::session::tmux_command()
