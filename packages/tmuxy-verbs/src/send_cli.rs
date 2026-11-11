@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use tmuxy_core::ask::{self, Argv, Deadline, Question, Refused, SendRules};
+use tmuxy_core::permissions::{self, Decision};
 use tmuxy_core::{CommandError, PaneId};
 
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_TARGET, EXIT_USAGE};
@@ -57,7 +58,9 @@ impl ask::Tmux for CliTmux {
 
 pub async fn run(args: SendArgs) {
     let answer = Answer::new(args.json);
-    let code = match send(&CliTmux, args, &answer).await {
+    // The user's permissions file, read from disk for this send and no other.
+    let file = permissions::Loaded::read(&tmuxy_core::paths::Layout::current().permissions());
+    let code = match send(&CliTmux, args, &answer, &file).await {
         Ok(()) => 0,
         Err((code, message)) => answer.fail(code, &message),
     };
@@ -68,6 +71,7 @@ async fn send<T: ask::Tmux>(
     tmux: &T,
     args: SendArgs,
     answer: &Answer,
+    file: &permissions::Loaded,
 ) -> Result<(), (i32, String)> {
     let pane = PaneId::parse(&args.target)
         .map_err(|_| (EXIT_USAGE, format!("not a pane id: {}", args.target)))?;
@@ -101,7 +105,18 @@ async fn send<T: ask::Tmux>(
 
     let caller = caller_name(tmux, caller_pane.as_ref(), args.caller_process.as_deref()).await;
     let rules = SendRules::read(tmux, &pane).await.map_err(failed)?;
-    if rules.skip_question(&[&caller], &pane) {
+    // The user's permissions file can refuse the send, or have it asked
+    // where an option would skip the question. It skips none.
+    let verdict = file.check_send(permissions::Send {
+        callers: &[&caller],
+        program: &rules.program,
+        keys: &keys,
+        paste: args.paste,
+    });
+    if let Decision::Deny(why) = &verdict {
+        return Err((EXIT_FAILED, format!("{why}; nothing sent")));
+    }
+    if verdict == Decision::NoOpinion && rules.skip_question(&[&caller], &pane) {
         delivery.deliver(tmux, answer).await?;
         return rules.mark_unread(tmux, &pane).await.map_err(failed);
     }

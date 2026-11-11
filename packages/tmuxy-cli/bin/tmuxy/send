@@ -32,6 +32,10 @@ Skipping the question:
   set -g @tmuxy-send-allow-into claude,agy
                                         don't ask into panes running these
 
+Rules of your own: permissions.json in the config dir can refuse a command
+(deny) or have it asked whatever the options above say. It skips no question.
+`tmuxy config permissions` checks the file and says what a send would get.
+
 Exit status: 0 sent, 1 declined or timed out, 2 bad usage, 3 no such pane.
 
 Examples:

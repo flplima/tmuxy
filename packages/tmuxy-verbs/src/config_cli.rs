@@ -2,6 +2,7 @@
 //! keeps no copy of the files' names or formats.
 
 use tmuxy_core::paths::{Layout, FILES};
+use tmuxy_core::permissions::{self, Decision, Loaded};
 
 use crate::cli_json::{self, Answer, EXIT_FAILED};
 
@@ -37,12 +38,35 @@ enum ConfigVerb {
         #[arg(long)]
         fix: bool,
     },
+    /// What permissions.json says. With no keys: whether it reads as rules.
+    /// With keys: what typing them into another pane would get (allow, ask,
+    /// deny, or none when no rule binds the send), without sending anything.
+    Permissions {
+        /// A name the caller answers to (`claude`; repeat it for more).
+        #[arg(long)]
+        caller: Vec<String>,
+        /// The program in front in the pane typed into.
+        #[arg(long, default_value = "sh")]
+        into: String,
+        /// The text would be pasted, not typed.
+        #[arg(long)]
+        paste: bool,
+        /// The keys, as `tmuxy pane send` takes them.
+        #[arg(last = true)]
+        keys: Vec<String>,
+    },
 }
 
 pub fn run(args: ConfigArgs) {
     let layout = Layout::current();
     let answer = Answer::new(args.json);
     match args.verb {
+        ConfigVerb::Permissions {
+            caller,
+            into,
+            paste,
+            keys,
+        } => check_permissions(&layout, &answer, &caller, &into, paste, &keys),
         ConfigVerb::Paths if args.json => println!("{}", layout.report()),
         ConfigVerb::Paths => print!("{}", paths_text(&layout)),
         ConfigVerb::Reload => {
@@ -223,6 +247,82 @@ fn paths_text(layout: &Layout) -> String {
         ));
     }
     out
+}
+
+/// `tmuxy config permissions`: the file read as a send would read it, and
+/// what it says. Exit 1 for a file that is not rules and for a send it
+/// denies, so a script can tell either from the rest.
+fn check_permissions(
+    layout: &Layout,
+    answer: &Answer,
+    callers: &[String],
+    into: &str,
+    paste: bool,
+    keys: &[String],
+) {
+    let path = layout.permissions();
+    let file = cli_json::string(&path.display().to_string());
+    let loaded = Loaded::read(&path);
+    if keys.is_empty() {
+        match &loaded {
+            Loaded::Missing => answer.done(
+                &[("file", file), ("exists", "false".into())],
+                &format!(
+                    "No {}: a send into another pane asks, as it does without the file.",
+                    path.display()
+                ),
+            ),
+            Loaded::Rules(rules) => {
+                let (count, sections) = rules.counts();
+                answer.done(
+                    &[
+                        ("file", file),
+                        ("exists", "true".into()),
+                        ("rules", count.to_string()),
+                    ],
+                    &format!(
+                        "{}: {count} rule(s) for {sections} caller(s).",
+                        path.display()
+                    ),
+                );
+            }
+            Loaded::Malformed(why) => answer.exit(
+                EXIT_FAILED,
+                &format!(
+                    "{} cannot be read as rules: {why}. Every send into another pane is refused until it is fixed or removed.",
+                    path.display()
+                ),
+            ),
+        }
+        return;
+    }
+    let callers: Vec<&str> = callers.iter().map(String::as_str).collect();
+    let decision = loaded.check_send(permissions::Send {
+        callers: &callers,
+        program: into,
+        keys,
+        paste,
+    });
+    let fields = [
+        ("file", file),
+        ("decision", cli_json::string(decision.word())),
+        ("reason", cli_json::string(decision.reason())),
+    ];
+    if let Decision::Deny(_) = decision {
+        std::process::exit(answer.fail_with(
+            EXIT_FAILED,
+            &format!("deny: {}", decision.reason()),
+            &fields,
+        ));
+    }
+    let note = match decision {
+        Decision::Allow(_) => " (reported only: an allow rule skips no question in this version)",
+        _ => "",
+    };
+    answer.done(
+        &fields,
+        &format!("{}: {}{note}", decision.word(), decision.reason()),
+    );
 }
 
 #[cfg(test)]

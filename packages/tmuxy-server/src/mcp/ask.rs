@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tmuxy_core::argv::control_line;
 use tmuxy_core::ask::{self, Argv, Deadline, Question, SendRules};
+use tmuxy_core::permissions::{self, Decision};
 use tmuxy_core::{CommandError, PaneId};
 
 use super::tmux::Tmux;
@@ -34,17 +35,30 @@ impl ask::Tmux for Tmux {
 }
 
 /// Type `keys` into `pane`, asking the user first unless the options say not
-/// to. Fails when the user declines, the pane goes, or `timeout` passes
-/// unanswered — and then nothing was typed.
+/// to. Fails when the user's permissions file denies it, the user declines,
+/// the pane goes, or `timeout` passes unanswered — and then nothing was typed.
 pub(super) async fn send_keys(
     tmux: &Tmux,
     pane: &PaneId,
     keys: &[String],
     caller: &str,
     timeout: Duration,
+    file: &permissions::Loaded,
 ) -> Result<Value, CommandError> {
     let rules = SendRules::read(tmux, pane).await?;
-    if rules.skip_question(&[caller, ANY_MCP_CLIENT], pane) {
+    // The user's permissions file (`tmuxy_core::permissions`) can refuse the
+    // send, or have it asked where an option would skip the question. It
+    // skips none.
+    let verdict = file.check_send(permissions::Send {
+        callers: &[caller, ANY_MCP_CLIENT],
+        program: &rules.program,
+        keys,
+        paste: false,
+    });
+    if let Decision::Deny(why) = &verdict {
+        return Err(CommandError::forbidden(format!("{why}; nothing sent")));
+    }
+    if verdict == Decision::NoOpinion && rules.skip_question(&[caller, ANY_MCP_CLIENT], pane) {
         ask::Tmux::mutate(tmux, vec![ask::send_keys_argv(pane, keys)]).await?;
         rules.mark_unread(tmux, pane).await?;
         return Ok(json!({ "paneId": pane, "sent": true, "asked": false }));

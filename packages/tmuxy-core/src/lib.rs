@@ -25,6 +25,7 @@ pub mod logging;
 pub mod mime;
 #[cfg(feature = "cli")]
 pub mod paths;
+pub mod permissions;
 #[cfg(feature = "native")]
 pub mod plugins;
 #[cfg(feature = "native")]

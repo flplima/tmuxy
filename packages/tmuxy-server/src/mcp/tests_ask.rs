@@ -9,6 +9,7 @@ use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tmuxy_core::control_mode::{CommandReply, MonitorCommand};
+use tmuxy_core::permissions::{Loaded, Permissions};
 use tmuxy_core::session::SessionName;
 use tmuxy_core::PaneId;
 
@@ -88,13 +89,30 @@ fn keys() -> Vec<String> {
     vec!["npm test".into(), "Enter".into()]
 }
 
+/// No permissions file: the options alone decide, as they always have.
+const NO_FILE: Loaded = Loaded::Missing;
+
+fn file(rules: &str) -> Loaded {
+    match Permissions::parse(rules) {
+        Ok(rules) => Loaded::Rules(rules),
+        Err(why) => Loaded::Malformed(why),
+    }
+}
+
 #[tokio::test]
 async fn keys_land_only_after_the_user_allows_them_and_the_question_is_down() {
     let (tmux, pane) = fake_monitor(Some("yes"));
     let id = PaneId::parse("%3").unwrap();
-    let sent = ask::send_keys(&tmux, &id, &keys(), "claude-code", Duration::from_secs(5))
-        .await
-        .unwrap();
+    let sent = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "claude-code",
+        Duration::from_secs(5),
+        &NO_FILE,
+    )
+    .await
+    .unwrap();
     assert_eq!(sent["asked"], true);
 
     let p = pane.lock().unwrap();
@@ -115,7 +133,15 @@ async fn the_target_pane_needs_the_user_while_asked_and_gets_its_state_back() {
     let (tmux, pane) = fake_monitor(Some("no"));
     pane.lock().unwrap().rules = "\t\t\tclaude\tworking".into();
     let id = PaneId::parse("%3").unwrap();
-    let _ = ask::send_keys(&tmux, &id, &keys(), "cursor", Duration::from_secs(5)).await;
+    let _ = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "cursor",
+        Duration::from_secs(5),
+        &NO_FILE,
+    )
+    .await;
     let p = pane.lock().unwrap();
     let marked = p.log.iter().position(|c| {
         c.contains("set-option -p -t %3 @tmuxy-ask ") && c.contains("@tmuxy-pane-state needs-input")
@@ -135,9 +161,16 @@ async fn a_send_into_an_allowed_program_asks_nothing() {
     let (tmux, pane) = fake_monitor(None);
     pane.lock().unwrap().rules = "on\t\tclaude,agy\tagy\tidle".into();
     let id = PaneId::parse("%3").unwrap();
-    let sent = ask::send_keys(&tmux, &id, &keys(), "cursor", Duration::from_secs(5))
-        .await
-        .unwrap();
+    let sent = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "cursor",
+        Duration::from_secs(5),
+        &NO_FILE,
+    )
+    .await
+    .unwrap();
     assert_eq!(sent["asked"], false);
     let p = pane.lock().unwrap();
     assert!(
@@ -157,9 +190,16 @@ async fn mcp_on_the_allow_list_lets_every_client_type() {
     let (tmux, pane) = fake_monitor(None);
     pane.lock().unwrap().rules = "on\tmcp\t\tzsh\t".into();
     let id = PaneId::parse("%3").unwrap();
-    let sent = ask::send_keys(&tmux, &id, &keys(), "cursor", Duration::from_secs(5))
-        .await
-        .unwrap();
+    let sent = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "cursor",
+        Duration::from_secs(5),
+        &NO_FILE,
+    )
+    .await
+    .unwrap();
     assert_eq!(sent["asked"], false);
 }
 
@@ -167,9 +207,16 @@ async fn mcp_on_the_allow_list_lets_every_client_type() {
 async fn a_declined_send_types_nothing() {
     let (tmux, pane) = fake_monitor(Some("no"));
     let id = PaneId::parse("%3").unwrap();
-    let error = ask::send_keys(&tmux, &id, &keys(), "claude-code", Duration::from_secs(5))
-        .await
-        .unwrap_err();
+    let error = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "claude-code",
+        Duration::from_secs(5),
+        &NO_FILE,
+    )
+    .await
+    .unwrap_err();
     assert!(error.error.contains("declined"), "{error:?}");
     let p = pane.lock().unwrap();
     assert!(
@@ -187,7 +234,14 @@ async fn a_client_that_hangs_up_takes_its_question_down() {
     let (tmux, pane) = fake_monitor(None);
     let id = PaneId::parse("%3").unwrap();
     let keys = keys();
-    let send = ask::send_keys(&tmux, &id, &keys, "claude-code", Duration::from_secs(60));
+    let send = ask::send_keys(
+        &tmux,
+        &id,
+        &keys,
+        "claude-code",
+        Duration::from_secs(60),
+        &NO_FILE,
+    );
     let dropped = tokio::time::timeout(Duration::from_millis(500), send).await;
     assert!(
         dropped.is_err(),
@@ -211,4 +265,118 @@ async fn a_client_that_hangs_up_takes_its_question_down() {
         p.log
     );
     assert!(!p.log.iter().any(|c| c.contains("send-keys")));
+}
+
+/// The pane runs zsh and its options skip the question for every MCP client.
+fn skips_for_mcp() -> &'static str {
+    "on\tmcp\t\tzsh\tidle"
+}
+
+/// A client is bound by its own name and by `mcp`. What the file denies is
+/// refused as forbidden, with the rule: nothing typed, no question up.
+#[tokio::test]
+async fn a_send_the_permissions_file_denies_is_refused_without_a_question() {
+    let (tmux, pane) = fake_monitor(Some("yes"));
+    pane.lock().unwrap().rules = skips_for_mcp().into();
+    let id = PaneId::parse("%3").unwrap();
+    let rules = file(r#"{"callers": {"mcp": {"deny": ["Send(npm *)"]}}}"#);
+    let error = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "cursor",
+        Duration::from_secs(5),
+        &rules,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.error,
+        "denied by `Send(npm *)` (callers.mcp); nothing sent"
+    );
+    let pane = pane.lock().unwrap();
+    assert!(pane.ask.is_empty());
+    assert!(
+        !pane.log.iter().any(|c| c.contains("send-keys")),
+        "{:?}",
+        pane.log
+    );
+    assert!(
+        !pane.log.iter().any(|c| c.contains("@tmuxy-ask ")),
+        "{:?}",
+        pane.log
+    );
+}
+
+/// With rules for the client, a send into a shell is asked even where
+/// `@tmuxy-send-allow mcp` would have skipped the question, an allowed one
+/// included: the file skips no question.
+#[tokio::test]
+async fn the_permissions_file_has_a_send_asked_where_the_options_would_not() {
+    for rules in [
+        r#"{"callers": {"cursor": {"ask": ["Send(npm *)"]}}}"#,
+        r#"{"callers": {"cursor": {"allow": ["Send(npm *)"]}}}"#,
+        r#"{"callers": {"*": {"deny": ["Send(rm *)"]}}}"#,
+    ] {
+        let (tmux, pane) = fake_monitor(Some("yes"));
+        pane.lock().unwrap().rules = skips_for_mcp().into();
+        let id = PaneId::parse("%3").unwrap();
+        let sent = ask::send_keys(
+            &tmux,
+            &id,
+            &keys(),
+            "cursor",
+            Duration::from_secs(5),
+            &file(rules),
+        )
+        .await
+        .unwrap();
+        assert_eq!(sent["asked"], true, "{rules}");
+        assert_eq!(sent["sent"], true, "{rules}");
+    }
+    // Without rules for it, the option still skips the question.
+    let (tmux, pane) = fake_monitor(None);
+    pane.lock().unwrap().rules = skips_for_mcp().into();
+    let id = PaneId::parse("%3").unwrap();
+    let other = file(r#"{"callers": {"claude": {"deny": ["Send(npm *)"]}}}"#);
+    let sent = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "cursor",
+        Duration::from_secs(5),
+        &other,
+    )
+    .await
+    .unwrap();
+    assert_eq!(sent["asked"], false);
+}
+
+#[tokio::test]
+async fn a_permissions_file_that_is_not_rules_refuses_the_send() {
+    let (tmux, pane) = fake_monitor(Some("yes"));
+    pane.lock().unwrap().rules = skips_for_mcp().into();
+    let id = PaneId::parse("%3").unwrap();
+    let broken = file(r#"{"callers": {"mcp": {"deny": ["npm *"]}}}"#);
+    let error = ask::send_keys(
+        &tmux,
+        &id,
+        &keys(),
+        "cursor",
+        Duration::from_secs(5),
+        &broken,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        error.error.contains("cannot be read as rules"),
+        "{}",
+        error.error
+    );
+    assert!(!pane
+        .lock()
+        .unwrap()
+        .log
+        .iter()
+        .any(|c| c.contains("send-keys")));
 }

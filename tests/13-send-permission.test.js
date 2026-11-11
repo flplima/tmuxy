@@ -23,6 +23,12 @@ const {
   waitForCondition,
 } = require('./helpers');
 const { tmuxPane, tmuxPanes } = require('./helpers/tmux-read');
+const { tmuxEnv } = require('./helpers/tmux-socket');
+const fs = require('fs');
+const path = require('path');
+
+/** `permissions.json` in the suite's own config directory, never the user's. */
+const PERMISSIONS_FILE = path.join(tmuxEnv().XDG_CONFIG_HOME, 'tmuxy', 'permissions.json');
 
 /** The pane that holds the keyboard, and the other pane of the tab. */
 async function panesOfTab(page) {
@@ -260,4 +266,97 @@ describeE2E('Scenario: tmuxy pane send asks before typing into another pane', {}
       ctx.session.runAsOperator('set -g @tmuxy-send-ask on');
     }
   }, 180000);
+
+  test('permissions.json: a denied command is refused with no question, and one the rules cannot judge is asked even with asking off', async () => {
+    const { page } = ctx;
+    const { here, there } = await twoPanes();
+    const targetScope = `[data-pane-id="${there}"]`;
+    const senderScope = `[data-pane-id="${here}"]`;
+    const send = (line, marker) =>
+      typeCommand(
+        page,
+        here,
+        `${TMUXY_CLI} pane send -t ${there} '${line}' Enter; echo "${marker}=$?"`,
+      );
+    const allowWithShortcut = async () => {
+      const accelerator = process.platform === 'darwin' ? 'Meta' : 'Control';
+      await page.keyboard.down(accelerator);
+      await page.keyboard.press('Enter');
+      await page.keyboard.up(accelerator);
+    };
+
+    try {
+      // With asking off, anything would be typed unasked: what follows is
+      // then the file's doing and nothing else's.
+      ctx.session.runAsOperator('set -g @tmuxy-send-ask off');
+      fs.mkdirSync(path.dirname(PERMISSIONS_FILE), { recursive: true });
+      fs.writeFileSync(
+        PERMISSIONS_FILE,
+        JSON.stringify({
+          callers: { '*': { allow: ['Send(echo *)'], deny: ['Send(rm *)'] } },
+        }),
+      );
+
+      // 1. Denied: the sender is told which rule, exits 1, and the target
+      //    never shows a question or the command.
+      await send('rm -rf /tmp/tmuxy-e2e-not-there', 'denied');
+      await waitForTerminalText(page, 'denied by `Send(rm *)`', 20000, { scope: senderScope });
+      await waitForTerminalText(page, 'denied=1', 15000, {
+        scope: senderScope,
+        notOnLineWith: 'echo',
+      });
+      expect(await page.$(`[data-pane-ask="${there}"]`)).toBeNull();
+      expect(await screenOf(page, there)).not.toContain('tmuxy-e2e-not-there');
+
+      // 2. Two commands on one line: the rules match text, so this is asked,
+      //    though `Send(echo *)` matches it and asking is off. Allowed by the
+      //    user, both run.
+      await send('echo perm-one; echo perm-two', 'compound');
+      const overlay = await waitForAskOverlay(page, there, here);
+      expect(overlay.questions.join(' ')).toContain('echo perm-one; echo perm-two');
+      expect(await screenOf(page, there)).not.toContain('perm-two');
+      await allowWithShortcut();
+      await waitForNoAskOverlay(page, there);
+      await waitForTerminalText(page, 'perm-two', 20000, {
+        scope: targetScope,
+        notOnLineWith: 'echo perm',
+      });
+
+      // 3. A command an allow rule matches is asked too: the file skips no
+      //    question. Declined, nothing lands.
+      await send('echo perm-allowed', 'allowed');
+      await waitForAskOverlay(page, there, here);
+      await page.click(`[data-pane-ask="${there}"] [data-ask-choice="no"]`);
+      await waitForNoAskOverlay(page, there);
+      await waitForTerminalText(page, 'allowed=1', 15000, {
+        scope: senderScope,
+        notOnLineWith: 'echo',
+      });
+      expect(await screenOf(page, there)).not.toContain('perm-allowed');
+
+      // 4. A file that is not rules refuses everything, and says what is wrong.
+      fs.writeFileSync(PERMISSIONS_FILE, '{ "callers": { "*": { "deny": ["rm *"] } } }');
+      await send('echo perm-broken', 'broken');
+      await waitForTerminalText(page, 'cannot be read as rules', 20000, { scope: senderScope });
+      await waitForTerminalText(page, 'broken=1', 15000, {
+        scope: senderScope,
+        notOnLineWith: 'echo',
+      });
+      expect(await page.$(`[data-pane-ask="${there}"]`)).toBeNull();
+      expect(await screenOf(page, there)).not.toContain('perm-broken');
+
+      // 5. With the file gone the option decides again: typed, unasked.
+      fs.rmSync(PERMISSIONS_FILE);
+      await send('echo perm-no-file', 'nofile');
+      await waitForTerminalText(page, 'perm-no-file', 20000, {
+        scope: targetScope,
+        notOnLineWith: 'echo perm',
+      });
+      expect(await page.$(`[data-pane-ask="${there}"]`)).toBeNull();
+    } finally {
+      // The file and the option outlive the test on the shared server.
+      fs.rmSync(PERMISSIONS_FILE, { force: true });
+      ctx.session.runAsOperator('set -g @tmuxy-send-ask on');
+    }
+  }, 240000);
 });

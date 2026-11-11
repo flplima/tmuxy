@@ -24,6 +24,7 @@ machine (`--json` for a script).
 | `custom.css`            | config | you   | yes          | yes             | Your CSS, loaded last. Create it to tweak anything the themes do not cover.                              |
 | `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme.                   |
 | `icons/<name>.svg`      | config | you   | yes          | yes             | SVG icons an `@tmuxy-icon-<process>` option names (`claude.svg`).                                        |
+| `permissions.json`      | config | you   | yes          | yes             | Rules for what a caller may type into another pane's shell. Absent until you write it.                   |
 | `tmuxy-plugin.toml`     | config | you   | yes          | yes             | Your own actions and verbs: the `user` plugin (see Plugins below).                                       |
 | `plugins.json`          | config | you   | yes          | yes             | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
 | `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's `settings.toml` (`tmuxy plugin config`) and credentials; kept unless `remove --purge`.     |

@@ -87,7 +87,22 @@ fn args(caller_pane: Option<&str>) -> SendArgs {
 }
 
 async fn run(tmux: &Fake, args: SendArgs) -> Result<(), (i32, String)> {
-    send(tmux, args, &Answer::new(false)).await
+    send(
+        tmux,
+        args,
+        &Answer::new(false),
+        &permissions::Loaded::Missing,
+    )
+    .await
+}
+
+/// [`run`], with the user's permissions file holding `rules`.
+async fn run_with(tmux: &Fake, args: SendArgs, rules: &str) -> Result<(), (i32, String)> {
+    let file = match permissions::Permissions::parse(rules) {
+        Ok(rules) => permissions::Loaded::Rules(rules),
+        Err(why) => permissions::Loaded::Malformed(why),
+    };
+    send(tmux, args, &Answer::new(false), &file).await
 }
 
 #[tokio::test]
@@ -167,6 +182,181 @@ async fn a_caller_in_no_pane_is_named_by_its_process() {
     };
     run(&tmux, args(None)).await.unwrap();
     assert!(!tmux.asked());
+}
+
+/// `%3` runs zsh, and its options skip the question for everyone
+/// (`@tmuxy-send-ask off`): what the permissions file changes is then plain
+/// to see, since without it nothing would be asked.
+fn never_asks() -> Fake {
+    Fake {
+        rules: "off\t\t\tzsh\tidle".into(),
+        caller_program: "claude".into(),
+        reply: Some("yes"),
+        ..Fake::default()
+    }
+}
+
+fn typing(keys: &[&str]) -> SendArgs {
+    SendArgs {
+        keys: keys.iter().map(|k| k.to_string()).collect(),
+        ..args(Some("%1"))
+    }
+}
+
+const RULES: &str = r#"{"callers": {"claude": {
+    "allow": ["Send(gh *)"],
+    "ask": ["Send(gh pr merge *)"],
+    "deny": ["Send(rm *)"]
+}}}"#;
+
+/// A denied send exits 1 with the rule, types nothing, and puts no question
+/// up: there is nothing for the user to be talked into.
+#[tokio::test]
+async fn a_send_the_file_denies_types_nothing_and_asks_nobody() {
+    let tmux = never_asks();
+    let (code, message) = run_with(&tmux, typing(&["rm -rf build", "Enter"]), RULES)
+        .await
+        .unwrap_err();
+    assert_eq!(code, 1);
+    assert_eq!(
+        message,
+        "denied by `Send(rm *)` (callers.claude); nothing sent"
+    );
+    assert!(tmux.typed().is_empty());
+    assert!(!tmux.asked());
+    // The same send asks where the options would ask, too: deny is not "ask".
+    let asking = Fake {
+        rules: "on\t\t\tzsh\tidle".into(),
+        ..never_asks()
+    };
+    assert!(run_with(&asking, typing(&["rm -rf build", "Enter"]), RULES)
+        .await
+        .is_err());
+    assert!(!asking.asked());
+}
+
+/// With rules for the caller, a send into a shell is asked whatever the
+/// options say: an `ask` rule, no rule, a line the rules cannot judge. And an
+/// `allow` rule too, in this version: the file skips no question.
+#[tokio::test]
+async fn the_file_has_a_send_asked_where_the_options_would_skip_the_question() {
+    for keys in [
+        &["gh pr merge 7", "Enter"][..],
+        &["cargo build", "Enter"],
+        &["gh pr list; rm -rf x", "Enter"],
+        &["rm -rf x"],
+        &["C-c"],
+        &["gh pr list", "Enter"],
+    ] {
+        let tmux = never_asks();
+        run_with(&tmux, typing(keys), RULES).await.unwrap();
+        assert!(tmux.asked(), "{keys:?} was not asked");
+        assert_eq!(tmux.typed().len(), 1, "{keys:?}");
+    }
+    // Asked, and a no is a no.
+    let declined = Fake {
+        reply: Some("no"),
+        ..never_asks()
+    };
+    let (code, _) = run_with(&declined, typing(&["gh pr list", "Enter"]), RULES)
+        .await
+        .unwrap_err();
+    assert_eq!(code, 1);
+    assert!(declined.typed().is_empty());
+}
+
+/// Where the file has nothing to say, a send goes as it does without it: no
+/// rules for this caller, a target that is no shell, the caller's own pane.
+#[tokio::test]
+async fn a_send_the_file_does_not_bind_goes_as_it_did() {
+    // Another caller's rules are not this one's.
+    let other = Fake {
+        caller_program: "codex".into(),
+        ..never_asks()
+    };
+    run_with(&other, typing(&["rm -rf x", "Enter"]), RULES)
+        .await
+        .unwrap();
+    assert!(!other.asked());
+    assert_eq!(other.typed(), ["send-keys -t %3 -- rm -rf x Enter"]);
+
+    // An editor in the target pane: the keys are not a shell command.
+    let editor = Fake {
+        rules: "off\t\t\tvim\tidle".into(),
+        ..never_asks()
+    };
+    run_with(&editor, typing(&["rm -rf x", "Enter"]), RULES)
+        .await
+        .unwrap();
+    assert!(!editor.asked());
+
+    // The caller's own pane is the caller's to type into.
+    let own = never_asks();
+    run_with(
+        &own,
+        SendArgs {
+            keys: vec!["rm -rf x".into(), "Enter".into()],
+            ..args(Some("%3"))
+        },
+        RULES,
+    )
+    .await
+    .unwrap();
+    assert!(!own.asked());
+    assert_eq!(own.typed().len(), 1);
+
+    // And with no rules at all, the options decide as before.
+    let free = never_asks();
+    run_with(&free, typing(&["rm -rf x", "Enter"]), "{}")
+        .await
+        .unwrap();
+    assert!(!free.asked());
+}
+
+/// A file that is there and is not rules refuses every send into another
+/// pane, whoever sends and whatever the pane runs: it is never read as "no
+/// rules". The caller's own pane stays its own.
+#[tokio::test]
+async fn a_file_that_is_not_rules_refuses_every_send_into_another_pane() {
+    let broken = r#"{"callers": {"claude": {"deny": ["rm *"]}}}"#;
+    for tmux in [
+        never_asks(),
+        Fake {
+            rules: "off\t\t\tvim\tidle".into(),
+            caller_program: "codex".into(),
+            ..never_asks()
+        },
+    ] {
+        let (code, message) = run_with(&tmux, typing(&["ls", "Enter"]), broken)
+            .await
+            .unwrap_err();
+        assert_eq!(code, 1);
+        assert!(
+            message.contains("permissions.json cannot be read as rules"),
+            "{message}"
+        );
+        assert!(message.ends_with("nothing sent"), "{message}");
+        assert!(tmux.typed().is_empty());
+        assert!(!tmux.asked());
+    }
+    let own = never_asks();
+    run_with(&own, args(Some("%3")), broken).await.unwrap();
+    assert_eq!(own.typed().len(), 1);
+}
+
+/// A paste is text, not a command: with rules for the caller it is asked.
+#[tokio::test]
+async fn a_paste_into_a_shell_is_asked_when_the_caller_has_rules() {
+    let tmux = never_asks();
+    let pasted = SendArgs {
+        paste: true,
+        keys: vec!["gh pr list".into()],
+        ..args(Some("%1"))
+    };
+    // Asked first: the paste itself needs a tmux this fake is not, so the
+    // send ends in its failure, after the question.
+    let _ = run_with(&tmux, pasted, RULES).await;
+    assert!(tmux.asked());
 }
 
 /// Any spelling of the end marker would end a bracketed paste early and run
