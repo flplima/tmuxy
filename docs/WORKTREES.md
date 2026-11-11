@@ -9,7 +9,7 @@ A linked git worktree is a second checkout of a repository, on its own branch. A
 1. The branch is `--branch`, else the task in a few words (`Fix the login redirect` is `fix-the-login-redirect`, at most 40 characters).
 2. The worktree goes beside the repository's main one: `<main>-<last part of the branch>`, so `~/src/app` gets `~/src/app-fix-the-login-redirect`. An existing directory or branch is refused.
 3. A tab opens in it, named after the branch, beside the pane that asked.
-4. With `--agent`, the tab runs the agent with the task as its last argument, quoted as one word, then a shell, so the tab outlives the agent. Without it, the tab is a shell. A task with no agent is refused.
+4. With `--agent`, the tab runs the agent with the task after `--`, quoted as one word, so a task that starts with a dash is still the task. Then a shell, so the tab outlives the agent. Without it, the tab is a shell. A task with no agent is refused.
 
 The checkout runs no hook and no filter (see below), so a repository that needs them, Git LFS or a post-checkout step, gets the files without them.
 
