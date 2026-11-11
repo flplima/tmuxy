@@ -7,10 +7,16 @@ impl<C: ControlLink> TmuxMonitor<C> {
     /// scripts run and this machine's plugins.
     #[instrument(skip(self), fields(session = %self.config.session))]
     pub async fn sync_initial_state(&mut self) -> Result<(), TmuxError> {
+        // The check starts a tmux and waits for it: off the runtime's thread,
+        // as the reload paths run it. A check that cannot run holds nothing
+        // back.
+        let unparsed = tokio::task::spawn_blocking(crate::session::current_reload_blockers)
+            .await
+            .unwrap_or_default();
         let commands = self.core.attach_commands(
             (INITIAL_PTY_COLS, INITIAL_PTY_ROWS),
             super::super::monitor_core::AttachConfig {
-                config: attach_config(),
+                config: attach_config(&unparsed),
                 host: attach_host(),
             },
         );
@@ -68,9 +74,8 @@ impl<C: ControlLink> TmuxMonitor<C> {
 /// them when its server exits, tmuxy.state.json does not. After the config,
 /// and only for what the user's tmuxy.conf leaves unset — an option it sets
 /// is pinned, and config beats menu state.
-fn attach_config() -> Vec<String> {
-    let blockers = crate::session::current_reload_blockers();
-    if let Some(refusal) = crate::session::refusal(&blockers) {
+fn attach_config(blockers: &[crate::session::ConfigProblem]) -> Vec<String> {
+    if let Some(refusal) = crate::session::refusal(blockers) {
         warn!("{refusal}");
     }
     let mut commands: Vec<String> = crate::session::get_config_path()

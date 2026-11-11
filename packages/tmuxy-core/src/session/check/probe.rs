@@ -144,7 +144,7 @@ impl Probe {
             problems.push(ConfigProblem {
                 file: file.to_path_buf(),
                 line: None,
-                kind: ProblemKind::Parse,
+                kind: ProblemKind::Unchecked,
                 message: format!("tmux could not check this file: {}", said.trim()),
             });
         }

@@ -47,15 +47,25 @@ pub enum ProblemKind {
     Parse,
     Option,
     Source,
+    /// tmux failed and named no line of the file: maybe not the file's
+    /// fault (no tmux, a full disk), so reported and never blocking.
+    Unchecked,
 }
 
 impl ProblemKind {
+    /// Whether a problem of this kind keeps a reload from running: only what
+    /// tmux's own parse refuses (see the module's opening).
+    pub fn blocks_a_reload(self) -> bool {
+        self == Self::Parse
+    }
+
     /// The word `--json` gives it.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Parse => "parse",
             Self::Option => "option",
             Self::Source => "source",
+            Self::Unchecked => "unchecked",
         }
     }
 }
@@ -346,7 +356,10 @@ pub fn reload_blockers(layout: &Layout) -> Vec<ConfigProblem> {
         .map_err(|e| e.to_string())
         .and_then(|probe| parse_problems(&probe, &files));
     match asked {
-        Ok(problems) => problems,
+        Ok(problems) => problems
+            .into_iter()
+            .filter(|problem| problem.kind.blocks_a_reload())
+            .collect(),
         Err(e) => {
             tracing::warn!(error = %e, "the config was not checked before its reload");
             Vec::new()

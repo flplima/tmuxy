@@ -97,9 +97,9 @@ name, and exits 1 while there is anything to fix.
 
 While tmux cannot parse your files, `tmuxy config reload`, Reload Config and a
 saved `tmuxy.conf` change nothing and say which line, and a restarted app
-leaves a running server's config alone: a reload puts tmuxy's defaults back
-first, so a typo used to take your prefix with it. An unknown option or a
-missing file does not stop a reload. Lines inside a `%if` are left to tmux.
+leaves a running server's config alone, tmuxy's own defaults included after
+an upgrade: a reload puts those back first, so a typo used to take your prefix
+with it. An unknown option or a missing file does not stop a reload.
 
 ## Config beats menu state
 

@@ -152,3 +152,18 @@ fn what_tmux_prints_about_a_file_is_read_as_its_parse_errors() {
         }]
     );
 }
+
+/// Only what tmux's parse refuses keeps a reload from running: an unknown
+/// option or a missing file tmux carries on past, and a failure of tmux that
+/// names no line may not be the file's at all (no tmux, a full disk).
+#[test]
+fn only_a_parse_error_blocks_a_reload() {
+    assert!(ProblemKind::Parse.blocks_a_reload());
+    for kind in [
+        ProblemKind::Option,
+        ProblemKind::Source,
+        ProblemKind::Unchecked,
+    ] {
+        assert!(!kind.blocks_a_reload(), "{kind:?}");
+    }
+}
