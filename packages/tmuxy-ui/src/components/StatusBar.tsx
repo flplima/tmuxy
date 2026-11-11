@@ -28,6 +28,7 @@ import { SidebarToggle } from './SidebarToggle';
 import { TabOverviewToggle } from './TabOverviewToggle';
 import { NewTabButton } from './NewTabButton';
 import { TabStripScroll } from './TabStripScroll';
+import { LinkLatencyBadge } from './LinkLatencyBadge';
 import { SidebarTitle } from './SidebarTitle';
 import { useWindowStyle } from './useWindowStyle';
 import './StatusBar.css';
@@ -127,6 +128,7 @@ export const StatusBar = memo(function StatusBar({
             and a button that comes and goes must not push the ones that
             do not. */}
         <TabStripScroll />
+        <LinkLatencyBadge />
 
         <NewTabButton />
         <TabOverviewToggle />
