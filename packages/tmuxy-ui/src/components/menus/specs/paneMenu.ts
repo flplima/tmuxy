@@ -5,6 +5,7 @@
  */
 
 import type { AppMachineContext } from '../../../machines/types/context';
+import type { AppMachineEvent } from '../../../machines/types/events';
 import { markedPaneId, paneTakesCopyMode } from '../../../domain/client';
 import { TmuxOp } from '../../../domain/commands';
 import type { PaneId } from '../../../domain/ids';
@@ -57,6 +58,36 @@ const PANE_OPS = {
   'pane-clear': TmuxOp.ClearPane(),
   'view-zoom': TmuxOp.ZoomToggle({ paneId: null }),
 } as const satisfies Record<string, TmuxOp>;
+
+/**
+ * The shell's prompts (OSC 133): the jump between them and the copy of the
+ * newest command's output. `disabled` for a full-screen application, which
+ * has no scrollback of the shell's behind it.
+ */
+function promptItems(paneId: PaneId | undefined, disabled: boolean): AppMenuNode[] {
+  const item = (
+    id: string,
+    label: string,
+    icon: MenuIconName,
+    event: AppMachineEvent,
+  ): AppMenuNode => ({ kind: 'item', id, label, icon, disabled, action: eventAction(event) });
+  return [
+    item('pane-prompt-previous', 'Previous Prompt', 'previous', {
+      type: 'PROMPT_JUMP',
+      paneId,
+      direction: 'previous',
+    }),
+    item('pane-prompt-next', 'Next Prompt', 'next', {
+      type: 'PROMPT_JUMP',
+      paneId,
+      direction: 'next',
+    }),
+    item('pane-copy-last-output', 'Copy Last Output', 'copy-mode', {
+      type: 'COPY_LAST_OUTPUT',
+      paneId,
+    }),
+  ];
+}
 
 export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): AppMenuSpec {
   const { keybindings } = ctx;
@@ -119,6 +150,8 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
     ),
     op('pane-paste', 'Paste', 'paste'),
     op('pane-clear', 'Clear Screen', 'clear'),
+    separator,
+    ...promptItems(options.paneId ?? undefined, !paneId || !paneTakesCopyMode(ctx.panes, paneId)),
     separator,
     pluginsSubmenu(ctx.plugins, 'pane', paneId, keybindings),
     separator,

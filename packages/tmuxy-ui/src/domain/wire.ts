@@ -388,6 +388,23 @@ export const ScrollbackCells = Schema.Struct({
 export type ScrollbackCells = Schema.Schema.Type<typeof ScrollbackCells>;
 
 /**
+ * A `get_prompt_marks` answer: the rows a pane's shell prompts start on
+ * (OSC 133), ascending, counted from the top of a history of `historySize`.
+ */
+export const PromptMarks = Schema.Struct({
+  historySize: Schema.Number,
+  prompts: Schema.Array(Schema.Number),
+});
+export type PromptMarks = Schema.Schema.Type<typeof PromptMarks>;
+
+/**
+ * A `get_last_command_output` answer: what the newest command printed. Null
+ * when the pane has no output mark, empty when the command printed nothing.
+ */
+export const LastOutput = Schema.Struct({ text: Schema.NullOr(Schema.String) });
+export type LastOutput = Schema.Schema.Type<typeof LastOutput>;
+
+/**
  * Why the backend refused a command: `tmux` — tmux itself rejected it (a
  * query answered with `%error`); `unavailable` — no tmux connection to run
  * it on; `invalid` — the request was malformed or named an unknown command;

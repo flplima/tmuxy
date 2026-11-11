@@ -13,6 +13,8 @@ import { parseThemeMode, type TraceLevel } from '../../domain/wireSettings';
 import type { PlainCall } from '../../domain/backendCalls';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
 import { openExternalUrl } from '../../infra/openUrl';
+import { writeClipboard } from '../../infra/clipboard';
+import { lastOutputNotice, type PromptDirection } from '../../domain/promptMarks';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(
@@ -32,6 +34,10 @@ export type TmuxActorEvent =
   /** The grid this client shows, for the backend to size the session to. */
   | { type: 'SET_CLIENT_SIZE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
+  /** Read a pane's prompt rows; `jump` rides along to the answer. */
+  | { type: 'FETCH_PROMPT_MARKS'; paneId: PaneId; jump?: PromptDirection }
+  /** Copy what a pane's newest command printed, and say so. */
+  | { type: 'COPY_LAST_OUTPUT'; paneId: PaneId }
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_TRACE_SETTINGS' }
   | { type: 'SET_TRACE_ENABLED'; enabled: boolean }
@@ -298,6 +304,35 @@ export function createTmuxActor(runtime: AppRuntime) {
 
         const fiber = runtime.runFork(program);
         scrollbackFibers.set(event.paneId, fiber);
+      } else if (event.type === 'FETCH_PROMPT_MARKS') {
+        run(
+          withTransport((t) => t.call('get_prompt_marks', { paneId: event.paneId })),
+          {
+            onSuccess: (marks) =>
+              parent.send({
+                type: 'PROMPT_MARKS_LOADED',
+                paneId: event.paneId,
+                historySize: marks.historySize,
+                prompts: marks.prompts,
+                jump: event.jump,
+              }),
+            logPrefix: 'get_prompt_marks',
+            // Marks are an extra on a view that works without them; a jump
+            // that was asked for is worth saying it failed.
+            silentFail: !event.jump,
+          },
+        );
+      } else if (event.type === 'COPY_LAST_OUTPUT') {
+        run(
+          withTransport((t) => t.call('get_last_command_output', { paneId: event.paneId })),
+          {
+            onSuccess: ({ text }) => {
+              if (text) void writeClipboard(text, event.paneId);
+              parent.send({ type: 'NOTIFY', kind: 'info', text: lastOutputNotice(text) });
+            },
+            logPrefix: 'get_last_command_output',
+          },
+        );
       } else if (
         event.type === 'FETCH_TRACE_SETTINGS' ||
         event.type === 'SET_TRACE_ENABLED' ||

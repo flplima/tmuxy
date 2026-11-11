@@ -16,6 +16,7 @@ This document covers what's supported, how the pipeline works, and how to test e
 | **DEC Line Sizes — DECDHL / DECDWL** | `ESC # 3`, `ESC # 4`, `ESC # 5`, `ESC # 6` | `packages/vt100` (`LineSize` per row) + `extract_cells_from_screen` (`CellStyle.size`) | `components/terminal/cellPaint.ts` (both renderers) → `.terminal-scaled` (`dwl`, `dhl-top`, `dhl-bottom`) | `ESC # 3`/`# 4` render top/bottom halves of 2×2 double-height lines; `ESC # 6` renders 2×1 double-width; `ESC # 5` resets to single width. Preserved across `capture-pane` refreshes while the row's text matches |
 | **OSC 66 — Kitty Text Sizing** | `ESC ] 66 ; s=<n>:w=<n> ; <text> ST` | `packages/vt100` (`TextSize` on the cell) + `extract_cells_from_screen` | same | `s=2` emits `dhl-top` on row `r` and mirrors `dhl-bottom` onto the blank cell below it on row `r+1`; `w=2` (`s=1:w=2`) emits `dwl`. Preserved across `capture-pane` refreshes while the cell's character matches |
 | **OSC 7501: Program Status** | `ESC ] 7501 ; state=… : … ST` | `packages/vt100` → `control_mode/osc.rs` → `control_mode/program_status.rs` → `@tmuxy-pane-state` and `@tmuxy-pane-status`, written through control mode | the pane-state mark in the tree, the tab and the pane header | See [Program status](#program-status-osc-7501) |
+| **OSC 133: Shell prompts** | `ESC ] 133 ; A` / `C` / `D ; <status> ST` | tmux keeps `A` and `C` on the line (`host/prompt_marks.rs` reads them back); `control_mode/osc.rs` reads all three | prompt marks and the jump in the scrollback, Copy Last Output, a long command's result | See [PROMPT-MARKS.md](PROMPT-MARKS.md) |
 
 **A link is an attribute of the cell its text was written to.** The vendored
 vt100 (`packages/vt100`, see `packages/vt100/PATCHES.md`) reads OSC 8 itself and writes
@@ -198,7 +199,6 @@ These are documented because they reuse the same passthrough pipeline; whether t
 
 - **OSC 9 / OSC 777 — Desktop notifications**
 - **OSC 9;4 — ConEmu progress bars**
-- **OSC 133 — FinalTerm semantic zones** (prompt / command / output markers)
 - **OSC 7 — Working-directory hints**
 
 ## Related

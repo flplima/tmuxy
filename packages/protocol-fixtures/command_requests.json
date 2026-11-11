@@ -170,5 +170,17 @@
   },
   {
     "cmd": "greeting"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_prompt_marks"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_last_command_output"
   }
 ]

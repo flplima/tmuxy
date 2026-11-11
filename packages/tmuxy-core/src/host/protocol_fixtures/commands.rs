@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 30;
+const COMMANDS: usize = 32;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -52,6 +52,8 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::OpenLink { .. } => 27,
         C::OpenText { .. } => 28,
         C::Greeting => 29,
+        C::GetPromptMarks { .. } => 30,
+        C::GetLastCommandOutput { .. } => 31,
     }
 }
 
@@ -142,6 +144,8 @@ fn every_request() -> Vec<ClientCommand> {
             column: 5,
         },
         C::Greeting,
+        C::GetPromptMarks { pane_id: pane() },
+        C::GetLastCommandOutput { pane_id: pane() },
     ]
 }
 
@@ -187,7 +191,9 @@ fn every_command_request_matches_its_fixture() {
 /// reads it with.
 #[test]
 fn every_command_answer_matches_its_fixture() {
-    use crate::host::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings};
+    use crate::host::{
+        LastOutput, PluginToken, PromptMarks, ScrollbackCells, SnapshotInfo, TraceSettings,
+    };
     let null = || vec![serde_json::Value::Null];
     let json = |v: &dyn erased::Json| vec![v.to_json()];
     let server = crate::servers::Server {
@@ -323,6 +329,22 @@ fn every_command_answer_matches_its_fixture() {
                 }),
                 HostEvent::KeyBindings(canonical_bindings()),
             ]),
+        ),
+        (
+            "get_prompt_marks",
+            json(&PromptMarks {
+                history_size: 1234,
+                prompts: vec![1190, 1240],
+            }),
+        ),
+        (
+            "get_last_command_output",
+            vec![
+                erased::Json::to_json(&LastOutput {
+                    text: Some("ok\n".to_string()),
+                }),
+                erased::Json::to_json(&LastOutput { text: None }),
+            ],
         ),
     ];
     let answered: BTreeSet<String> = answers.iter().map(|(name, _)| name.to_string()).collect();

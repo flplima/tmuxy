@@ -180,3 +180,59 @@ describe('tmuxActor — cancellable scrollback', () => {
     actor.stop();
   });
 });
+
+describe('tmuxActor — the shell prompts', () => {
+  it('FETCH_PROMPT_MARKS answers with the rows, and carries the jump that asked', async () => {
+    const { runtime } = fakeTransport({
+      send: async ({ cmd }) =>
+        cmd === 'get_prompt_marks' ? { historySize: 100, prompts: [40, 80] } : null,
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor
+      .getSnapshot()
+      .children.tmux!.send({ type: 'FETCH_PROMPT_MARKS', paneId: '%1', jump: 'previous' });
+
+    await waitFor(() => events.some((e) => e.type === 'PROMPT_MARKS_LOADED'));
+    expect(events.find((e) => e.type === 'PROMPT_MARKS_LOADED')).toEqual({
+      type: 'PROMPT_MARKS_LOADED',
+      paneId: '%1',
+      historySize: 100,
+      prompts: [40, 80],
+      jump: 'previous',
+    });
+    actor.stop();
+  });
+
+  it('COPY_LAST_OUTPUT puts the text on the clipboard and says how much', async () => {
+    const { runtime } = fakeTransport({
+      send: async ({ cmd }) => (cmd === 'get_last_command_output' ? { text: 'ok\nfine' } : null),
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'COPY_LAST_OUTPUT', paneId: '%1' });
+
+    await waitFor(() => events.some((e) => e.type === 'NOTIFY'));
+    expect(events.find((e) => e.type === 'NOTIFY')?.text).toBe(
+      'Copied the last output: 7 characters',
+    );
+    const copied = (globalThis as { __tmuxyLastClipboard?: { paneId: string; text: string } })
+      .__tmuxyLastClipboard;
+    expect(copied).toEqual({ paneId: '%1', text: 'ok\nfine' });
+    actor.stop();
+  });
+
+  it('a shell that marks no output copies nothing and says why', async () => {
+    delete (globalThis as { __tmuxyLastClipboard?: unknown }).__tmuxyLastClipboard;
+    const { runtime } = fakeTransport({
+      send: async ({ cmd }) => (cmd === 'get_last_command_output' ? { text: null } : null),
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'COPY_LAST_OUTPUT', paneId: '%1' });
+
+    await waitFor(() => events.some((e) => e.type === 'NOTIFY'));
+    expect(events.find((e) => e.type === 'NOTIFY')?.text).toBe(
+      'No command output to copy: this shell marks none',
+    );
+    expect((globalThis as { __tmuxyLastClipboard?: unknown }).__tmuxyLastClipboard).toBeUndefined();
+    actor.stop();
+  });
+});

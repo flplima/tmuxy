@@ -243,6 +243,14 @@ export function ScrollbackTerminal({
     totalLines,
   ]);
 
+  // The shell's prompts (OSC 133) among the rows drawn: a mark in the left
+  // edge of each, so a long history shows where its commands begin.
+  const promptRows = copyState.promptRows;
+  const markedRows = useMemo(
+    () => (promptRows ?? []).filter((row) => row >= renderStart && row <= renderEnd),
+    [promptRows, renderStart, renderEnd],
+  );
+
   const cursorChar = useMemo(() => {
     if (!isCursorVisible) return ' ';
     const line = lines.get(cursorRow);
@@ -276,6 +284,15 @@ export function ScrollbackTerminal({
         ref={preRef}
         style={{ position: 'relative', height: '100%' }}
       />
+      {markedRows.map((row) => (
+        <div
+          key={row}
+          className="terminal-prompt-mark"
+          data-testid="prompt-mark"
+          data-row={row}
+          style={{ top: row * charHeight, height: charHeight }}
+        />
+      ))}
       {isCursorVisible && (
         <Cursor x={cursorCol} y={cursorRow} char={cursorChar} copyMode={true} mode="block" />
       )}

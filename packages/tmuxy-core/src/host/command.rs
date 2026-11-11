@@ -54,6 +54,17 @@ pub enum ClientCommand {
         #[serde(default = "default_scrollback_end")]
         end: i64,
     },
+    /// The rows a pane's shell prompts start on (OSC 133), for the scrollback
+    /// view's marks and the jump between prompts.
+    GetPromptMarks {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+    },
+    /// What the pane's newest command printed, as text.
+    GetLastCommandOutput {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+    },
     /// A `preview` pane's document (`path` absent) or a resource it links
     /// (`path` relative to it). The pane names nothing on disk: what it may
     /// read is the pane's own `@tmuxy-pane-preview`, asked of tmux on every
@@ -309,6 +320,20 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             to_json(
                 requests::scrollback_cells(&tx, &pane_id, start, end).await?,
                 "scrollback",
+            )
+        }
+        ClientCommand::GetPromptMarks { pane_id } => {
+            let tx = runtime.channel().await?;
+            to_json(
+                super::prompt_marks::prompt_marks(&tx, &pane_id).await?,
+                "prompt marks",
+            )
+        }
+        ClientCommand::GetLastCommandOutput { pane_id } => {
+            let tx = runtime.channel().await?;
+            to_json(
+                super::prompt_marks::last_command_output(&tx, &pane_id).await?,
+                "last output",
             )
         }
         ClientCommand::ReadPreview { pane_id, path } => {

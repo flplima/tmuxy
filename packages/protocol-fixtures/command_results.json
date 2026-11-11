@@ -155,6 +155,23 @@
       ]
     }
   ],
+  "get_last_command_output": [
+    {
+      "text": "ok\n"
+    },
+    {
+      "text": null
+    }
+  ],
+  "get_prompt_marks": [
+    {
+      "historySize": 1234,
+      "prompts": [
+        1190,
+        1240
+      ]
+    }
+  ],
   "get_scrollback_cells": [
     {
       "cells": [
