@@ -1,11 +1,17 @@
 //! What a shell command leaves on its pane when it ends (OSC 133 `C` … `D`).
 //!
 //! A command that ran for a while is one the user may have stopped watching,
-//! so its end is said the way a program says its own with OSC 7501: a record
-//! of the pane's, `done` (which the pane shows as unread) or `error` when
-//! the exit status was not zero, with how it ended as the message. The pane's
-//! mark, its tooltip and the push notice then follow from the record like
-//! any other. A short command ends without a word.
+//! so its end is said the way a program says its own with OSC 7501: a `done`
+//! record of the pane's, which the pane shows as unread, with how it ended
+//! as the message. The pane's mark, its tooltip and the push notice then
+//! follow from the record like any other. A short command ends without a
+//! word.
+//!
+//! A status that is not zero is said in the message and is still `done`,
+//! never `error`. Most long commands that end that way were stopped by the
+//! person watching them (Ctrl-C on a server is 130, a closed ssh 255), and
+//! an unread result has the manners that fits: the client that shows the
+//! pane takes it off at once, and it is pushed only after it has waited.
 //!
 //! This file is the whole of that choice: the tracker only hands it the two
 //! marks and applies what it answers.
@@ -37,14 +43,14 @@ pub(crate) fn ended(exit: Option<i32>, ran: Duration) -> Option<Report> {
         return None;
     }
     let took = spoken(ran);
-    let (state, msg) = match exit {
-        Some(status) if status != 0 => (State::Error, format!("Exit {status} after {took}")),
-        _ => (State::Done, format!("Finished in {took}")),
+    let msg = match exit {
+        Some(status) if status != 0 => format!("Exit {status} after {took}"),
+        _ => format!("Finished in {took}"),
     };
     Some(Report::Set {
         id: RECORD_ID.to_string(),
         record: Record {
-            state,
+            state: State::Done,
             kind: None,
             progress: None,
             app: None,
@@ -98,11 +104,15 @@ mod tests {
         assert_eq!(message(&report), "Finished in 15 s");
     }
 
+    /// Ctrl-C on a server that ran for two minutes is not a failure to be
+    /// told about: it is a result like any other, with its status said.
     #[test]
-    fn a_long_command_that_failed_is_an_error_naming_its_exit_status() {
-        let report = ended(Some(130), Duration::from_secs(125)).unwrap();
-        assert!(matches!(&report, Report::Set { record, .. } if record.state == State::Error));
-        assert_eq!(message(&report), "Exit 130 after 2 min 5 s");
+    fn a_long_command_that_did_not_exit_zero_is_still_a_result_naming_its_status() {
+        for status in [1, 130, 255] {
+            let report = ended(Some(status), Duration::from_secs(125)).unwrap();
+            assert!(matches!(&report, Report::Set { record, .. } if record.state == State::Done));
+            assert_eq!(message(&report), format!("Exit {status} after 2 min 5 s"));
+        }
     }
 
     #[test]

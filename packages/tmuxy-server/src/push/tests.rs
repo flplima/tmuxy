@@ -235,10 +235,21 @@ fn only_a_push_service_subscription_is_taken() {
 }
 
 fn rows(states: &[(&str, &str)], notify: &str) -> Vec<PaneRow> {
+    let reported: Vec<(&str, &str, &str)> = states
+        .iter()
+        .map(|(pane, state)| (*pane, *state, ""))
+        .collect();
+    rows_reporting(&reported, notify)
+}
+
+/// Rows with what a report said each state is about (`@tmuxy-pane-status`).
+fn rows_reporting(states: &[(&str, &str, &str)], notify: &str) -> Vec<PaneRow> {
     parse_rows(
         &states
             .iter()
-            .map(|(pane, state)| format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\t\tmain"))
+            .map(|(pane, state, status)| {
+                format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\t\t{status}\tmain")
+            })
             .collect::<Vec<_>>()
             .join("\n"),
     )
@@ -288,13 +299,16 @@ fn a_pane_coming_to_need_the_user_is_one_notice() {
 /// read, and then once.
 #[test]
 fn a_result_nobody_has_seen_by_the_next_read_is_one_notice() {
+    const DONE: &str = "state=done:app=make";
     let mut watch = Watch::default();
     watch.update(&rows(&[("%1", "working"), ("%2", "working")], "on"), "");
 
-    let entered = watch.update(&rows(&[("%1", "unread"), ("%2", "unread")], "on"), "");
+    let both = [("%1", "unread", DONE), ("%2", "unread", DONE)];
+    let entered = watch.update(&rows_reporting(&both, "on"), "");
     assert!(entered.is_empty(), "a client may be showing either pane");
 
-    let waited = watch.update(&rows(&[("%1", "unread"), ("%2", "")], "on"), "host");
+    let one = [("%1", "unread", DONE), ("%2", "", DONE)];
+    let waited = watch.update(&rows_reporting(&one, "on"), "host");
     assert_eq!(
         waited,
         vec![Notice {
@@ -307,14 +321,47 @@ fn a_result_nobody_has_seen_by_the_next_read_is_one_notice() {
         "%2 was seen and cleared in between"
     );
     assert!(watch
-        .update(&rows(&[("%1", "unread")], "on"), "")
+        .update(&rows_reporting(&[("%1", "unread", DONE)], "on"), "")
         .is_empty());
 
     watch.update(&rows(&[("%1", "working")], "off"), "");
-    watch.update(&rows(&[("%1", "unread")], "off"), "");
+    watch.update(&rows_reporting(&[("%1", "unread", DONE)], "off"), "");
     assert!(watch
-        .update(&rows(&[("%1", "unread")], "off"), "")
+        .update(&rows_reporting(&[("%1", "unread", DONE)], "off"), "")
         .is_empty());
+}
+
+/// After a shell's long command the pane's program is the shell again: the
+/// notice does not say the shell finished.
+#[test]
+fn a_shells_finished_command_is_not_named_after_the_shell() {
+    let ended = [(
+        "%1",
+        "unread",
+        "state=done:id=tmuxy.command:msg=RmluaXNoZWQ=",
+    )];
+    let mut watch = Watch::default();
+    watch.update(&rows(&[("%1", "")], "on"), "");
+    watch.update(&rows_reporting(&ended, "on"), "");
+    let notices = watch.update(&rows_reporting(&ended, "on"), "");
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].title, "A command finished");
+}
+
+/// `unread` is also what a send leaves on the pane it typed into, and what a
+/// state outlived by its text looks like. Nothing finished there.
+#[test]
+fn an_unread_that_no_report_is_behind_is_no_notice() {
+    for status in ["", "state=working:progress=40"] {
+        let sent = [("%1", "unread", status)];
+        let mut watch = Watch::default();
+        watch.update(&rows(&[("%1", "")], "on"), "");
+        assert!(watch.update(&rows_reporting(&sent, "on"), "").is_empty());
+        assert!(
+            watch.update(&rows_reporting(&sent, "on"), "").is_empty(),
+            "with {status:?}"
+        );
+    }
 }
 
 /// What a push service receives: an encrypted body, the encoding, a TTL and

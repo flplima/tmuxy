@@ -1,5 +1,6 @@
 //! Web push notifications: a pane entering `needs-input` or `error`, or one
-//! whose result (`unread`) nobody has looked at yet, is pushed to every
+//! with a result (an `unread` a program or the shell reported as done) that
+//! nobody has looked at yet, is pushed to every
 //! device that turned notifications on — a browser tab, or the app installed
 //! on a phone's home screen, open or not.
 //!

@@ -453,15 +453,15 @@ fn a_long_command_marks_its_pane_when_it_ends_and_the_next_command_takes_the_mar
 }
 
 #[test]
-fn a_long_command_that_failed_marks_its_pane_as_an_error() {
+fn a_long_command_that_did_not_exit_zero_leaves_a_result_too_not_an_error() {
     let mut tracker = Tracker::default();
     let start = Instant::now();
     tracker.read(vec![StatusEvent::CommandBegan], start);
     let end = start + command_finish::LONG_COMMAND;
-    tracker.read(vec![StatusEvent::CommandEnded(Some(2))], end);
+    tracker.read(vec![StatusEvent::CommandEnded(Some(130))], end);
     assert_eq!(
         state_of(tracker.due(None, end)),
-        Some(Some(PaneStateName::Error))
+        Some(Some(PaneStateName::Unread))
     );
 }
 

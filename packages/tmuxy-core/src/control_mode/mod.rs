@@ -3,13 +3,13 @@
 //! `capture-pane`.
 
 // Sans-IO, so these also build for wasm.
-mod command_finish;
+pub(crate) mod command_finish;
 pub mod images;
 mod log;
 mod octal;
 mod osc;
 mod parser;
-mod program_status;
+pub(crate) mod program_status;
 mod state;
 
 pub mod monitor_core;
