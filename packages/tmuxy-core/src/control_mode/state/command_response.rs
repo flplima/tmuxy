@@ -130,6 +130,7 @@ impl StateAggregator {
                     }
                 };
                 let mut commands = self.collapsible_layout_commands(None);
+                commands.extend(self.held_status_commands(Instant::now()));
                 commands.extend(
                     self.view_mode_opened
                         .drain(..)
@@ -246,6 +247,17 @@ impl StateAggregator {
             panes_needing_refresh,
             ..Default::default()
         }
+    }
+
+    /// The status writes that were held back for coming too soon after the
+    /// last one (`program_status::MIN_WRITE_INTERVAL`) and are due at `now`.
+    pub(super) fn held_status_commands(&mut self, now: Instant) -> Vec<String> {
+        let mut panes: Vec<&mut PaneState> = self.panes.values_mut().collect();
+        panes.sort_by_key(|pane| pane.id.number());
+        panes
+            .into_iter()
+            .flat_map(|pane| pane.status_commands(now))
+            .collect()
     }
 
     /// Apply a `list-panes` answer and return the panes that need a capture

@@ -15,6 +15,7 @@ This document covers what's supported, how the pipeline works, and how to test e
 | **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `packages/vt100` → `control_mode/osc.rs` (`OscRequests`, its callbacks) → `StateEmitter::write_clipboard` → the `clipboard` host event (an SSE frame on the web, a Tauri event on the desktop) | the transport's `Clipboard` event → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. What is dropped: vt100 forwards the sequence only when every payload byte is in `A-Za-z0-9+/=` (`packages/vt100/src/perform.rs`); core refuses raw base64 over 2 MiB (`MAX_CLIPBOARD_BASE64_BYTES`) and a payload that does not decode to UTF-8 (`control_mode/osc.rs`); the aggregator's active-pane, size and rate bounds are in [SECURITY-CONTENT.md](SECURITY-CONTENT.md#pane-output-threat-model). Covered end to end by `tests/3-rendering-protocols.test.js` Scenario 14, which reads the clipboard write. |
 | **DEC Line Sizes — DECDHL / DECDWL** | `ESC # 3`, `ESC # 4`, `ESC # 5`, `ESC # 6` | `packages/vt100` (`LineSize` per row) + `extract_cells_from_screen` (`CellStyle.size`) | `components/terminal/cellPaint.ts` (both renderers) → `.terminal-scaled` (`dwl`, `dhl-top`, `dhl-bottom`) | `ESC # 3`/`# 4` render top/bottom halves of 2×2 double-height lines; `ESC # 6` renders 2×1 double-width; `ESC # 5` resets to single width. Preserved across `capture-pane` refreshes while the row's text matches |
 | **OSC 66 — Kitty Text Sizing** | `ESC ] 66 ; s=<n>:w=<n> ; <text> ST` | `packages/vt100` (`TextSize` on the cell) + `extract_cells_from_screen` | same | `s=2` emits `dhl-top` on row `r` and mirrors `dhl-bottom` onto the blank cell below it on row `r+1`; `w=2` (`s=1:w=2`) emits `dwl`. Preserved across `capture-pane` refreshes while the cell's character matches |
+| **OSC 7501: Program Status** | `ESC ] 7501 ; state=… : … ST` | `packages/vt100` → `control_mode/osc.rs` → `control_mode/program_status.rs` → `@tmuxy-pane-state` and `@tmuxy-pane-status`, written through control mode | the pane-state mark in the tree, the tab and the pane header | See [Program status](#program-status-osc-7501) |
 
 **A link is an attribute of the cell its text was written to.** The vendored
 vt100 (`packages/vt100`, see `packages/vt100/PATCHES.md`) reads OSC 8 itself and writes
@@ -136,6 +137,29 @@ The frontend positions the `<img>` absolutely inside `.terminal-images` in cell 
 
 See [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) for this section: The cell grid invariant.
 
+## Program status (OSC 7501)
+
+A program can say what it is doing in its own output, with the [program status protocol](https://www.superlogical.com/rex/docs/build/program-status). No hook and no install: a `printf` is enough.
+
+| Reported state | Pane state |
+| --- | --- |
+| `working` | `working` |
+| `blocked` | `needs-input` |
+| `done` | `unread` |
+| `error` | `error` |
+| `idle` | `idle` |
+| `clear` | unset |
+
+The pane keeps one record per `id` and shows the one that wants you most. That state is written to `@tmuxy-pane-state` through control mode, so the tabs, the tree and the push notification read it like a hook's ([TMUX-TAGS.md](TMUX-TAGS.md)). Both options live in tmux, so a host that never saw the report reads them too.
+
+- A new shell prompt (`OSC 133 ; A`) ends `working` and `blocked`. `done` and `error` stay, and `unread` goes once the pane is in front.
+- The limits are the specification's: 4096 bytes a report, 256 records a pane. A report past one, or with a control character in its text, is dropped whole.
+- tmux gets one write per pane every 200 ms at most. A write held back goes out with the next one, so the pane ends on the program's last word.
+- Reports are read only while a client watches the pane's session, because tmux sends `%output` for the attached session only.
+- The shown record goes to `@tmuxy-pane-status` as a report body (`state=blocked:kind=permission:msg=<base64>`), written just before the state. It travels with the pane (`pane_status`) and shows when you point at the mark (`tmuxy-ui/src/domain/paneStatus.ts`). A pane carries it only while its state is still the report's: a hook that moves the state on leaves the old text in tmux, unread.
+
+**The feature-detection query (`OSC 7501 ; ?`) gets no reply.** A program that asks sends `CSI c` right behind the query, and takes the protocol as unsupported when the `CSI c` reply comes first. tmux answers `CSI c` itself, and a reply from tmuxy would have to go back through tmux, so it would come second. Claude Code 2.1.322 asks this way, so inside tmux it reports nothing: its state still comes from the hooks of `tmuxy agent install`.
+
 ## Testing
 
 ### Manual
@@ -162,6 +186,7 @@ Inside a real tmuxy session, each of these renders the image inline in the pane.
 
 ### Automated
 
+- **Program status**: `tmuxy-core/src/control_mode/program_status/tests.rs` holds the parser, the records and the write to tmux. `tests/21-agent-states.test.js` prints each state in a real pane and checks the mark.
 - **Rust unit tests** (`tmuxy-core/src/control_mode/images.rs`) cover the parsers and placement geometry — including chunked Kitty transfers, RGBA-to-PNG conversion, and Sixel decode.
 - **E2E** runs a real tmux session, emits each protocol with a shell command, and asserts the `<img>` shows up in the page (see `tests/`).
 

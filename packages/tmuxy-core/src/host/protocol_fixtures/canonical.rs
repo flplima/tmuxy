@@ -81,6 +81,9 @@ pub(super) fn canonical_state() -> TmuxState {
                 cursor_shape: 6,
                 cursor_hidden: true,
                 pane_state: Some("working".to_string()),
+                pane_status: Some(
+                    "state=working:progress=40:app=make:msg=QnVpbGRpbmc=".to_string(),
+                ),
                 pane_ask: Some("eyJ0b2tlbiI6ImExIn0=".to_string()),
                 pane_widget: Some("tree".to_string()),
                 pane_restore: None,
@@ -116,6 +119,7 @@ pub(super) fn canonical_state() -> TmuxState {
                 cursor_shape: 0,
                 cursor_hidden: false,
                 pane_state: None,
+                pane_status: None,
                 pane_ask: None,
                 pane_widget: None,
                 pane_restore: None,
@@ -198,6 +202,7 @@ pub(super) fn canonical_delta() -> TmuxDelta {
             border_title: Some("new border".to_string()),
             group_id: Some(None),
             pane_state: Some(Some("idle".to_string())),
+            pane_status: Some(None),
             pane_ask: Some(None),
             pane_widget: Some(Some("tree".to_string())),
             pane_restore: None,
@@ -287,6 +292,7 @@ pub(super) fn canonical_delta() -> TmuxDelta {
             pane_widget: None,
             pane_restore: None,
             group_pos: None,
+            pane_status: None,
         }]),
         new_windows: Some(vec![TmuxWindow {
             id: "@3".parse().unwrap(),

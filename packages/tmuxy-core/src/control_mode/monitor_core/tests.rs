@@ -175,7 +175,7 @@ pub(super) fn with_a_pane(core: &mut Core, now: Instant) {
         .build();
     let events = [
         marked(core, LIST_BEGIN_MARKER, TmuxList::Panes.name()),
-        response("%0,0,0,0,80,24,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,"),
+        response("%0,0,0,0,80,24,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,,"),
         marked(core, LIST_END_MARKER, ""),
         marked(core, LIST_BEGIN_MARKER, TmuxList::Windows.name()),
         response(&window),
