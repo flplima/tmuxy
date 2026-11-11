@@ -32,6 +32,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | `@tmuxy-plugins-rev` | global | 16 hex digits (a hash of the inventory) \| unset | changes exactly when `@tmuxy-plugins` does; rides the pane-metadata subscription and the `list-panes` rows, so a client re-reads the inventory within a second |
 | `@tmuxy-cli` | global | the bundled CLI's absolute path (`<data>/bin/tmuxy-cli`) | set by the entry file beside `TMUXY_DATA_DIR`; a plugin key names the CLI by it (`#{q:@tmuxy-cli}`), because the client runs a binding as `list-keys` prints it and tmux before 3.5 prints a `$` in a form that does not parse back (`plugins/keys.rs`) |
 | `@tmuxy-pane-state` | pane | `idle` \| `working` \| `needs-input` \| `error` \| `unread` \| unset | what the pane says it is doing; set by whatever runs in it |
+| `@tmuxy-meta` | pane | base64 JSON \| unset | `tmuxy pane meta` fields for the tree row (`tmuxy-core/src/pane_meta.rs`) |
 | `@tmuxy-ask` | pane | base64 of `{token, caller, keys}` or `{token, kind: "offer", command}` \| unset | a send into this pane waiting on the user (`tmuxy pane send -t`), or a command a session restore offers to run again (the client shows it as a one-line banner and runs or drops it itself) |
 | `@tmuxy-ask-answer` | pane | `<token>:yes` \| `<token>:no` \| unset | the answer a client recorded for the pending `@tmuxy-ask` |
 | `@tmuxy-pane-widget` | pane | a widget name, e.g. `tree` \| unset | which widget this pane may render; written by `tmuxy-widget` and cleared when it exits |

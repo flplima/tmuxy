@@ -7,6 +7,7 @@
 
 import { Schema } from 'effect';
 import type { PaneId, WindowId } from './ids';
+import type { PaneField } from './paneMeta';
 
 export interface SessionTreeWindow {
   id: WindowId;
@@ -23,6 +24,8 @@ export interface SessionTreePane {
   /** Working directory tmux reports for the pane (`#{pane_current_path}`). */
   cwd: string;
   active: boolean;
+  /** The fields shown on its row (`tmuxy pane meta`), as the poll found them. */
+  fields: PaneField[];
 }
 
 /**

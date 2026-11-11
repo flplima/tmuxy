@@ -23,6 +23,7 @@ pub mod list_keys;
 #[cfg(feature = "native")]
 pub mod logging;
 pub mod mime;
+pub mod pane_meta;
 #[cfg(feature = "cli")]
 pub mod paths;
 #[cfg(feature = "native")]

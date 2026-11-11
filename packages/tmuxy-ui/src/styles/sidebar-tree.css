@@ -247,6 +247,24 @@
   color: var(--theme-accent);
 }
 
+/* The fields a script set on the pane: one line under its title, cut at the
+   column's edge like the title. */
+.sidebar-tree-fields {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.sidebar-tree-field + .sidebar-tree-field {
+  margin-left: 1.5ch;
+}
+
+.sidebar-tree-field-key {
+  color: var(--text-dimmed);
+}
+
 /* The ports a pane's programs listen on: after the process, before the id,
    and never what a narrow row cuts first. */
 .sidebar-tree-ports {

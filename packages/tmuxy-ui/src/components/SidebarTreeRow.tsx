@@ -9,6 +9,7 @@ import type { useReorderDrag } from './useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey, type GitBadge } from './sidebarTreeRows';
 import { portUrl } from './panePorts';
+import type { PaneField } from '../domain/paneMeta';
 import { openExternalUrl } from '../infra/openUrl';
 import { isTauri } from '../infra/platform';
 
@@ -31,6 +32,27 @@ const changesLabel = (changes: NonNullable<GitBadge['changes']>) =>
   ]
     .filter(Boolean)
     .join(', ');
+
+/**
+ * The fields a script or an agent set on the pane (`tmuxy pane meta`), on a
+ * line of their own: `ci passing  task parser rewrite`. The whole line is
+ * the tooltip, since a narrow column cuts it.
+ */
+function FieldLine({ fields }: { fields: PaneField[] | undefined }) {
+  if (!fields?.length) return null;
+  const whole = fields.map((f) => `${f.key}: ${f.value}`).join('\n');
+  return (
+    <Tooltip label={whole}>
+      <span className="sidebar-tree-fields" data-testid="tree-fields">
+        {fields.map((field) => (
+          <span key={field.key} className="sidebar-tree-field" data-field={field.key}>
+            <span className="sidebar-tree-field-key">{field.key}</span> {field.value}
+          </span>
+        ))}
+      </span>
+    </Tooltip>
+  );
+}
 
 /** Where a port's page is: this page's host in a browser, this machine on the desktop. */
 const openPort = (port: number) =>
@@ -109,6 +131,7 @@ interface SidebarTreeRowProps {
   cwdByPane: Map<PaneId, string>;
   branchOf: (paneIds: readonly PaneId[]) => GitBadge | null;
   portsOf: ReadonlyMap<PaneId, readonly number[]>;
+  fieldsOf: ReadonlyMap<PaneId, PaneField[]>;
   activate: (row: Row) => void;
   toggleCollapse: (windowId: WindowId) => void;
   movePaneToTab: (paneId: PaneId, targetWindowId: WindowId) => void;
@@ -134,6 +157,7 @@ export function SidebarTreeRow({
   cwdByPane,
   branchOf,
   portsOf,
+  fieldsOf,
   activate,
   toggleCollapse,
   movePaneToTab,
@@ -341,6 +365,7 @@ export function SidebarTreeRow({
           </span>
         )}
         {title && <span className="sidebar-tree-title">{title}</span>}
+        <FieldLine fields={fieldsOf.get(row.pane.tmuxId)} />
       </span>
     </div>
   );

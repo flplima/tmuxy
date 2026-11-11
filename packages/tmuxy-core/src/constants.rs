@@ -115,6 +115,11 @@ pub mod tmux_options {
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
 
+    /// A pane's custom fields (`tmuxy pane meta`, `crate::pane_meta`): base64
+    /// of a JSON object, so any text survives the tab-separated pane listing
+    /// the sidebar tree reads them from. Unset for none.
+    pub const PANE_META: &str = "@tmuxy-meta";
+
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the
     /// shell scripts' `_contract`).

@@ -69,6 +69,31 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     expect(sent).toEqual([expect.stringMatching(/send-keys -t %5 .*echo/)]);
   });
 
+  // The fields already on the pane are kept, the new one is added with its
+  // time, and what is written is what a reader decodes.
+  test('pane meta adds a field to those on the pane and says what is shown', () => {
+    const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64');
+    const { exitCode, stdout, tmuxCalls } = guest(
+      ['--json', 'pane', 'meta', 'set', '--ttl', '5m', 'deploy=running  '],
+      { MOCK_TMUX_PANE_META: b64({ ci: { v: 'passing' } }) },
+    );
+    expect(exitCode).toBe(0);
+    const written = tmuxCalls
+      .filter((c) => c.args[0] === 'run-shell')
+      .map((c) => c.args[1])
+      .join('\n')
+      .match(/set-option -p -t %5 @tmuxy-meta '?([A-Za-z0-9+/=]+)'?/);
+    expect(written).not.toBeNull();
+    const fields = JSON.parse(Buffer.from(written[1], 'base64').toString());
+    expect(fields.ci).toEqual({ v: 'passing' });
+    expect(fields.deploy.v).toBe('running');
+    expect(fields.deploy.until - Date.now() / 1000).toBeGreaterThan(290);
+    const answer = JSON.parse(stdout);
+    expect(answer).toMatchObject({ ok: true, paneId: '%5' });
+    expect(answer.fields.ci).toEqual({ value: 'passing', secondsLeft: null });
+    expect(answer.fields.deploy.secondsLeft).toBe(300);
+  });
+
   test('config paths answers the files', () => {
     const { stdout, exitCode } = guest(['config', 'paths', '--json']);
     expect(exitCode).toBe(0);

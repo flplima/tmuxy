@@ -266,6 +266,10 @@ FEOF
       cmd_pane_group "$@"
       ;;
 
+    meta)
+      cmd_pane_meta "$@"
+      ;;
+
     --help|-h|"")
       usage_pane
       ;;
@@ -274,6 +278,76 @@ FEOF
       _die_usage "Unknown pane command: $sub" usage_pane
       ;;
   esac
+}
+
+# --- Pane meta ---
+
+usage_pane_meta() {
+  cat <<'EOF'
+Usage: tmuxy pane meta set [-t target] [--ttl 5m] key=value...
+       tmuxy pane meta unset [-t target] key...
+       tmuxy pane meta list [-t target]
+       tmuxy pane meta clear [-t target]
+
+Short fields a script or an agent sets on a pane, for its row in the sidebar
+tree: `tmuxy pane meta set ci=passing`. A key is a lowercase letter, then up
+to 23 of a-z 0-9 - _; a value is one line of up to 80 characters. A pane
+holds up to 8. With --ttl (30s, 5m, 2h, 1d) a field is shown for that long.
+Without -t, the pane you run it in.
+EOF
+}
+
+# The fields' rules, their storage and the answers are the `meta` verb's
+# (`packages/tmuxy-verbs/src/meta_cli.rs`): this resolves the pane.
+cmd_pane_meta() {
+  local action="${1:-}" pane="" ttl="" pairs=() rc=0 resolved
+  case "$action" in
+    set | unset | list | clear) shift ;;
+    "" | --help | -h)
+      usage_pane_meta
+      return
+      ;;
+    *) _die_usage "unknown pane meta action '$action' (set, unset, list, clear)" usage_pane_meta ;;
+  esac
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -t)
+        pane="${2:?-t needs a pane}"
+        shift 2
+        ;;
+      -t*)
+        pane="${1#-t}"
+        shift
+        ;;
+      --ttl)
+        ttl="${2:?--ttl needs a time, like 5m}"
+        shift 2
+        ;;
+      --help | -h)
+        usage_pane_meta
+        return
+        ;;
+      -*) _die_usage "unknown option '$1'" usage_pane_meta ;;
+      *)
+        pairs+=("$1")
+        shift
+        ;;
+    esac
+  done
+  [ "$action" = set ] || [ -z "$ttl" ] || _die_usage "--ttl goes with set"
+  pane="${pane:-${TMUX_PANE:-}}"
+  [ -n "$pane" ] || _die_usage "no pane to work on (pass -t)"
+  pane="$(_resolve_target "$pane")" || exit $?
+  resolved="$(_tmux_read display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" || rc=$?
+  _exit_if_no_server "$rc"
+  [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $pane"
+  [ -n "$resolved" ] && pane="$resolved"
+  find_server_cmd || exit "$EXIT_FAILED"
+  local verb=(meta --target "$pane")
+  [ "$JSON_OUT" = true ] && verb+=(--json)
+  verb+=("$action")
+  [ -n "$ttl" ] && verb+=(--ttl "$ttl")
+  exec "${SERVER_CMD[@]}" "${verb[@]}" -- ${pairs[@]+"${pairs[@]}"}
 }
 
 # --- Pane group subcommands ---
