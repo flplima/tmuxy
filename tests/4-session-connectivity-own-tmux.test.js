@@ -75,6 +75,9 @@ describe('Scenario 22e: The user has tmux sessions of their own', () => {
     const offered = hostsAnswer(page);
     await page.goto(`${world.url}/?session=main`);
     await shownPane(page);
+    // The server under test is on its socket inside this world, not on a
+    // live one of the same name.
+    expect(world.attachedInside()).toEqual(['main']);
     // The session a switch would open is the first by name, and this host
     // cannot make the switch.
     expect(await (await offered).json()).toEqual({

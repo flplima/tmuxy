@@ -26,6 +26,7 @@ describe('The user has tmux sessions of their own', () => {
 
   beforeAll(async () => {
     world.startUsersTmux(['notes', 'work']);
+    world.assertIsolated();
     await startTauriDriver(OWN_DRIVER_PORT, {
       env: { ...world.env, DISPLAY: process.env.DISPLAY || ':99' },
       nativePort: OWN_DRIVER_PORT + 1,
@@ -62,6 +63,14 @@ describe('The user has tmux sessions of their own', () => {
   test('the launch offers the user’s tmux → taking it opens their session there → the notice says how to stay, and is answered for good', async () => {
     driver = await launchApp(undefined, OWN_DRIVER_PORT);
     await waitForXState(driver, 30000);
+    // The app is on its socket inside this world, not on a live one of the
+    // same name.
+    await waitForCondition(
+      null,
+      () => world.attachedInside().includes('tmuxy'),
+      30000,
+      'the app to attach to its tmux inside the test world',
+    );
 
     // 1. The app opened on its own empty session, and says where the user's
     //    two are, with the switch it can make.
