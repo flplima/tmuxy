@@ -2,7 +2,11 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { takeKeyboard } from '../helpers';
 import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
-import { writeClipboard, clipboardWriteMessage } from '../../../infra/clipboard';
+import {
+  writeClipboard,
+  clipboardBlockedMessage,
+  clipboardWriteMessage,
+} from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import { invokeEvent } from '../../actors/tmuxActor';
 import { memorableSessionName } from '../../../domain/sessionNames';
@@ -75,12 +79,18 @@ export const connectionActions = {
       : {},
   ),
 
-  connection_tmuxClipboard: act(({ event, enqueue }) => {
+  // Announced once the browser has answered, and as what happened: a write no
+  // key or click came just before is one Firefox and Safari turn down.
+  connection_tmuxClipboard: act(({ event, enqueue, self }) => {
     if (event.type !== 'TMUX_CLIPBOARD') return;
-    enqueue(() => void writeClipboard(event.text, event.paneId));
-    enqueue.raise({
-      type: 'SHOW_STATUS_MESSAGE' as const,
-      text: clipboardWriteMessage(event.text, event.paneId),
+    const { text, paneId } = event;
+    enqueue(() => {
+      void writeClipboard(text, paneId).then((copied) =>
+        self.send({
+          type: 'SHOW_STATUS_MESSAGE',
+          text: (copied ? clipboardWriteMessage : clipboardBlockedMessage)(text, paneId),
+        }),
+      );
     });
   }),
 
