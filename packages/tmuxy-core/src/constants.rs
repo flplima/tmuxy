@@ -195,6 +195,9 @@ pub mod tmux_options {
     /// program in front is one of them skips that question — an agent's
     /// prompt, which other agents may type into. Read where `SEND_ALLOW` is.
     pub const SEND_ALLOW_INTO: &str = "@tmuxy-send-allow-into";
+    /// `on`/`off`: whether closing a pane or tab asks first while a pane in
+    /// it says it is `working` or `needs-input` (`@tmuxy-pane-state`).
+    pub const CONFIRM_CLOSE: &str = "@tmuxy-confirm-close";
     /// `on`/`off`: whether a pane entering `needs-input` or `error` sends a
     /// web push notification to the devices that turned them on
     /// (`tmuxy-server/src/push.rs`).

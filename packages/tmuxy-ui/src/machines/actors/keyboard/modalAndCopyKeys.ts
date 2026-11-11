@@ -65,6 +65,15 @@ export function handleModalOrCopyKeyDown(
     }
   }
 
+  // The close confirmation: Enter closes, Escape keeps, and nothing typed
+  // meanwhile reaches the pane behind the question.
+  if (keys.closePending && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    if (event.key === 'Enter') parent.send({ type: 'CONFIRM_CLOSE' });
+    else if (event.key === 'Escape') parent.send({ type: 'CANCEL_CLOSE' });
+    return true;
+  }
+
   // Modal keys view (`prefix ?`)
   if (keys.keysViewOpen && !event.ctrlKey && !event.metaKey && !event.altKey && !prefixActive) {
     event.preventDefault();

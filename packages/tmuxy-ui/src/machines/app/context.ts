@@ -118,6 +118,7 @@ export const FIELD_OWNERS = {
   prefixRepeatOnly: 'commandUi',
   keyTable: 'commandUi',
   keysViewOpen: 'commandUi',
+  pendingClose: 'commandUi',
   renamingPaneId: 'commandUi',
 
   notifications: 'notifications',
@@ -130,6 +131,7 @@ export const FIELD_OWNERS = {
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
   sendAsk: 'uiPrefs',
+  confirmClose: 'uiPrefs',
   notifyAllowed: 'uiPrefs',
   pushState: 'uiPrefs',
   processIcons: 'uiPrefs',
@@ -242,6 +244,7 @@ export function createInitialContext(): AppMachineContext {
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
+    pendingClose: null,
     renamingPaneId: null,
     baseFontSize: loadFontSizePref(),
   };
