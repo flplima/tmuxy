@@ -123,13 +123,34 @@ async fn prompt_rows_and_the_last_output_are_read_without_the_pane_showing_a_mod
         "no state the monitor emitted had the pane in a mode"
     );
 
-    // A pane the user put in copy mode stays in it.
-    monitor.ask(&format!("copy-mode -t {pane}")).await;
+    // A pane the user put in copy mode stays in it, with its cursor and its
+    // scroll position where they were: three rows down the oldest screen of
+    // the history, two columns in.
+    monitor
+        .ask(&format!(
+            "copy-mode -t {pane} ; send-keys -X -t {pane} history-top ; \
+             send-keys -N 3 -X -t {pane} cursor-down ; send-keys -N 2 -X -t {pane} cursor-right"
+        ))
+        .await;
+    let place = "#{pane_in_mode} #{scroll_position} #{copy_cursor_x} #{copy_cursor_y}";
+    let where_it_is = || async {
+        let asked = format!("display-message -p -t {pane} '{place}'");
+        monitor.ask(&asked).await.output.trim().to_string()
+    };
+    let before = where_it_is().await;
+    assert_eq!(
+        before,
+        format!("1 {} 2 3", state.panes[0].history_size),
+        "the scene"
+    );
     let again = prompt_marks(&monitor.tx, &pane).await.unwrap();
     assert_eq!(again.prompts, prompt_lines);
-    let mode = monitor
-        .ask(&format!("display-message -p -t {pane} '#{{pane_in_mode}}'"))
-        .await;
-    assert_eq!(mode.output.trim(), "1", "their copy mode is not ended");
+    let output = last_command_output(&monitor.tx, &pane).await.unwrap();
+    assert_eq!(output.text.as_deref(), Some("OUT40_1\nOUT40_2\nOUT40_3"));
+    assert_eq!(
+        where_it_is().await,
+        before,
+        "their copy mode is not ended, and its cursor is back where it was"
+    );
     assert_eq!(monitor.errors(), Vec::<String>::new());
 }

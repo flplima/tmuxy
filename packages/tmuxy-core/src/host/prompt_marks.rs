@@ -17,7 +17,10 @@
 //! Leaving is `scroll-down` at the bottom of a mode entered with `-e`, which
 //! tmux then leaves by itself. A pane the user already had in copy mode was
 //! not entered by this list (entering twice changes nothing), so it stays in
-//! its mode, where a `cancel` would have ended theirs.
+//! its mode, where a `cancel` would have ended theirs. The walk moves that
+//! mode's cursor, so where it was is read first and put back after; a mode
+//! with a selection begun is not walked at all, since the steps would drag
+//! the selection along.
 //!
 //! This file is the whole of where prompt positions come from. What it
 //! answers is rows counted from the top of the history, like the client's
@@ -37,9 +40,61 @@ const FULL_STEPS: usize = 256;
 /// How often the last output is read again when the pane printed in between.
 const CAPTURE_TRIES: usize = 3;
 
+/// The most rows of output that are captured for a copy.
+const MAX_OUTPUT_ROWS: u32 = 20_000;
+
 /// Where copy mode's cursor is: its row on screen, and how far the screen is
 /// scrolled up from the bottom.
 const POSITION: &str = "#{copy_cursor_y} #{scroll_position}";
+/// [`POSITION`], and the text of the row the cursor is on.
+const POSITION_AND_ROW: &str = "#{copy_cursor_y} #{scroll_position} #{copy_cursor_line}";
+/// What mode the pane is in, and where its copy mode is: empty fields for a
+/// pane that is in none.
+const BEFORE: &str =
+    "#{pane_mode},#{selection_present},#{scroll_position},#{copy_cursor_x},#{copy_cursor_y}";
+
+/// The copy mode a pane was in before a walk.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Before {
+    /// None of the user's: the walk enters and leaves its own.
+    NoCopyMode,
+    /// The user's, with its cursor here.
+    CopyMode { scrolled_up: u32, x: u32, y: u32 },
+    /// The user's, with a selection begun.
+    Selecting,
+}
+
+fn read_before(line: &str) -> Before {
+    let mut fields = line.trim().split(',');
+    if fields.next() != Some("copy-mode") {
+        return Before::NoCopyMode;
+    }
+    let mut number = || fields.next().and_then(|field| field.parse::<u32>().ok());
+    if number() == Some(1) {
+        return Before::Selecting;
+    }
+    Before::CopyMode {
+        scrolled_up: number().unwrap_or(0),
+        x: number().unwrap_or(0),
+        y: number().unwrap_or(0),
+    }
+}
+
+/// The command list that puts a copy mode's cursor back: to the top left,
+/// the screen scrolled to where it was, then down and right to its place.
+fn restore_command(pane: &PaneId, scrolled_up: u32, x: u32, y: u32) -> String {
+    let mut list = vec![
+        format!("send-keys -X -t {pane} history-top"),
+        format!("send-keys -X -t {pane} goto-line {scrolled_up}"),
+    ];
+    if y > 0 {
+        list.push(format!("send-keys -N {y} -X -t {pane} cursor-down"));
+    }
+    if x > 0 {
+        list.push(format!("send-keys -N {x} -X -t {pane} cursor-right"));
+    }
+    list.join(" ; ")
+}
 
 /// A pane's prompt rows, oldest first, with the history size they were read
 /// at. Row 0 is the oldest line of the history, so a row still names its
@@ -80,10 +135,10 @@ fn walk_command(pane: &PaneId, steps: usize) -> String {
         key("history-bottom"),
         key("cursor-up"),
         key("next-prompt -o"),
-        say(POSITION),
+        say(POSITION_AND_ROW),
         key("history-bottom"),
         key("previous-prompt -o"),
-        say(POSITION),
+        say(POSITION_AND_ROW),
         key("history-bottom"),
     ];
     for _ in 0..steps {
@@ -106,6 +161,8 @@ struct Walk {
     prompts: Vec<u32>,
     /// The row the newest command's output starts on.
     output: Option<u32>,
+    /// What that row reads, when the walk read it.
+    output_row: String,
     /// The walk reached the oldest prompt before it ran out of steps.
     complete: bool,
 }
@@ -144,8 +201,11 @@ fn read_walk(reply: &str) -> Option<Walk> {
     // and stays on the bottom whether or not that row is marked.
     let on_bottom = |line: &str| Some(bottom > 0 && row(line)? == bottom);
     let prompt_on_bottom = on_bottom(lines.next()?)?;
-    let output_on_bottom = on_bottom(lines.next()?)?;
-    let output_above = row(lines.next()?)?;
+    let (on_the_bottom, above) = (lines.next()?, lines.next()?);
+    let output_on_bottom = on_bottom(on_the_bottom)?;
+    let output_above = row(above)?;
+    // The row's text follows the two numbers, and may be nothing.
+    let text = |line: &str| line.splitn(3, ' ').nth(2).unwrap_or_default().to_string();
 
     let mut prompts = Vec::from_iter(prompt_on_bottom.then_some(bottom));
     let mut at = bottom;
@@ -169,6 +229,11 @@ fn read_walk(reply: &str) -> Option<Walk> {
         } else {
             (output_above != bottom).then_some(output_above)
         },
+        output_row: text(if output_on_bottom {
+            on_the_bottom
+        } else {
+            above
+        }),
         complete,
     })
 }
@@ -203,12 +268,32 @@ async fn walk(
 }
 
 /// The probe, then the long walk when the probe did not reach the top.
-async fn read(tx: &MonitorCommandSender, pane: &PaneId) -> Result<Walk, CommandError> {
+async fn walks(tx: &MonitorCommandSender, pane: &PaneId) -> Result<Walk, CommandError> {
     let probe = walk(tx, pane, PROBE_STEPS).await?;
     if probe.complete {
         return Ok(probe);
     }
     walk(tx, pane, FULL_STEPS).await
+}
+
+/// The pane's marks, with a copy mode the user had it in left as it was.
+async fn read(tx: &MonitorCommandSender, pane: &PaneId) -> Result<Walk, CommandError> {
+    let before = query(tx, &format!("display-message -p -t {pane} '{BEFORE}'"))
+        .await
+        .map_err(|e| e.context("Failed to read prompt marks"))?;
+    let before = read_before(&before);
+    if before == Before::Selecting {
+        return Err(CommandError::unavailable(
+            "The pane has a selection begun in copy mode",
+        ));
+    }
+    let walked = walks(tx, pane).await;
+    if let Before::CopyMode { scrolled_up, x, y } = before {
+        // A mode the user left in the meantime refuses the keys: nothing to
+        // put back.
+        let _ = query(tx, &restore_command(pane, scrolled_up, x, y)).await;
+    }
+    walked
 }
 
 /// The pane's prompts: the newest [`FULL_STEPS`] of them at most.
@@ -227,8 +312,10 @@ pub async fn prompt_marks(
 ///
 /// The rows are found by one query and captured by the next, and
 /// `capture-pane` counts lines from the top of the screen: a pane that
-/// printed in between has moved them, which its history size shows. The
-/// capture is then thrown away and both are asked again.
+/// printed in between has moved them. Its history size shows that, until
+/// the history is full and stays one size while its lines move: so the
+/// first captured row also has to read what the walk read there. A capture
+/// that fails either check is thrown away and both are asked again.
 pub async fn last_command_output(
     tx: &MonitorCommandSender,
     pane: &PaneId,
@@ -243,6 +330,12 @@ pub async fn last_command_output(
                 text: Some(String::new()),
             });
         }
+        if rows.end - rows.start > MAX_OUTPUT_ROWS {
+            return Err(CommandError::unavailable(format!(
+                "The last output is {} lines, too long to copy at once",
+                rows.end - rows.start
+            )));
+        }
         let line = |row: u32| i64::from(row) - i64::from(walk.history_size);
         let (first, last) = (line(rows.start), line(rows.end - 1));
         let printed = query(
@@ -255,7 +348,9 @@ pub async fn last_command_output(
         .await
         .map_err(|e| e.context("Failed to capture the last output"))?;
         let (size, text) = printed.split_once('\n').unwrap_or((printed.as_str(), ""));
-        if size.trim().parse() == Ok(walk.history_size) {
+        let first = text.lines().next().unwrap_or_default();
+        let same_rows = first.trim_end().starts_with(walk.output_row.trim_end());
+        if size.trim().parse() == Ok(walk.history_size) && same_rows {
             return Ok(LastOutput {
                 text: Some(tidy(text)),
             });

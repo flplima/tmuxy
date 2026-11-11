@@ -19,7 +19,7 @@ import { selectKeyFocusPane } from '../../../selectors/keyboard';
 import { buildScrollbackState, fetchHistory, fetchNeededChunk } from './scrollback';
 
 const NO_PROMPT = {
-  previous: 'No prompt above: this shell marks none, or this is the first',
+  previous: 'No prompt above',
   next: 'No prompt below',
 } as const;
 
