@@ -275,7 +275,11 @@ export type AppMachineEvent =
 
   // Session & server events
   | { type: 'SWITCH_SESSION'; sessionName: string }
-  /** The transport is on the session a switch asked for. */
+  /**
+   * A session switch opened a new stream (the web's reconnect under the new
+   * session's name), and it is up. It has sent no state yet, and an idle
+   * session never will on its own.
+   */
   | { type: 'TMUX_SESSION_SWITCHED' }
   | { type: 'NEW_SESSION' }
   | { type: 'OPEN_CONNECT_FLOAT' }

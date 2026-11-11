@@ -182,10 +182,12 @@ export const connectionActions = {
     });
   }),
 
-  // A switch fetches the state, as a reconnect does: a monitor the server
-  // just attached broadcasts it, but one that was still up (the session was
-  // left less than its grace period ago, or another client watches it) has
-  // nothing new to say, and the panes cleared for the switch stayed cleared.
+  // A switch that opened a new stream fetches the state, as a reconnect does:
+  // a monitor the server just attached broadcasts it, but one that was still
+  // up (the session was left less than its grace period ago, or another client
+  // watches it) has nothing new to say, and the panes cleared for the switch
+  // stayed cleared. The desktop's switch-client is not waited on, so a fetch
+  // there could answer with the session it was leaving.
   connection_sessionSwitched: act(({ context, enqueue }) => {
     fetchStateAtViewport(context, enqueue);
   }),
