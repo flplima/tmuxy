@@ -176,7 +176,7 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
         let Some(conns) = sessions.get_mut(session) else {
             return;
         };
-        conns.connections.retain(|&id| id != conn_id);
+        conns.unregister(conn_id);
         (Arc::clone(&conns.runtime), conns.connections.is_empty())
     };
     runtime.client_left(conn_id).await;

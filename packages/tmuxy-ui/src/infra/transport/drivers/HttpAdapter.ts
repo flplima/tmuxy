@@ -24,11 +24,18 @@ interface ConnectWaiter {
 
 /**
  * The web's driver: an SSE stream for what the server pushes, one
- * `POST /commands` per call, each under this client's connection id.
+ * `POST /commands` per call, each under this client's connection id. The
+ * lane's calls are pipelined: each is numbered and posted without waiting
+ * for the one before, and the server runs them in number order.
  */
 export class HttpAdapter implements SequencedDriver {
   readonly enumeratesSessions = true;
   readonly answersQueries = true;
+  readonly ordersSends = true;
+  /** The number of the last ordered call posted under `connectionId`. */
+  private commandSeq = 0;
+  /** Settles when the ordered call before the next one has been numbered. */
+  private numbered: Promise<void> = Promise.resolve();
   private eventSource: EventSource | null = null;
   // The one loop that opens the EventSource and reopens it with backoff;
   // null when no channel is running.
@@ -168,6 +175,8 @@ export class HttpAdapter implements SequencedDriver {
       isStopRetrying: () => this.intentionalDisconnect || this.fatal,
       onConnected: (data) => {
         this.connectionId = data.connection_id;
+        // The server counts each connection's commands from 1.
+        this.commandSeq = 0;
         this.connected = true;
 
         if (this.reconnecting) {
@@ -244,17 +253,39 @@ export class HttpAdapter implements SequencedDriver {
    * it waits for it to come back, so a key typed during a reconnect window
    * is posted under the new connection rather than dropped; the wait ends
    * with the stream (`disconnect()` and `switchSession()` fail it).
+   *
+   * An `ordered` call takes the connection's next number once every ordered
+   * call before it has taken its own, and is then posted at once: the wait
+   * is for the stream at most, never for an answer.
    */
-  async send(call: BackendCall, actionId?: string): Promise<unknown> {
-    if (this.intentionalDisconnect) throw new Error('disconnected');
-    if (!this.connected) await this.connect();
-    return postCommandJson(
-      this.getEffectiveSession(),
-      this.connectionId,
-      call.cmd,
-      call.args,
-      actionId,
-    );
+  async send(call: BackendCall, actionId?: string, ordered = false): Promise<unknown> {
+    const online = async () => {
+      if (this.intentionalDisconnect) throw new Error('disconnected');
+      if (!this.connected) await this.connect();
+    };
+    const post = (commandSeq?: number) =>
+      postCommandJson(
+        this.getEffectiveSession(),
+        this.connectionId,
+        call.cmd,
+        call.args,
+        actionId,
+        commandSeq,
+      );
+    if (!ordered) {
+      await online();
+      return post();
+    }
+    let answer: Promise<unknown> | undefined;
+    const turn = this.numbered.then(async () => {
+      await online();
+      answer = post(++this.commandSeq);
+      // Reported by `answer` below; the next call only waits for the number.
+      answer.catch(() => undefined);
+    });
+    this.numbered = turn.catch(() => undefined);
+    await turn;
+    return answer;
   }
 
   /** Through the same-origin `/trace` ingest, which a closing page's last batch still reaches. */

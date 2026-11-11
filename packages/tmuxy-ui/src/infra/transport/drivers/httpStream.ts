@@ -114,6 +114,7 @@ export async function postCommandJson(
   cmd: string,
   args: unknown,
   actionId?: string,
+  commandSeq?: number,
 ): Promise<unknown> {
   const commandsUrl = buildEndpointUrl('/commands', session);
   const response = await fetch(commandsUrl, {
@@ -123,6 +124,9 @@ export async function postCommandJson(
       'X-Connection-Id': String(connectionId),
       // Correlate the request leg in the trace (docs/TRACING.md).
       ...(actionId ? { 'X-Action-Id': actionId } : {}),
+      // The server runs this connection's numbered commands in number
+      // order, whatever order they arrive in (S7 in docs/INVARIANTS.md).
+      ...(commandSeq === undefined ? {} : { 'X-Command-Seq': String(commandSeq) }),
     },
     body: JSON.stringify({ cmd, args }),
   });

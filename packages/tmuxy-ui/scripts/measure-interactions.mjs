@@ -6,14 +6,22 @@
  * key path. The suite is `lib/perf-harness.mjs`; this is its Playwright
  * driver.
  *
+ * `--proxy-rtt MS` measures over a slow link (docs/PERFORMANCE.md, Axis B):
+ * the browser reaches the server at `--url` through
+ * `tests/helpers/latency-proxy.js`, which adds MS to every round trip. The
+ * report's target is then `web-rtt<MS>`, so it is never judged against the
+ * baseline of a run on the bare link.
+ *
  * Usage:
  *   node measure-interactions.mjs [--url URL] [--samples N] [--out FILE]
  *                                 [--label NAME] [--session NAME] [--cdp URL]
+ *                                 [--proxy-rtt MS]
  */
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { buildReport, runInteractions, waitForReady } from './lib/perf-harness.mjs';
+import latencyProxy from '../../../tests/helpers/latency-proxy.js';
 
 const argv = process.argv.slice(2);
 const opt = (flag, fallback) => {
@@ -29,7 +37,7 @@ const SESSION = opt('--session', null);
 // The dev environment has a browser on 9222 and does not install Playwright's
 // own; CI launches one.
 const CDP = opt('--cdp', null);
-const URL = SESSION ? `${URL_BASE}?session=${encodeURIComponent(SESSION)}` : URL_BASE;
+const PROXY_RTT = Number(opt('--proxy-rtt', '0'));
 
 function playwrightAdapter(page) {
   return {
@@ -40,10 +48,10 @@ function playwrightAdapter(page) {
     wait: (ms) => page.waitForTimeout(ms),
     clickActivePane: () =>
       page.locator('.pane-layout-item.pane-active [role="log"]').first().click({ timeout: 5000 }),
-    arm: async (probe, arg, timeoutMs) => {
+    arm: async (probe, arg, timeoutMs, keys = 1) => {
       const pending = page.evaluate(
-        ([p, a, t]) => window.__perfArm(p, a, t),
-        [probe, arg, timeoutMs],
+        ([p, a, t, k]) => window.__perfArm(p, a, t, k),
+        [probe, arg, timeoutMs, keys],
       );
       return { settle: () => pending };
     },
@@ -51,6 +59,16 @@ function playwrightAdapter(page) {
 }
 
 async function main() {
+  const proxy =
+    PROXY_RTT > 0
+      ? await latencyProxy.startLatencyProxy({
+          targetPort: Number(new globalThis.URL(URL_BASE).port || 80),
+          rttMs: PROXY_RTT,
+        })
+      : null;
+  const base = proxy ? proxy.url : URL_BASE;
+  const URL = SESSION ? `${base}?session=${encodeURIComponent(SESSION)}` : base;
+
   const browser = CDP
     ? await chromium.connectOverCDP(CDP)
     : await chromium.launch({
@@ -73,14 +91,16 @@ async function main() {
   // A CDP browser belongs to the developer, not to us — close only the tab.
   if (CDP) await page.close();
   else await browser.close();
+  proxy?.stop();
 
   const report = buildReport({
     results,
     label: LABEL,
     platform: `${process.platform}-${process.arch}`,
-    target: 'web',
+    target: proxy ? `web-rtt${PROXY_RTT}` : 'web',
     url: URL,
     samplesRequested: SAMPLES,
+    linkRttMs: proxy ? PROXY_RTT : null,
   });
 
   const json = JSON.stringify(report, null, 2);

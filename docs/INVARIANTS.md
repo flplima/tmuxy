@@ -83,6 +83,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | S4 | Streams end on shutdown; the last client leaving keeps the monitor for a 2 s grace period. | liveness | `sse.rs` | `sse/tests_errors.rs › open_stream_ends…`, `sse/tests_stream.rs › the_last_client_leaving_keeps…` |
 | S5 | Monitor reconnect gives up after 5 short runs and broadcasts fatal so clients stop retrying. | liveness | `sse.rs` | — |
 | S6 | `GET /events` attaches only to a session a live monitor holds or tmux has; any other is a 404, so the client creates it with `POST /commands`, a killed session included. | liveness | `sse.rs` | `sse/tests_errors.rs › a_session_whose_monitor_ended…` |
+| S7 | A connection's numbered commands (`X-Command-Seq`, from 1 per connection id) are handed to the monitor in number order, whatever order the POSTs arrive in, so the web client posts without waiting for answers. A number missing for 5 s is given up on; one that turns up later runs late. Unnumbered commands wait for nothing. | ordering | `tmuxy-server/src/sse/order.rs`, `HttpAdapter.ts` | `sse/tests_order.rs › numbered_commands_reach_tmux_in_number_order…` (every arrival order of a set), `› a_number_that_never_arrives…`, `› a_pause_in_typing…`, `› a_waiting_request_that_is_dropped…`; `HttpAdapter.pipeline.test.ts › typing faster than the link answers…`, `› a new connection counts from 1 again…`; `tests/4-session-connectivity-slow-link.test.js › type a line faster than the link answers…` |
 
 ## C, Q and P — client stream stage, command queue and input, client model
 

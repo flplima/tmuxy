@@ -116,10 +116,46 @@ pub async fn commands_handler(
         }
     };
 
+    // A numbered command waits for the ones its client issued before it; the
+    // turn is held until this one is on the monitor's channel. One with no
+    // number, or from a client with no open stream, runs as it arrives.
+    let seq: Option<u64> = headers
+        .get("x-command-seq")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok());
+    let _turn = match (conn_id, seq) {
+        (Some(conn_id), Some(seq)) => match command_gate(&state, &session, conn_id).await {
+            Some(gate) => match gate.enter(seq).await {
+                Ok(turn) => Some(turn),
+                Err(super::order::Full) => {
+                    return command_failure(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        CommandError::unavailable("too many commands waiting for their turn"),
+                    );
+                }
+            },
+            None => None,
+        },
+        _ => None,
+    };
+
     match handle_command(cmd, &session, &state, conn_id).await {
         Ok(result) => (StatusCode::OK, Json(CommandResponse { result })).into_response(),
         Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
     }
+}
+
+async fn command_gate(
+    state: &Arc<AppState>,
+    session: &str,
+    conn_id: u64,
+) -> Option<Arc<super::order::CommandGate>> {
+    state
+        .sessions
+        .read()
+        .await
+        .get(session)
+        .and_then(|conns| conns.command_gates.get(&conn_id).cloned())
 }
 
 /// The web door's own request: make `?session=` exist (with a monitor)

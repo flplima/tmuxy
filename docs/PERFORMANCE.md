@@ -108,9 +108,28 @@ Drive the app over the link in question with the HUD open (or read
 `window.__tmuxyLatency.getSnapshot()`) to get the input→paint distribution for
 that transport — the question the v86/wasm harness structurally cannot answer.
 A controlled run needs delay injected between the browser and a real server,
-on `POST /commands` and the `GET /events` stream; the one-off proxy that once
-did it no longer exists. Because the transports run over TCP, real packet loss
-reaches the app as delay (head-of-line retransmit), not dropped events.
+on `POST /commands` and the `GET /events` stream. `tests/helpers/latency-proxy.js`
+is that proxy: it holds each POST and each stream chunk for half the round trip
+in its direction, keeps the order within a connection, and lets the page's own
+files through. `measure-interactions.mjs --proxy-rtt <ms>` runs the Axis-C
+suite through it, and the nightly `interaction-latency` job does so at 150 ms.
+Because the transports run over TCP, real packet loss reaches the app as delay
+(head-of-line retransmit), not dropped events.
+
+**Measure a burst, not only a key.** One key at a time says what a round trip
+costs; it cannot see keys queueing behind one another, because the queue is
+empty whenever the keys are further apart than the round trip. That is how
+the web client came to post one command at a time, each waiting for the answer
+to the one before: every isolated measurement read one round trip, while typing
+at 60 ms a key over a 170 ms link left the last of 30 keys 3.6 s behind. The
+`key-burst` interaction (30 keys, 60 ms apart, timed from the last keydown) is
+the measurement that sees it, and `tests/4-session-connectivity-slow-link.test.js`
+holds the same line per commit. The fix is invariant S7 in
+[INVARIANTS.md](INVARIANTS.md): the POSTs are numbered and pipelined, and the
+server runs them in number order. What remains is the browser's own limit over
+HTTP/1.1, six connections to a host with one of them the stream: past about
+five commands per round trip they wait in the browser. HTTP/2, which a TLS
+reverse proxy gives, has no such limit.
 
 ## Axis C — whole-interaction latency (the CI regression gate)
 
@@ -123,8 +142,8 @@ tmux binding, the command crosses the transport, tmux acts, state comes back.
 Nothing is short-circuited with an adapter call, so a regression anywhere in
 that chain lands in the number.
 
-Measured today: `key-echo`, `pane-nav-keyboard`, `pane-zoom-toggle`,
-`pane-split`, `tab-switch`.
+Measured today: `key-echo`, `key-burst`, `pane-nav-keyboard`,
+`pane-zoom-toggle`, `pane-split`, `tab-switch`.
 
 **Two targets, one suite.** The same interactions are measured against the web
 app and against the desktop app, because they reach the same Rust core over
@@ -246,9 +265,9 @@ See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measu
   manual one: the `nightly perf` workflow's `interaction-baseline` job opens a
   PR with the measured file, and the review is the point — CI must never
   ratchet a baseline to whatever the runner did last.
-- **No Axis B measurement in CI.** The RTT curve and the latency-injection
-  proxy are a controlled experiment run by hand, not a gate — injected delay is
-  the independent variable, so there is nothing for a runner to regress.
+- **Axis B in CI is one point of the curve.** The nightly runs the interactions
+  over a 150 ms link and gates their ratios; a link that loses packets, or one
+  far slower, is still a run by hand.
 - **Axis D does not gate yet.** Its plateau tolerances are guesses until a
   corpus of nightly runs exists to calibrate them against, and a guessed
   threshold on a long job produces a nightly nobody trusts. The numbers are

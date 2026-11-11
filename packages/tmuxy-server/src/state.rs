@@ -166,6 +166,9 @@ impl Sink for BroadcastSink {
 
 pub struct SessionConnections {
     pub connections: Vec<u64>,
+    /// Each open stream's gate, which runs the commands its client numbered
+    /// in that order (S7 in `docs/INVARIANTS.md`).
+    pub command_gates: HashMap<u64, Arc<crate::sse::CommandGate>>,
     /// Which idle guard is current. A guard captures the value when it is
     /// scheduled and acts only if it still matches when it fires: a client
     /// that registered in between bumped it, so the guard it outran (the
@@ -198,6 +201,7 @@ impl SessionConnections {
         );
         Self {
             connections: Vec::new(),
+            command_gates: HashMap::new(),
             idle_guard_gen: 0,
             broadcast,
             runtime,
@@ -210,7 +214,14 @@ impl SessionConnections {
     /// guard scheduled before it arrived is stale.
     pub fn register(&mut self, conn_id: u64) {
         self.connections.push(conn_id);
+        self.command_gates.insert(conn_id, Arc::default());
         self.idle_guard_gen += 1;
+    }
+
+    /// The other half of [`Self::register`].
+    pub fn unregister(&mut self, conn_id: u64) {
+        self.connections.retain(|&id| id != conn_id);
+        self.command_gates.remove(&conn_id);
     }
 
     pub fn monitored(&self) -> bool {

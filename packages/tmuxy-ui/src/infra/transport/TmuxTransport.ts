@@ -157,7 +157,8 @@ export function serviceOver(
   options: ServiceOptions = {},
 ): { readonly service: TmuxTransportService; readonly viewport: () => Viewport | null } {
   const adoptState = options.adoptState ?? decodeServerStateOrThrow;
-  const send = (call: BackendCall, actionId?: string) => driver.send(call, actionId);
+  const send = (call: BackendCall, actionId?: string, ordered?: boolean) =>
+    driver.send(call, actionId, ordered);
   const lane = commandLane(send, driver.ordersSends === true);
   let viewport: Viewport | null = null;
 

@@ -1,6 +1,7 @@
 mod clients;
 mod commands;
 mod monitor;
+mod order;
 mod preview;
 
 use axum::{
@@ -27,6 +28,7 @@ use tmuxy_core::host::ClientCommand;
 pub(crate) use commands::has_json_content_type;
 pub use commands::{commands_handler, trace_handler};
 pub use monitor::start_monitoring;
+pub use order::CommandGate;
 pub use preview::{preview_page_handler, stage_preview_handler};
 
 use clients::cleanup_connection;
@@ -295,6 +297,8 @@ pub async fn sse_handler(
 mod tests_errors;
 #[cfg(test)]
 mod tests_lifecycle;
+#[cfg(test)]
+mod tests_order;
 #[cfg(test)]
 mod tests_sessions;
 #[cfg(test)]
