@@ -117,6 +117,8 @@ export type AppMachineEvent =
       type: 'SET_TARGET_SIZE';
       cols: number;
       rows: number;
+      /** Report it to the backend even if it was reported before: the connection or the size policy is new. */
+      resend?: boolean;
     }
   | { type: 'SET_CONTAINER_SIZE'; width: number; height: number }
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }

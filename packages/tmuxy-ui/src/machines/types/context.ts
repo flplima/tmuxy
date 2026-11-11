@@ -61,6 +61,12 @@ export interface AppMachineContext {
    * this client's, not the defaults. The state is fetched at that size.
    */
   viewportMeasured: boolean;
+  /**
+   * The size last sent to the backend as this client's, on this connection;
+   * null until one is. While another client holds the session smaller the
+   * grid never comes to match, and the same size is not sent again.
+   */
+  reportedSize: { cols: number; rows: number } | null;
   drag: DragState | null;
   resize: ResizeState | null;
   resizeActive: boolean;
