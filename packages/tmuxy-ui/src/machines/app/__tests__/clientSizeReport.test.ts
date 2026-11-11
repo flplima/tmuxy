@@ -71,4 +71,30 @@ describe('the size a client reports', () => {
       [120, 30],
     ]);
   });
+  // On a lossy link the one report can be the request that is lost. The
+  // session then stayed at the other size, letterboxed, until the window was
+  // resized or the stream reconnected.
+  it('is reported again after a report that never reached the backend', () => {
+    const { actor, reports } = largerClient();
+    actor.send(heldAt80x24(1));
+    actor.send({ type: 'CLIENT_SIZE_UNREPORTED', cols: 120, rows: 30 });
+    actor.send(heldAt80x24(2));
+    actor.send(heldAt80x24(3));
+    expect(reports()).toEqual([
+      [120, 30],
+      [120, 30],
+    ]);
+  });
+
+  it('a failed report of an older size does not undo a newer one', () => {
+    const { actor, reports } = largerClient();
+    actor.send(heldAt80x24(1));
+    actor.send({ type: 'SET_TARGET_SIZE', cols: 100, rows: 30 });
+    actor.send({ type: 'CLIENT_SIZE_UNREPORTED', cols: 120, rows: 30 });
+    actor.send(heldAt80x24(2));
+    expect(reports()).toEqual([
+      [120, 30],
+      [100, 30],
+    ]);
+  });
 });

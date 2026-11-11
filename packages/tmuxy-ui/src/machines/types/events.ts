@@ -113,6 +113,8 @@ export type AppMachineEvent =
   | { type: 'SUPPRESS_ANIMATIONS' }
   /** The grid is the size this client asked for and settled: layout changes may animate again. */
   | { type: 'ANIMATIONS_SETTLED' }
+  /** A size report did not reach the backend (tmuxActor): it is owed again. */
+  | { type: 'CLIENT_SIZE_UNREPORTED'; cols: number; rows: number }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;

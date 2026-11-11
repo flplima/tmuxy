@@ -14,7 +14,8 @@ import { fixedGridSize } from '../../../domain/gridFit';
  *
  * A size is reported once: the backend keeps it, and the grid of a session
  * another client holds smaller differs on every update for as long as that
- * client stays.
+ * client stays. A report that failed on its way is owed again
+ * (`viewport_sizeUnreported`).
  */
 export function syncClientSize(
   context: Pick<
@@ -85,6 +86,16 @@ export const viewportActions = {
     }
     syncClientSize({ ...context, reportedSize }, enqueue, { cols, rows }, context.lastUpdateQuiet);
   }),
+
+  // The report is forgotten, so the next model update that still differs
+  // from the target sends it again; a newer report in between stands.
+  viewport_sizeUnreported: assignCtx(({ context, event }) =>
+    event.type === 'CLIENT_SIZE_UNREPORTED' &&
+    context.reportedSize?.cols === event.cols &&
+    context.reportedSize.rows === event.rows
+      ? { reportedSize: null }
+      : {},
+  ),
 
   viewport_setContainerSize: assignCtx(({ context, event }) => {
     if (event.type !== 'SET_CONTAINER_SIZE') return {};
