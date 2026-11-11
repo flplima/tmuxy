@@ -12,5 +12,7 @@
 const { sealChildProcesses } = require('../helpers/seal');
 
 const unseal = sealChildProcesses();
-const inAWorker = typeof process.send === 'function';
+// A worker is Jest's own child script; `process.send` would not tell, since
+// any Node started with an IPC channel has it.
+const inAWorker = /[\\/]jest-worker[\\/]/.test(process.argv[1] ?? '');
 if (!inAWorker) afterAll(unseal);
