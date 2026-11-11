@@ -29,6 +29,7 @@ pub(crate) use commands::has_json_content_type;
 pub use commands::{commands_handler, trace_handler};
 pub use monitor::start_monitoring;
 pub use order::CommandGate;
+pub(crate) use order::GATE_GRACE;
 pub use preview::{preview_page_handler, stage_preview_handler};
 
 use clients::cleanup_connection;
@@ -174,6 +175,7 @@ pub async fn sse_handler(
             .entry(session.clone())
             .or_insert_with(|| SessionConnections::new(&session, &state));
         conns.register(conn_id);
+        state.open_command_gate(conn_id);
         clients::ensure_monitor(&state, &session, conns, false);
         (
             conns.broadcast.subscribe(),

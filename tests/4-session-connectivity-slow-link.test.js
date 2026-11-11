@@ -100,11 +100,12 @@ describeE2E('Scenario 22d: Typing over a slow link', {}, (ctx) => {
 
     // Keys that wait for the answer to the one before leave one round trip
     // apart, however fast they are typed: this line's last key was then
-    // (RTT - interval) × 40 = 3.6 s behind. Posted as they are typed, it is
-    // behind by what a key typed alone is, and one more round trip is the
-    // room given.
+    // (RTT - interval) × 40 = 3.6 s behind, twenty times a key typed alone.
+    // Posted as they are typed, it is behind by about what that key is. The
+    // bound is a ratio, the `key-burst` budget of the perf harness, so a slow
+    // runner that stretches both does not fail it.
     const last = await typeAndTimeTheEcho(page, LINE, KEY_INTERVAL_MS);
-    expect(last).toBeLessThanOrEqual(alone + RTT);
+    expect(last).toBeLessThanOrEqual(3 * alone);
 
     // On screen, readable, and in the order typed: commands that overtook one
     // another on the way would show the letters transposed.

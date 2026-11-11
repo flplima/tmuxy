@@ -17,6 +17,9 @@ import {
   shipTraceBatch,
 } from './httpStream';
 
+/** How many lost numbers one POST names; the server reads no more. */
+const LOST_SEQS_PER_POST = 64;
+
 interface ConnectWaiter {
   resolve: () => void;
   reject: (reason: unknown) => void;
@@ -34,6 +37,12 @@ export class HttpAdapter implements SequencedDriver {
   readonly ordersSends = true;
   /** The number of the last ordered call posted under `connectionId`. */
   private commandSeq = 0;
+  /**
+   * Numbers posted under `connectionId` that failed with no answer. Each
+   * later ordered POST names them until one is answered, so the server does
+   * not hold the commands after them waiting for one that is not coming.
+   */
+  private lostSeqs: number[] = [];
   /** Settles when the ordered call before the next one has been numbered. */
   private numbered: Promise<void> = Promise.resolve();
   private eventSource: EventSource | null = null;
@@ -177,6 +186,7 @@ export class HttpAdapter implements SequencedDriver {
         this.connectionId = data.connection_id;
         // The server counts each connection's commands from 1.
         this.commandSeq = 0;
+        this.lostSeqs = [];
         this.connected = true;
 
         if (this.reconnecting) {
@@ -263,15 +273,28 @@ export class HttpAdapter implements SequencedDriver {
       if (this.intentionalDisconnect) throw new Error('disconnected');
       if (!this.connected) await this.connect();
     };
-    const post = (commandSeq?: number) =>
-      postCommandJson(
-        this.getEffectiveSession(),
-        this.connectionId,
-        call.cmd,
-        call.args,
-        actionId,
-        commandSeq,
-      );
+    const post = (seq?: number) => {
+      const connection = this.connectionId;
+      const base = [this.getEffectiveSession(), connection, call.cmd, call.args, actionId] as const;
+      if (seq === undefined) return postCommandJson(...base);
+      const lost = this.lostSeqs.slice(0, LOST_SEQS_PER_POST);
+      let answered = false;
+      const answer = postCommandJson(...base, {
+        seq,
+        lost,
+        onAnswered: () => {
+          answered = true;
+          if (this.connectionId !== connection) return;
+          this.lostSeqs = this.lostSeqs.filter((n) => !lost.includes(n));
+        },
+      });
+      // Reported by `answer` to the caller; the next call only needs to know
+      // whether the server ever saw this number.
+      answer.catch(() => {
+        if (!answered && this.connectionId === connection) this.lostSeqs.push(seq);
+      });
+      return answer;
+    };
     if (!ordered) {
       await online();
       return post();
@@ -280,8 +303,6 @@ export class HttpAdapter implements SequencedDriver {
     const turn = this.numbered.then(async () => {
       await online();
       answer = post(++this.commandSeq);
-      // Reported by `answer` below; the next call only waits for the number.
-      answer.catch(() => undefined);
     });
     this.numbered = turn.catch(() => undefined);
     await turn;

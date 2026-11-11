@@ -108,13 +108,23 @@ export async function probeRefusalReason(
   return null;
 }
 
+/** A numbered command's place in its connection's order (S7 in docs/INVARIANTS.md). */
+export interface CommandOrder {
+  /** This command's number; the server runs a connection's in number order. */
+  seq: number;
+  /** Numbers whose POST failed with no answer: the server stops waiting for them. */
+  lost: readonly number[];
+  /** Called when the server answers, with any status. */
+  onAnswered: () => void;
+}
+
 export async function postCommandJson(
   session: string,
   connectionId: number,
   cmd: string,
   args: unknown,
   actionId?: string,
-  commandSeq?: number,
+  order?: CommandOrder,
 ): Promise<unknown> {
   const commandsUrl = buildEndpointUrl('/commands', session);
   const response = await fetch(commandsUrl, {
@@ -124,12 +134,12 @@ export async function postCommandJson(
       'X-Connection-Id': String(connectionId),
       // Correlate the request leg in the trace (docs/TRACING.md).
       ...(actionId ? { 'X-Action-Id': actionId } : {}),
-      // The server runs this connection's numbered commands in number
-      // order, whatever order they arrive in (S7 in docs/INVARIANTS.md).
-      ...(commandSeq === undefined ? {} : { 'X-Command-Seq': String(commandSeq) }),
+      ...(order ? { 'X-Command-Seq': String(order.seq) } : {}),
+      ...(order?.lost.length ? { 'X-Command-Lost': order.lost.join(',') } : {}),
     },
     body: JSON.stringify({ cmd, args }),
   });
+  order?.onAnswered();
 
   if (!response.ok) {
     // The server's refusal is a `{ error, kind }` body, thrown as is so the

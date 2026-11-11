@@ -7,6 +7,10 @@
 //! `X-Command-Seq` (1, 2, 3… per connection id), and a request waits at its
 //! connection's [`CommandGate`] until every lower number has been handed to
 //! tmux (S7 in `docs/INVARIANTS.md`).
+//!
+//! A number the server answers without running (a refused request) and one
+//! the client reports as failed are passed over at once ([`CommandGate::skip`]);
+//! only a number nobody accounts for costs the timeout.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -21,8 +25,14 @@ use tokio::time::Instant;
 pub(super) const LOST_SEQ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Past this many waiting requests a connection is refused more: each holds
-/// a parsed command of up to `COMMANDS_MAX_BYTES`.
+/// a parsed command of up to `COMMANDS_MAX_BYTES`. Also how many numbers
+/// ahead of the line it remembers to pass over.
 pub(super) const MAX_WAITING: usize = 256;
+
+/// How long a gate outlives its stream. The server can see a stream close
+/// seconds before its client does (a half-open link, a proxy closing an idle
+/// stream), and until then the client keeps posting under the old id.
+pub(crate) const GATE_GRACE: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 struct State {
@@ -32,6 +42,18 @@ struct State {
     /// Since when nothing has run.
     idle_since: Instant,
     waiting: BTreeSet<u64>,
+    /// Numbers above `next` that will not run: `next` steps over them.
+    skipped: BTreeSet<u64>,
+}
+
+impl State {
+    /// Move `next` past every number known not to be coming.
+    fn pass_skipped(&mut self) {
+        self.skipped = self.skipped.split_off(&self.next);
+        while self.skipped.remove(&self.next) {
+            self.next += 1;
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -40,10 +62,15 @@ pub struct CommandGate {
     changed: Notify,
 }
 
-/// The gate is full: the client sent more out-of-turn requests than
-/// [`MAX_WAITING`].
-#[derive(Debug)]
-pub(super) struct Full;
+/// Why a request gets no turn.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Refused {
+    /// The client sent more out-of-turn requests than [`MAX_WAITING`].
+    Full,
+    /// Its number was passed already (given up on, or reported as failed)
+    /// and later ones have run: running it now would put it after them.
+    Late,
+}
 
 impl Default for CommandGate {
     fn default() -> Self {
@@ -53,6 +80,7 @@ impl Default for CommandGate {
                 running: false,
                 idle_since: Instant::now(),
                 waiting: BTreeSet::new(),
+                skipped: BTreeSet::new(),
             }),
             changed: Notify::new(),
         }
@@ -62,7 +90,7 @@ impl Default for CommandGate {
 impl CommandGate {
     /// Wait for `seq`'s turn. The turn lasts until the returned guard drops:
     /// hold it until the command is on the monitor's channel.
-    pub(super) async fn enter(self: &Arc<Self>, seq: u64) -> Result<Turn, Full> {
+    pub(super) async fn enter(self: &Arc<Self>, seq: u64) -> Result<Turn, Refused> {
         let arrived = Instant::now();
         let mut place = Waiting {
             gate: self,
@@ -77,12 +105,15 @@ impl CommandGate {
             changed.as_mut().enable();
             let deadline = {
                 let mut state = self.lock();
+                if seq < state.next {
+                    return Err(Refused::Late);
+                }
                 // A missing number is timed from when the gate last had both
                 // nothing running and this request waiting on it.
                 let give_up = state.idle_since.max(arrived) + LOST_SEQ_TIMEOUT;
                 let lowest_waiting = state.waiting.first().is_none_or(|&first| seq <= first);
                 let lost = lowest_waiting && Instant::now() >= give_up;
-                if !state.running && (seq <= state.next || lost) {
+                if !state.running && (seq == state.next || lost) {
                     state.running = true;
                     state.waiting.remove(&seq);
                     place.listed = false;
@@ -93,7 +124,7 @@ impl CommandGate {
                 }
                 if !place.listed {
                     if state.waiting.len() >= MAX_WAITING {
-                        return Err(Full);
+                        return Err(Refused::Full);
                     }
                     state.waiting.insert(seq);
                     place.listed = true;
@@ -110,6 +141,22 @@ impl CommandGate {
                 None => changed.await,
             }
         }
+    }
+
+    /// `seq` will not run (its request was refused, or its client says it
+    /// failed on the way): the numbers after it stop waiting for it.
+    pub(super) fn skip(&self, seq: u64) {
+        {
+            let mut state = self.lock();
+            if seq < state.next || state.skipped.len() >= MAX_WAITING {
+                return;
+            }
+            state.skipped.insert(seq);
+            if !state.running {
+                state.pass_skipped();
+            }
+        }
+        self.changed.notify_waiters();
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -150,6 +197,7 @@ impl Drop for Turn {
             let mut state = self.gate.lock();
             state.running = false;
             state.next = state.next.max(self.seq.saturating_add(1));
+            state.pass_skipped();
             state.idle_since = Instant::now();
         }
         self.gate.changed.notify_waiters();

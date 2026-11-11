@@ -14,11 +14,16 @@ interface Post {
   at: number;
   connection: string;
   seq: string | undefined;
+  lost: string | undefined;
   command: string;
 }
 
-/** A `fetch` that records each POST and answers it one round trip later. */
-function slowLink(): Post[] {
+/**
+ * A `fetch` that records each POST and answers it one round trip later. A
+ * command whose text is in `dropped` gets no answer: its fetch rejects, as a
+ * reset connection's does.
+ */
+function slowLink(dropped: string[] = []): Post[] {
   const posts: Post[] = [];
   vi.stubGlobal(
     'fetch',
@@ -28,10 +33,18 @@ function slowLink(): Post[] {
         at: Date.now(),
         connection: init.headers['X-Connection-Id'],
         seq: init.headers['X-Command-Seq'],
+        lost: init.headers['X-Command-Lost'],
         command: args.command ?? cmd,
       });
-      return new Promise((resolve) => {
-        setTimeout(() => resolve({ ok: true, json: async () => ({ result: null }) }), RTT);
+      const fails = dropped.some((text) => (args.command ?? '').endsWith(`'${text}'`));
+      return new Promise((resolve, reject) => {
+        setTimeout(
+          () =>
+            fails
+              ? reject(new TypeError('Failed to fetch'))
+              : resolve({ ok: true, json: async () => ({ result: null }) }),
+          RTT,
+        );
       });
     }),
   );
@@ -107,6 +120,31 @@ describe('HttpAdapter pipelines the command lane', () => {
     const numbered = posts.filter((p) => p.seq !== undefined).map((p) => p.seq);
     expect(numbered).toEqual(['1', '2', '3']);
     await vi.advanceTimersByTimeAsync(RTT);
+  });
+
+  it('a POST that fails with no answer has its number named on the next ones, until one is answered', async () => {
+    // The server holds number 3 for number 2 unless it is told 2 is not
+    // coming: 5 s of dead keyboard after one reset connection.
+    const posts = slowLink(['b']);
+    const typed = ['a', 'b'].map((key) => typeKey(key).catch(() => undefined));
+    await vi.advanceTimersByTimeAsync(RTT + 20);
+    await Promise.all(typed);
+
+    void typeKey('c');
+    await vi.advanceTimersByTimeAsync(20);
+    void typeKey('d');
+    await vi.advanceTimersByTimeAsync(RTT + 20);
+    void typeKey('e');
+    await vi.advanceTimersByTimeAsync(RTT);
+
+    expect(posts.map((p) => [p.command.slice(-3), p.seq, p.lost])).toEqual([
+      ["'a'", '1', undefined],
+      ["'b'", '2', undefined],
+      ["'c'", '3', '2'],
+      // Left before the answer to 'c': the server may not have heard yet.
+      ["'d'", '4', '2'],
+      ["'e'", '5', undefined],
+    ]);
   });
 
   it('a new connection counts from 1 again, and keys typed while it was down keep their order', async () => {

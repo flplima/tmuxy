@@ -32,6 +32,7 @@ pub(super) async fn watched_with(
     let mut conns = SessionConnections::new(session, state);
     for &client in clients {
         conns.register(client);
+        state.open_command_gate(client);
     }
     conns.runtime.connected(tx).await;
     state

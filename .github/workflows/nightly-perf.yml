@@ -249,6 +249,7 @@ jobs:
             --out tests/perf/interaction-report-rtt150.json
 
       - name: Compare the slow link against budgets
+        if: always()
         run: npm run perf:compare -- --report tests/perf/interaction-report-rtt150.json
 
       - name: Upload interaction report

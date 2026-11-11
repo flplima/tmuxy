@@ -25,6 +25,21 @@ fn type_numbered(
     seq: Option<u64>,
     text: &str,
 ) -> tokio::task::JoinHandle<StatusCode> {
+    let body = serde_json::json!({
+        "cmd": "run_tmux_command",
+        "args": { "command": format!("send-keys -t %1 -l {text}") },
+    });
+    post(state, seq, &[], body.to_string())
+}
+
+/// `POST /commands` on connection 1 with `body`, numbered `seq`, under
+/// `extra` headers on top of the usual ones.
+fn post(
+    state: &Arc<AppState>,
+    seq: Option<u64>,
+    extra: &[(&'static str, &str)],
+    body: String,
+) -> tokio::task::JoinHandle<StatusCode> {
     let mut headers = HeaderMap::new();
     headers.insert(
         axum::http::header::CONTENT_TYPE,
@@ -34,10 +49,9 @@ fn type_numbered(
     if let Some(seq) = seq {
         headers.insert("x-command-seq", seq.into());
     }
-    let body = serde_json::json!({
-        "cmd": "run_tmux_command",
-        "args": { "command": format!("send-keys -t %1 -l {text}") },
-    });
+    for (name, value) in extra {
+        headers.insert(*name, value.parse().unwrap());
+    }
     let state = Arc::clone(state);
     tokio::spawn(async move {
         commands_handler(
@@ -46,11 +60,27 @@ fn type_numbered(
                 session: Some("s".to_string()),
             }),
             headers,
-            axum::body::Body::from(body.to_string()),
+            axum::body::Body::from(body),
         )
         .await
         .status()
     })
+}
+
+/// Every order the numbers `1..=n` can arrive in.
+fn arrival_orders(n: u64) -> Vec<Vec<u64>> {
+    if n == 0 {
+        return vec![Vec::new()];
+    }
+    let mut orders = Vec::new();
+    for shorter in arrival_orders(n - 1) {
+        for at in 0..=shorter.len() {
+            let mut order = shorter.clone();
+            order.insert(at, n);
+            orders.push(order);
+        }
+    }
+    orders
 }
 
 /// Let every spawned request run as far as it can without the clock moving.
@@ -70,24 +100,18 @@ fn typed(seen: &std::sync::Mutex<Vec<String>>) -> Vec<String> {
 
 /// S7: the client sends its next POST before the previous one is answered,
 /// and the requests arrive in whatever order their connections deliver
-/// them. Here every arrival order of five is tried; tmux is handed them in
+/// them. Here all 120 arrival orders of five are tried; tmux is handed them in
 /// the order they were numbered, and nothing runs ahead of a number still
 /// on its way.
 #[tokio::test(start_paused = true)]
 async fn numbered_commands_reach_tmux_in_number_order_whatever_order_they_arrive_in() {
-    let arrivals: [[u64; 5]; 6] = [
-        [2, 1, 3, 4, 5],
-        [5, 4, 3, 2, 1],
-        [3, 5, 1, 4, 2],
-        [2, 3, 4, 5, 1],
-        [1, 3, 2, 5, 4],
-        [4, 1, 5, 2, 3],
-    ];
+    let arrivals = arrival_orders(5);
+    assert_eq!(arrivals.len(), 120);
     for arrival in arrivals {
         let state = Arc::new(AppState::default());
         let seen = session_recording_commands(&state).await;
         let mut requests = Vec::new();
-        for seq in arrival {
+        for &seq in &arrival {
             requests.push(type_numbered(&state, Some(seq), &format!("k{seq}")));
             settle().await;
             let ran = typed(&seen);
@@ -135,12 +159,96 @@ async fn a_number_that_never_arrives_is_given_up_on() {
     assert_eq!(typed(&seen), ["k2", "k3", "k4"]);
     assert_eq!(fourth.await.unwrap(), StatusCode::OK);
 
-    // The lost one turning up after all is run, late, rather than dropped.
+    // The lost one turning up after all is refused: run now, it would land
+    // after keys typed after it (an Enter on a line not yet finished).
     assert_eq!(
         type_numbered(&state, Some(1), "k1").await.unwrap(),
-        StatusCode::OK
+        StatusCode::CONFLICT
     );
-    assert_eq!(typed(&seen), ["k2", "k3", "k4", "k1"]);
+    assert_eq!(typed(&seen), ["k2", "k3", "k4"]);
+}
+
+/// A number the server answers without running it has still had its turn:
+/// the next one runs at once, not after `LOST_SEQ_TIMEOUT`. Each refusal
+/// here is returned before the command would reach the gate.
+#[tokio::test(start_paused = true)]
+async fn a_refused_number_does_not_hold_the_ones_after_it() {
+    let state = Arc::new(AppState::default());
+    let seen = session_recording_commands(&state).await;
+    let refusals = [
+        post(&state, Some(1), &[], "not json".to_string()),
+        post(
+            &state,
+            Some(2),
+            &[],
+            r#"{"cmd":"no_such_command"}"#.to_string(),
+        ),
+        post(
+            &state,
+            Some(3),
+            &[("content-type", "text/plain")],
+            "{}".to_string(),
+        ),
+    ];
+    let after = type_numbered(&state, Some(4), "k4");
+    settle().await;
+    assert_eq!(typed(&seen), ["k4"], "waited for a refused number");
+    assert_eq!(after.await.unwrap(), StatusCode::OK);
+    let statuses = [
+        StatusCode::BAD_REQUEST,
+        StatusCode::BAD_REQUEST,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+    ];
+    for (refusal, status) in refusals.into_iter().zip(statuses) {
+        assert_eq!(refusal.await.unwrap(), status);
+    }
+}
+
+/// A POST that failed on the way never reaches the gate. The client names
+/// its number on the next one (`X-Command-Lost`), and nothing waits for it.
+#[tokio::test(start_paused = true)]
+async fn a_number_the_client_reports_lost_is_passed_over() {
+    let state = Arc::new(AppState::default());
+    let seen = session_recording_commands(&state).await;
+    let body = serde_json::json!({
+        "cmd": "run_tmux_command",
+        "args": { "command": "send-keys -t %1 -l k3" },
+    });
+    let third = post(
+        &state,
+        Some(3),
+        &[("x-command-lost", "1, 2")],
+        body.to_string(),
+    );
+    settle().await;
+    assert_eq!(typed(&seen), ["k3"], "waited for a number reported lost");
+    assert_eq!(third.await.unwrap(), StatusCode::OK);
+}
+
+/// The server can see a stream close before its client does, and the client
+/// goes on posting under the old id meanwhile: those commands are still
+/// ordered, for `GATE_GRACE`.
+#[tokio::test(start_paused = true)]
+async fn a_closed_stream_still_orders_its_commands_for_a_while() {
+    let state = Arc::new(AppState::default());
+    let seen = session_recording_commands(&state).await;
+    cleanup_connection(&state, "s", 1).await;
+    settle().await;
+
+    let second = type_numbered(&state, Some(2), "k2");
+    settle().await;
+    assert!(typed(&seen).is_empty(), "number 2 ran ahead of number 1");
+    let first = type_numbered(&state, Some(1), "k1");
+    assert_eq!(first.await.unwrap(), StatusCode::OK);
+    assert_eq!(second.await.unwrap(), StatusCode::OK);
+    assert_eq!(typed(&seen), ["k1", "k2"]);
+
+    tokio::time::sleep(super::GATE_GRACE).await;
+    settle().await;
+    assert!(
+        state.command_gate(1).is_none(),
+        "the gate was never dropped"
+    );
 }
 
 /// The first number after a long pause is not mistaken for a lost one: the
@@ -207,7 +315,7 @@ async fn a_command_with_no_number_waits_for_nothing() {
 #[tokio::test(start_paused = true)]
 async fn a_connection_with_too_many_waiting_is_refused_more() {
     let state = Arc::new(AppState::default());
-    let _seen = session_recording_commands(&state).await;
+    let seen = session_recording_commands(&state).await;
 
     let parked: Vec<_> = (0..MAX_WAITING as u64)
         .map(|n| type_numbered(&state, Some(n + 2), "k"))
@@ -215,7 +323,19 @@ async fn a_connection_with_too_many_waiting_is_refused_more() {
     settle().await;
     let over = type_numbered(&state, Some(MAX_WAITING as u64 + 2), "k");
     assert_eq!(over.await.unwrap(), StatusCode::TOO_MANY_REQUESTS);
+
+    // The refused number has had its turn: once the line clears, the one
+    // after it runs without waiting for it.
+    assert_eq!(
+        type_numbered(&state, Some(1), "first").await.unwrap(),
+        StatusCode::OK
+    );
     for request in parked {
-        request.abort();
+        assert_eq!(request.await.unwrap(), StatusCode::OK);
     }
+    let ran = typed(&seen).len();
+    let next = type_numbered(&state, Some(MAX_WAITING as u64 + 3), "next");
+    settle().await;
+    assert_eq!(typed(&seen).len(), ran + 1, "waited for the refused number");
+    assert_eq!(next.await.unwrap(), StatusCode::OK);
 }
