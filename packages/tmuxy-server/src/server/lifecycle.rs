@@ -126,6 +126,10 @@ fn embedded_file(path: &str, request: &axum::http::HeaderMap) -> Response {
         .then(|| FrontendAssets::get(path))
         .flatten();
     match (file, FrontendAssets::get("index.html")) {
+        // A build's file that is not in this build (a page left open across
+        // an update asking for a chunk it was built with): a 404 the page's
+        // loader can tell from a file, never the page itself as text/html.
+        (None, _) if path.starts_with("assets/") => StatusCode::NOT_FOUND.into_response(),
         (Some(file), _) => delivery::cached(
             path,
             tmuxy_core::mime::content_type_for_path(path),
@@ -425,9 +429,20 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 #[cfg(test)]
 mod tests {
     use super::{
-        is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid, titled_index_html,
-        Server,
+        embedded_file, is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid,
+        titled_index_html, Server, StatusCode,
     };
+
+    #[test]
+    fn a_missing_build_file_is_a_404_and_any_other_path_the_app() {
+        let missing = embedded_file(
+            "/assets/PreviewWidget-gone.js",
+            &axum::http::HeaderMap::new(),
+        );
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+        let route = embedded_file("/some/app/route", &axum::http::HeaderMap::new());
+        assert_eq!(route.status(), StatusCode::OK);
+    }
 
     #[test]
     fn titled_index_html_names_the_machine_when_the_host_is_plain() {
