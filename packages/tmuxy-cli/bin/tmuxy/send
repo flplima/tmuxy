@@ -30,7 +30,7 @@ Options:
   --timeout SECONDS    Give up on an unanswered question after this long.
   --wait               Then wait for the agent in the pane to take the keys
                        up and finish (it needs tmuxy's hooks: tmuxy agent
-                       install). Exits 1 if it has not started working
+                       install). Exits 5 if it has not started working
                        within --stall-after seconds (stalled), stops at a
                        prompt, reports an error, or another program takes
                        its place.

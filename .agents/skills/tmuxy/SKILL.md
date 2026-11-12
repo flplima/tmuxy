@@ -51,7 +51,7 @@ tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
 tmuxy pane group add            # group the current pane (members become header tabs)
 tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
 tmuxy pane send -t <target> <keys...> # type into another pane; the user allows it there first (blocks until answered); never into a pane at a prompt
-tmuxy pane send -t <agent> --wait 'fix the test' Enter # then wait for that agent to work and finish; exit 1 if it stalls or stops at a prompt
+tmuxy pane send -t <agent> --wait 'fix the test' Enter # then wait for that agent to work and finish; exit 5 if it stalls or stops at a prompt
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy run <tmux cmd>            # a read/arrange/close tmux command, through run-shell
 tmuxy config reload             # re-apply tmuxy.conf (and the whole config chain) to the running app
