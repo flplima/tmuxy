@@ -112,6 +112,22 @@ on `POST /commands` and the `GET /events` stream; the one-off proxy that once
 did it no longer exists. Because the transports run over TCP, real packet loss
 reaches the app as delay (head-of-line retransmit), not dropped events.
 
+### A pane nobody looks at
+
+`npm run perf:hidden-bytes -- --url … [--seconds N] [--out FILE]`
+(`packages/tmuxy-ui/scripts/measure-hidden-bytes.mjs`) measures what the event
+stream (`GET /events`) carries to a browser while one pane redraws an agent's
+spinner at ~2 KB/s: with no spinner, with the spinner in a tab the browser does
+not show, and with its tab shown. The bytes are the ones Chrome received on the
+stream's connection (CDP), so what the link carries. `perf:compare` reads the
+report and holds what a hidden spinner adds per byte it prints to a budget
+(`scripts/lib/compare-bytes.mjs`).
+
+Measured: the stream idles at ~30 B/s; a hidden spinner adds ~15–16 KB/s, about
+8 bytes per byte it printed, the same as a visible one. A hidden pane's every
+frame is sent in full: one agent left spinning in a background tab is ~55 MB an
+hour on the link.
+
 ## Axis C — whole-interaction latency (the CI regression gate)
 
 `packages/tmuxy-ui/scripts/measure-interactions.mjs` drives the handful of
