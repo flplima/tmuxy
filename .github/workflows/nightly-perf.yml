@@ -94,6 +94,9 @@ jobs:
           export-path: 'true'
 
       - uses: ./.github/actions/start-test-server
+        # A socket named for a perf run: the harness refuses any other.
+        env:
+          TMUX_SOCKET: tmuxy-perf
 
       # More samples than the 12 the gate job uses: this number is committed
       # and lived with, so it is worth a steadier p50.
@@ -221,6 +224,9 @@ jobs:
           export-path: 'true'
 
       - uses: ./.github/actions/start-test-server
+        # A socket named for a perf run: the harness refuses any other.
+        env:
+          TMUX_SOCKET: tmuxy-perf
 
       - name: Measure interactions
         run: |

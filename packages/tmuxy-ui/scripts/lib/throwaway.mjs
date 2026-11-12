@@ -4,12 +4,13 @@
  *
  * What tells them apart is the tmux socket the server drives. People work in
  * `tmuxy` (the app) and `tmuxy-dev` (the dev server); the E2E and CI servers
- * use `tmuxy-test…`, and a perf run's own `tmuxy-perf…`. Anything not named
- * for a test is refused, the user's own tmux (`default`) included.
+ * use `tmuxy-test` and a perf run its own `tmuxy-perf` (a `-suffix` allowed:
+ * `tmuxy-perf-busy`). Anything else is refused, `tmuxy-testing` and the
+ * user's own tmux (`default`) included.
  */
 
 /** The socket names a perf run may drive. */
-const THROWAWAY = /^tmuxy-(test|perf)/;
+const THROWAWAY = /^tmuxy-(perf|test)(-[A-Za-z0-9_.]+)*$/;
 
 /** `--url`, required: a perf run has no default server to fall back to. */
 export function requiredUrl(argv) {
