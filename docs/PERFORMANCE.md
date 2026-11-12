@@ -124,7 +124,12 @@ Nothing is short-circuited with an adapter call, so a regression anywhere in
 that chain lands in the number.
 
 Measured today: `key-echo`, `pane-nav-keyboard`, `pane-zoom-toggle`,
-`pane-split`, `tab-switch`.
+`pane-split`, `tab-switch`, and `key-echo-busy`: the keystroke again, in a tab
+where the focused pane shares the screen with 23 panes each redrawing a
+spinner at ~2 KB/s (`scripts/lib/busy-panes.mjs`; the harness writes the frames
+into the panes' terminals itself, so the load is exactly that and stops with
+the run). Its ratio to `key-echo` is what other panes' output costs a
+keystroke.
 
 **Two targets, one suite.** The same interactions are measured against the web
 app and against the desktop app, because they reach the same Rust core over
