@@ -108,6 +108,9 @@ fn the_checkout_runs_no_hook_or_filter_the_repository_names() {
     std::fs::create_dir_all(&hooks).unwrap();
     std::fs::copy(&script, hooks.join("post-checkout")).unwrap();
     std::fs::write(repo.join(".gitattributes"), "* filter=tell\n").unwrap();
+    // The repository's own attributes file names it too.
+    std::fs::create_dir_all(repo.join(".git/info")).unwrap();
+    std::fs::write(repo.join(".git/info/attributes"), "* filter=tell\n").unwrap();
     let git = |args: &[&str]| {
         assert!(Command::new("git")
             .arg("-C")
