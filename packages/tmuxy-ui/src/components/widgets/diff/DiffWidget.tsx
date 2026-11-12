@@ -88,6 +88,22 @@ function DiffBar({
   );
 }
 
+/** A list of file names under a title: untracked ones, or ones a turn left out. */
+function Names({ title, names, more }: { title: string; names: readonly string[]; more: number }) {
+  if (names.length === 0) return null;
+  return (
+    <section className="diff-untracked" data-diff-names={title}>
+      <div className="diff-untracked-title">{title}</div>
+      {names.map((name) => (
+        <div className="diff-untracked-name" key={name}>
+          {name}
+        </div>
+      ))}
+      {more > 0 && <div className="diff-note">and {more} more</div>}
+    </section>
+  );
+}
+
 function DiffFiles({
   read,
   closed,
@@ -114,17 +130,8 @@ function DiffFiles({
           review={review}
         />
       ))}
-      {read.untracked.length > 0 && (
-        <section className="diff-untracked" data-diff-untracked="">
-          <div className="diff-untracked-title">Not tracked by git</div>
-          {read.untracked.map((name) => (
-            <div className="diff-untracked-name" key={name}>
-              {name}
-            </div>
-          ))}
-          {read.untrackedMore > 0 && <div className="diff-note">and {read.untrackedMore} more</div>}
-        </section>
-      )}
+      <Names title="Not tracked by git" names={read.untracked} more={read.untrackedMore} />
+      <Names title="Left out of this turn, not copied" names={read.turn?.leftOut ?? []} more={0} />
       {read.truncated && (
         <div className="diff-note">
           The changes are too large to show whole: this is their start.

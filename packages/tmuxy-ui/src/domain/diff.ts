@@ -54,7 +54,14 @@ export const DiffRead = Schema.Struct({
   untrackedMore: Schema.Number,
   truncated: Schema.Boolean,
   /** The turn scope's turn: the agent's pane, and whether it is still at it. */
-  turn: optional(Schema.Struct({ agent: Schema.String, ongoing: Schema.Boolean })),
+  turn: optional(
+    Schema.Struct({
+      agent: Schema.String,
+      ongoing: Schema.Boolean,
+      /** Untracked files the turn did not copy (too large, or named like a secret), with why. */
+      leftOut: Schema.Array(Schema.String),
+    }),
+  ),
 });
 export type DiffRead = Schema.Schema.Type<typeof DiffRead>;
 

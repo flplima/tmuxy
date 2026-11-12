@@ -23,7 +23,10 @@ function read(scope: DiffRead['scope'], over: Partial<DiffRead> = {}): DiffRead 
     scope,
     branch: 'feature',
     base: scope === 'branch' ? 'main' : null,
-    turn: scope === 'turn' ? { agent: '%3', ongoing: true } : null,
+    turn:
+      scope === 'turn'
+        ? { agent: '%3', ongoing: true, leftOut: ['.env (named like a secret)'] }
+        : null,
     files: [
       {
         path: 'src/a.rs',
@@ -131,6 +134,7 @@ describe('DiffWidget', () => {
     await screen.findByText('src/a.rs');
     fireEvent.click(screen.getByRole('tab', { name: 'Last turn' }));
     await screen.findByText("%3's turn so far");
+    expect(screen.getByText('.env (named like a secret)')).toBeTruthy();
     expect(diffCalls()[diffCalls().length - 1]).toEqual({
       cmd: 'read_diff',
       args: { paneId: '%7', scope: 'turn' },

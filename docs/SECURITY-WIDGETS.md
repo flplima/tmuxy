@@ -40,10 +40,10 @@ The "Last turn" scope (`tmuxy-core/src/diff_review/turn.rs`) shows what changed 
 
 | Risk | What holds it |
 | ---- | ------------- |
-| A snapshot writes into the user's repository | Each snapshot is `git add -A` then `write-tree` into an index and object directory of tmuxy's own, under its state dir, one folder per host process, made `0700`; the repository's objects are read as alternates. Its index, refs and files are untouched. The one exception is git's freshening: an object a snapshot meets again gets its modification time renewed, as any `git add` does |
-| A snapshot runs something the repository names | It goes through `safe_git` like every diff read, with every content filter off, so a clean filter is not run (the trap test covers the turn scope) |
-| Snapshots pile up | A checkout's turn and store go once no diff shows it; a store not written for a week (a host that is gone) is removed when a host starts |
-| Another program's files end up in a snapshot | A snapshot holds what `git add -A` takes: tracked and untracked files, not ignored ones, so it holds what the checkout already holds |
+| A snapshot writes into the user's repository | Each snapshot starts from a copy of the repository's index, takes in tracked files (`git add -u`) and the untracked files it may copy, then `write-tree`, all into an index and object directory of tmuxy's own, under its state dir, one folder per host process, made `0700`; the repository's objects are read as alternates. Its index, refs and files are untouched. The one exception is git's freshening: an object a snapshot meets again gets its modification time renewed, as any `git add` does |
+| A snapshot runs something the repository names | It goes through `safe_git` like every diff read, with every content filter off, so a clean filter is not run (the trap test covers the turn scope); file names are passed as literal pathspecs |
+| A secret or a large file is copied into tmuxy's state dir | While a diff is open, the content of untracked files is copied into the store, but only files of at most 1 MB, 16 MB and 2,000 files in all, and never one named like a secret (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.netrc`, `credentials*`, and the like), ignored by the repository or not (`tmuxy-core/src/diff_review/turn/snapshot.rs`). Each file left out is named on screen with why, and is not in the turn |
+| Snapshots pile up | A checkout's turn and store go once no diff shows it; the stores of a host that is no longer running are removed when a host starts, never those of one that runs |
 
 A turn is kept in memory only: a host that restarts has seen none, and the scope says so until the next one.
 

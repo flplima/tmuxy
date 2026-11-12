@@ -238,7 +238,9 @@ fn rows(states: &[(&str, &str)], notify: &str) -> Vec<PaneRow> {
     parse_rows(
         &states
             .iter()
-            .map(|(pane, state)| format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\t\tmain"))
+            .map(|(pane, state)| {
+                format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t@1\t\t\t\tmain")
+            })
             .collect::<Vec<_>>()
             .join("\n"),
     )

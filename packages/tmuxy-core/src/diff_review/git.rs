@@ -70,7 +70,9 @@ fn command(
         command
             .env("GIT_INDEX_FILE", &store.index)
             .env("GIT_OBJECT_DIRECTORY", &store.objects)
-            .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &store.alternates);
+            .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &store.alternates)
+            // A file name is a name, never a pattern that could take in more.
+            .env("GIT_LITERAL_PATHSPECS", "1");
     }
     command
 }

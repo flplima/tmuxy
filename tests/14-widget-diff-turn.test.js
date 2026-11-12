@@ -30,6 +30,17 @@ function shownError(page) {
   });
 }
 
+/** The files the turn says it left out, as listed on screen. */
+function leftOut(page) {
+  return page.evaluate(() =>
+    [
+      ...document.querySelectorAll(
+        '[data-diff-names="Left out of this turn, not copied"] .diff-untracked-name',
+      ),
+    ].map((n) => n.textContent),
+  );
+}
+
 describeE2E('Scenario: the diff shows an agent’s last turn', {}, (ctx) => {
   let dir;
   beforeEach(() => {
@@ -79,6 +90,9 @@ describeE2E('Scenario: the diff shows an agent’s last turn', {}, (ctx) => {
       //    question on the way is part of the same turn.
       fs.writeFileSync(path.join(dir, 'committed.txt'), 'changed in the turn\n');
       fs.writeFileSync(path.join(dir, 'agent.txt'), 'made in the turn\n');
+      // Never copied: a secret's file and a large one.
+      fs.writeFileSync(path.join(dir, '.env'), 'API_TOKEN=not-for-the-store\n');
+      fs.writeFileSync(path.join(dir, 'data.bin'), Buffer.alloc(2 * 1024 * 1024, 7));
       tmuxyCli(['pane', 'state', 'needs-input', agentPane]);
       shown = await waitForDiff(page, 'the turn’s two files', (s) => s.files.length === 2);
       expect([...shown.files].sort()).toEqual(['agent.txt', 'committed.txt']);
@@ -99,6 +113,7 @@ describeE2E('Scenario: the diff shows an agent’s last turn', {}, (ctx) => {
       );
       expect([...shown.files].sort()).toEqual(['agent.txt', 'committed.txt']);
       expect(shown.lines.some((line) => line.text === 'made in the turn')).toBe(true);
+      expect(await leftOut(page)).toEqual(['.env (named like a secret)', 'data.bin (over 1 MB)']);
       expect((await shownDiff(page)).widget.height).toBeGreaterThan(50);
 
       // Nothing was written into the repository: its index is untouched.

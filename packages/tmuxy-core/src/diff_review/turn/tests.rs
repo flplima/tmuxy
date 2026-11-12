@@ -62,7 +62,8 @@ fn a_turn_is_what_changed_between_its_start_and_its_end() {
         so_far.turn,
         Some(TurnInfo {
             agent: "%3".into(),
-            ongoing: true
+            ongoing: true,
+            left_out: Vec::new(),
         })
     );
 
@@ -95,4 +96,92 @@ fn a_turn_is_what_changed_between_its_start_and_its_end() {
     );
     assert!(!store.exists());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The names a snapshot never copies, ignored by the repository or not.
+#[test]
+fn a_secret_is_known_by_its_name() {
+    for name in [
+        ".env",
+        "app/.env.local",
+        "prod.env",
+        "certs/server.pem",
+        "tls.key",
+        "id_ed25519",
+        "id_rsa.pub",
+        ".netrc",
+        "credentials.json",
+    ] {
+        assert!(snapshot::named_like_a_secret(name), "{name}");
+    }
+    for name in [
+        "environment.rs",
+        "keys.rs",
+        "src/env.ts",
+        "README.md",
+        "monkey.txt",
+    ] {
+        assert!(!snapshot::named_like_a_secret(name), "{name}");
+    }
+}
+
+/// An untracked file too large, or named like a secret, is not copied into
+/// the store: it is left out of the turn and named, with why.
+#[test]
+fn a_large_file_and_a_secret_are_left_out_and_named() {
+    let stores = test_stores();
+    let dir = repository("turn-caps");
+    let root = top(&dir);
+    begin(&root, "%5");
+    let secret = "API_TOKEN=do-not-copy-this-anywhere\n";
+    std::fs::write(dir.join(".env"), secret).unwrap();
+    std::fs::write(dir.join("big.bin"), vec![7u8; 2 * 1024 * 1024]).unwrap();
+    std::fs::write(dir.join("notes.txt"), "small and plain\n").unwrap();
+    finish(&root, "%5");
+
+    let read = read_in(&dir, Scope::Turn).unwrap();
+    assert_eq!(paths(&read), ["notes.txt"]);
+    assert_eq!(
+        read.turn.unwrap().left_out,
+        [".env (named like a secret)", "big.bin (over 1 MB)"]
+    );
+    // Neither is anywhere in the store: no object holds the secret, and the
+    // store is far smaller than the large file.
+    let store = stores
+        .join(std::process::id().to_string())
+        .join(store_name(&root));
+    let hash = std::process::Command::new("git")
+        .args(["hash-object", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut git| {
+            use std::io::Write as _;
+            git.stdin.take().unwrap().write_all(secret.as_bytes())?;
+            git.wait_with_output()
+        })
+        .unwrap();
+    let hash = String::from_utf8(hash.stdout).unwrap();
+    let (fan, rest) = hash.trim().split_at(2);
+    assert!(!store.join("objects").join(fan).join(rest).exists());
+    let stored: u64 = fingerprint(&store).values().map(|(len, _)| len).sum();
+    assert!(stored < 1024 * 1024, "the store holds {stored} bytes");
+
+    forget(&root);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A store goes only with its host: one whose process is gone is removed,
+/// one whose host still runs is kept, however long since it was written.
+#[test]
+fn only_the_stores_of_hosts_that_are_gone_are_pruned() {
+    let stores = test_stores();
+    let gone = stores.join("999999999");
+    let running = stores.join(std::process::id().to_string()).join("kept");
+    std::fs::create_dir_all(&gone).unwrap();
+    std::fs::create_dir_all(&running).unwrap();
+    prune_stale_stores();
+    assert!(!gone.exists());
+    assert!(running.exists());
+    std::fs::remove_dir_all(&running).unwrap();
 }

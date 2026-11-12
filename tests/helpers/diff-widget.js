@@ -35,9 +35,11 @@ function shownDiff(page) {
       ),
       lines,
       compared: widget?.querySelector('.diff-compared')?.textContent ?? null,
-      untracked: [...(widget?.querySelectorAll('.diff-untracked-name') ?? [])].map(
-        (n) => n.textContent,
-      ),
+      untracked: [
+        ...(widget?.querySelectorAll(
+          '[data-diff-names="Not tracked by git"] .diff-untracked-name',
+        ) ?? []),
+      ].map((n) => n.textContent),
       images: widget?.querySelectorAll('img').length ?? 0,
       tabs: [...(widget?.querySelectorAll('[data-diff-scope-tab]') ?? [])].map((tab) => box(tab)),
       viewport: { width: innerWidth, height: innerHeight },
