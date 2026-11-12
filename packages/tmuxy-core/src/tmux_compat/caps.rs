@@ -25,8 +25,9 @@ enum Version {
     Unknown,
     /// `3.5a` → `(3, 5)`; `next-3.8` and `3.8-rc` read as their number.
     Numbered(u32, u32),
-    /// A build that names no number (`master`, a distribution's own tag),
-    /// given the benefit of the doubt: as new as any released version.
+    /// A build of tmux's own development branch (`master`): as new as any
+    /// released version. A distribution's own tag (`openbsd-7.4`) says
+    /// nothing of the tmux behind it, so it stays `Unknown`.
     Unnumbered,
 }
 
@@ -40,15 +41,14 @@ pub struct TmuxCaps {
 
 impl TmuxCaps {
     /// From what `#{version}` expands to: `3.5a`, `next-3.8`, `3.8-rc`,
-    /// `master`. An empty answer is no answer.
+    /// `master`. An empty answer, or one with no number that is not
+    /// `master`, is no answer.
     pub fn from_version(version: &str) -> Self {
         let version = version.trim();
-        if version.is_empty() {
-            return Self::default();
-        }
         let version = match parse_version(&format!("tmux {version}")) {
             Some((major, minor)) => Version::Numbered(major, minor),
-            None => Version::Unnumbered,
+            None if version == "master" => Version::Unnumbered,
+            None => Version::Unknown,
         };
         Self { version }
     }
@@ -85,20 +85,16 @@ mod tests {
         assert!(caps("10.0").at_least(3, 8));
     }
 
-    /// Not asked, or an empty answer: the oldest behaviour, every
-    /// workaround on. A build with no number: the newest.
+    /// Not asked, an empty answer, or a distribution's tag: the oldest
+    /// behaviour, every workaround on. tmux's development branch: the newest.
     #[test]
-    fn an_unknown_version_keeps_every_workaround_and_an_unnumbered_one_none() {
-        for unknown in [TmuxCaps::default(), TmuxCaps::from_version("  ")] {
+    fn an_unknown_version_keeps_every_workaround_and_master_needs_none() {
+        for unknown in ["", "  ", "openbsd-7.4"].map(TmuxCaps::from_version) {
             assert!(!unknown.at_least(3, 2));
             assert!(!unknown.announces_pane_swaps());
         }
-        for unnumbered in ["master", "openbsd-7.4"] {
-            assert!(
-                TmuxCaps::from_version(unnumbered).at_least(3, 8),
-                "{unnumbered}"
-            );
-        }
+        assert!(!TmuxCaps::default().at_least(3, 2));
+        assert!(TmuxCaps::from_version("master").at_least(3, 8));
     }
 
     #[test]

@@ -26,7 +26,7 @@ What differs between the supported versions, and how tmuxy copes (the commands t
 
 Most differences above are handled without knowing the version: a `-q`, a re-list, a layout read by its shape. Where knowing it lets tmuxy skip work or use something newer, it asks. When the monitor attaches, it prints `#{version}` behind a marker of its own (`Markers::version_read_command` in `tmuxy-core/src/control_mode/state/markers.rs`). The answer becomes the aggregator's `TmuxCaps` (`tmuxy-core/src/tmux_compat/caps.rs`). Since the server expands it, a server reached over SSH is judged by its own tmux, not by the one on this machine.
 
-Until the answer comes, every workaround stays on: an unknown version counts as the oldest supported one. A build that names no number (`master`, a distribution's own tag) counts as the newest. `next-3.8` and `3.8-rc` read as 3.8.
+Until the answer comes, every workaround stays on: an unknown version counts as the oldest supported one. A build of tmux's development branch (`master`) counts as the newest; a distribution's own tag (`openbsd-7.4`) says nothing of the tmux behind it and counts as unknown. `next-3.8` and `3.8-rc` read as 3.8.
 
 | Capability | From | What it changes |
 | --- | --- | --- |

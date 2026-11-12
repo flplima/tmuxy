@@ -43,6 +43,7 @@ fn swap_is_announced(server: &common::ScratchServer) -> bool {
     let started = std::time::Instant::now();
     let mut announced = false;
     let mut n = 1;
+    // Only on 3.2, where none comes, does this loop run its two seconds out.
     while !announced && started.elapsed() < std::time::Duration::from_secs(2) {
         announced = round_trip(input, n);
         n += 1;
@@ -77,7 +78,9 @@ fn the_version_tmux_reports_is_read_as_its_own_and_its_swaps_as_caps_say() {
             assert!(caps.at_least(major, minor), "{version} vs {line}");
             assert!(!caps.at_least(major, minor + 1), "{version} vs {line}");
         }
-        None => assert!(caps.at_least(99, 0), "{version} vs {line}"),
+        // `master` is the newest; a distribution's tag is not known.
+        None if version == "master" => assert!(caps.at_least(99, 0)),
+        None => assert!(!caps.at_least(3, 2), "{version} vs {line}"),
     }
     assert_eq!(
         swap_is_announced(&server),
