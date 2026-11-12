@@ -200,24 +200,28 @@ export const connectionActions = {
     enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
     fetchThemes(enqueue);
     // Typed while the page attached: sent now, in the order typed, ahead of
-    // anything typed after (a raised event goes before the next one in).
-    // What waited longer than HELD_MAX_AGE_MS is not: the user has moved on.
-    const fresh = context.heldCommands.filter((held) => Date.now() - held.at <= HELD_MAX_AGE_MS);
-    for (const held of fresh) enqueue.raise(held.command);
-    const dropped = context.heldCommands.length - fresh.length + context.heldOverflow;
-    if (dropped > 0) {
+    // anything typed after (a raised event goes before the next one in). All
+    // of it or none: if the oldest waited longer than HELD_MAX_AGE_MS, or the
+    // bound pushed some out, the rest is a line's tail, and an Enter in it
+    // would run that tail as a command.
+    const held = context.heldCommands;
+    const stale = held.length > 0 && Date.now() - held[0].at > HELD_MAX_AGE_MS;
+    if (stale || context.heldOverflow > 0) {
       enqueue.raise({
         type: 'NOTIFY' as const,
-        text: `${keysWord(dropped)} typed while connecting took too long to send and were dropped`,
+        text: `${keysWord(held.length + context.heldOverflow)} typed while connecting took too long to send and were dropped`,
       });
+      return;
     }
+    for (const command of held) enqueue.raise(command.command);
   }),
 
   /**
    * A key or command before the first connection is held, not dropped: the
    * page takes keys from its first frame, the session arrives a moment later.
-   * Past {@link MAX_HELD_COMMANDS} the oldest go (and are counted): a page
-   * that never connects does not grow without end.
+   * Past {@link MAX_HELD_COMMANDS} the oldest go and are counted (and then
+   * nothing is sent: `connection_onConnected`): a page that never connects
+   * does not grow without end.
    */
   connection_holdCommand: act(({ context, event, enqueue }) => {
     if (event.type !== 'DISPATCH_OP' && event.type !== 'SEND_TMUX_COMMAND') return;

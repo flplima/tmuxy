@@ -31,18 +31,15 @@ describe('keys typed while the page first connects', () => {
     expect(actor.getSnapshot().context.heldCommands).toEqual([]);
   });
 
-  it('are held up to a bound, the newest kept and the rest counted', () => {
+  it('are all dropped once more than the bound were typed: a tail is never sent', () => {
     const store = recorder();
     const actor = startApp({ connected: false, actors: { tmuxStoreActor: store.logic } });
     for (let i = 0; i < MAX_HELD_COMMANDS + 10; i++) actor.send(typed(String(i)));
     actor.send({ type: 'TMUX_CONNECTED' });
-    const sent = sentTexts(store);
-    expect(sent).toHaveLength(MAX_HELD_COMMANDS);
-    expect(sent[0]).toBe('10');
+    expect(sentTexts(store)).toEqual([]);
     expect(notices(actor)).toEqual([
-      '10 keys typed while connecting took too long to send and were dropped',
+      `${MAX_HELD_COMMANDS + 10} keys typed while connecting took too long to send and were dropped`,
     ]);
-    expect(sent[sent.length - 1]).toBe(String(MAX_HELD_COMMANDS + 9));
   });
 
   /**
@@ -64,17 +61,27 @@ describe('keys typed while the page first connects', () => {
     expect(notices(actor)).toContain('1 key typed before the connection failed were not sent');
   });
 
-  it('are dropped when they waited too long for the connection', () => {
+  /**
+   * A line typed slowly, across the age limit, then Enter: sending only its
+   * recent keys would run its tail as a command (`echo 'x: rm -rf build'`
+   * → `rm -rf build'`). All of it waits or none of it goes.
+   */
+  it('typed slowly across the limit, are all dropped: nothing partial arrives', () => {
     vi.useFakeTimers();
     const store = recorder();
     const actor = startApp({ connected: false, actors: { tmuxStoreActor: store.logic } });
-    actor.send(typed('old'));
-    vi.advanceTimersByTime(HELD_MAX_AGE_MS + 1);
-    actor.send(typed('new'));
+    for (const key of "echo 'x: rm -rf build'") {
+      actor.send(typed(key));
+      vi.advanceTimersByTime(HELD_MAX_AGE_MS / 10);
+    }
+    actor.send({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.SendKeys({ target: 'tmuxy', keys: 'Enter' }),
+    });
     actor.send({ type: 'TMUX_CONNECTED' });
-    expect(sentTexts(store)).toEqual(['new']);
+    expect(store.ops()).toEqual([]);
     expect(notices(actor)).toEqual([
-      '1 key typed while connecting took too long to send and were dropped',
+      '23 keys typed while connecting took too long to send and were dropped',
     ]);
   });
 });
