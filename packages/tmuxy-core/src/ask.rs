@@ -92,6 +92,9 @@ pub enum Refused {
     /// or its screen shows an approval dialog). Nothing is typed into it,
     /// asked or not: a key there could answer the prompt.
     AtPrompt(PaneId),
+    /// The condition the sender added to the guard ([`deliver_when`]) did
+    /// not hold as the keys would have gone in.
+    Held(PaneId),
     /// tmux failed a read or a write.
     Tmux(CommandError),
 }
@@ -114,6 +117,10 @@ impl std::fmt::Display for Refused {
                 f,
                 "{pane} is waiting at a prompt for the user (needs input); nothing sent"
             ),
+            Refused::Held(pane) => write!(
+                f,
+                "{pane} no longer met the sender's condition as the keys went in; nothing sent"
+            ),
             Refused::Tmux(e) => write!(f, "{}", e.error),
         }
     }
@@ -132,7 +139,7 @@ impl From<Refused> for CommandError {
             Refused::NoAnswer(..) | Refused::Busy(_) => {
                 CommandError::unavailable(refused.to_string())
             }
-            Refused::Declined(_) | Refused::Gone(_) | Refused::AtPrompt(_) => {
+            Refused::Declined(_) | Refused::Gone(_) | Refused::AtPrompt(_) | Refused::Held(_) => {
                 CommandError::invalid(refused.to_string())
             }
         }
@@ -372,15 +379,20 @@ pub async fn at_prompt<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<bool, Command
 /// between a check and the keys cannot be answered by them. Otherwise tmux
 /// marks the pane with `@tmuxy-send-held-<token>` ([`SEND_HELD`]), an
 /// option of this send's own, so a send beside it can neither read the mark
-/// as its own nor clear it.
-pub fn guarded(pane: &PaneId, command: &[String], token: &str) -> Argv {
+/// as its own nor clear it. `also`, a tmux format, must hold too (a program
+/// still in front, a queued send not retracted).
+pub fn guarded(pane: &PaneId, command: &[String], token: &str, also: Option<&str>) -> Argv {
     let line = |argv: &[String]| {
         argv.iter()
             .map(|word| crate::tmux_quote(word))
             .collect::<Vec<_>>()
             .join(" ")
     };
-    let condition = format!("#{{!=:#{{{PANE_STATE}}},{NEEDS_INPUT}}}");
+    let free = format!("#{{!=:#{{{PANE_STATE}}},{NEEDS_INPUT}}}");
+    let condition = match also {
+        Some(also) => format!("#{{&&:{free},{also}}}"),
+        None => free,
+    };
     words(&[
         "if-shell",
         "-F",
@@ -396,11 +408,24 @@ pub fn guarded(pane: &PaneId, command: &[String], token: &str) -> Argv {
 /// screen is read first ([`at_prompt`]), and tmux checks its state again as
 /// it types ([`guarded`]). The one way a sender types into a pane.
 pub async fn deliver<T: Tmux>(tmux: &T, pane: &PaneId, command: Argv) -> Result<(), Refused> {
+    deliver_when(tmux, pane, command, None).await
+}
+
+/// [`deliver`], with `also` (a tmux format) checked by tmux in the same step
+/// as the pane's state: `#{==:#{pane_current_command},claude}` sends only
+/// while that program is still in front. Refused with [`Refused::Held`]
+/// when `also` failed and the pane is not at a prompt.
+pub async fn deliver_when<T: Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+    command: Argv,
+    also: Option<&str>,
+) -> Result<(), Refused> {
     if at_prompt(tmux, pane).await.map_err(Refused::Tmux)? {
         return Err(Refused::AtPrompt(pane.clone()));
     }
     let token = crate::random::token();
-    tmux.mutate(vec![guarded(pane, &command, &token)])
+    tmux.mutate(vec![guarded(pane, &command, &token, also)])
         .await
         .map_err(Refused::Tmux)?;
     let held = tmux
@@ -413,6 +438,9 @@ pub async fn deliver<T: Tmux>(tmux: &T, pane: &PaneId, command: Argv) -> Result<
     let _ = tmux
         .mutate(vec![unset_pane(pane, &format!("{SEND_HELD}-{token}"))])
         .await;
+    if also.is_some() && !at_prompt(tmux, pane).await.unwrap_or(true) {
+        return Err(Refused::Held(pane.clone()));
+    }
     Err(Refused::AtPrompt(pane.clone()))
 }
 
