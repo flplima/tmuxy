@@ -16,6 +16,7 @@ import { dirname } from 'node:path';
 import { buildReport, runInteractions, waitForReady } from './lib/perf-harness.mjs';
 import { assertThrowawayServer, requiredUrl } from './lib/throwaway.mjs';
 import { HISTORY_LINES, measureAttach } from './lib/attach.mjs';
+import { closeWindow, newWindowId } from './lib/busy-panes.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (flag, fallback) => {
@@ -74,17 +75,26 @@ async function main() {
   await assertThrowawayServer(adapter.evaluate);
   // `--only attach` skips the rest, to iterate on attach alone.
   const results = ONLY === 'attach' ? [] : await runInteractions(adapter, { samples: SAMPLES });
-  results.push(
-    ...(await measureAttach(page, {
-      samples: SAMPLES,
-      // The focused pane with a long history, as a working session has.
-      prepare: async () => {
-        await adapter.clickActivePane();
-        await adapter.type(`seq 1 ${HISTORY_LINES}\n`);
-        await adapter.wait(2000);
-      },
-    })),
+  // In a tab of the run's own, closed by its id afterwards: its pane gets a
+  // long history, as a working session's has, and the keys typed.
+  const attachTab = await newWindowId(adapter, () =>
+    adapter.evaluate(() => window.app.send({ type: 'SEND_TMUX_COMMAND', command: 'neww' })),
   );
+  try {
+    results.push(
+      ...(await measureAttach(page, {
+        samples: SAMPLES,
+        prepare: async () => {
+          await adapter.wait(800);
+          await adapter.clickActivePane();
+          await adapter.type(`seq 1 ${HISTORY_LINES}\n`);
+          await adapter.wait(2000);
+        },
+      })),
+    );
+  } finally {
+    await closeWindow(adapter, attachTab);
+  }
 
   // A CDP browser belongs to the developer, not to us — close only the tab.
   if (CDP) await page.close();
