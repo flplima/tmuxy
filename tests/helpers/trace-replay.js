@@ -10,7 +10,9 @@
  * not rebuilt: it is reported as skipped, and the replay goes on. Pane and
  * window ids in the trace are mapped to live ones by first appearance: the
  * first trace pane named is the live session's first pane, the next new one
- * the next live pane tmux made, and so on. A redacted trace replays the same
+ * the next live pane tmux made, and so on, until an op is skipped: an id first
+ * seen after that is left unmapped and reported, and its op skipped, rather
+ * than landing on a pane it may not be. A redacted trace replays the same
  * way, since redaction keeps ids and ops.
  */
 
@@ -87,8 +89,17 @@ function liveIds(session) {
  */
 async function replayTrace(page, session, text) {
   const mapped = new Map();
+  const unmapped = [];
+  const replayed = [];
+  const skipped = [];
   const id = (traceId) => {
     if (mapped.has(traceId)) return mapped.get(traceId);
+    // After a skipped op the live panes no longer follow the trace's order:
+    // a new id could land on the wrong pane, so it is left unmapped.
+    if (skipped.length > 0) {
+      if (!unmapped.includes(traceId)) unmapped.push(traceId);
+      return null;
+    }
     const live = liveIds(session);
     const pool = traceId.startsWith('@') ? live.windows : live.panes;
     const taken = new Set(mapped.values());
@@ -96,8 +107,6 @@ async function replayTrace(page, session, text) {
     if (next) mapped.set(traceId, next);
     return next;
   };
-  const replayed = [];
-  const skipped = [];
   for (const action of storeActions(text)) {
     const command = rebuildCommand(action, id);
     if (!command) {
@@ -112,7 +121,7 @@ async function replayTrace(page, session, text) {
     await waitForSettled(page);
     replayed.push(action.name);
   }
-  return { replayed, skipped, ids: Object.fromEntries(mapped) };
+  return { replayed, skipped, unmapped, ids: Object.fromEntries(mapped) };
 }
 
 module.exports = { storeActions, replayTrace };

@@ -12,11 +12,13 @@ const TRACE = [
   { layer: 'xstate', name: 'KEY_PRESS', phase: 'event' },
   { layer: 'store', name: 'Split', kind: 'vertical' },
   { layer: 'store', name: 'Split', kind: 'horizontal' },
-  // A resize needs a size, which a trace never holds: skipped.
-  { layer: 'store', name: 'ResizePanes', pane: '%40' },
   { layer: 'store', name: 'ZoomToggle', pane: '%40' },
   { layer: 'store', name: 'ZoomToggle', pane: '%40' },
   { layer: 'store', name: 'KillPane', pane: '%41' },
+  // A resize needs a size, which a trace never holds: skipped.
+  { layer: 'store', name: 'ResizePanes', pane: '%40' },
+  // A pane first named after the skip: left unmapped, its op skipped.
+  { layer: 'store', name: 'ZoomToggle', pane: '%77' },
   { layer: 'tmux', name: 'command', session: 'session-1' },
 ]
   .map((line) => JSON.stringify(line))
@@ -31,16 +33,18 @@ describeE2E('Scenario: a trace replayed into a reproduction', {}, (ctx) => {
     expect(storeActions(TRACE).map((a) => a.name)).toEqual([
       'Split',
       'Split',
-      'ResizePanes',
       'ZoomToggle',
       'ZoomToggle',
       'KillPane',
+      'ResizePanes',
+      'ZoomToggle',
     ]);
 
     const result = await replayTrace(page, ctx.session, TRACE);
 
     expect(result.replayed).toEqual(['Split', 'Split', 'ZoomToggle', 'ZoomToggle', 'KillPane']);
-    expect(result.skipped).toEqual(['ResizePanes']);
+    expect(result.skipped).toEqual(['ResizePanes', 'ZoomToggle']);
+    expect(result.unmapped).toEqual(['%77']);
     // The trace's panes landed on live ones: the first named is the
     // session's first pane, the next one the next pane the replay made.
     expect(Object.keys(result.ids)).toEqual(['%40', '%41']);
