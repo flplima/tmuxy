@@ -254,16 +254,30 @@ pub struct ReviveArgs {
     pane: String,
 }
 
+/// `pane` as tmux has it now; `None` when no such pane answers.
+pub fn read_pane(pane: &str) -> Option<PaneNow> {
+    let read = ["display-message", "-p", "-t", pane, &pane_format()].map(String::from);
+    tmuxy_core::session::tmux_output(&read)
+        .ok()
+        .and_then(|out| parse_pane(pane, &out))
+}
+
+/// The children of a pane's first process, when this machine can see them:
+/// with tmux on another host (`TMUXY_SSH`), the pid is that host's, so they
+/// cannot be listed here and a live pane is left alone.
+fn pane_children(pid: Option<u32>) -> Option<Vec<String>> {
+    if tmuxy_core::session::ssh_target().is_some() {
+        return None;
+    }
+    pid.and_then(children)
+}
+
 pub fn revive(answer: &Answer, args: ReviveArgs) {
     let pane = args.pane;
-    let read = ["display-message", "-p", "-t", &pane, &pane_format()].map(String::from);
-    let Some(now) = tmuxy_core::session::tmux_output(&read)
-        .ok()
-        .and_then(|out| parse_pane(&pane, &out))
-    else {
+    let Some(now) = read_pane(&pane) else {
         answer.exit(EXIT_TARGET, &format!("no pane {pane}"))
     };
-    let jobs = now.pid.and_then(children);
+    let jobs = pane_children(now.pid);
     if let Some(why) = refusal(&pane, &now, jobs.as_deref()) {
         answer.exit(EXIT_FAILED, &why);
     }
