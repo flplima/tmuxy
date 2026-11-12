@@ -20,7 +20,7 @@ pub const INTERVAL: Duration = Duration::from_millis(1500);
 /// Tab-separated, the free-text fields last (a window name may hold a tab).
 pub const PANES_FORMAT: &str = "#{pane_id}\t#{session_name}\t#{@tmuxy-notify}\t\
      #{@tmuxy-pane-state}\t#{pane_current_command}\t#{@tmuxy-ask}\t#{@tmuxy-label}\t\
-     #{window_name}";
+     #{pane_pid}\t#{window_name}";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PaneRow {
@@ -33,6 +33,9 @@ pub struct PaneRow {
     /// A send's question is up on the pane: the state is the question's.
     pub asking: bool,
     pub label: String,
+    /// The pane's first process, for finding the program an interpreter
+    /// runs (`agent_rules::program`).
+    pub pid: Option<u32>,
     pub window: String,
 }
 
@@ -41,8 +44,8 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
     listing
         .lines()
         .filter_map(|line| {
-            let f: Vec<&str> = line.splitn(8, '\t').collect();
-            let [pane_id, session, notify, state, command, ask, label, window] = f[..] else {
+            let f: Vec<&str> = line.splitn(9, '\t').collect();
+            let [pane_id, session, notify, state, command, ask, label, pid, window] = f[..] else {
                 return None;
             };
             Some(PaneRow {
@@ -53,6 +56,7 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
                 command: command.to_string(),
                 asking: !ask.is_empty(),
                 label: label.to_string(),
+                pid: pid.parse().ok(),
                 window: window.to_string(),
             })
         })
@@ -113,9 +117,9 @@ mod tests {
     #[test]
     fn a_pane_list_row_reads_into_its_fields() {
         let rows = parse_rows(
-            "%3\twork\ton\tworking\tclaude\t\t\tmain\n\
-             %4\twork\ton\t\tzsh\t\tbuild\tside\twith\ttabs\n\
-             %5\twork\toff\tneeds-input\t2.1.30\tMay I?\t\tmain\n\
+            "%3\twork\ton\tworking\tclaude\t\t\t4021\tmain\n\
+             %4\twork\ton\t\tzsh\t\tbuild\t\tside\twith\ttabs\n\
+             %5\twork\toff\tneeds-input\t2.1.30\tMay I?\t\t77\tmain\n\
              %6\ttoo\tshort\n",
         );
         assert_eq!(rows.len(), 3);
@@ -129,6 +133,7 @@ mod tests {
                 command: "claude".into(),
                 asking: false,
                 label: String::new(),
+                pid: Some(4021),
                 window: "main".into(),
             }
         );

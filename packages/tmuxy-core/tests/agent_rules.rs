@@ -85,13 +85,12 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
     ])
     .unwrap();
     assert_eq!(command.trim(), "node", "tmux names the interpreter");
-    assert_eq!(program::program(&pane, "node"), "gemini");
-    // The `ps` path macOS takes finds it too.
     let pid: u32 = common::tmux(&["display-message", "-p", "-t", &pane, "#{pane_pid}"])
         .unwrap()
         .trim()
         .parse()
         .unwrap();
+    assert_eq!(program::program(Some(pid), "node"), "gemini");
     let by_ps = program::foreground_argv_by_ps(pid).expect("ps reads the foreground");
     assert_eq!(
         program::script_name(&by_ps).as_deref(),
