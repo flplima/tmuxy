@@ -70,10 +70,13 @@ fn a_hostile_pattern_or_screen_costs_little() {
         ..UserRules::default()
     };
     let screen = format!("{}\n", "a".repeat(1_000_000)).repeat(40);
+    // A backtracking engine takes years on this; a linear one takes
+    // milliseconds. The bound is far from both, so a slow runner passes and
+    // a blowup still fails.
     let started = std::time::Instant::now();
     assert!(rules.matching("x", &screen).is_none());
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(1),
+        started.elapsed() < std::time::Duration::from_secs(30),
         "took {:?}",
         started.elapsed()
     );
