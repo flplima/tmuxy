@@ -323,9 +323,11 @@ impl ImageParser {
         // Prepend any incomplete image escape carried over from the last chunk.
         // When this chunk cannot end it, it only grows the buffer.
         // A chunk that cannot end it holds no escape at all, and so no
-        // wrapper either: appended as it is.
+        // wrapper either: appended as it is. One that ends on an ESC could
+        // be starting a wrapper, which only the raw path can see whole.
         if self.pending_unterminated
             && self.held.len() + content.len() <= MAX_PENDING_IMAGE
+            && content.last() != Some(&0x1B)
             && !ends_pending_escape(&self.held, content)
         {
             self.held.extend_from_slice(content);
@@ -476,3 +478,5 @@ mod tests;
 mod tests_placeholders;
 #[cfg(test)]
 mod tests_sixel;
+#[cfg(test)]
+mod tests_split;
