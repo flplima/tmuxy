@@ -178,6 +178,11 @@ pub mod tmux_options {
     /// chrome and the pane surfaces opaque and clears the blur, leaving the
     /// opacity and blur options as they are for when it goes back on.
     pub const TRANSPARENCY: &str = "@tmuxy-transparency";
+
+    /// Session-scoped: the terminal profile the session uses
+    /// (`crate::profiles`), set with the profile's own values over the
+    /// global ones. Unset: the Default Profile, which changes nothing.
+    pub const PROFILE: &str = "@tmuxy-profile";
     /// `on`/`off`: the UI's layout animations (pane morphs, swaps, resizes,
     /// float keyframes). Off draws every change in place.
     pub const ANIMATIONS: &str = "@tmuxy-animations";
