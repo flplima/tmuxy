@@ -34,14 +34,15 @@ The files a preview reads and the checkout a diff reads: in both, tmux decides w
 
 **What git prints is drawn as text.** File names and lines are strings in the answer, put on screen as text nodes only: a line of markup is shown as written. The read returns the checkout's folder name, never its path.
 
-## A Review Types Into One Pane, Never At A Question
+## A Review Types Into One Agent, Never At A Question
 
-A diff's comments go to an agent as one numbered prompt (`domain/review.ts`, `components/widgets/diff/ReviewBar.tsx`): pasted into the pane the review bar names, then Enter. The pane is one of the widget's own tab, picked on screen; `tmuxy widget diff --to %N` only preselects it, and the script takes nothing but a pane id there.
+A diff's comments go to an agent as one numbered prompt (`domain/review.ts`, `components/widgets/diff/ReviewBar.tsx`): pasted into the pane the review bar names, then Enter. Only a pane of the widget's own tab running an agent (`agent_screen::AGENT_COMMANDS`, generated into the UI) is offered; `tmuxy widget diff --to %N` only preselects one, and the script takes nothing but a pane id there.
 
 | Risk | What holds it |
 | ---- | ------------- |
-| The prompt answers a permission question the agent is asking | `sendRefusal` refuses while the pane reads `needs-input` (a dialog on its screen, or a `pane send` waiting there), and says so; nothing is typed. It is the one check, to be swapped for `tmuxy pane send --wait`'s own refusal once that exists |
-| The review's text drives the program | It goes as a paste: control characters dropped, bracketed when the program asked for it |
+| The prompt answers a permission question | Two checks. The client's `sendRefusal` refuses while the pane reads `needs-input`. Then tmux checks again as it sends: the paste and the Enter run inside one `if-shell -F` on `agent_takes_input_format` (`commandHelpers.ts` `reviewInto`), so a dialog raised after the client looked gets no keys; the staged review is dropped, a message says so, and Restore brings the comments back. Both give way to `pane send`'s own refusal once that exists |
+| The prompt reaches a shell | A shell would run each line, and a quoted `   > code` line is a redirection that empties a file. No pane but an agent is offered, and the same `if-shell` requires an agent's process, so an agent that exited in the meantime leaves a shell that gets nothing |
+| The review's text drives the program | It goes as a paste: control characters dropped, bracketed when the program asked for it, to that pane alone even in a synchronized window |
 | The checkout's text runs as markup in the widget | A comment and the line it quotes are text nodes, as every diff line is |
 
-Held by `tests/14-widget-diff.test.js` (a fake agent reads the prompt, then asks a question, and a review sent then answers nothing) and `domain/__tests__/review.test.ts`.
+What tmux can see is the limit: a dialog no hook has declared and the screen pass has not read yet (it reads every 1.5 s) still looks like an agent at work. Held by `tests/14-widget-diff.test.js` (a fake agent reads the prompt; then the send is held after the client's check while the agent raises a question, and nothing reaches it; then its shell is offered nothing), `tests/agent_takes_input.rs` (the format, asked of a real tmux) and `domain/__tests__/review.test.ts`.

@@ -26,6 +26,13 @@ export const CHROME_WINDOW_TYPES = ['float', 'sidebar-left', 'sidebar-right'] as
 /** The `@tmuxy-pane-state` words tmuxy knows, in attention order (`PaneStateName`). */
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
 
+/** Agent process names (`AGENT_COMMANDS`). */
+export const AGENT_COMMANDS = ['claude', 'codex', 'agy', 'antigravity'] as const;
+
+/** `agent_takes_input_format`. */
+export const AGENT_TAKES_INPUT =
+  '#{&&:#{||:#{||:#{||:#{||:#{==:#{pane_current_command},claude},#{==:#{pane_current_command},codex}},#{==:#{pane_current_command},agy}},#{==:#{pane_current_command},antigravity}},#{m:[0-9]*.[0-9]*,#{pane_current_command}}},#{&&:#{!=:#{@tmuxy-pane-state},needs-input},#{==:#{@tmuxy-ask},}}}';
+
 /** Sidebar column widths and drag bounds, in cells (`sidebar_dock`). */
 export const SIDEBAR_DOCK = {
   leftCols: 30,

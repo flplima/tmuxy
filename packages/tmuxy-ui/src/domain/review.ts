@@ -6,6 +6,7 @@
 import type { TmuxPane } from './client';
 import type { DiffScope } from './diff';
 import { waitsForAnswer } from './paneState';
+import { AGENT_COMMANDS } from './tmuxyConstants.gen';
 
 /** Which side of the diff a line number counts in. */
 export type LineSide = 'new' | 'old';
@@ -55,13 +56,19 @@ export function reviewPrompt(
  * Nothing here may answer a question: a pane whose agent waits for the user
  * (a permission prompt, a question) gets nothing typed into
  * it, since the prompt's first line would be taken as the answer. This is the
- * one place that decides; it gives way to `tmuxy pane send --wait`'s own
- * refusal when that lands.
+ * client's check, made on what it last heard; tmux checks again as it sends
+ * (`reviewInto`), since a dialog may be up that the client has not seen. A
+ * pane that runs no agent gets nothing either: a shell would run each line
+ * of the review, and its quoted `> code` lines are redirections. Both give
+ * way to `tmuxy pane send --wait`'s own refusal when that lands.
  */
 export function sendRefusal(
-  pane: Pick<TmuxPane, 'tmuxId' | 'paneState' | 'paneAsk'> | undefined,
+  pane: Pick<TmuxPane, 'tmuxId' | 'command' | 'paneState' | 'paneAsk'> | undefined,
 ): string | null {
-  if (!pane) return 'that pane is gone: nothing was sent';
+  if (!pane) return 'there is no agent in this tab to send it to';
+  if (!isAgentPane(pane)) {
+    return `${pane.tmuxId} runs ${pane.command}, not an agent: nothing was sent`;
+  }
   if (waitsForAnswer(pane)) {
     return `${pane.tmuxId} is waiting for your answer: answer it first, nothing was sent`;
   }
@@ -72,4 +79,13 @@ export function sendRefusal(
 export function namedTarget(lines: readonly string[]): string | null {
   const line = lines.find((l) => /^to:%\d+$/.test(l.trim()));
   return line ? line.trim().slice(3) : null;
+}
+
+/**
+ * Whether the pane runs one of the agents tmuxy knows. Claude Code's process
+ * is named after its version (`2.1.30`), as `program::program_name` reads it.
+ */
+export function isAgentPane(pane: Pick<TmuxPane, 'command'>): boolean {
+  const name = /^\d+(\.\d+)+$/.test(pane.command) ? 'claude' : pane.command;
+  return (AGENT_COMMANDS as readonly string[]).includes(name);
 }

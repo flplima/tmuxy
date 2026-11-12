@@ -33,6 +33,9 @@ fn packages() -> PathBuf {
 
 /// A string as a single-quoted literal, in TypeScript and in shell alike: no
 /// value written here holds a quote or a backslash.
+#[path = "generated_constants/agents.rs"]
+mod agents;
+
 fn quoted(value: &str) -> String {
     assert!(
         !value.contains('\'') && !value.contains('\\'),
@@ -120,6 +123,7 @@ fn typescript() -> String {
             .map(|s| quoted(s.as_str()))
             .join(", ")
     );
+    agents::write(&mut out);
     let _ = writeln!(
         out,
         "\n/** Sidebar column widths and drag bounds, in cells (`sidebar_dock`). */\n\

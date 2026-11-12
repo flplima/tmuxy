@@ -54,7 +54,8 @@ const WINDOW = wid('@1');
 function mount({
   phone = false,
   agentState = null,
-}: { phone?: boolean; agentState?: string | null } = {}) {
+  agentCommand = 'claude',
+}: { phone?: boolean; agentState?: string | null; agentCommand?: string } = {}) {
   const asked: BackendCall[] = [];
   const transport = fakeTransport({
     send: async (call) => {
@@ -68,7 +69,7 @@ function mount({
     context: {
       phoneLayout: phone,
       panes: [
-        modelPane(pid('%3'), WINDOW, { command: 'claude', paneState: agentState }),
+        modelPane(pid('%3'), WINDOW, { command: agentCommand, paneState: agentState }),
         modelPane(PANE, WINDOW),
       ],
       activeWindowId: WINDOW,
@@ -163,16 +164,28 @@ describe('DiffWidget', () => {
     const sent = ops();
     expect(sent).toEqual([
       {
-        _tag: 'PasteText',
+        _tag: 'SendReview',
         target: '%3',
         text: 'Review of the unstaged changes in app:\n\n1. src/a.rs:2 — Escape this.\n   > <img src=x onerror=alert(1)>',
       },
-      { _tag: 'SendKeys', target: '%3', keys: 'Enter' },
     ]);
     expect(notices()).toContain('Sent 1 comment to %3');
     // Sent is done with: the review starts again.
     expect(document.querySelector('[data-diff-comment]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Send review' })).toBeNull();
+    // Were it refused by tmux, it comes back.
+    fireEvent.click(screen.getByRole('button', { name: 'Restore the last review' }));
+    expect(document.querySelector('[data-diff-comment]')!.textContent).toContain('Escape this.');
+  });
+
+  it('offers no shell to send to, and sends nothing', async () => {
+    const { ops } = mount({ agentCommand: 'zsh' });
+    await commentOnAddedLine('Escape this.');
+    expect(screen.getByText('no agent in this tab')).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send review' }).disabled).toBe(
+      true,
+    );
+    expect(ops()).toEqual([]);
   });
 
   it('sends nothing to an agent that waits for an answer, and keeps the review', async () => {

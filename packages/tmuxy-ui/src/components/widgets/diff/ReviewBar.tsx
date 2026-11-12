@@ -1,8 +1,10 @@
 /**
- * The review's foot: how many comments there are, which pane they go to, and
- * Send review, which types them there as one numbered prompt — a paste,
- * bracketed when the program asked for one, then Enter. Refused while that
- * pane's agent waits for an answer (`sendRefusal`): the prompt would answer it.
+ * The review's foot: how many comments there are, which agent they go to,
+ * and Send review, which types them there as one numbered prompt — a paste,
+ * bracketed when the agent asked for one, then Enter, in one command list
+ * tmux runs only if the agent waits for nothing (`reviewInto`). Only a pane
+ * running an agent is offered: a shell would run the review's lines. A
+ * review once sent can be restored, for when tmux refused it.
  */
 
 import { useMemo, useState } from 'react';
@@ -10,9 +12,28 @@ import { useAppSelector, useAppSend, usePane } from '../../../machines/appHooks'
 import { selectPanes } from '../../../machines/selectors/layout';
 import { TmuxOp } from '../../../domain/commands';
 import { waitsForAnswer } from '../../../domain/paneState';
-import { namedTarget, reviewPrompt, sendRefusal, type ReviewComment } from '../../../domain/review';
+import {
+  isAgentPane,
+  namedTarget,
+  reviewPrompt,
+  sendRefusal,
+  type ReviewComment,
+} from '../../../domain/review';
 import type { DiffScope } from '../../../domain/diff';
 import type { PaneId } from '../../../domain/ids';
+
+/** The agents of the widget's tab, and the one a review goes to unless another is picked. */
+function useAgents(paneId: PaneId, lines: readonly string[]) {
+  const own = usePane(paneId);
+  const panes = useAppSelector(selectPanes);
+  const agents = useMemo(
+    () =>
+      panes.filter((p) => p.windowId === own?.windowId && p.tmuxId !== paneId && isAgentPane(p)),
+    [panes, own?.windowId, paneId],
+  );
+  const named = namedTarget(lines);
+  return { agents, fallback: agents.find((p) => p.tmuxId === named) ?? agents[0] };
+}
 
 export function ReviewBar({
   paneId,
@@ -21,6 +42,7 @@ export function ReviewBar({
   scope,
   comments,
   onSent,
+  onRestore,
 }: {
   paneId: PaneId;
   lines: readonly string[];
@@ -28,35 +50,34 @@ export function ReviewBar({
   scope: DiffScope;
   comments: readonly ReviewComment[];
   onSent: () => void;
+  /** Brings the last review sent back, when there is one and nothing is written. */
+  onRestore: (() => void) | null;
 }) {
   const send = useAppSend();
-  const own = usePane(paneId);
-  const panes = useAppSelector(selectPanes);
-  // The other panes of the widget's tab: an agent there is who the review is for.
-  const candidates = useMemo(
-    () => panes.filter((p) => p.windowId === own?.windowId && p.tmuxId !== paneId),
-    [panes, own?.windowId, paneId],
-  );
-  const named = namedTarget(lines);
-  const fallback =
-    candidates.find((p) => p.tmuxId === named) ??
-    candidates.find((p) => p.paneState) ??
-    candidates[0];
+  const { agents, fallback } = useAgents(paneId, lines);
   const [chosen, setChosen] = useState<string | null>(null);
-  const target = candidates.find((p) => p.tmuxId === chosen) ?? fallback;
+  const target = agents.find((p) => p.tmuxId === chosen) ?? fallback;
 
-  if (comments.length === 0) return null;
+  if (comments.length === 0) {
+    if (!onRestore) return null;
+    return (
+      <div className="diff-review-bar" data-diff-review="">
+        <button type="button" onClick={onRestore}>
+          Restore the last review
+        </button>
+      </div>
+    );
+  }
   const count = `${comments.length} ${comments.length === 1 ? 'comment' : 'comments'}`;
 
   const sendReview = () => {
     const refusal = sendRefusal(target);
     if (refusal || !target) {
-      send({ type: 'NOTIFY', text: `Review not sent: ${refusal ?? 'no pane to send it to'}` });
+      send({ type: 'NOTIFY', text: `Review not sent: ${refusal ?? 'no agent to send it to'}` });
       return;
     }
-    const prompt = reviewPrompt(checkout, scope, comments);
-    send({ type: 'DISPATCH_OP', op: TmuxOp.PasteText({ target: target.tmuxId, text: prompt }) });
-    send({ type: 'DISPATCH_OP', op: TmuxOp.SendKeys({ target: target.tmuxId, keys: 'Enter' }) });
+    const text = reviewPrompt(checkout, scope, comments);
+    send({ type: 'DISPATCH_OP', op: TmuxOp.SendReview({ target: target.tmuxId, text }) });
     send({ type: 'NOTIFY', kind: 'info', text: `Sent ${count} to ${target.tmuxId}` });
     onSent();
   };
@@ -64,20 +85,24 @@ export function ReviewBar({
   return (
     <div className="diff-review-bar" data-diff-review="">
       <span className="diff-review-count">{count}</span>
-      <label className="diff-review-target">
-        to
-        <select
-          aria-label="Send the review to"
-          value={target?.tmuxId ?? ''}
-          onChange={(e) => setChosen(e.target.value)}
-        >
-          {candidates.map((p) => (
-            <option key={p.tmuxId} value={p.tmuxId}>
-              {`${p.tmuxId} ${p.command}${waitsForAnswer(p) ? ' (waiting for you)' : ''}`}
-            </option>
-          ))}
-        </select>
-      </label>
+      {agents.length > 0 ? (
+        <label className="diff-review-target">
+          to
+          <select
+            aria-label="Send the review to"
+            value={target?.tmuxId ?? ''}
+            onChange={(e) => setChosen(e.target.value)}
+          >
+            {agents.map((p) => (
+              <option key={p.tmuxId} value={p.tmuxId}>
+                {`${p.tmuxId} ${p.command}${waitsForAnswer(p) ? ' (waiting for you)' : ''}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <span className="diff-review-target">no agent in this tab</span>
+      )}
       <button type="button" className="diff-review-send" disabled={!target} onClick={sendReview}>
         Send review
       </button>

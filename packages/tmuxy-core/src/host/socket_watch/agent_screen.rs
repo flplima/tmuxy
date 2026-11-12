@@ -48,6 +48,25 @@ pub fn is_agent(command: &str) -> bool {
     AGENT_COMMANDS.contains(&crate::program::program_name(command))
 }
 
+/// A tmux format, `1` while text may be typed into the pane for its agent:
+/// one of [`AGENT_COMMANDS`] runs there (Claude Code under its version
+/// number too), it is not waiting for an answer, and no `pane send` question
+/// is up. Evaluated by tmux in the same command list as the keys it guards
+/// (the diff review's send), so a shell, or a dialog the client has not seen
+/// yet, gets nothing.
+pub fn agent_takes_input_format() -> String {
+    use crate::constants::tmux_options::{ASK, PANE_STATE};
+    let command = "#{pane_current_command}";
+    let agent = AGENT_COMMANDS
+        .iter()
+        .map(|name| format!("#{{==:{command},{name}}}"))
+        .chain([format!("#{{m:[0-9]*.[0-9]*,{command}}}")])
+        .reduce(|either, next| format!("#{{||:{either},{next}}}"))
+        .unwrap_or_default();
+    let needs_input = crate::PaneStateName::NeedsInput.as_str();
+    format!("#{{&&:{agent},#{{&&:#{{!=:#{{{PANE_STATE}}},{needs_input}}},#{{==:#{{{ASK}}},}}}}}}")
+}
+
 /// A menu option's line (`N. text`, maybe after a cursor glyph): whether the
 /// cursor is on it, and its text.
 fn option_number(line: &str) -> Option<(bool, &str)> {

@@ -133,8 +133,13 @@ function DiffFiles({
  * The review being written: comments by line, kept across reads and scopes
  * until they are sent, and the one being edited.
  */
-function useReview(): FileReview & { list: ReviewComment[]; clear: () => void } {
+function useReview(): FileReview & {
+  list: ReviewComment[];
+  sent: () => void;
+  restore: (() => void) | null;
+} {
   const [comments, setComments] = useState<ReadonlyMap<string, ReviewComment>>(new Map());
+  const [lastSent, setLastSent] = useState<ReadonlyMap<string, ReviewComment> | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   return useMemo(
     () => ({
@@ -151,9 +156,19 @@ function useReview(): FileReview & { list: ReviewComment[]; clear: () => void } 
         setEditing(null);
       },
       list: [...comments.values()],
-      clear: () => setComments(new Map()),
+      sent: () => {
+        setLastSent(comments);
+        setComments(new Map());
+      },
+      restore:
+        lastSent && comments.size === 0
+          ? () => {
+              setComments(lastSent);
+              setLastSent(null);
+            }
+          : null,
     }),
-    [comments, editing],
+    [comments, lastSent, editing],
   );
 }
 
@@ -188,7 +203,8 @@ export function DiffWidget({ paneId, lines }: WidgetProps) {
         checkout={read?.name ?? lines[0] ?? ''}
         scope={scope}
         comments={review.list}
-        onSent={review.clear}
+        onSent={review.sent}
+        onRestore={review.restore}
       />
     </div>
   );

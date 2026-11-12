@@ -225,27 +225,35 @@ describeE2E(
   },
 );
 
-/** A shell that runs as `claude`, as `pane_current_command` reads it. */
+/**
+ * A shell that runs as `claude`, as `pane_current_command` reads it, waiting
+ * only on builtins so that name holds. It writes down each line of the first
+ * review (its last line, the quoted code, ended by the Enter that sends it);
+ * then writes down anything typed to it (`early:`) until `flag` exists; then
+ * asks a permission question and writes down whatever answers it.
+ */
 function fakeAgent(dir) {
   const agent = path.join(dir, 'claude');
   fs.copyFileSync('/bin/bash', agent);
   fs.chmodSync(agent, 0o755);
-  // Writes down each line it is sent until a review has come in whole (its
-  // last line, the quoted code, ended by the Enter that sends it), then
-  // asks a permission question, and writes down whatever answers it.
   const script = path.join(dir, 'agent.sh');
   fs.writeFileSync(
     script,
     [
-      'log="$1"',
+      'log="$1"; flag="$2"',
       'while IFS= read -r line; do',
       '  printf "%s\\n" "$line" >> "$log"',
       '  case "$line" in "   > "*) break ;; esac',
       'done',
+      'while [ ! -e "$flag" ]; do',
+      '  line=""; IFS= read -r -t 0.1 line',
+      '  [ -n "$line" ] && printf "early:%s\\n" "$line" >> "$log"',
+      'done',
       'printf "\\033[2J\\033[HDo you want to proceed?\\n> 1. Yes\\n  2. No\\n"',
+      'printf "dialog-up\\n" >> "$log"',
       'IFS= read -r answer',
       'printf "answered:%s\\n" "$answer" >> "$log"',
-      'sleep 600',
+      'IFS= read -r -t 600 _',
     ].join('\n'),
   );
   return { agent, script };
@@ -273,6 +281,44 @@ function reviewTarget(page) {
   );
 }
 
+/** A comment on app.txt's changed line, typed as the user types it. */
+async function commentOnChangedLine(page, body) {
+  await page.getByRole('button', { name: 'Comment on app.txt line 2' }).click();
+  await page.getByRole('textbox', { name: 'Comment' }).click();
+  await page.keyboard.type(body);
+  await page.getByRole('button', { name: 'Save' }).click();
+}
+
+/**
+ * Holds the browser's next review send (`POST /commands` staging the review)
+ * until `meanwhile` has run: what happens between the client's check and
+ * tmux running the send.
+ */
+async function holdNextReviewSend(page, meanwhile) {
+  let held = null;
+  const handler = async (route) => {
+    if (held || !(route.request().postData() ?? '').includes('tmuxy-review')) {
+      await route.continue();
+      return;
+    }
+    held = (async () => {
+      await meanwhile();
+      await route.continue();
+    })();
+    await held;
+  };
+  await page.route('**/commands**', handler);
+  return {
+    released: async () => {
+      const start = Date.now();
+      while (!held && Date.now() - start < 10000) await new Promise((r) => setTimeout(r, 50));
+      if (!held) throw new Error('the review was never sent');
+      await held;
+      await page.unroute('**/commands**', handler);
+    },
+  };
+}
+
 describeE2E('Scenario: a diff review goes to the agent as one prompt', {}, (ctx) => {
   let dir;
   beforeEach(() => {
@@ -280,7 +326,7 @@ describeE2E('Scenario: a diff review goes to the agent as one prompt', {}, (ctx)
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  test('a line comment is sent as a numbered prompt, and nothing is sent while the agent asks a question', async () => {
+  test('a line comment is sent as a numbered prompt, and never answers a question or reaches a shell', async () => {
     const { page } = ctx;
     await ctx.setupPage();
     await waitForShellPrompt(page);
@@ -288,6 +334,8 @@ describeE2E('Scenario: a diff review goes to the agent as one prompt', {}, (ctx)
     fs.mkdirSync(repo);
     checkout(repo);
     const log = path.join(dir, 'agent.log');
+    const flag = path.join(dir, 'ask-now');
+    const read = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
     const { agent, script } = fakeAgent(dir);
 
     // The agent in the first pane, the diff beside it.
@@ -295,27 +343,28 @@ describeE2E('Scenario: a diff review goes to the agent as one prompt', {}, (ctx)
     await splitPaneKeyboard(page, 'horizontal');
     await waitForPaneCount(page, 2);
     await waitForShellPrompt(page);
-    ctx.session.runAsOperator(`send-keys -t ${agentPane} -l '${agent} ${script} ${log}'`);
+    ctx.session.runAsOperator(`send-keys -t ${agentPane} -l '${agent} ${script} ${log} ${flag}'`);
     ctx.session.runAsOperator(`send-keys -t ${agentPane} Enter`);
+    tmuxyCli(['pane', 'state', 'working', agentPane]);
     await typeInTerminal(page, `cd ${repo} && clear && ${TMUXY_CLI} widget diff --to ${agentPane}`);
     await pressEnter(page);
     await waitForDiff(page, 'the unstaged changes', (s) => s.files.includes('app.txt'));
 
     try {
-      // 1. A comment on the changed line, typed as the user types it: the
-      //    keys go to the comment, not to the pane under it.
-      await page.getByRole('button', { name: 'Comment on app.txt line 2' }).click();
-      await page.getByRole('textbox', { name: 'Comment' }).click();
-      await page.keyboard.type('Escape this before it reaches the page.');
-      await page.getByRole('button', { name: 'Save' }).click();
+      // 1. A comment, its keys going to the comment, not the pane under it.
+      await commentOnChangedLine(page, 'Escape this before it reaches the page.');
       const comment = page.locator('[data-diff-comment]');
       expect(await comment.textContent()).toContain('Escape this before it reaches the page.');
       expect((await comment.boundingBox()).height).toBeGreaterThan(5);
-      expect(await reviewTarget(page)).toContain(agentPane);
+      await waitForCondition(
+        page,
+        async () => ((await reviewTarget(page)) ?? '').startsWith(`${agentPane} claude`),
+        10000,
+        async () => `the agent offered as the review's target (${await reviewTarget(page)})`,
+      );
 
       // 2. Send review: the agent reads the prompt, numbered, with the line.
       await page.getByRole('button', { name: 'Send review' }).click();
-      const read = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
       await waitForCondition(
         page,
         // Its last line is read once the Enter that sends it arrives.
@@ -335,28 +384,54 @@ describeE2E('Scenario: a diff review goes to the agent as one prompt', {}, (ctx)
       await waitForNotice(page, `Sent 1 comment to ${agentPane}`);
       expect(await page.locator('[data-diff-comment]').count()).toBe(0);
 
-      // 3. The agent now asks a question. A review sent meanwhile would
-      //    answer it, so none is sent, and the comment stays.
-      tmuxyCli(['pane', 'state', 'working', agentPane]);
-      await page.getByRole('button', { name: 'Comment on app.txt line 2' }).click();
-      await page.getByRole('textbox', { name: 'Comment' }).click();
-      await page.keyboard.type('Not now.');
-      await page.getByRole('button', { name: 'Save' }).click();
+      // 3. The agent raises a question after the client checked and before
+      //    tmux runs the send: tmux checks again, and types nothing.
+      await commentOnChangedLine(page, 'Not now.');
+      const hold = await holdNextReviewSend(page, async () => {
+        fs.writeFileSync(flag, '');
+        await waitForCondition(
+          page,
+          async () => read().includes('dialog-up\n'),
+          10000,
+          () => `the agent's question (it read ${JSON.stringify(read())})`,
+        );
+        tmuxyCli(['pane', 'state', 'needs-input', agentPane]);
+      });
+      await page.getByRole('button', { name: 'Send review' }).click();
+      await hold.released();
+      await waitForNotice(page, 'Review not sent: the agent is waiting for an answer');
+      // Given a beat to arrive, were anything typed: nothing reached it.
+      await page.waitForTimeout(2000);
+      expect(read()).not.toMatch(/answered:|early:/);
+
+      // 4. Restored, the review is refused by the client now it knows.
+      await page.getByRole('button', { name: 'Restore the last review' }).click();
+      expect(await page.locator('[data-diff-comment]').textContent()).toContain('Not now.');
       await waitForCondition(
         page,
         async () => ((await reviewTarget(page)) ?? '').includes('(waiting for you)'),
         15000,
-        async () => `the agent to show it waits for an answer (${await reviewTarget(page)})`,
+        async () => `the agent shown waiting for an answer (${await reviewTarget(page)})`,
       );
       await page.getByRole('button', { name: 'Send review' }).click();
       await waitForNotice(page, `Review not sent: ${agentPane} is waiting for your answer`);
-      // Given a beat to arrive, were anything sent: nothing answered.
-      await page.waitForTimeout(2000);
-      expect(read()).not.toContain('answered:');
-      expect(await page.locator('[data-diff-comment]').textContent()).toContain('Not now.');
+
+      // 5. The agent gone, its shell is offered nothing.
+      ctx.session.runAsOperator(`send-keys -t ${agentPane} C-c`);
+      tmuxyCli(['pane', 'state', 'clear', agentPane]);
+      await waitForCondition(
+        page,
+        async () =>
+          (await page.locator('[data-diff-review]').textContent()).includes('no agent in this tab'),
+        15000,
+        async () => `no agent offered (${await page.locator('[data-diff-review]').textContent()})`,
+      );
+      expect(await page.getByRole('button', { name: 'Send review' }).isDisabled()).toBe(true);
+      await page.waitForTimeout(1000);
+      expect(read()).not.toMatch(/answered:|early:/);
     } finally {
       ctx.session.runAsOperator(`send-keys -t ${agentPane} C-c`);
       tmuxyCli(['pane', 'state', 'clear', agentPane]);
     }
-  }, 120000);
+  }, 150000);
 });
