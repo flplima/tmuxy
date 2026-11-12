@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
-const { SOCKET } = require('./helpers/env');
+const { SOCKET, sealedEnv } = require('./helpers/env');
 const { playedTmux } = require('./helpers/seal');
 
 /**
@@ -87,10 +87,87 @@ describe('tmuxy agent', () => {
     calls = await callsAfterHook(where.log, 6);
     expect(writes(calls).slice(-1)[0]).toContain("@tmuxy-pane-state 'working'");
 
-    // The session ending unsets it.
+    // The session ending unsets it. It also reads the inbox bridge's switch
+    // (docs/AGENT-INBOX.md), one call more.
     expect(hook('claude', 'SessionEnd', 'clear', where).exitCode).toBe(0);
-    calls = await callsAfterHook(where.log, 8);
+    calls = await callsAfterHook(where.log, 9);
     expect(writes(calls).slice(-1)[0]).toContain("set-option -p -u -t '%5' @tmuxy-pane-state");
+  });
+
+  // The agent inbox bridge, a spike (docs/AGENT-INBOX.md): off unless
+  // switched on; records the socket's path only, never the session's token.
+  test('with the inbox bridge on, a session records its process and inbox path, never its token', async () => {
+    const socketPath = '/tmp/fake-inbox-dir/4242.sock';
+    // A `ps` that names the process above the hook as Claude Code, as it is
+    // when Claude Code runs the hook.
+    const stubs = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-agent-ps-'));
+    fs.writeFileSync(
+      path.join(stubs, 'ps'),
+      '#!/bin/sh\ncase "$*" in\n  *lstart*) echo "Mon Jan  1 00:00:00 2026" ;;\n  *) echo "1 claude" ;;\nesac\n',
+      { mode: 0o755 },
+    );
+    const session = {
+      CLAUDE_CODE_MESSAGING_SOCKET: socketPath,
+      CLAUDE_CODE_MESSAGING_TOKEN: 'secret-token-value',
+      PATH: `${stubs}:${sealedEnv().PATH}`,
+    };
+    const inboxWrites = (calls) =>
+      calls.filter((c) => c[2] === 'run-shell' && c[5].includes('@tmuxy-agent-inbox'));
+
+    // Off: nothing recorded.
+    const off = scratch();
+    expect(hook('claude', 'SessionStart', 'idle', off, session).exitCode).toBe(0);
+    let calls = await callsAfterHook(off.log, 3);
+    expect(inboxWrites(calls)).toEqual([]);
+
+    // On: the Claude process, its start and the path, and nothing of the
+    // token anywhere tmux was told.
+    const on = scratch();
+    const switchOn = { ...session, MOCK_TMUX_SEND_INBOX: 'on' };
+    expect(hook('claude', 'SessionStart', 'idle', on, switchOn).exitCode).toBe(0);
+    calls = await callsAfterHook(on.log, 4);
+    const recorded = inboxWrites(calls).map((c) => c[5]);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatch(
+      new RegExp(`@tmuxy-agent-inbox '[0-9]+\\|[^|']+\\|${socketPath.replace(/\./g, '\\.')}'`),
+    );
+    expect(JSON.stringify(calls)).not.toContain('secret-token-value');
+
+    // No Claude Code process above the hook (a `ps` that names only
+    // shells, and leaves a mark when asked): nothing to pin it to, nothing
+    // recorded.
+    const shells = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-agent-ps-'));
+    const asked = path.join(shells, 'asked');
+    fs.writeFileSync(path.join(shells, 'ps'), `#!/bin/sh\ntouch '${asked}'\necho "1 bash"\n`, {
+      mode: 0o755,
+    });
+    const orphan = scratch();
+    const noClaude = { ...switchOn, PATH: `${shells}:${sealedEnv().PATH}` };
+    expect(hook('claude', 'SessionStart', 'idle', orphan, noClaude).exitCode).toBe(0);
+    // Once the job has asked ps and heard of no Claude Code, it writes no more.
+    const deadline = Date.now() + 10000;
+    while (!fs.existsSync(asked) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(fs.existsSync(asked)).toBe(true);
+    calls = await callsAfterHook(orphan.log, 3);
+    expect(inboxWrites(calls)).toEqual([]);
+
+    // A path that is not a plain absolute .sock path is not recorded.
+    const odd = scratch();
+    const oddPath = { ...switchOn, CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/x'; kill-server; '.sock" };
+    expect(hook('claude', 'SessionStart', 'idle', odd, oddPath).exitCode).toBe(0);
+    calls = await callsAfterHook(odd.log, 3);
+    expect(inboxWrites(calls)).toEqual([]);
+
+    // The session ending takes it off.
+    expect(hook('claude', 'SessionEnd', 'clear', on, switchOn).exitCode).toBe(0);
+    calls = await callsAfterHook(on.log, 8);
+    expect(
+      inboxWrites(calls)
+        .map((c) => c[5])
+        .slice(-1)[0],
+    ).toContain("set-option -p -u -t '%5' @tmuxy-agent-inbox");
   });
 
   test('outside a tmuxy pane a hook changes nothing, and still answers Antigravity', async () => {

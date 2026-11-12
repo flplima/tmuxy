@@ -417,6 +417,8 @@ fn shell_tmux_names(out: &mut String) {
         ("PANE_WIDGET", o::PANE_WIDGET),
         ("PANE_PREVIEW", o::PANE_PREVIEW),
         ("PANE_PREVIEW_NET", o::PANE_PREVIEW_NET),
+        ("SEND_INBOX", o::SEND_INBOX),
+        ("AGENT_INBOX", o::AGENT_INBOX),
     ] {
         let _ = writeln!(out, "OPT_{name}={}", quoted(value));
     }

@@ -123,6 +123,14 @@ pub mod tmux_options {
     /// A send waiting in line for a busy pane (`crate::ask::queue`), one
     /// option per send: `@tmuxy-send-queued-<id>`, base64 of who and what.
     pub const SEND_QUEUED: &str = "@tmuxy-send-queued";
+    /// The agent inbox bridge, a spike (docs/AGENT-INBOX.md): global, `on`
+    /// lets the agent hook record a session's inbox and `pane send --inbox`
+    /// post to it. Off unless set.
+    pub const SEND_INBOX: &str = "@tmuxy-send-inbox";
+    /// The path of the inbox socket of the agent session in a pane, recorded
+    /// by its SessionStart hook while [`SEND_INBOX`] is on. The path only,
+    /// never the session's token.
+    pub const AGENT_INBOX: &str = "@tmuxy-agent-inbox";
 
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the

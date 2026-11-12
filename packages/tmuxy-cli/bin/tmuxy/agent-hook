@@ -24,6 +24,61 @@ find_server_cmd 2>/dev/null || exit 0
 state="$("${SERVER_CMD[@]}" agent state "$agent" "$event" 2>/dev/null)" || exit 0
 [ -n "$state" ] || exit 0
 
+# The agent inbox bridge, a spike (docs/AGENT-INBOX.md), only while
+# @tmuxy-send-inbox is on: Claude Code's SessionStart records, on the pane,
+# the Claude process above this hook (its pid and when it started, as
+# tmuxy-core's `ask::queue::started` reads it) and its session's inbox
+# socket path, never the token: `pid|started|path`. A send posts there only
+# while that very process runs. SessionEnd takes it off. Nothing is recorded
+# when the process or the path cannot be told for sure.
+inbox=""
+if [ "$agent" = claude ]; then
+  case "$event" in
+    SessionStart) inbox="${CLAUDE_CODE_MESSAGING_SOCKET:-}" ;;
+    SessionEnd) inbox="-" ;;
+  esac
+fi
+# The start of process $1: /proc's field 22 where there is one, else `ps`.
+started_of() {
+  local stat
+  if stat="$(cat "/proc/$1/stat" 2>/dev/null)"; then
+    printf '%s' "${stat##*) }" | awk '{ print $20 }'
+  else
+    LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'
+  fi
+}
+# The nearest process above this one that is Claude Code.
+claude_above() {
+  local p="$$" i=0 row ppid comm
+  while [ "$i" -lt 32 ] && [ "$p" -gt 1 ]; do
+    row="$(ps -o ppid=,comm= -p "$p" 2>/dev/null)" || return 1
+    read -r ppid comm <<<"$row"
+    [ "${comm##*/}" = claude ] && {
+      printf '%s' "$p"
+      return 0
+    }
+    [[ "$ppid" =~ ^[0-9]+$ ]] || return 1
+    p="$ppid"
+    i=$((i + 1))
+  done
+  return 1
+}
+record_inbox() {
+  local pane_t pid started
+  pane_t="$(shquote "$TMUX_PANE")"
+  [ "$(_tmux show-options -gqv "$OPT_SEND_INBOX" 2>/dev/null)" = on ] || return 0
+  if [ "$inbox" = - ]; then
+    _run_safe "set-option -p -u -t $pane_t $OPT_AGENT_INBOX"
+    return 0
+  fi
+  [[ "$inbox" =~ ^/[A-Za-z0-9/._-]+\.sock$ ]] || return 0
+  pid="$(claude_above)" || return 0
+  started="$(started_of "$pid")"
+  [ -n "$started" ] && [[ "$started" != *"|"* ]] || return 0
+  _run_safe "set-option -p -t $pane_t $OPT_AGENT_INBOX $(shquote "$pid|$started|$inbox")"
+}
+[ -z "$inbox" ] || record_inbox </dev/null >/dev/null 2>&1 &
+
 # Per pane, and per tmux server ($TMUX carries its pid): pane ids start again
 # with the server. The base sits in a shared temp dir, so it has to be ours,
 # owner-only and not a symlink someone else planted.
