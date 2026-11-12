@@ -255,3 +255,80 @@ fn nothing_to_carry_is_nothing() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Carrying reads which files changed with git, in the original worktree:
+/// a clean filter the repository names, in .git/info/attributes too, never
+/// runs, and nothing is written through a symlink the fork has.
+#[test]
+fn carrying_runs_nothing_the_repository_names_and_writes_through_no_link() {
+    let (root, repo) = repository("carry-trap");
+    let marker = root.join("ran");
+    let script = root.join("tell.sh");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\necho \"$0\" >> {}\ncat\n", marker.display()),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["config", "filter.tell.clean", script.to_str().unwrap()])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    std::fs::create_dir_all(repo.join(".git/info")).unwrap();
+    std::fs::write(repo.join(".git/info/attributes"), "* filter=tell\n").unwrap();
+    let fork = create(&repo, "fork-f", Some(&head(&repo).unwrap())).unwrap();
+    let fork_path = PathBuf::from(&fork.path);
+    std::fs::write(repo.join("README"), "hello, edited\n").unwrap();
+    #[cfg(unix)]
+    {
+        // The fork's README is a link out of the worktree: the copy replaces
+        // the link and leaves what it pointed at alone.
+        let outside = root.join("outside.txt");
+        std::fs::write(&outside, "untouched\n").unwrap();
+        std::fs::remove_file(fork_path.join("README")).unwrap();
+        std::os::unix::fs::symlink(&outside, fork_path.join("README")).unwrap();
+        let carried = carry(&repo, &fork_path, false).unwrap();
+        assert_eq!(carried.changed, ["README"]);
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "untouched\n");
+        assert!(!std::fs::symlink_metadata(fork_path.join("README"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::read_to_string(fork_path.join("README")).unwrap(),
+            "hello, edited\n"
+        );
+    }
+    assert!(
+        !marker.exists(),
+        "ran: {}",
+        std::fs::read_to_string(&marker).unwrap_or_default()
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_under_a_linked_directory_is_left_behind() {
+    let (root, repo) = repository("carry-dir-link");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/new.rs"), "x\n").unwrap();
+    let fork = create(&repo, "fork-g", None).unwrap();
+    let fork_path = PathBuf::from(&fork.path);
+    let outside = root.join("elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, fork_path.join("src")).unwrap();
+    let carried = carry(&repo, &fork_path, true).unwrap();
+    assert_eq!(carried.skipped, ["src/new.rs"]);
+    assert!(!outside.join("new.rs").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}

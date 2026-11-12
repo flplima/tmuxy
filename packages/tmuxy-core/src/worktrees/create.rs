@@ -148,8 +148,30 @@ fn inside(name: &str) -> Option<&Path> {
         .then_some(relative)
 }
 
+fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// Where `relative` goes in `to`, with any symlink already there removed,
+/// or `None` when a directory on the way there is a symlink: writing
+/// through it would land outside the worktree.
+fn target_in(to: &Path, relative: &Path) -> Option<std::path::PathBuf> {
+    let mut dir = to.to_path_buf();
+    for part in relative.parent().into_iter().flat_map(Path::components) {
+        dir.push(part);
+        if is_symlink(&dir) {
+            return None;
+        }
+    }
+    let target = to.join(relative);
+    if is_symlink(&target) && std::fs::remove_file(&target).is_err() {
+        return None;
+    }
+    Some(target)
+}
+
 /// Copy `name` from `from` to `to` when it is a regular file inside the
-/// worktree; whether it was.
+/// worktree, never through a symlink; whether it was.
 fn copy_file(from: &Path, to: &Path, name: &str) -> bool {
     let Some(relative) = inside(name) else {
         return false;
@@ -158,7 +180,9 @@ fn copy_file(from: &Path, to: &Path, name: &str) -> bool {
     if !std::fs::symlink_metadata(&source).is_ok_and(|m| m.file_type().is_file()) {
         return false;
     }
-    let target = to.join(relative);
+    let Some(target) = target_in(to, relative) else {
+        return false;
+    };
     target
         .parent()
         .map_or(Ok(()), std::fs::create_dir_all)
@@ -177,15 +201,20 @@ fn copy_file(from: &Path, to: &Path, name: &str) -> bool {
 /// `skipped`. Nothing in `from` changes.
 pub fn carry(from: &Path, to: &Path, untracked: bool) -> Result<Carried, GuardError> {
     let mut carried = Carried::default();
+    // diff-index compares by file stat and hashes nothing, so no clean
+    // filter the repository names (in .gitattributes or .git/info/attributes)
+    // runs. A file only touched is listed too, and copied unchanged.
     let changes = read(
         from,
-        "diff",
-        &["diff", "HEAD", "--name-status", "--no-renames", "-z"],
+        "diff-index",
+        &["diff-index", "--name-status", "--no-renames", "-z", "HEAD"],
     )?;
     let mut fields = changes.split('\0').filter(|f| !f.is_empty());
     while let (Some(status), Some(name)) = (fields.next(), fields.next()) {
         let done = if status == "D" {
-            inside(name).is_some_and(|relative| std::fs::remove_file(to.join(relative)).is_ok())
+            inside(name)
+                .and_then(|relative| target_in(to, relative))
+                .is_some_and(|target| !target.exists() || std::fs::remove_file(target).is_ok())
         } else {
             copy_file(from, to, name)
         };
