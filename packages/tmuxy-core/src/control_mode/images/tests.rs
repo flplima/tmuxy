@@ -391,6 +391,7 @@ fn an_escape_string_cut_short_holds_back_nothing_after_it() {
             assert!(result.new_images.is_empty());
             out.extend(result.clean_bytes);
         }
+        out.extend(&parser.held);
         out.extend(&parser.pending);
         out
     };
@@ -414,6 +415,15 @@ fn an_escape_string_cut_short_holds_back_nothing_after_it() {
     assert!(whole.starts_with(b"\x1b]\x18\t"));
     for cut in 1..cancelled.len() {
         let split = passed(&[&cancelled[..cut], &cancelled[cut..]]);
+        assert_eq!(split, whole, "cut at {cut}");
+    }
+    // A held escape that came out of a wrapper is not unwrapped again when
+    // the next chunk arrives (fuzzer: ; ESC Ptmux; ESC Ptmux; ESC \ ESC c).
+    let unwrapped_twice: &[u8] = b";\x1bPtmux;\x1bPtmux;\x1b\\\x1bc";
+    let whole = passed(&[unwrapped_twice]);
+    assert!(whole.ends_with(b"\x1bc"), "{whole:?}");
+    for cut in 1..unwrapped_twice.len() {
+        let split = passed(&[&unwrapped_twice[..cut], &unwrapped_twice[cut..]]);
         assert_eq!(split, whole, "cut at {cut}");
     }
     // A sixel and a kitty picture cut short: their text reaches the terminal.
