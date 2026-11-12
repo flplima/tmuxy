@@ -132,13 +132,20 @@ fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
 /// When `pane`'s report was written (`@tmuxy-report-at`, Unix seconds), or
 /// `None` when it has none or no pane answers.
 fn written_at(pane: &str) -> Option<u64> {
-    let format = format!("#{{{}}}", tmux_options::REPORT_AT);
+    let format = format!("#{{pane_id}}\t#{{{}}}", tmux_options::REPORT_AT);
     let read = ["display-message", "-p", "-t", pane, &format].map(String::from);
-    tmuxy_core::session::tmux_output(&read)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    at_of(pane, &tmuxy_core::session::tmux_output(&read).ok()?)
+}
+
+/// The time in a read of `pane`'s `#{pane_id}\t@tmuxy-report-at`: `None`
+/// for none, or for an answer about another pane, which `display-message
+/// -t` gives when its target is gone.
+fn at_of(pane: &str, read: &str) -> Option<u64> {
+    let (id, at) = read.trim_end().split_once('\t')?;
+    if id != pane {
+        return None;
+    }
+    at.parse().ok()
 }
 
 /// `pane`'s report and when it was written, if it has one.
@@ -263,6 +270,13 @@ mod tests {
             folder("/tmp/a_tmuxy", "%1").parent()
         );
         assert_eq!(component(""), "_");
+    }
+
+    #[test]
+    fn a_report_counts_only_for_the_pane_that_answered() {
+        assert_eq!(at_of("%5", "%5\t1700000000\n"), Some(1_700_000_000));
+        assert_eq!(at_of("%5", "%5\t\n"), None);
+        assert_eq!(at_of("%5", "%2\t1700000000\n"), None);
     }
 
     #[test]
