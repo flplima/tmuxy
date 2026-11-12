@@ -127,6 +127,11 @@ pub mod tmux_options {
     /// `list-panes` format that free text would break. Unset means no
     /// question is pending.
     pub const ASK: &str = "@tmuxy-ask";
+    /// Global, `on` only where no process ancestry can be read (the CheerpX
+    /// guest's config sets it): a caller's claim to run in a pane then
+    /// stands unproven. Anywhere else an unproven claim is refused
+    /// (`verified_own_pane`, packages/tmuxy-cli/bin/tmuxy/_contract).
+    pub const TRUST_PANE_CLAIMS: &str = "@tmuxy-trust-pane-claims";
 
     /// Pane-scoped answer to the pending [`ASK`], written by the client the
     /// user answered in and read back by the waiting sender (`crate::ask`).
