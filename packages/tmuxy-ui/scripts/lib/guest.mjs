@@ -37,10 +37,11 @@ export function guestEntryConf() {
 /** The guest user's `tmuxy.conf`, overrides only: `defaultCommand` (bash as a
  *  non-login shell by default, so it skips /etc/profile, and any banner or PS1
  *  override there, and reads ~/.bashrc) as the pane command. */
-export function guestTmuxyConf(defaultCommand = '/bin/bash') {
+export function guestTmuxyConf(defaultCommand = '/bin/bash', extra = []) {
   return [
     "# Guest user config — overrides on top of tmuxy's defaults, edit freely.",
     `set -g default-command '${defaultCommand}'`,
+    ...extra,
     '',
   ].join('\n');
 }
