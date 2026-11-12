@@ -202,10 +202,12 @@ leaves the absolute column blank and rides on the ratio gate.
 **Only against a throwaway server.** The harness splits panes, types, opens
 tabs and closes the ones it made; pointed at the server you work in, it would
 do that to your session. So `--url` has no default, and the run refuses any
-server whose tmux socket is not named for a test (`tmuxy-test…`, as CI's, or
-`tmuxy-perf…`) before it touches anything (`scripts/lib/throwaway.mjs`). Start
-one on its own socket, port and `TMUX_TMPDIR`, as the E2E suites do
-(`tests/helpers/server-env.js`).
+server whose tmux socket is not named for one (`tmuxy-perf`, or
+`tmuxy-perf-<anything>`; the E2E suite's `tmuxy-test` is let through too)
+before it touches anything (`scripts/lib/throwaway.mjs`). Start one on its own
+`tmuxy-perf…` socket, port and `TMUX_TMPDIR`, with the environment the E2E
+suites use (`tests/helpers/server-env.js`); CI's perf jobs set
+`TMUX_SOCKET: tmuxy-perf`.
 
 ```
 npm run perf:interactions -- --url http://localhost:9000 --samples 12 \
