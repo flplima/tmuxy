@@ -309,6 +309,17 @@ describe('pane wait', () => {
     const { exitCode } = runCLI(['pane', 'wait', '%4'], { env: { MOCK_TMUX_EXIT_CODE: '1' } });
     expect(exitCode).toBe(3);
   });
+
+  // tmux answers a closed pane's display-message for no pane (or, with a
+  // client attached, for its default pane) and exits 0: the CLI checks the
+  // id that answered.
+  test('3: a pane closed since, whose read tmux answers anyway', () => {
+    const { exitCode, stderr } = runCLI(['pane', 'wait', '%4'], {
+      env: { MOCK_TMUX_GONE_PANES: '%4' },
+    });
+    expect(exitCode).toBe(3);
+    expect(stderr).toContain('no such pane: %4');
+  });
 });
 
 describe('pane capture', () => {

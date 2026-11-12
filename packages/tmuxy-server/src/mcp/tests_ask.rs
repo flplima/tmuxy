@@ -39,8 +39,14 @@ fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
                 p.log.push(command.clone());
                 let mut output = String::new();
                 for part in command.split(" ; ").map(str::trim) {
+                    // `pane_read` asks for the pane's id first.
+                    let id = if part.contains("#{pane_id}") {
+                        "%3\t"
+                    } else {
+                        ""
+                    };
                     if part.contains("#{@tmuxy-send-ask}") {
-                        output += &format!("{}\n", p.rules);
+                        output += &format!("{id}{}\n", p.rules);
                     } else if part == "set-option -pu -t %3 @tmuxy-ask" {
                         p.ask.clear();
                     } else if part == "set-option -pu -t %3 @tmuxy-ask-answer" {
@@ -64,11 +70,14 @@ fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
                             p.answer = format!("{}:{reply}", question["token"].as_str().unwrap());
                         }
                     } else if part.contains("#{@tmuxy-ask-answer}") {
-                        output += &format!("{}\n", p.answer);
+                        output += &format!("{id}{}\n", p.answer);
                     } else if part.contains("#{@tmuxy-ask}") {
-                        output += &format!("{}\n", p.ask);
+                        output += &format!("{id}{}\n", p.ask);
                     } else if part.contains("#{@tmuxy-pane-state}") {
-                        output += &format!("{}\n", p.state);
+                        output += &format!("{id}{}\n", p.state);
+                    } else if part.contains("#{@tmuxy-send-held") {
+                        // No send is ever held back here.
+                        output += &format!("{id}\n");
                     }
                 }
                 output

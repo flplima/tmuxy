@@ -41,49 +41,55 @@ impl ask::Tmux for Fake {
     async fn read(&self, argv: Argv) -> Result<String, CommandError> {
         self.log.lock().unwrap().push(argv.join(" "));
         let format = argv.last().cloned().unwrap_or_default();
-        Ok(match format.as_str() {
-            "#{pane_current_command}" => self.caller_program.clone(),
-            "#{@tmuxy-ask}" => String::new(),
-            "#{@tmuxy-pane-state}" if !self.typed().is_empty() => {
-                let mut script = self.after_typing.lock().unwrap();
-                let state = if script.len() > 1 {
-                    script.pop_front()
-                } else {
-                    script.front().copied()
-                };
-                state.unwrap_or("").into()
-            }
-            "#{pane_pid}\t#{pane_current_command}"
-                if self.replaced_after_typing && !self.typed().is_empty() =>
-            {
-                "4243\tnode".into()
-            }
-            "#{pane_pid}\t#{pane_current_command}" => "4242\tclaude".into(),
-            "#{@tmuxy-pane-state}" if *self.needs_input.lock().unwrap() => "needs-input".into(),
-            "#{@tmuxy-pane-state}" if self.working_before => "working".into(),
-            "#{@tmuxy-pane-state}" => String::new(),
-            // This send's own mark only: another's is another option.
-            f if f.starts_with("#{@tmuxy-send-held-") => {
-                let held = self.held.lock().unwrap().clone();
-                if f == format!("#{{{held}}}") {
-                    "1".into()
-                } else {
-                    String::new()
+        // `pane_read` asks for the pane's id first, as real tmux answers it.
+        let (id, format) = match format.strip_prefix("#{pane_id}\t") {
+            Some(rest) => (format!("{}\t", argv[3]), rest.to_string()),
+            None => (String::new(), format),
+        };
+        Ok(id
+            + &match format.as_str() {
+                "#{pane_current_command}" => self.caller_program.clone(),
+                "#{@tmuxy-ask}" => String::new(),
+                "#{@tmuxy-pane-state}" if !self.typed().is_empty() => {
+                    let mut script = self.after_typing.lock().unwrap();
+                    let state = if script.len() > 1 {
+                        script.pop_front()
+                    } else {
+                        script.front().copied()
+                    };
+                    state.unwrap_or("").into()
                 }
-            }
-            _ if argv[0] == "capture-pane" => self.screen.clone(),
-            "#{@tmuxy-ask-answer}" if self.gone => {
-                return Err(CommandError::tmux("can't find pane: %3"))
-            }
-            "#{@tmuxy-ask-answer}" => {
-                let asked = self.asked.lock().unwrap().clone();
-                match self.reply {
-                    Some(reply) if !asked.is_empty() => format!("{asked}:{reply}"),
-                    _ => String::new(),
+                "#{pane_pid}\t#{pane_current_command}"
+                    if self.replaced_after_typing && !self.typed().is_empty() =>
+                {
+                    "4243\tnode".into()
                 }
-            }
-            _ => self.rules.clone(),
-        })
+                "#{pane_pid}\t#{pane_current_command}" => "4242\tclaude".into(),
+                "#{@tmuxy-pane-state}" if *self.needs_input.lock().unwrap() => "needs-input".into(),
+                "#{@tmuxy-pane-state}" if self.working_before => "working".into(),
+                "#{@tmuxy-pane-state}" => String::new(),
+                // This send's own mark only: another's is another option.
+                f if f.starts_with("#{@tmuxy-send-held-") => {
+                    let held = self.held.lock().unwrap().clone();
+                    if f == format!("#{{{held}}}") {
+                        "1".into()
+                    } else {
+                        String::new()
+                    }
+                }
+                _ if argv[0] == "capture-pane" => self.screen.clone(),
+                "#{@tmuxy-ask-answer}" if self.gone => {
+                    return Err(CommandError::tmux("can't find pane: %3"))
+                }
+                "#{@tmuxy-ask-answer}" => {
+                    let asked = self.asked.lock().unwrap().clone();
+                    match self.reply {
+                        Some(reply) if !asked.is_empty() => format!("{asked}:{reply}"),
+                        _ => String::new(),
+                    }
+                }
+                _ => self.rules.clone(),
+            })
     }
 
     async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {
