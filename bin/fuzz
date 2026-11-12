@@ -28,6 +28,11 @@ esac
 
 cd "$(dirname "$0")/.."
 
+command -v jq >/dev/null || {
+  echo "fuzz: needs jq, to find the test binary cargo built" >&2
+  exit 1
+}
+
 pin=()
 if command -v taskset >/dev/null; then
   pin=(taskset -c "0-$((cores - 1))")
@@ -58,9 +63,14 @@ log=$(mktemp)
 
 case "$status" in
   0) echo "fuzz: every target passed" ;;
-  124 | 137)
+  124)
     echo "fuzz: the time ran out before every case ran; nothing failed"
     status=0
+    ;;
+  137)
+    # timeout's own kill comes after --kill-after, but the kernel's out-of-
+    # memory killer sends the same signal: a finding until shown otherwise.
+    echo "fuzz: killed (SIGKILL): the time limit's last resort, or the system out of memory"
     ;;
   *)
     if grep -q -i -E "memory allocation of|out of memory|capacity overflow" "$log"; then

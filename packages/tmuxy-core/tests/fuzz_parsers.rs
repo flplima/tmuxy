@@ -50,6 +50,9 @@ const FRAGMENTS: &[&[u8]] = &[
     b"\x1bPq",
     b"#0;2;0;0;0#0~~@@",
     b"\x1b_G",
+    // tmux's passthrough wrapper, and the doubled ESC inside it.
+    b"\x1bPtmux;",
+    b"\x1b\x1b",
     b"a=T,f=100,s=1,v=1;",
     b"\x1b\\",
     b"\x07",
