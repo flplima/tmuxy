@@ -9,7 +9,10 @@
 
 use std::time::Duration;
 
-use tmuxy_core::host::socket_watch::{agent_rules::Rules, read_panes};
+use tmuxy_core::host::socket_watch::{
+    agent_rules::{program, Rules},
+    read_panes,
+};
 
 mod common;
 
@@ -39,14 +42,18 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
     std::fs::create_dir_all(&dir).unwrap();
     let flag = dir.join("go");
     let agent = dir.join("gemini");
-    // tmux names a pane's command after its process, which for a script is
-    // the interpreter: the "agent" is a copy of sh named gemini. It prints
-    // while the flag file is there, then holds still.
-    std::fs::copy("/bin/sh", &agent).unwrap();
-    let script = format!(
-        "i=0; while :; do if [ -e {flag} ]; then i=$((i+1)); echo \"thinking $i\"; fi; sleep 0.2; done",
-        flag = flag.display()
-    );
+    // The "agent" is a script named gemini, run by sh as an npm bin script
+    // is run by node: tmux names the pane's command `sh`, and the rules find
+    // the agent by the script sh runs. It prints while the flag file is
+    // there, then holds still.
+    std::fs::write(
+        &agent,
+        format!(
+            "i=0; while :; do if [ -e {flag} ]; then i=$((i+1)); echo \"thinking $i\"; fi; sleep 0.2; done\n",
+            flag = flag.display()
+        ),
+    )
+    .unwrap();
     std::fs::write(&flag, "").unwrap();
     common::tmux(&[
         "new-session",
@@ -57,33 +64,27 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
         "80",
         "-y",
         "24",
-        &format!("{} -c '{script}'", agent.display()),
+        &format!("exec sh {}", agent.display()),
     ])
     .unwrap();
     let pane = common::tmux(&["display-message", "-p", "-t", "app", "#{pane_id}"])
         .unwrap()
         .trim()
         .to_string();
-    common::wait_until(
-        "the agent to be the pane's command",
-        Duration::from_secs(10),
-        || {
-            let command = common::tmux(&[
-                "display-message",
-                "-p",
-                "-t",
-                &pane,
-                "#{pane_current_command}",
-            ])
-            .unwrap_or_default();
-            async move { command.trim() == "gemini" }
-        },
-    )
-    .await;
 
     let mut rules = Rules::with_dir(dir.join("rules"));
     passes_until(&mut rules, &pane, "working", Duration::from_secs(20)).await;
     assert_eq!(option(&pane, "@tmuxy-rules-state"), "working");
+    let command = common::tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &pane,
+        "#{pane_current_command}",
+    ])
+    .unwrap();
+    assert_eq!(command.trim(), "sh", "tmux names the interpreter");
+    assert_eq!(program::program(&pane, "sh"), "gemini");
 
     std::fs::remove_file(&flag).unwrap();
     passes_until(&mut rules, &pane, "idle", Duration::from_secs(20)).await;
@@ -121,11 +122,16 @@ async fn a_user_rule_names_an_agent_and_its_text_gives_the_state() {
         "command = \"my-helper\"\n[[rule]]\nmatch = 'Waiting for your reply'\nstate = \"needs-input\"\n",
     )
     .unwrap();
-    let agent = dir.join("my-helper");
-    std::fs::copy("/bin/sh", &agent).unwrap();
-    // Prints its question once, then holds still: without the rule it
-    // would read as idle.
-    let script = "echo working; echo Waiting for your reply; while :; do sleep 1; done";
+    // A Node program, as Gemini CLI or Amp is: tmux names the pane `node`,
+    // and the rules find it by its script. It prints its question once,
+    // then holds still: without the rule it would read as idle.
+    let agent = dir.join("my-helper.js");
+    std::fs::write(
+        &agent,
+        "console.log('working');\nconsole.log('Waiting for your reply');\nsetInterval(() => {}, 1000);\n",
+    )
+    .unwrap();
+    let node = which("node").expect("node on PATH, to host the fake agent");
     common::tmux(&[
         "new-session",
         "-d",
@@ -135,7 +141,7 @@ async fn a_user_rule_names_an_agent_and_its_text_gives_the_state() {
         "80",
         "-y",
         "24",
-        &format!("{} -c '{script}'", agent.display()),
+        &format!("exec {} {}", node.display(), agent.display()),
     ])
     .unwrap();
     let pane = common::tmux(&["display-message", "-p", "-t", "helper", "#{pane_id}"])
@@ -144,10 +150,26 @@ async fn a_user_rule_names_an_agent_and_its_text_gives_the_state() {
         .to_string();
     let mut rules = Rules::with_dir(rules_dir);
     passes_until(&mut rules, &pane, "needs-input", Duration::from_secs(20)).await;
+    let command = common::tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &pane,
+        "#{pane_current_command}",
+    ])
+    .unwrap();
+    assert_eq!(command.trim(), "node", "tmux names the interpreter");
     assert!(
         rules.user().problems.is_empty(),
         "{:?}",
         rules.user().problems
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A program on `PATH`, by name.
+fn which(name: &str) -> Option<std::path::PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join(name))
+        .find(|path| path.is_file())
 }

@@ -10,7 +10,9 @@
 //! ```
 //!
 //! A file names an agent the built-in rules do not know, or adds rules to
-//! one they do. A rule is a regex over the bottom of the screen; the first
+//! one they do. `command` is the program as the rules find it: for a Node
+//! or Python agent, its script's or module's name, never the interpreter
+//! (a file naming `node` would read every Node program, and is refused). A rule is a regex over the bottom of the screen; the first
 //! that matches gives the state, ahead of the built-in signs. A file for an
 //! agent with hooks (Claude Code, Codex, Antigravity) is ignored: its hooks
 //! own its state.
@@ -104,6 +106,12 @@ pub fn parse(name: &str, text: &str) -> Result<UserAgent, String> {
     if super::super::agent_screen::is_agent(&command) {
         return Err(format!("{command} has hooks, which own its state"));
     }
+    if super::program::is_interpreter(&command) {
+        // It would read every program that interpreter runs.
+        return Err(format!(
+            "{command} is an interpreter: name the agent's script or module instead"
+        ));
+    }
     if file.rule.len() > MAX_RULES {
         return Err(format!("more than {MAX_RULES} rules"));
     }
@@ -142,8 +150,13 @@ impl UserRules {
         {
             return;
         }
+        let before = std::mem::take(&mut self.problems);
         *self = Self::read(dir);
         self.read_at = Some(now);
+        // Said once per problem, not on every read.
+        for problem in self.problems.iter().filter(|p| !before.contains(p)) {
+            tracing::warn!(target: "tmuxy_core::agents", "screen rules: {problem}, so the file is left out");
+        }
     }
 
     pub fn read(dir: &Path) -> Self {

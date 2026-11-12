@@ -79,3 +79,25 @@ fn only_the_agents_without_hooks_are_read() {
         assert!(!is_rule_agent(other), "{other}");
     }
 }
+
+#[test]
+fn a_write_happens_only_while_the_state_still_reads_what_the_pass_read() {
+    let set = guarded_command("%5", "working", &Change::Set("idle"));
+    assert_eq!(
+        set,
+        [
+            "if-shell",
+            "-F",
+            "-t",
+            "%5",
+            "#{==:#{@tmuxy-pane-state},working}",
+            "set-option -p -t %5 @tmuxy-pane-state idle ; set-option -p -t %5 @tmuxy-rules-state idle",
+        ]
+    );
+    let clear = guarded_command("%5", "", &Change::Clear);
+    assert_eq!(clear[4], "#{==:#{@tmuxy-pane-state},}");
+    assert_eq!(
+        clear[5],
+        "set-option -pu -t %5 @tmuxy-pane-state ; set-option -pu -t %5 @tmuxy-rules-state"
+    );
+}

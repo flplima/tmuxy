@@ -43,6 +43,12 @@ fn a_bad_file_is_refused_with_why() {
     assert!(refused("[[rule]]\nmatch = 'a'\nstate = \"done\"\n").contains("is not one of"));
     assert!(refused("[[rule]]\nmatch = '('\nstate = \"idle\"\n").starts_with("rule 1:"));
     assert!(refused("colour = 1\n").contains("unknown field"));
+    assert!(parse("x", "command = \"node\"\n")
+        .unwrap_err()
+        .contains("is an interpreter"));
+    assert!(parse("python3", "")
+        .unwrap_err()
+        .contains("is an interpreter"));
     assert_eq!(
         parse("claude", "").unwrap_err(),
         "claude has hooks, which own its state"

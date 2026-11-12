@@ -15,12 +15,17 @@
 //! change the state only while it is still theirs or unset: a hook, a
 //! `tmuxy pane state`, a program's own report or a send's question wins.
 //! When the agent's process ends, a state that is still theirs is taken
-//! off.
+//! off. Every write is conditional on the state the pass read, so one
+//! declared between the read and the write is not overwritten either.
+//!
+//! An agent run by an interpreter (`node`, `python3`) is found by the
+//! script it runs ([`program`]).
 //!
 //! The user's own rules (`~/.config/tmuxy/agents/<name>.toml`, [`user`])
 //! name more agents and give states for text on screen; a matching one
 //! comes ahead of the signs above.
 
+pub mod program;
 pub mod user;
 
 use std::collections::hash_map::DefaultHasher;
@@ -158,25 +163,35 @@ fn ours(pane: &str) -> String {
     .to_string()
 }
 
-/// Write `change` on `pane` through `run-shell`: the state and the rules'
-/// own note of it, in one command list, so a reader never sees one without
-/// the other.
-fn write(pane: &str, change: &Change) {
-    let tmux: Vec<String> = crate::session::tmux_argv(false)
-        .iter()
-        .map(|w| run_shell_word(w))
-        .collect();
-    let pane = run_shell_word(pane);
+/// The tmux command that makes `change` on `pane` while its state still
+/// reads `read`, as argv words: the state and the rules' own note of it
+/// together, so a reader never sees one without the other, and nothing at
+/// all when a writer declared another state since the pass read it.
+pub fn guarded_command(pane: &str, read: &str, change: &Change) -> Vec<String> {
     let both = |verb: &str, value: &str| {
         [tmux_options::PANE_STATE, tmux_options::RULES_STATE]
             .map(|option| format!("{verb} -t {pane} {option}{value}"))
-            .join(&format!(" {} ", run_shell_word(";")))
+            .join(" ; ")
     };
     let commands = match change {
         Change::Set(state) => both("set-option -p", &format!(" {state}")),
         Change::Clear => both("set-option -pu", ""),
     };
-    let line = format!("{} {commands}", tmux.join(" "));
+    let still = format!("#{{==:#{{{}}},{read}}}", tmux_options::PANE_STATE);
+    ["if-shell", "-F", "-t", pane, &still, &commands]
+        .map(String::from)
+        .to_vec()
+}
+
+/// Write `change` on `pane` through `run-shell`, if its state still reads
+/// `read`.
+fn write(pane: &str, read: &str, change: &Change) {
+    let words: Vec<String> = crate::session::tmux_argv(false)
+        .into_iter()
+        .chain(guarded_command(pane, read, change))
+        .map(|w| run_shell_word(&w))
+        .collect();
+    let line = words.join(" ");
     if tmux_output(&["run-shell", "-b", &line]).is_none() {
         tracing::debug!(target: "tmuxy_core::agents", pane, "the screen's state was not written");
     }
@@ -203,11 +218,12 @@ impl Rules {
         let mut seen = HashMap::new();
         for row in rows {
             let tracked = self.tracks.remove(&row.pane_id);
-            if !is_rule_agent(&row.command) && !self.user.knows(&row.command) {
+            let program = program::program(&row.pane_id, &row.command);
+            if !is_rule_agent(&program) && !self.user.knows(&program) {
                 // The agent is gone from this pane: a state that is still the
                 // rules' own goes with it.
                 if tracked.is_some() && !row.state.is_empty() && row.state == ours(&row.pane_id) {
-                    write(&row.pane_id, &Change::Clear);
+                    write(&row.pane_id, &row.state, &Change::Clear);
                 }
                 continue;
             }
@@ -219,7 +235,7 @@ impl Rules {
             let signs = judge(&mut track, &screen);
             let wanted = self
                 .user
-                .matching(&row.command, &screen)
+                .matching(&program, &screen)
                 .map(|rule| rule.state)
                 .or(signs);
             let mine = if row.state.is_empty() {
@@ -229,7 +245,7 @@ impl Rules {
             };
             if let Some(change) = decide(&row.state, &mine, wanted, row.asking) {
                 tracing::debug!(target: "tmuxy_core::agents", pane = %row.pane_id, ?change, "the screen sets the pane state");
-                write(&row.pane_id, &change);
+                write(&row.pane_id, &row.state, &change);
             }
             seen.insert(row.pane_id.clone(), track);
         }
