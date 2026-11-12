@@ -256,7 +256,7 @@ production pays nothing.
   `--check` or `--export`, it narrows what those read instead. What a line
   holds depends on the trace level; with `--redact` it does not matter:
   session names, paths, error text, command arguments and marker labels become
-  placeholders (`session-1`, `path-2`), ids, operations and timing stay
+  placeholders (`session-1`, `path-2`), ids, operations, timing and every number stay (a port or a process id among them)
   (`trace/share.rs` in tmuxy-core). The app's **Debug ▸ Copy Trace…** shows
   the last 20 actions redacted the same way, in full, before it copies them.
 

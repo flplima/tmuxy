@@ -6,7 +6,8 @@
 //! export is redacted whatever the level, so a user never has to know which
 //! one they recorded at. What survives:
 //!
-//! - numbers, booleans and nulls (timing, counts, sizes, sequence numbers);
+//! - numbers, booleans and nulls (timing, counts, sizes, sequence numbers;
+//!   a port or a process id is a number too, and passes);
 //! - the typed names of what happened (`layer`, `name`, `op`, `kind`, …),
 //!   only when they look like an identifier: letters, digits, `-` and `_`;
 //! - ids (`%3`, `@1`, an `action_id`), only when they look like one.
@@ -105,8 +106,26 @@ fn value(key: &str, value: &Value, names: &mut Placeholders) -> Value {
 
 fn object(map: &Map<String, Value>, names: &mut Placeholders) -> Map<String, Value> {
     map.iter()
-        .map(|(key, v)| (key.clone(), value(key, v, names)))
+        .map(|(key, v)| {
+            // The writer's keys are fixed field names; a key that is not one
+            // (a map keyed by something a user named) is replaced as well.
+            let shown = if field_name(key) {
+                key.clone()
+            } else {
+                names.of("key", key).as_str().unwrap_or("key").to_string()
+            };
+            (shown, value(key, v, names))
+        })
         .collect()
+}
+
+fn field_name(key: &str) -> bool {
+    let mut chars = key.chars();
+    key.len() <= 64
+        && chars
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// `events`, redacted for sharing, in order.

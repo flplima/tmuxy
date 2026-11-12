@@ -74,3 +74,14 @@ fn one_value_reads_the_same_placeholder_everywhere() {
     assert_eq!(shared[4]["nested"]["cwd"], "cwd-1");
     assert_eq!(shared[4]["nested"]["list"], json!(["list-1", 3]));
 }
+
+#[test]
+fn a_key_that_is_not_a_field_name_is_replaced_too() {
+    let shared = redact_for_sharing(&events(json!([
+        {"layer": "client", "counts": {"acme-payroll": 3, "lines": 2}}
+    ])));
+    let text = serde_json::to_string(&shared).unwrap();
+    assert!(!text.contains("acme"), "{text}");
+    assert_eq!(shared[0]["counts"]["key-1"], 3);
+    assert_eq!(shared[0]["counts"]["lines"], 2);
+}
