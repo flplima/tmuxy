@@ -77,23 +77,24 @@ pub struct Facts {
     pub pid: Option<u32>,
 }
 
-/// The tmux format [`Facts::parse`] reads.
+/// The tmux format [`Facts::parse`] reads. The question is asked for as
+/// a flag and the state comes last, so the two values anything may write
+/// cannot shift the other fields: a state holding a tab stays one value.
 pub fn facts_format() -> String {
-    [
-        tmux_options::PANE_STATE,
+    format!(
+        "#{{{}}}\t#{{{}}}\t#{{?{},1,}}\t#{{pane_current_command}}\t#{{pane_pid}}\t#{{{}}}",
         tmux_options::RULES_STATE,
         tmux_options::RULES_WHY,
         tmux_options::ASK,
-    ]
-    .map(|option| format!("#{{{option}}}"))
-    .join("\t")
-        + "\t#{pane_current_command}\t#{pane_pid}"
+        tmux_options::PANE_STATE,
+    )
 }
 
 impl Facts {
     pub fn parse(line: &str) -> Option<Facts> {
-        let f: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
-        let [state, rules_state, rules_why, ask, command, pid] = f[..] else {
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        let f: Vec<&str> = line.splitn(6, '\t').collect();
+        let [rules_state, rules_why, ask, command, pid, state] = f[..] else {
             return None;
         };
         Some(Facts {

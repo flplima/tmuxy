@@ -113,13 +113,18 @@ fn a_state_that_differs_from_the_rules_note_was_declared() {
 fn the_facts_read_back_from_their_format() {
     assert_eq!(
         facts_format(),
-        "#{@tmuxy-pane-state}\t#{@tmuxy-rules-state}\t#{@tmuxy-rules-why}\t#{@tmuxy-ask}\t\
-         #{pane_current_command}\t#{pane_pid}"
+        "#{@tmuxy-rules-state}\t#{@tmuxy-rules-why}\t#{?@tmuxy-ask,1,}\t\
+         #{pane_current_command}\t#{pane_pid}\t#{@tmuxy-pane-state}"
     );
-    let read = Facts::parse("idle\tidle\tstill\t\tnode\t4021\n").unwrap();
+    let read = Facts::parse("idle\tstill\t\tnode\t4021\tidle\n").unwrap();
     assert_eq!(read.pid, Some(4021));
     assert!(!read.asking);
     assert_eq!(read.rules_why, "still");
+    assert_eq!(read.state, "idle");
+    // A state anything wrote, tab and all, stays one value.
+    let odd = Facts::parse("\t\t1\tzsh\t7\tmy\tstate").unwrap();
+    assert_eq!(odd.state, "my\tstate");
+    assert!(odd.asking);
     assert_eq!(Facts::parse("too\tfew"), None);
 }
 
