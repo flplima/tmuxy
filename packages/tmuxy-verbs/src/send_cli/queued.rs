@@ -34,7 +34,10 @@ pub(super) async fn send<T: tmuxy_core::ask::Tmux>(
     let caller = route.caller(tmux).await;
     let entry = Entry::join(tmux, pane, &caller, delivery.keys)
         .await
-        .map_err(|e| (EXIT_TARGET, e.error))?;
+        .map_err(|e| match e.kind {
+            tmuxy_core::ErrorKind::Tmux => (EXIT_TARGET, e.error),
+            _ => (EXIT_FAILED, e.error),
+        })?;
     eprintln!(
         "tmuxy: queued for {pane} as {id}; `tmuxy pane queue -t {pane} --retract {id}` takes it back",
         id = entry.id()

@@ -186,10 +186,16 @@ impl Entry {
             .unwrap_or_default();
         let pid = std::process::id();
         let id = format!("{at:013}-{pid:010}");
+        // Without it every other sender would take this entry for a dead one.
+        let started = started(pid).ok_or_else(|| {
+            CommandError::unavailable(
+                "cannot tell when this process started, which a place in line needs; nothing sent",
+            )
+        })?;
         let payload = serde_json::json!({
             "caller": caller,
             "keys": keys,
-            "started": started(pid).unwrap_or_default(),
+            "started": started,
         })
         .to_string();
         let value = base64::engine::general_purpose::STANDARD.encode(payload);
