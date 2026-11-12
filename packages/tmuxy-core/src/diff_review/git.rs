@@ -1,5 +1,5 @@
 //! git for the diff widget: reads only, and runs nothing the repository
-//! names.
+//! names. Its settings travel in the environment ([`git_with`]).
 //!
 //! A checkout's own config can name programs for git to run. None of them
 //! may: no filesystem monitor, hook, pager, credential helper or transport
@@ -33,18 +33,17 @@ const PATCH_CAP: usize = 2 * 1024 * 1024;
 /// The most of anything else git prints that is read.
 const TEXT_CAP: usize = 1024 * 1024;
 
-const READ_ONLY: &[&str] = &[
-    "--no-pager",
-    "-c",
-    "core.fsmonitor=false",
-    "-c",
-    "core.hooksPath=/dev/null",
-    "-c",
-    "protocol.allow=never",
-    "-c",
-    "credential.helper=",
-    "-c",
-    "core.quotePath=false",
+/// What every git here runs with. Settings go in the environment
+/// (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`, git
+/// 2.31 and later), never as `-c key=value`: a key can hold `=` (a filter
+/// driver can be named `x=y`), and `-c` cuts it there and reads the rest as
+/// the value, which left that driver's program in place.
+const READ_ONLY: &[(&str, &str)] = &[
+    ("core.fsmonitor", "false"),
+    ("core.hooksPath", "/dev/null"),
+    ("protocol.allow", "never"),
+    ("credential.helper", ""),
+    ("core.quotePath", "false"),
 ];
 
 /// What every diff is asked for on top of its command.
@@ -82,9 +81,15 @@ pub fn deadline() -> Instant {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Command {
+    git_with(dir, &[], args)
+}
+
+/// [`git`] with `settings` of its own on top of [`READ_ONLY`], all of them in
+/// the environment.
+fn git_with(dir: &Path, settings: &[(String, String)], args: &[&str]) -> Command {
     let mut command = Command::new("git");
     command
-        .args(READ_ONLY)
+        .arg("--no-pager")
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -95,7 +100,43 @@ fn git(dir: &Path, args: &[&str]) -> Command {
     for name in SCRUBBED {
         command.env_remove(name);
     }
+    let all: Vec<(&str, &str)> = READ_ONLY
+        .iter()
+        .copied()
+        .chain(settings.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .collect();
+    command.env("GIT_CONFIG_COUNT", all.len().to_string());
+    for (n, (key, value)) in all.into_iter().enumerate() {
+        command
+            .env(format!("GIT_CONFIG_KEY_{n}"), key)
+            .env(format!("GIT_CONFIG_VALUE_{n}"), value);
+    }
     command
+}
+
+/// Whether this machine's git reads settings from the environment: 2.31 or
+/// later. An older one would run with none of them, so no diff is read there.
+pub fn takes_settings_from_the_environment() -> bool {
+    static ANSWER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ANSWER.get_or_init(|| {
+        let mut version = Command::new("git");
+        version.arg("version").env("LC_ALL", "C");
+        run(version, Instant::now() + READ_LIMIT, TEXT_CAP)
+            .and_then(|(_, out, _)| git_version(&String::from_utf8_lossy(&out)))
+            .is_some_and(|version| version >= (2, 31))
+    })
+}
+
+/// `git version 2.39.5 (Apple Git-154)` as `(2, 39)`.
+pub(super) fn git_version(line: &str) -> Option<(u32, u32)> {
+    let mut parts = line.trim().strip_prefix("git version ")?.split('.');
+    let major = parts.next()?.trim().parse().ok()?;
+    let minor: String = parts
+        .next()?
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    Some((major, minor.parse().ok()?))
 }
 
 /// Run `command` until it ends, `deadline` or `cap` bytes of output, reading
@@ -186,7 +227,7 @@ fn filter_drivers(dir: &Path, deadline: Instant) -> Option<Vec<String>> {
 /// [`DIFF_ARGS`] and every content filter switched off, and whether it was
 /// cut at its cap. `None` when it failed or ran past `deadline`.
 pub fn patch(dir: &Path, command: &[&str], deadline: Instant) -> Option<(String, bool)> {
-    let mut args: Vec<String> = Vec::new();
+    let mut settings: Vec<(String, String)> = Vec::new();
     for driver in filter_drivers(dir, deadline)? {
         for (key, value) in [
             ("clean", ""),
@@ -194,15 +235,14 @@ pub fn patch(dir: &Path, command: &[&str], deadline: Instant) -> Option<(String,
             ("process", ""),
             ("required", "false"),
         ] {
-            args.push("-c".into());
-            args.push(format!("filter.{driver}.{key}={value}"));
+            settings.push((format!("filter.{driver}.{key}"), value.to_string()));
         }
     }
     let (verb, rest) = command.split_first()?;
-    args.push((*verb).to_string());
+    let mut args: Vec<String> = vec![(*verb).to_string()];
     args.extend(DIFF_ARGS.iter().map(|arg| arg.to_string()));
     args.extend(rest.iter().map(|arg| arg.to_string()));
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    let (ok, out, truncated) = run(git(dir, &args), deadline, PATCH_CAP)?;
+    let (ok, out, truncated) = run(git_with(dir, &settings, &args), deadline, PATCH_CAP)?;
     ok.then(|| (String::from_utf8_lossy(&out).into_owned(), truncated))
 }

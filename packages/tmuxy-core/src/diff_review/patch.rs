@@ -78,7 +78,20 @@ fn path_of(raw: &str, prefix: &str) -> Option<String> {
     if raw == "/dev/null" {
         return None;
     }
-    Some(raw.strip_prefix(prefix).unwrap_or(&raw).to_string())
+    Some(visible(raw.strip_prefix(prefix).unwrap_or(&raw)))
+}
+
+/// A file name with every control character shown as its picture (`\t` as
+/// `␉`, ESC as `␛`): a name is a label on screen, and a control character in
+/// one would move or recolour what is drawn after it.
+fn visible(name: &str) -> String {
+    name.chars()
+        .map(|c| match u32::from(c) {
+            code @ 0..=0x1f => char::from_u32(0x2400 + code).unwrap_or('?'),
+            0x7f => '\u{2421}',
+            _ => c,
+        })
+        .collect()
 }
 
 /// A C-quoted string as git writes one (`"a\tb\303\251"`), its bytes read

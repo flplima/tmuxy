@@ -4,7 +4,7 @@
  * checkout is the pane's own option, so only the pane and the scope are sent.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Effect } from 'effect';
 import { TmuxTransport } from '../../../infra/transport/TmuxTransport';
 import { formatAdapterError } from '../../../infra/transport/AdapterError';
@@ -34,12 +34,22 @@ export function useDiffRead(
     }, DIFF_POLL_MS);
     return () => clearInterval(timer);
   }, [refresh]);
+  // A read that says what the last one said hands back the last one, so a
+  // diff that has not changed is not drawn again every few seconds.
+  const last = useRef<{ text: string; read: DiffRead } | null>(null);
   const answer = useKeyedRequest(`${paneId}:${scope}:${tick}`, () =>
-    runtime.runPromise(
-      Effect.flatMap(TmuxTransport, (t) => t.call('read_diff', { paneId, scope })).pipe(
-        Effect.mapError((e) => new Error(formatAdapterError(e))),
-      ),
-    ),
+    runtime
+      .runPromise(
+        Effect.flatMap(TmuxTransport, (t) => t.call('read_diff', { paneId, scope })).pipe(
+          Effect.mapError((e) => new Error(formatAdapterError(e))),
+        ),
+      )
+      .then((read) => {
+        const text = JSON.stringify(read);
+        if (last.current?.text === text) return last.current.read;
+        last.current = { text, read };
+        return read;
+      }),
   );
   return { ...answer, refresh };
 }

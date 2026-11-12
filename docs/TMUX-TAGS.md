@@ -37,7 +37,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | `@tmuxy-pane-widget` | pane | a widget name, e.g. `tree` \| unset | which widget this pane may render; written by `tmuxy-widget` and cleared when it exits |
 | `@tmuxy-pane-preview` | pane | an absolute path \| unset | the one file a `preview` pane may read (`tmuxy open`); written by `tmuxy-widget-preview` and cleared when it exits, honoured only while `@tmuxy-pane-widget` is `preview` (see [A Preview Reads One File](SECURITY-WIDGETS.md#a-preview-reads-one-file)) |
 | `@tmuxy-pane-preview-net` | pane | `1` \| unset | the preview was opened with `--net`: its page may load from the network |
-| `@tmuxy-pane-diff` | pane | an absolute path \| unset | the one checkout a `diff` pane may read; written by `tmuxy-widget-diff`, honoured only while `@tmuxy-pane-widget` is `diff` ([SECURITY-WIDGETS.md](SECURITY-WIDGETS.md)) |
+| `@tmuxy-pane-diff` | pane | a path | a `diff` pane's checkout |
 | `@tmuxy-pane-restore` | pane | a shell line \| unset | how to bring this pane back after a session restore (`tmuxy pane restore-cmd`); set by the program itself, wins over what `ps` finds. See `tmuxy_core::session_snapshot` |
 | `@tmuxy-focus-request` | session | `left` \| `right` \| `panes` \| unset | a shell helper asking a client to move keyboard focus |
 | `@tmuxy-sidebar-cols` | window | integer (columns) \| unset | a sidebar column the user has dragged off its default width — for the dock these are its own cells: the right column runs in the sidebar font (80% of the pane font), so its cell width is the pane grid's advance scaled to that size (`selectSidebarCellMetrics`) |

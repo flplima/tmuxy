@@ -106,7 +106,7 @@ diff --git "a/tab\there.txt" "b/tab\there.txt"
             "gone.txt",
             "x.sh",
             "moved.txt",
-            "tab\there.txt"
+            "tab\u{2409}here.txt"
         ]
     );
     assert_eq!(files[0].hunks[0].header, "@@ -1,3 +1,4 @@ fn top");
@@ -232,13 +232,19 @@ fn a_read_runs_nothing_the_repository_names() {
         std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
             .unwrap();
     }
-    std::fs::write(dir.join(".gitattributes"), "*.txt diff=trap filter=trap\n").unwrap();
+    std::fs::write(
+        dir.join(".gitattributes"),
+        "*.txt diff=trap filter=trap\n*.md filter=x=y\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("notes.md"), "notes\n").unwrap();
     std::fs::write(dir.join("a.txt"), "one\nchanged\nthree\n").unwrap();
-    setup(&dir, &["add", ".gitattributes"]);
+    setup(&dir, &["add", ".gitattributes", "notes.md"]);
     setup(&dir, &["commit", "-qm", "attributes"]);
     std::fs::write(dir.join("a.txt"), "one\nstaged\nthree\n").unwrap();
     setup(&dir, &["add", "a.txt"]);
     std::fs::write(dir.join("a.txt"), "one\nchanged\nthree\n").unwrap();
+    std::fs::write(dir.join("notes.md"), "notes, changed\n").unwrap();
     // The traps go in last: the test's own setup above must not run them.
     for (key, value) in [
         ("core.fsmonitor", trap.as_str()),
@@ -251,6 +257,11 @@ fn a_read_runs_nothing_the_repository_names() {
         ("filter.trap.smudge", trap.as_str()),
         ("filter.trap.process", trap.as_str()),
         ("filter.trap.required", "true"),
+        // `-c filter.x=y.clean=` is the key `filter.x` to git: a driver
+        // named with `=` kept its program while the settings were flags.
+        ("filter.x=y.clean", trap.as_str()),
+        ("filter.x=y.smudge", trap.as_str()),
+        ("filter.x=y.required", "true"),
     ] {
         setup(&dir, &["config", key, value]);
     }
@@ -279,4 +290,18 @@ fn a_pane_may_read_only_the_checkout_its_options_name() {
     for answer in ["preview\n/src/app\n", "diff\n\n", "diff\nsrc/app\n", ""] {
         assert!(parse_authorisation(answer).is_err(), "{answer:?}");
     }
+}
+
+#[test]
+fn the_git_version_is_read_from_what_git_says() {
+    assert_eq!(git::git_version("git version 2.56.0\n"), Some((2, 56)));
+    assert_eq!(
+        git::git_version("git version 2.39.5 (Apple Git-154)"),
+        Some((2, 39))
+    );
+    assert_eq!(
+        git::git_version("git version 2.30.9.windows.1"),
+        Some((2, 30))
+    );
+    assert_eq!(git::git_version("not git"), None);
 }
