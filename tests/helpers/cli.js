@@ -3,7 +3,7 @@
  * queries go through tmuxExec in tmux-socket.js.
  */
 
-const { execFileSync, execSync } = require('child_process');
+const { execFile, execFileSync, execSync } = require('child_process');
 const path = require('path');
 
 const { WORKSPACE_ROOT, TMUXY_CLI, serverBinary } = require('./config');
@@ -98,9 +98,28 @@ function tmuxyCli(args) {
   });
 }
 
+/**
+ * {@link tmuxyCli} for a verb that waits (`agent wait`), so the test can act
+ * while it does. Resolves to its exit code and output, whatever the code.
+ *
+ * @param {string[]} args - The CLI's arguments
+ * @returns {Promise<{code: number, stdout: string, stderr: string}>}
+ */
+function tmuxyCliAsync(args) {
+  return new Promise((resolve) => {
+    execFile(
+      TMUXY_CLI,
+      args,
+      { cwd: WORKSPACE_ROOT, encoding: 'utf-8', timeout: 60000, env: cliEnv() },
+      (error, stdout, stderr) => resolve({ code: error ? (error.code ?? 1) : 0, stdout, stderr }),
+    );
+  });
+}
+
 module.exports = {
   tmuxRun,
   tmuxRunAsOperator,
   tmuxyCli,
+  tmuxyCliAsync,
   TMUXY_CLI,
 };
