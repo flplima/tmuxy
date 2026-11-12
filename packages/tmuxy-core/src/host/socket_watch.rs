@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
+pub mod agent_rules;
 pub mod agent_screen;
 
 pub const INTERVAL: Duration = Duration::from_millis(1500);
@@ -74,23 +75,27 @@ pub fn read_panes() -> Option<Vec<PaneRow>> {
 pub type Rows = watch::Receiver<Arc<Vec<PaneRow>>>;
 
 /// Read the panes every [`INTERVAL`] for as long as the future runs,
-/// correcting agent panes from their screens and publishing each read (a
+/// correcting agent panes from their screens, giving agents without hooks a
+/// state from theirs (`agent_rules`), and publishing each read (a
 /// server that cannot be asked publishes nothing).
 pub async fn run(watch: watch::Sender<Arc<Vec<PaneRow>>>) {
     let mut corrector = agent_screen::Corrector::default();
+    let mut rules = agent_rules::Rules::default();
     loop {
         tokio::time::sleep(INTERVAL).await;
         // A pass that panicked starts the next from nothing seen.
-        let (back, rows) = tokio::task::spawn_blocking(move || {
+        let (back, back_rules, rows) = tokio::task::spawn_blocking(move || {
             let rows = read_panes();
             if let Some(rows) = &rows {
                 corrector.pass(rows);
+                rules.pass(rows);
             }
-            (corrector, rows)
+            (corrector, rules, rows)
         })
         .await
         .unwrap_or_default();
         corrector = back;
+        rules = back_rules;
         if let Some(rows) = rows {
             watch.send_replace(Arc::new(rows));
         }
