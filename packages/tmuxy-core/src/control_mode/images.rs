@@ -123,14 +123,20 @@ pub struct ImageParser {
     /// it to the chunks that can change a placement.
     #[cfg(test)]
     pub(crate) placeholder_scans: usize,
-    /// An image escape (iTerm2/kitty/sixel) split across `%output` chunks,
-    /// carried into the next `process()` call so a large payload isn't torn —
-    /// its header rendered as garbage text and the image dropped.
+    /// A tmux passthrough wrapper split across `%output` chunks, as it came:
+    /// unwrapped once the rest arrives.
     pending: Vec<u8>,
-    /// `pending` is one escape whose terminator has been looked for and not
-    /// found, so a chunk that brings no terminator either is appended without
-    /// rescanning the buffer: over an 8 MiB image in 4 KiB chunks, rescanning
-    /// is gigabytes.
+    /// An image escape (iTerm2/kitty/sixel) split across `%output` chunks,
+    /// already unwrapped, carried into the next `process()` call so a large
+    /// payload isn't torn (its header rendered as garbage text and the image
+    /// dropped). Kept apart from `pending` so it is never unwrapped twice: an
+    /// unwrapped payload can itself look like a wrapper. In the stream it
+    /// comes before whatever `pending` holds.
+    held: Vec<u8>,
+    /// `held` is one escape whose terminator has been looked for and not
+    /// found, and `pending` is empty, so a chunk that brings no terminator
+    /// either is appended without rescanning the buffer: over an 8 MiB image
+    /// in 4 KiB chunks, rescanning is gigabytes.
     pending_unterminated: bool,
     /// The main screen's pictures, set aside while an application runs on the
     /// alternate screen (`Some` exactly while it does), and put back when it
@@ -205,6 +211,7 @@ impl ImageParser {
         self.cursor_row = 0;
         self.cursor_col = 0;
         self.pending.clear();
+        self.held.clear();
         self.pending_unterminated = false;
     }
 
@@ -289,6 +296,17 @@ impl ImageParser {
         }
     }
 
+    /// Keep `tail` for the next chunk: its first `unwrapped` bytes came out of
+    /// a passthrough wrapper and are never unwrapped again; the rest came as
+    /// sent and could still start one, so they wait with the raw bytes, ahead
+    /// of any cut-off wrapper already there (in the stream they came first).
+    fn hold(&mut self, tail: &[u8], unwrapped: usize) {
+        let (unwrapped, raw) = tail.split_at(unwrapped.min(tail.len()));
+        self.held.extend_from_slice(unwrapped);
+        self.pending.splice(0..0, raw.iter().copied());
+        self.pending_unterminated = self.pending.is_empty();
+    }
+
     /// Process raw output bytes, flushing clean (non-image) byte spans through
     /// `on_clean_bytes` before each image placement or screen switch so the
     /// caller can advance its terminal emulator and update `(cursor_row,
@@ -304,11 +322,13 @@ impl ImageParser {
     {
         // Prepend any incomplete image escape carried over from the last chunk.
         // When this chunk cannot end it, it only grows the buffer.
+        // A chunk that cannot end it holds no escape at all, and so no
+        // wrapper either: appended as it is.
         if self.pending_unterminated
-            && self.pending.len() + content.len() <= MAX_PENDING_IMAGE
-            && !ends_pending_escape(&self.pending, content)
+            && self.held.len() + content.len() <= MAX_PENDING_IMAGE
+            && !ends_pending_escape(&self.held, content)
         {
-            self.pending.extend_from_slice(content);
+            self.held.extend_from_slice(content);
             return Vec::new();
         }
         self.pending_unterminated = false;
@@ -324,12 +344,22 @@ impl ImageParser {
         // Payloads tmux was asked to relay verbatim are unwrapped first, so
         // everything below sees the escapes the application actually wrote.
         let unwrapped;
-        let content: &[u8] = match self.unwrap_passthrough(content) {
-            Some(bytes) => {
+        let (content, payload_end): (&[u8], usize) = match self.unwrap_passthrough(content) {
+            Some((bytes, end)) => {
                 unwrapped = bytes;
-                &unwrapped
+                (&unwrapped, end)
             }
-            None => content,
+            None => (content, 0),
+        };
+        // What was held back last time, already unwrapped, goes first. From
+        // `raw_from` on, the bytes came through as they were sent.
+        let raw_from = self.held.len() + payload_end;
+        let joined;
+        let content: &[u8] = if self.held.is_empty() {
+            content
+        } else {
+            joined = [std::mem::take(&mut self.held).as_slice(), content].concat();
+            &joined
         };
 
         // Where the chunk's last terminator starts: an escape at `i` has one
@@ -347,10 +377,8 @@ impl ImageParser {
             // An ESC that ends the chunk may start a picture (or tmux's
             // wrapper around one) in the next: held, so the escape is read
             // whole whatever byte the line ended on.
-            // Before any wrapper tail the unwrapping held: it came later.
             if i + 1 == content.len() && content[i] == 0x1B {
-                self.pending_unterminated = self.pending.is_empty();
-                self.pending.insert(0, 0x1B);
+                self.hold(&content[i..], raw_from.saturating_sub(i));
                 break;
             }
             if i + 1 < content.len() && content[i] == 0x1B {
@@ -424,10 +452,7 @@ impl ImageParser {
                 if matches!(nxt, b']' | b'_' | b'P') && !terminated_after(i + 2) {
                     let tail = &content[i..];
                     if tail.len() <= MAX_PENDING_IMAGE {
-                        // Before any wrapper tail the unwrapping held: in the
-                        // stream it came first.
-                        self.pending_unterminated = self.pending.is_empty();
-                        self.pending.splice(0..0, tail.iter().copied());
+                        self.hold(tail, raw_from.saturating_sub(i));
                         break;
                     }
                 }

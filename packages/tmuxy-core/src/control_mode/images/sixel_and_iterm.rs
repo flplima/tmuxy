@@ -175,18 +175,24 @@ impl ImageParser {
     /// keeps the pane's title intact: tmux takes a bare APC string for a title
     /// (its `input_exit_apc`), so a Kitty frame sent unwrapped turns the pane
     /// title into base64 while it draws.
-    pub(super) fn unwrap_passthrough(&mut self, content: &[u8]) -> Option<Vec<u8>> {
+    ///
+    /// Also says where in the result the last unwrapped payload ends: every
+    /// byte from there on was copied through as it came, and could still
+    /// start a wrapper the next chunk completes.
+    pub(super) fn unwrap_passthrough(&mut self, content: &[u8]) -> Option<(Vec<u8>, usize)> {
         const PREFIX: &[u8] = b"\x1bPtmux;";
         if !content.windows(PREFIX.len()).any(|w| w == PREFIX) {
             return None;
         }
         let mut out = Vec::with_capacity(content.len());
+        let mut payload_end = 0;
         let mut i = 0;
         while i < content.len() {
             if content[i..].starts_with(PREFIX) {
                 match undouble_escapes(&content[i + PREFIX.len()..]) {
                     Some((payload, consumed)) => {
                         out.extend_from_slice(&payload);
+                        payload_end = out.len();
                         i += PREFIX.len() + consumed;
                     }
                     None => {
@@ -197,8 +203,9 @@ impl ImageParser {
                             self.pending.extend_from_slice(tail);
                         } else {
                             out.extend_from_slice(tail);
+                            payload_end = out.len();
                         }
-                        return Some(out);
+                        return Some((out, payload_end));
                     }
                 }
             } else {
@@ -206,7 +213,7 @@ impl ImageParser {
                 i += 1;
             }
         }
-        Some(out)
+        Some((out, payload_end))
     }
 
     /// Retire pictures for the CSI sequences that empty a screen.
