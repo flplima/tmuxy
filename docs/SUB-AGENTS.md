@@ -55,9 +55,10 @@ The hooks of Claude Code and Codex record the session a pane runs: on a session'
 | only the agent's kind and the id are kept, never a command line | any process of the same user can write a pane option; a command revive ran as written would be one anyone could plant |
 | the id must be a UUID, checked when recorded and again when read | an event's JSON is input like any other: `; rm`, `#(…)` or a newline never reach an option or a command |
 | the command comes from revive's own table of agents | the recorded kind only picks an entry |
-| a pane still running something other than a shell is refused | revive replaces the pane's process |
+| a live pane is revived only when it is a shell with no child process at all; anything else is refused, naming what runs | revive respawns the pane, which kills its process and every job under it, a stopped editor included |
+| the record is taken off when the session ends normally (`SessionEnd`) | revive is for an agent that was killed or crashed; a pane reused for something else must not resume an old conversation |
 
-Nothing reads an agent's files: the id is the one the hook was handed.
+Nothing reads an agent's files: the id is the one the hook was handed. The record is a claim like any pane option: a process of the same user could plant another valid id and pick which of its own conversations a revive resumes.
 
 ## Wait
 

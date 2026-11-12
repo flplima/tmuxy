@@ -71,47 +71,85 @@ fn a_recorded_value_is_read_back_only_into_a_known_command() {
 }
 
 #[test]
-fn revive_is_for_a_pane_whose_agent_has_exited() {
+fn revive_is_for_a_pane_whose_agent_has_exited_and_whose_shell_has_no_jobs() {
     let now = |dead: bool, command: &str, session: &str| PaneNow {
         dead,
         command: command.into(),
-        start: "zsh".into(),
+        pid: Some(4000),
         path: "/w".into(),
         session: session.into(),
     };
     let session = format!("claude:{ID}");
-    assert_eq!(refusal("%5", &now(false, "zsh", &session)), None);
-    assert_eq!(refusal("%5", &now(false, "-bash", &session)), None);
-    assert_eq!(refusal("%5", &now(true, "claude", &session)), None);
-    assert!(refusal("%5", &now(false, "claude", &session))
+    let none: &[String] = &[];
+    assert_eq!(
+        refusal("%5", &now(false, "zsh", &session), Some(none)),
+        None
+    );
+    assert_eq!(
+        refusal("%5", &now(false, "-bash", &session), Some(none)),
+        None
+    );
+    assert_eq!(
+        refusal("%5", &now(true, "claude", &session), None),
+        None,
+        "a dead pane"
+    );
+    assert!(refusal("%5", &now(false, "claude", &session), Some(none))
         .unwrap()
         .contains("still running claude"));
-    // A revived agent runs under the wrapper, which tmux names sh.
-    let revived = |command: &str| PaneNow {
-        start: "sh /tmp/tmuxy-spawn.1/revive.sh".into(),
-        ..now(false, command, &session)
-    };
-    assert!(refusal("%5", &revived("sh"))
-        .unwrap()
-        .contains("still running its revived agent"));
+    // A shell holding a stopped editor, a background job, or a revived
+    // agent under revive's own wrapper: respawning would kill them.
+    let jobs = ["vim".to_string(), "sleep".to_string()];
     assert_eq!(
-        refusal("%5", &revived("zsh")),
-        None,
-        "the agent exited: a shell"
+        refusal("%5", &now(false, "zsh", &session), Some(&jobs)).unwrap(),
+        "%5's shell still has jobs (vim, sleep): revive would kill them"
     );
-    assert!(refusal("%5", &now(false, "zsh", ""))
+    assert!(refusal(
+        "%5",
+        &now(false, "sh", &session),
+        Some(&["claude".to_string()])
+    )
+    .unwrap()
+    .contains("would kill them"));
+    // Children it could not list: left alone.
+    assert!(refusal("%5", &now(false, "zsh", &session), None)
+        .unwrap()
+        .contains("cannot tell"));
+    assert!(refusal("%5", &now(false, "zsh", ""), Some(none))
         .unwrap()
         .contains("no agent session"));
-    assert!(refusal("%5", &now(false, "zsh", "claude:not-a-uuid"))
-        .unwrap()
-        .contains("no agent session"));
+    assert!(
+        refusal("%5", &now(false, "zsh", "claude:not-a-uuid"), Some(none))
+            .unwrap()
+            .contains("no agent session")
+    );
+}
+
+#[test]
+fn a_proc_stat_line_gives_its_command_and_parent() {
+    assert_eq!(
+        parent_of("4021 (vim) T 4000 4021 4000 34816 4000 4194304"),
+        Some(("vim".to_string(), 4000))
+    );
+    assert_eq!(
+        parent_of("4022 (my (odd) prog) S 4000 4022"),
+        Some(("my (odd) prog".to_string(), 4000))
+    );
+    assert_eq!(parent_of("garbage"), None);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_children_of_a_process_are_listed_and_none_for_one_that_does_not_exist() {
+    assert_eq!(children(u32::MAX), Some(vec![]));
+    assert!(children(std::process::id()).is_some());
 }
 
 #[test]
 fn the_pane_read_is_of_the_pane_asked_about() {
-    let read = format!("%5\t0\tzsh\tclaude:{ID}\tsh x\t/w/with\ttab\n");
+    let read = format!("%5\t0\tzsh\tclaude:{ID}\t4000\t/w/with\ttab\n");
     let now = parse_pane("%5", &read).unwrap();
-    assert_eq!(now.start, "sh x");
+    assert_eq!(now.pid, Some(4000));
     assert_eq!(now.path, "/w/with\ttab");
     assert_eq!(now.session, format!("claude:{ID}"));
     assert_eq!(

@@ -90,16 +90,24 @@ pub fn resume_argv(kind: Resumable, id: &str) -> Vec<String> {
 
 /// Record the hook's session on `pane`, if it names one. A hook never
 /// fails for this: an error is dropped.
+///
+/// A session that ends normally (`SessionEnd`) is taken off: revive is for
+/// an agent that was killed or crashed, and a pane reused for something else
+/// must not resume an old conversation.
 pub fn record(pane: &str, agent: Agent, event: &str, payload: &Value) {
-    let Some(token) = token(agent, event, payload) else {
+    let set = if event == "SessionEnd" && Resumable::of(agent).is_some() {
+        ["set-option", "-pu", "-t", pane, AGENT_SESSION]
+            .map(String::from)
+            .to_vec()
+    } else if let Some(token) = token(agent, event, payload) {
+        ["set-option", "-p", "-t", pane, AGENT_SESSION, &token]
+            .map(String::from)
+            .to_vec()
+    } else {
         return;
     };
-    let set = ["set-option", "-p", "-t", pane, AGENT_SESSION, &token].map(String::from);
     let _ = run_shell::tmux(&Layout::current(), &set);
 }
-
-/// The wrapper's file name, which the pane's start command names.
-const REVIVE_SCRIPT: &str = "revive.sh";
 
 /// The shells a pane sits in once its agent has exited.
 const SHELLS: [&str; 7] = ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh"];
@@ -109,15 +117,15 @@ const SHELLS: [&str; 7] = ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh"];
 pub struct PaneNow {
     pub dead: bool,
     pub command: String,
-    /// The command the pane was (re)spawned with.
-    pub start: String,
+    /// The pane's first process.
+    pub pid: Option<u32>,
     pub path: String,
     pub session: String,
 }
 
 fn pane_format() -> String {
     format!(
-        "#{{pane_id}}\t#{{pane_dead}}\t#{{pane_current_command}}\t#{{{AGENT_SESSION}}}\t#{{pane_start_command}}\t#{{pane_current_path}}"
+        "#{{pane_id}}\t#{{pane_dead}}\t#{{pane_current_command}}\t#{{{AGENT_SESSION}}}\t#{{pane_pid}}\t#{{pane_current_path}}"
     )
 }
 
@@ -127,36 +135,106 @@ fn pane_format() -> String {
 pub fn parse_pane(pane: &str, read: &str) -> Option<PaneNow> {
     let read = read.strip_suffix('\n').unwrap_or(read);
     let f: Vec<&str> = read.splitn(6, '\t').collect();
-    let [id, dead, command, session, start, path] = f[..] else {
+    let [id, dead, command, session, pid, path] = f[..] else {
         return None;
     };
     (id == pane).then(|| PaneNow {
         dead: dead == "1",
         command: command.into(),
-        start: start.into(),
+        pid: pid.parse().ok(),
         path: path.into(),
         session: session.into(),
     })
 }
 
-/// Why `now` cannot be revived, if it cannot.
-pub fn refusal(pane: &str, now: &PaneNow) -> Option<String> {
+/// Why `now` cannot be revived, if it cannot. `children` are the commands
+/// of the pane's first process's children, `None` when they could not be
+/// listed. Revive respawns the pane, killing its process and everything
+/// under it, so a live pane is revived only when that is a shell with no
+/// child at all: no job running, stopped or in the background.
+pub fn refusal(pane: &str, now: &PaneNow, children: Option<&[String]>) -> Option<String> {
     if parse(&now.session).is_none() {
         return Some(format!("{pane} has no agent session to resume"));
     }
-    // A revived agent runs under revive's wrapper, which tmux names `sh`
-    // until it hands the pane to a shell once the agent exits.
-    let wrapped = now.start.contains(REVIVE_SCRIPT) && now.command == "sh";
-    if !now.dead && wrapped {
-        return Some(format!("{pane} is still running its revived agent"));
+    if now.dead {
+        return None;
     }
-    let at_shell = SHELLS.contains(&now.command.trim_start_matches('-'));
-    (!now.dead && !at_shell).then(|| {
-        format!(
+    if !SHELLS.contains(&now.command.trim_start_matches('-')) {
+        return Some(format!(
             "{pane} is still running {}: revive is for a pane whose agent has exited",
             now.command
-        )
-    })
+        ));
+    }
+    match children {
+        None => Some(format!(
+            "cannot tell whether {pane}'s shell has jobs, so it is left alone"
+        )),
+        Some([]) => None,
+        Some(jobs) => Some(format!(
+            "{pane}'s shell still has jobs ({}): revive would kill them",
+            jobs.join(", ")
+        )),
+    }
+}
+
+/// The command names of `pid`'s child processes; `None` when they cannot
+/// be listed.
+#[cfg(target_os = "linux")]
+pub fn children(pid: u32) -> Option<Vec<String>> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        // A process that ended between the listing and the read is gone.
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        if let Some((comm, ppid)) = parent_of(&stat) {
+            if ppid == pid {
+                found.push(comm);
+            }
+        }
+    }
+    Some(found)
+}
+
+/// A `/proc/<pid>/stat` line's command name and parent: the name is in
+/// parentheses and may hold spaces or `)`, so the fields after the last `)`
+/// are read from there.
+pub fn parent_of(stat: &str) -> Option<(String, u32)> {
+    let open = stat.find('(')?;
+    let close = stat.rfind(')')?;
+    let comm = stat.get(open + 1..close)?.to_string();
+    let ppid = stat
+        .get(close + 1..)?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()?;
+    Some((comm, ppid))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn children(pid: u32) -> Option<Vec<String>> {
+    let output = std::process::Command::new("ps")
+        .args(["-A", "-o", "ppid=,comm="])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let (ppid, comm) = line.trim().split_once(char::is_whitespace)?;
+                (ppid.parse::<u32>().ok()? == pid).then(|| comm.trim().to_string())
+            })
+            .collect(),
+    )
 }
 
 /// The wrapper revive runs: it removes its directory, runs the agent, and
@@ -185,7 +263,8 @@ pub fn revive(answer: &Answer, args: ReviveArgs) {
     else {
         answer.exit(EXIT_TARGET, &format!("no pane {pane}"))
     };
-    if let Some(why) = refusal(&pane, &now) {
+    let jobs = now.pid.and_then(children);
+    if let Some(why) = refusal(&pane, &now, jobs.as_deref()) {
         answer.exit(EXIT_FAILED, &why);
     }
     let Some((kind, id)) = parse(&now.session) else {
@@ -197,7 +276,7 @@ pub fn revive(answer: &Answer, args: ReviveArgs) {
     let argv = resume_argv(kind, &id);
     let dir =
         super::spawn::wrapper_dir().unwrap_or_else(|e| answer.exit(EXIT_FAILED, &e.to_string()));
-    let script = dir.join(REVIVE_SCRIPT);
+    let script = dir.join("revive.sh");
     if let Err(e) = std::fs::write(&script, revive_script(&dir, &argv)) {
         let _ = std::fs::remove_dir_all(&dir);
         answer.exit(EXIT_FAILED, &e.to_string());

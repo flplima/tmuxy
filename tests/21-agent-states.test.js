@@ -447,7 +447,9 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
       .trim()
       .replace(/^PATH=/, '');
     let child = null;
+    const extra = [];
     try {
+      expect(pathBefore).toContain('/');
       ctx.session.runAsOperator(`set-environment -g PATH '${fake}:${pathBefore}'`);
       child = JSON.parse(
         tmuxyCli(['agent', 'spawn', '--json', '--agent', 'cmd', '--', 'bash', '--norc', '-i'], {
@@ -488,12 +490,34 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
       // While it runs, revive refuses: it is for a pane whose agent exited.
       const again = await tmuxyCliAsync(['agent', 'revive', child]);
       expect(again.code).toBe(1);
-      expect(again.stderr).toContain('is still running');
+      expect(again.stderr).toContain('revive would kill them');
+
+      // A shell holding a stopped job is refused too: respawning it would
+      // kill the job (a suspended editor, unsaved).
+      const holder = JSON.parse(
+        tmuxyCli(
+          ['agent', 'spawn', '--json', '--agent', 'cmd', '--', 'bash', '-c'].concat([
+            'sleep 600 & kill -STOP $!; exec bash --norc -i',
+          ]),
+          { TMUX_PANE: caller },
+        ),
+      ).paneId;
+      extra.push(holder);
+      agentHookEvent('claude', 'SessionStart', { session_id: id }, holder);
+      const stopped = await tmuxyCliAsync(['agent', 'revive', holder]);
+      expect(stopped.code).toBe(1);
+      expect(stopped.stderr).toContain(`${holder}'s shell still has jobs (sleep)`);
+
+      // A session that ends normally is taken off the pane.
+      agentHookEvent('claude', 'SessionEnd', {}, holder);
+      expect(
+        tmuxyCli(['run', 'display-message', '-p', '-t', holder, '#{@tmuxy-agent-session}']).trim(),
+      ).toBe('');
     } finally {
-      ctx.session.runAsOperator(`set-environment -g PATH '${pathBefore}'`);
-      if (child) {
+      if (pathBefore) ctx.session.runAsOperator(`set-environment -g PATH '${pathBefore}'`);
+      for (const pane of [child, ...extra].filter(Boolean)) {
         try {
-          tmuxyCli(['pane', 'kill', child]);
+          tmuxyCli(['pane', 'kill', pane]);
         } catch {
           // Already gone.
         }
