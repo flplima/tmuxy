@@ -14,6 +14,11 @@ A good report is one we can reproduce. This page says what to put in it, how to 
 
 ## Taking a trace
 
+<!-- TO UPDATE when the Debug menu's "Copy Bug Report Snippet" and "Copy Trace…"
+land: say to paste the snippet for the versions above, and to attach the
+redacted trace after checking its preview, in place of steps 3 and 4 and the
+manual check below. Until then, this section is what works on main. -->
+
 Tracing is off by default. Nothing is sent anywhere: the trace is a file on the machine that runs tmuxy ([TELEMETRY.md](TELEMETRY.md)).
 
 1. **Turn it on, at the `Shape` level.** In the app: the **Debug** menu, `Enable Traces`, then `Shape`. For `tmuxy server`: start it with `--trace`, and `TMUXY_TRACE_LEVEL=shape` (the default).
