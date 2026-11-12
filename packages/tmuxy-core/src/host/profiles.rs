@@ -120,8 +120,25 @@ pub(super) async fn into_profile(
     if active == DEFAULT_PROFILE {
         return Ok(false);
     }
+    let Some(values) = save_change(&active, changes)? else {
+        return Ok(false);
+    };
+    apply(runtime, &active, &values).await?;
+    Ok(true)
+}
+
+/// Held across a profile's load, change and save, so two tabs changing the
+/// same profile at once each keep the other's change.
+static SAVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// `changes` written into the profile `active`, or None when they are not
+/// all a profile's to hold (see [`into_profile`]).
+fn save_change(active: &str, changes: &[(&str, &str)]) -> Result<Option<Profile>, CommandError> {
+    let _saving = SAVING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = profiles::profiles_dir(&Layout::current());
-    let mut values = profiles::load(&dir, &active).map_err(refused)?;
+    let mut values = profiles::load(&dir, active).map_err(refused)?;
     let pinned = session::pinned_options();
     let free: Vec<_> = changes
         .iter()
@@ -132,11 +149,10 @@ pub(super) async fn into_profile(
             .iter()
             .all(|(option, value)| profiles::set_field(&mut values, option, value))
     {
-        return Ok(false);
+        return Ok(None);
     }
-    profiles::save(&dir, &active, &values).map_err(refused)?;
-    apply(runtime, &active, &values).await?;
-    Ok(true)
+    profiles::save(&dir, active, &values).map_err(refused)?;
+    Ok(Some(values))
 }
 
 fn remember(

@@ -36,7 +36,7 @@ Rename and Delete are greyed out on the Default Profile. A name is checked in th
 
 ## Changes are saved to the profile
 
-In a session on a named profile, a change made from the menus (a theme, its mode, the blinking cursor, transparency) is saved into the profile's file and set on that session only, then painted at once (`into_profile` in `tmuxy-core/src/host/profiles.rs`). The global choices in `tmuxy.state.json`, and every other session, stay as they were. On the Default Profile a change is the global one it always was. Asking before a send is never saved into a profile: it stays global whichever profile the session uses. An option `tmuxy.conf` pins is refused as it is on the Default Profile, and a value no theme could have is never saved.
+In a session on a named profile, a change made from the menus (a theme, its mode, the blinking cursor, transparency) is saved into the profile's file and set on that session only, then painted at once (`into_profile` in `tmuxy-core/src/host/profiles.rs`). The global choices in `tmuxy.state.json`, and every other session, stay as they were. On the Default Profile a change is the global one it always was. Asking before a send is never saved into a profile: it stays global whichever profile the session uses. An option `tmuxy.conf` pins is refused as it is on the Default Profile, and a value no theme could have is never saved. Two tabs changing the same profile at once both keep their change. Another session on the same profile is painted with the change when it next attaches, not at once: only the session the change was made in is set live.
 
 ## Tests
 
