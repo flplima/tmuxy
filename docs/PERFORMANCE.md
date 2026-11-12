@@ -124,10 +124,12 @@ stream's connection (CDP), so what the link carries. `perf:compare` reads the
 report and holds what a hidden spinner adds per byte it prints to a budget
 (`scripts/lib/compare-bytes.mjs`).
 
-Measured: the stream idles at ~30 B/s; a hidden spinner adds ~15–16 KB/s, about
-8 bytes per byte it printed, the same as a visible one. A hidden pane's every
-frame is sent in full: one agent left spinning in a background tab is ~55 MB an
-hour on the link.
+Measured: the stream idles at ~30 B/s and a visible spinner adds ~16 KB/s, about
+8 bytes per byte it printed. A hidden one adds ~0.7 KB/s (~0.35 per byte, ~2.6 MB
+an hour): its screen is sent at most once a second, the latest frame, and at
+once when its tab is shown (`control_mode/state/hidden_panes.rs`, A15 in
+[INVARIANTS.md](INVARIANTS.md)). Before that it cost as much as a visible one,
+every frame in full: ~55 MB an hour per agent left spinning in a background tab.
 
 ## Axis C — whole-interaction latency (the CI regression gate)
 

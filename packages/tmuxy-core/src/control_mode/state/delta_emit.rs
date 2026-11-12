@@ -6,12 +6,23 @@ impl StateAggregator {
     /// the panes changed, a `Delta` of the changed fields otherwise, `None`
     /// when nothing changed or the initial sync has not landed.
     pub fn to_state_update(&mut self) -> Option<crate::StateUpdate> {
+        self.to_state_update_at(Instant::now())
+    }
+
+    /// When a pane held back by [`hidden_panes`] is due: the monitor asks
+    /// for an update then, so its last frame is never left behind.
+    pub fn hidden_panes_due(&self) -> Option<Instant> {
+        self.hidden_panes.due()
+    }
+
+    /// [`Self::to_state_update`] at `now`, the clock hidden panes are held by.
+    pub fn to_state_update_at(&mut self, now: Instant) -> Option<crate::StateUpdate> {
         let mut current = self.to_tmux_state();
         // A Full emitted before the initial sync has landed has no panes,
         // windows or content: a client reconnecting to a restarted monitor
         // saw its page blanked by it until the captures arrived. The stream
         // opens with the same complete picture `GetState` waits for.
-        let prev = match &self.prev_state {
+        let prev = match self.prev_state.take() {
             None if !self.initial_state_ready() => return None,
             None => {
                 self.delta_seq = 1;
@@ -21,6 +32,8 @@ impl StateAggregator {
             }
             Some(prev) => prev,
         };
+        self.hidden_panes.start_update(&current.panes);
+        let mut held: Vec<PaneId> = Vec::new();
 
         let mut delta = crate::TmuxDelta::default();
 
@@ -71,8 +84,14 @@ impl StateAggregator {
                 }
                 Some(prev_pane) => {
                     let pane_delta = pane_delta(prev_pane, curr_pane);
-                    if !pane_delta.is_empty() {
+                    if pane_delta.is_empty() {
+                        continue;
+                    }
+                    let hidden = hidden_panes::is_hidden(&current, curr_pane);
+                    if self.hidden_panes.send_now(id, hidden, &pane_delta, now) {
                         pane_deltas.insert((*id).clone(), Some(pane_delta));
+                    } else {
+                        held.push((*id).clone());
                     }
                 }
             }
@@ -121,6 +140,7 @@ impl StateAggregator {
         }
 
         if delta.is_empty() {
+            self.prev_state = Some(prev);
             return None;
         }
 
@@ -128,15 +148,28 @@ impl StateAggregator {
         self.delta_seq += 1;
         delta.seq = self.delta_seq;
         current.seq = self.delta_seq;
-        self.prev_state = Some(current.clone());
 
         let total_panes = current.panes.len();
         let changed_panes = delta.panes.as_ref().map(|p| p.len()).unwrap_or(0)
             + delta.new_panes.as_ref().map(|p| p.len()).unwrap_or(0);
 
         if total_panes > 0 && changed_panes > total_panes / 2 {
+            // A Full carries every pane as it is, held ones too.
+            self.hidden_panes = hidden_panes::HiddenPanes::default();
+            self.prev_state = Some(current.clone());
             Some(crate::StateUpdate::Full { state: current })
         } else {
+            // A held pane stays as the client last had it, so the delta that
+            // carries it holds everything since.
+            let mut sent = current;
+            for id in &held {
+                let old = prev.panes.iter().find(|pane| &pane.tmux_id == id);
+                let slot = sent.panes.iter_mut().find(|pane| &pane.tmux_id == id);
+                if let (Some(old), Some(slot)) = (old, slot) {
+                    *slot = old.clone();
+                }
+            }
+            self.prev_state = Some(sent);
             Some(crate::StateUpdate::Delta { delta })
         }
     }
