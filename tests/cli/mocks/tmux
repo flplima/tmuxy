@@ -43,6 +43,33 @@ if [ "${1:-}" = "load-buffer" ] && [ "${!#}" = "-" ]; then
   exit "$exit_code"
 fi
 
+# What `display-message` prints for a format: each question a script asks
+# of the caller's pane.
+display_answer() {
+  case "$1" in
+    *'#{session_name}'*$'\\t'*'#{pane_id}'*|*'#{session_name}'*$'\t'*'#{pane_id}'*)
+      if [ -n "${MOCK_TMUX_INFO:-}" ]; then
+        printf '%b\n' "$MOCK_TMUX_INFO"
+      else
+        printf 'tmuxy\t%%0\t@0\t120\t40\tzsh\t0\tmain\t2\n'
+      fi
+      ;;
+    # `verified_own_pane`: the process in the caller's pane. A test whose
+    # caller runs there names an ancestor of the CLI (jest's own pid).
+    *'#{pane_pid}'*) echo "${MOCK_TMUX_PANE_PID:-}" ;;
+    # `pane send` names the caller after the program in front in its pane.
+    *'#{pane_current_command}'*) echo "${MOCK_TMUX_PANE_COMMAND:-}" ;;
+    # `pane wait` polls whether the program has exited, and how.
+    *'#{pane_dead}'*) printf '%s\t%s\n' "${MOCK_TMUX_PANE_DEAD:-0}" "${MOCK_TMUX_PANE_DEAD_STATUS:-0}" ;;
+    *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
+    *'#{@tmuxy-group-id}'*) echo "${MOCK_TMUX_GROUP_ID:-}" ;;
+    *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
+    *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
+    *'#{window_height}'*) echo "${MOCK_TMUX_WINDOW_ROWS:-}" ;;
+    *) ;;
+  esac
+}
+
 case "${1:-}" in
   list-panes)
     # The CLI's first call from outside a pane asks which pane it should act
@@ -98,29 +125,22 @@ case "${1:-}" in
     fi
     ;;
   display-message)
-    # Keyed on the format: each question a script asks of the caller's pane.
-    case "$*" in
-      *'#{session_name}'*$'\\t'*'#{pane_id}'*|*'#{session_name}'*$'\t'*'#{pane_id}'*)
-        if [ -n "${MOCK_TMUX_INFO:-}" ]; then
-          printf '%b\n' "$MOCK_TMUX_INFO"
-        else
-          printf 'tmuxy\t%%0\t@0\t120\t40\tzsh\t0\tmain\t2\n'
-        fi
-        ;;
-      # `verified_own_pane`: the process in the caller's pane. A test whose
-      # caller runs there names an ancestor of the CLI (jest's own pid).
-      *'#{pane_pid}'*) echo "${MOCK_TMUX_PANE_PID:-}" ;;
-      # `pane send` names the caller after the program in front in its pane.
-      *'#{pane_current_command}'*) echo "${MOCK_TMUX_PANE_COMMAND:-}" ;;
-      # `pane wait` polls whether the program has exited, and how.
-      *'#{pane_dead}'*) printf '%s\t%s\n' "${MOCK_TMUX_PANE_DEAD:-0}" "${MOCK_TMUX_PANE_DEAD_STATUS:-0}" ;;
-      *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
-      *'#{@tmuxy-group-id}'*) echo "${MOCK_TMUX_GROUP_ID:-}" ;;
-      *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
-      *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
-      *'#{window_height}'*) echo "${MOCK_TMUX_WINDOW_ROWS:-}" ;;
-      *) ;;
-    esac
+    fmt="${*: -1}"
+    # `_pane_read` asks for the pane's id first. A pane MOCK_TMUX_GONE_PANES
+    # lists answers as tmux answers for a gone one: for no pane.
+    if [[ "$fmt" == '#{pane_id}'$'\t'* ]]; then
+      target="" prev=""
+      for arg in "$@"; do
+        [ "$prev" = -t ] && target=$arg
+        prev=$arg
+      done
+      case " ${MOCK_TMUX_GONE_PANES:-} " in
+        *" $target "*) printf '\t\n' ;;
+        *) printf '%s\t%s\n' "$target" "$(display_answer "${fmt#*$'\t'}")" ;;
+      esac
+    else
+      display_answer "$*"
+    fi
     ;;
   show-options)
     # `pane send` reads its two switches, and the pane states it saves and

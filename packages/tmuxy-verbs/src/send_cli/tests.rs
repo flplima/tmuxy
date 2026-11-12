@@ -24,22 +24,28 @@ impl ask::Tmux for Fake {
     async fn read(&self, argv: Argv) -> Result<String, CommandError> {
         self.log.lock().unwrap().push(argv.join(" "));
         let format = argv.last().cloned().unwrap_or_default();
-        Ok(match format.as_str() {
-            "#{pane_current_command}" => self.caller_program.clone(),
-            "#{@tmuxy-ask}" => String::new(),
-            "#{@tmuxy-pane-state}" => String::new(),
-            "#{@tmuxy-ask-answer}" if self.gone => {
-                return Err(CommandError::tmux("can't find pane: %3"))
-            }
-            "#{@tmuxy-ask-answer}" => {
-                let asked = self.asked.lock().unwrap().clone();
-                match self.reply {
-                    Some(reply) if !asked.is_empty() => format!("{asked}:{reply}"),
-                    _ => String::new(),
+        // `pane_read` asks for the pane's id first, as real tmux answers it.
+        let (id, format) = match format.strip_prefix("#{pane_id}\t") {
+            Some(rest) => (format!("{}\t", argv[3]), rest.to_string()),
+            None => (String::new(), format),
+        };
+        Ok(id
+            + &match format.as_str() {
+                "#{pane_current_command}" => self.caller_program.clone(),
+                "#{@tmuxy-ask}" => String::new(),
+                "#{@tmuxy-pane-state}" => String::new(),
+                "#{@tmuxy-ask-answer}" if self.gone => {
+                    return Err(CommandError::tmux("can't find pane: %3"))
                 }
-            }
-            _ => self.rules.clone(),
-        })
+                "#{@tmuxy-ask-answer}" => {
+                    let asked = self.asked.lock().unwrap().clone();
+                    match self.reply {
+                        Some(reply) if !asked.is_empty() => format!("{asked}:{reply}"),
+                        _ => String::new(),
+                    }
+                }
+                _ => self.rules.clone(),
+            })
     }
 
     async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {
