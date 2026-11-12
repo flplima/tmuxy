@@ -76,7 +76,7 @@
     },
     {
       "name": "services",
-      "path": "tests/(19-mcp|20-push|23-kindle)\\.test\\.js"
+      "path": "tests/(19-mcp|20-push|23-kindle|26-bug-report)\\.test\\.js"
     },
     {
       "name": "agents",
