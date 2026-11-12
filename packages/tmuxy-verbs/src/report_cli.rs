@@ -5,8 +5,13 @@
 //! <pane>`, and `tmuxy agent wait --json` hands it over with the state. It
 //! survives scrollback and a cleared screen, which a capture does not.
 //!
-//! The text is kept in a file of the state dir, keyed by socket and pane
-//! (`reports/<socket>/<pane>.txt`, mode 0600), and `@tmuxy-report-at` on
+//! A report is what the pane said through tmuxy, not proof of anything:
+//! any process of the same user can write the file.
+//!
+//! The text is kept in a file of the state dir, keyed by the tmux server's
+//! socket path and the pane (`reports/<socket>/<pane>.txt`, mode 0600), so
+//! two servers that share a socket name in different `TMUX_TMPDIR`s keep
+//! apart, and `@tmuxy-report-at` on
 //! the pane says when it was written. A report counts only while that
 //! option is on its pane: the option goes with the pane, so a pane id a
 //! later server hands out again never shows an old server's report.
@@ -64,12 +69,19 @@ pub fn report_path(state: &std::path::Path, socket: &str, pane: &str) -> PathBuf
         .join(format!("{}.txt", component(pane.trim_start_matches('%'))))
 }
 
+/// The server's socket path, read from the server itself; its name when
+/// it cannot be asked.
+fn socket_key() -> String {
+    let read = ["display-message", "-p", "#{socket_path}"].map(String::from);
+    tmuxy_core::session::tmux_output(&read)
+        .map(|out| out.trim().to_string())
+        .ok()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(tmuxy_core::session::tmux_socket)
+}
+
 fn path_for(pane: &str) -> PathBuf {
-    report_path(
-        &tmuxy_core::paths::state_dir(),
-        &tmuxy_core::session::tmux_socket(),
-        pane,
-    )
+    report_path(&tmuxy_core::paths::state_dir(), &socket_key(), pane)
 }
 
 /// `text` cut to [`MAX_REPORT_BYTES`] on a character boundary.
@@ -224,6 +236,11 @@ mod tests {
             PathBuf::from("/s/reports/_.._.._etc/1_.._x.txt")
         );
         assert_eq!(component(""), "_");
+        // A socket path is one component: two servers with one name apart.
+        assert_eq!(
+            report_path(state, "/tmp/a/tmuxy", "%1"),
+            PathBuf::from("/s/reports/_tmp_a_tmuxy/1.txt")
+        );
     }
 
     #[test]

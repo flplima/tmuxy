@@ -42,12 +42,12 @@ It reads `@tmuxy-pane-state` every 250 ms for the first 10 s, then every second 
 
 ## Report
 
-`tmuxy pane report <text>` (or `-` for stdin) is how an agent says what it did, for whoever started it (`tmuxy-verbs/src/report_cli.rs`). `tmuxy pane report -t <pane>` reads it back, and `agent wait --json` includes it with each pane's state. It survives scrollback and a cleared screen, which a capture does not, and a collapsed stack row is one line tall, so its capture shows almost nothing anyway.
+`tmuxy pane report <text>` (or `-` for stdin) is how an agent says what it did, for whoever started it (`tmuxy-verbs/src/report_cli.rs`). `tmuxy pane report -t <pane>` reads it back, and `agent wait --json` includes it with each pane's state. A report is what the pane said through tmuxy, not proof: any process of the same user can write the file. It stays until the pane writes another, so one from an earlier turn may still be there: compare its `at` with when the turn began. It survives scrollback and a cleared screen, which a capture does not, and a collapsed stack row is one line tall, so its capture shows almost nothing anyway.
 
 | Rule | Why |
 | --- | --- |
 | only the pane itself writes its report; `-t` only reads | the shell checks the caller is a process of that pane, as for `restore-cmd` |
-| kept in the state dir, `reports/<socket>/<pane>.txt`, mode 0600 in 0700 directories | a report can say anything the agent saw |
+| kept in the state dir, `reports/<socket path>/<pane>.txt`, mode 0600 in 0700 directories | a report can say anything the agent saw; two servers sharing a socket name keep apart |
 | at most 64 KiB | a summary, not a log |
 | counts only while `@tmuxy-report-at` is on the pane | the option goes with the pane, so a pane id a later server hands out again never shows an old report |
 
