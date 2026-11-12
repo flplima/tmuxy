@@ -1,0 +1,22 @@
+#!/bin/bash
+# The pane menu's "Revive Agent Session": `tmuxy agent revive`, run by tmux
+# through run-shell. `--mark <pane>` runs revive's own check and leaves its
+# answer on the pane (@tmuxy-revivable: `ok`, or unset), for the menu to read
+# with a query; `<pane>` revives it. The checks and the command are the
+# binary's, so the menu can never do what the CLI refuses.
+set -euo pipefail
+# shellcheck source=_lib
+source "${0%/*}/_lib"
+find_server_cmd || { echo "tmuxy: no server binary to revive with"; exit 1; }
+if [ "${1:-}" = --mark ]; then
+  pane="${2:?pane id required}"
+  [[ "$pane" =~ ^%[0-9]+$ ]] || exit 1
+  if [ "$("${SERVER_CMD[@]}" agent revive --check "$pane" 2>/dev/null)" = ok ]; then
+    _tmux set-option -p -t "$pane" @tmuxy-revivable ok
+  else
+    _tmux set-option -pu -t "$pane" @tmuxy-revivable 2>/dev/null || true
+  fi
+  exit 0
+fi
+# Its answer goes to tmux, which shows a failure; stderr there is the same.
+exec "${SERVER_CMD[@]}" agent revive "$@" 2>&1

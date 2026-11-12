@@ -3,6 +3,7 @@ import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { paneMenuSpec } from './menus/specs/paneMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';
+import { useReviveItems } from './menus/useReviveItems';
 import { useNativeMenu } from './menus/useNativeMenu';
 import type { PaneId } from '../domain/ids';
 
@@ -18,8 +19,15 @@ interface PaneContextMenuProps {
 export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
   const send = useAppSend();
   const widgetItems = useWidgetMenuItems(paneId);
+  const reviveItems = useReviveItems(paneId);
   const spec = useAppSelector((ctx) =>
-    paneMenuSpec(ctx, { paneId, widgetItems, navigation: false, rename: Boolean(onRename) }),
+    paneMenuSpec(ctx, {
+      paneId,
+      widgetItems,
+      reviveItems,
+      navigation: false,
+      rename: Boolean(onRename),
+    }),
   );
 
   const dispatch = useMenuDispatch({
