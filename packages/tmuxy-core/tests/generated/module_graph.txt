@@ -98,4 +98,5 @@ tmux_compat -> tmux_command
 trace -> paths
 trace -> private_files
 trace -> random
+worktrees -> safe_git
 worktrees -> session
