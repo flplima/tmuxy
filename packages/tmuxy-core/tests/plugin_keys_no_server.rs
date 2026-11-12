@@ -18,6 +18,10 @@ use tmuxy_core::plugins::manifest::KeyTable;
 #[test]
 fn with_no_server_running_the_key_reads_start_none_and_nothing_holds_a_key() {
     let server = common::ScratchServer::process_wide("plugin-keys-idle");
+    // Were a read to start a server after all, it would read this home's
+    // config, never the developer's own `~/.tmux.conf`.
+    std::env::set_var("HOME", &server.home);
+    std::env::set_var("XDG_CONFIG_HOME", server.home.join("config"));
     let no_server = || {
         let out = tmuxy_core::session::local_tmux_on(&server.socket)
             .args(["-N", "list-sessions"])
@@ -31,16 +35,48 @@ fn with_no_server_running_the_key_reads_start_none_and_nothing_holds_a_key() {
     for table in [KeyTable::Prefix, KeyTable::Root] {
         assert_eq!(tmuxy_core::plugins::keys::user_binding(table, "M-a"), None);
     }
+    // The user's own plugin asks for a key: with no server it is planned,
+    // held by nothing, and bound nowhere.
     let layout = tmuxy_core::paths::Layout {
-        config: server.home.join("config"),
+        config: server.home.join("config/tmuxy"),
         data: server.home.join("data"),
         state: server.home.join("state"),
         home: server.home.clone(),
     };
+    let script = layout.config.join("bin/hello");
+    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+    std::fs::write(&script, "#!/bin/sh\necho hello\n").unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::fs::write(
+        layout.user_plugin_manifest(),
+        r#"[plugin]
+api = 1
+name = "user"
+version = "0.1.0"
+
+[[actions]]
+id = "hello"
+title = "Say hello"
+surface = "popup"
+command = ["bin/hello"]
+
+[[keys]]
+key = "M-h"
+action = "hello"
+"#,
+    )
+    .unwrap();
+    let planned = tmuxy_core::plugins::keys::apply(&layout).unwrap();
+    assert_eq!(planned.len(), 1, "{planned:?}");
     assert_eq!(
-        tmuxy_core::plugins::keys::apply(&layout).unwrap(),
-        Vec::new()
+        (
+            planned[0].plugin.as_str(),
+            planned[0].action.as_str(),
+            planned[0].key.as_str()
+        ),
+        ("user", "hello", "M-h")
     );
+    assert_eq!(planned[0].taken_by, None);
 
     assert!(no_server(), "a key read started a tmux server");
 }
