@@ -61,11 +61,20 @@ fn component(name: &str) -> String {
     }
 }
 
+/// A short FNV-1a hash of `text`, stable across builds, so two names that
+/// [`component`] makes alike (`/tmp/a/tmuxy`, `/tmp/a_tmuxy`) stay apart.
+fn short_hash(text: &str) -> String {
+    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    format!("{:08x}", hash >> 32)
+}
+
 /// Where `pane`'s report on `socket` is kept, under `state`.
 pub fn report_path(state: &std::path::Path, socket: &str, pane: &str) -> PathBuf {
     state
         .join("reports")
-        .join(component(socket))
+        .join(format!("{}-{}", component(socket), short_hash(socket)))
         .join(format!("{}.txt", component(pane.trim_start_matches('%'))))
 }
 
@@ -227,20 +236,33 @@ mod tests {
     #[test]
     fn a_report_is_kept_per_socket_and_pane_in_safe_names() {
         let state = std::path::Path::new("/s");
-        assert_eq!(
-            report_path(state, "tmuxy", "%12"),
-            PathBuf::from("/s/reports/tmuxy/12.txt")
+        let folder = |socket: &str, pane: &str| {
+            let path = report_path(state, socket, pane);
+            assert!(path.starts_with("/s/reports"), "{path:?}");
+            assert_eq!(path.components().count(), 5, "{path:?}");
+            path
+        };
+        let plain = folder("tmuxy", "%12");
+        assert!(plain.ends_with("12.txt"));
+        let parent = plain
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            parent.starts_with("tmuxy-") && parent.len() == "tmuxy-".len() + 8,
+            "{parent}"
         );
-        assert_eq!(
-            report_path(state, "../../etc", "%1/../x"),
-            PathBuf::from("/s/reports/_.._.._etc/1_.._x.txt")
+        // Climbing out is not possible, and two sockets one name apart stay apart.
+        let odd = folder("../../etc", "%1/../x");
+        assert!(odd.ends_with("1_.._x.txt"), "{odd:?}");
+        assert_ne!(
+            folder("/tmp/a/tmuxy", "%1").parent(),
+            folder("/tmp/a_tmuxy", "%1").parent()
         );
         assert_eq!(component(""), "_");
-        // A socket path is one component: two servers with one name apart.
-        assert_eq!(
-            report_path(state, "/tmp/a/tmuxy", "%1"),
-            PathBuf::from("/s/reports/_tmp_a_tmuxy/1.txt")
-        );
     }
 
     #[test]
