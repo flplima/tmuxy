@@ -2,8 +2,8 @@
 //! real tmux: working while it prints, idle once it holds still, and a state
 //! a hook declared left alone.
 //!
-//! The "agent" is a shell script named `gemini`, never a real one. Needs a
-//! `tmux` binary; the socket is the test's own.
+//! The "agent" is a Node script named `gemini`, never a real one, found as
+//! a Node or Python agent is: by the script its interpreter runs. Needs a `tmux` binary; the socket is the test's own.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -42,18 +42,19 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
     std::fs::create_dir_all(&dir).unwrap();
     let flag = dir.join("go");
     let agent = dir.join("gemini");
-    // The "agent" is a script named gemini, run by sh as an npm bin script
-    // is run by node: tmux names the pane's command `sh`, and the rules find
-    // the agent by the script sh runs. It prints while the flag file is
-    // there, then holds still.
+    // The "agent" is a script named gemini, run by node as an npm bin
+    // script is: tmux names the pane's command `node`, and the rules find the
+    // agent by the script node runs. It prints while the flag file is there,
+    // then holds still.
     std::fs::write(
         &agent,
         format!(
-            "i=0; while :; do if [ -e {flag} ]; then i=$((i+1)); echo \"thinking $i\"; fi; sleep 0.2; done\n",
-            flag = flag.display()
+            "const fs = require('fs');\nlet i = 0;\nsetInterval(() => {{ if (fs.existsSync({flag:?})) console.log('thinking ' + ++i); }}, 200);\n",
+            flag = flag.display().to_string()
         ),
     )
     .unwrap();
+    let node = which("node").expect("node on PATH, to host the fake agent");
     std::fs::write(&flag, "").unwrap();
     common::tmux(&[
         "new-session",
@@ -64,7 +65,7 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
         "80",
         "-y",
         "24",
-        &format!("exec sh {}", agent.display()),
+        &format!("exec {} {}", node.display(), agent.display()),
     ])
     .unwrap();
     let pane = common::tmux(&["display-message", "-p", "-t", "app", "#{pane_id}"])
@@ -83,8 +84,20 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
         "#{pane_current_command}",
     ])
     .unwrap();
-    assert_eq!(command.trim(), "sh", "tmux names the interpreter");
-    assert_eq!(program::program(&pane, "sh"), "gemini");
+    assert_eq!(command.trim(), "node", "tmux names the interpreter");
+    assert_eq!(program::program(&pane, "node"), "gemini");
+    // The `ps` path macOS takes finds it too.
+    let pid: u32 = common::tmux(&["display-message", "-p", "-t", &pane, "#{pane_pid}"])
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let by_ps = program::foreground_argv_by_ps(pid).expect("ps reads the foreground");
+    assert_eq!(
+        program::script_name(&by_ps).as_deref(),
+        Some("gemini"),
+        "{by_ps:?}"
+    );
 
     std::fs::remove_file(&flag).unwrap();
     passes_until(&mut rules, &pane, "idle", Duration::from_secs(20)).await;
