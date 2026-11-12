@@ -15,12 +15,24 @@ What differs between the supported versions, and how tmuxy copes (the commands t
 | tmux | Difference | tmuxy |
 | --- | --- | --- |
 | 3.2 | No `allow-passthrough` option (passthrough is always on) | The monitor sets it with `set -q`, which an older tmux skips silently |
-| 3.2 | No `%layout-change` after `swap-pane` | The monitor re-lists the panes behind every swap a client sends |
+| 3.2 | No `%layout-change` after `swap-pane` | The monitor re-lists the panes behind every swap a client sends, unless the server said it is 3.3 or later (`TmuxCaps::announces_pane_swaps`) |
 | 3.2 | Emoji sequences get different widths: a ZWJ sequence (`👩‍💻`) and an emoji with a skin tone (`👍🏽`) take 4 columns instead of 2, a text symbol with VS16 (`❤️`) takes 1 instead of 2 | **Known limitation.** tmuxy's emulator follows the 3.4+ rules, so on a line holding such a sequence everything after it renders a column or two off tmux's own grid. CJK, single emoji, flags and combining marks agree. See [RICH-RENDERING.md](RICH-RENDERING-CELL-GRID.md#cell-widths-must-agree-with-tmux) |
 | 3.6 | An emoji followed by its skin-tone modifier (`👍🏽`) takes 4 columns: the modifier stays its own 2-column character (measured on 3.6a; the modifier before the emoji, ZWJ sequences, flags and VS16 combine as on 3.4 and 3.7) | **Known limitation**, as for 3.2: tmuxy's emulator follows 3.4 and 3.7, so on such a line everything after the sequence renders two columns off tmux's grid |
 | 3.4 | `run-shell` output — and a "returned 1" for a command that failed — is shown in `view-mode` on the target pane rather than handed to the calling client; every key typed afterwards goes to the mode, not the shell | The CLI runs every command it sends through `run-shell` with its output and exit status redirected to files, and prints them itself (`_run_shell` in `packages/tmuxy-cli/bin/tmuxy/_lib`), so `run-shell` has nothing to show. A session restore, which reads what its pane-group park step prints, has it write the answer into a `@tmuxy-restore-answer-<session>` server option instead (`ask_run_shell` in `tmuxy-core/src/session_snapshot/restore.rs`). A `run-shell` the UI sends without waiting for its output (a binding, a pane-group or navigation script, the command prompt) runs inside a wrapper that keeps the output and exit status in a per-command `@tmuxy-run-<id>` option, which the same command list reads back; the client shows the output as a notice and a failure as an error (`tmuxy-core/src/control_mode/monitor_core/run_shell.rs`). That relay runs on every version, so later ones show the output too |
 | 3.8 | `#{window_layout}` is JSON (`{"V":2,"L":{…}}`) rather than `csum,WxH,X,Y[…]`, and no earlier tmux's `select-layout` takes it back; `%layout-change` still carries the classic string | Session snapshots store the classic string: `tmuxy-core/src/layout.rs` (`parse_json`) reads the JSON into the same tree the classic parser builds, and serialises it with tmux's checksum. A snapshot saved on 3.8 restores on any supported version |
 | 3.8 and earlier | A server whose own working directory has become unreadable, such as the FUSE mount of an AppImage that has since exited, skips the change of directory for every new pane: `getcwd` fails, so tmux never calls `chdir`. Each new shell starts in the dead directory, whatever `-c` or the session's start directory say, and bash prints `getcwd: cannot access parent directories`. tmux's master branch falls back to `/` | No command reaches a running server's own directory, so tmuxy never starts one there: `spawn_tmux` (`tmuxy-core/src/control_mode/connection/spawn.rs`) starts tmux outside the AppImage's mount (`appimage_env::working_dir_outside_appdir`). A server an older build started inside the mount has to be restarted |
+
+## Version Capabilities
+
+Most differences above are handled without knowing the version: a `-q`, a re-list, a layout read by its shape. Where knowing it lets tmuxy skip work or use something newer, it asks. When the monitor attaches, it prints `#{version}` behind a marker of its own (`Markers::version_read_command` in `tmuxy-core/src/control_mode/state/markers.rs`). The answer becomes the aggregator's `TmuxCaps` (`tmuxy-core/src/tmux_compat/caps.rs`). Since the server expands it, a server reached over SSH is judged by its own tmux, not by the one on this machine.
+
+Until the answer comes, every workaround stays on: an unknown version counts as the oldest supported one. A build that names no number (`master`, a distribution's own tag) counts as the newest. `next-3.8` and `3.8-rc` read as 3.8.
+
+| Capability | From | What it changes |
+| --- | --- | --- |
+| `announces_pane_swaps` | 3.3 | No pane re-list behind a `swap-pane`: the `%layout-change` brings it (tmux queues it, so it can come after the next reply) |
+
+`tests/tmux_caps.rs` checks each row against the tmux it runs on, so the nightly matrix checks it on every supported version.
 
 ## `new-window` Crashes Control Mode
 

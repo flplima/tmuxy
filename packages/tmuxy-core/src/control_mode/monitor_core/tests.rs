@@ -216,6 +216,7 @@ fn an_attach_enforces_the_settings_after_the_config_and_lists_panes_first() {
         at("set set-clipboard 'off'"),
         at("setenv -g X 1"),
         at("refresh-client -f pause-after=5"),
+        at(&core.aggregator().markers().version_read_command()),
         at(&relist[0]),
         at(&relist[1]),
         at(&relist[2]),
