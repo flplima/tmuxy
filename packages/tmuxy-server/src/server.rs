@@ -8,6 +8,7 @@ use crate::dev;
 use crate::request_guard::HostPolicy;
 use crate::state::AppState;
 
+mod assets;
 mod lifecycle;
 mod listener;
 use lifecycle::*;

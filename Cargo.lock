@@ -5481,6 +5481,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "dirs",
+ "flate2",
  "futures-util",
  "hkdf",
  "libc",

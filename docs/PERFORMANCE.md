@@ -131,15 +131,25 @@ into the panes' terminals itself, so the load is exactly that and stops with
 the run). Its ratio to `key-echo` is what other panes' output costs a
 keystroke.
 
-The web harness then measures **attach** (`scripts/lib/attach.mjs`): it gives
-the focused pane 10,000 lines of history and reloads the page, timing from
-navigation start `attach-paint`, the focused pane showing its prompt, and
-`attach-interactive`, the first key echoed, typing a fresh token every 100 ms
-from the moment the app exists. The tokens that never show are reported as
-`lostKeys`, and `perf:compare` warns about them: a key typed during an attach
-should arrive late, never be dropped. Measured on a loaded dev machine: ~470–510
-ms to paint (~11× a keystroke), ~690–775 ms to the first echo (~17×), and about
-a third of the keys typed meanwhile lost. `--only attach` runs that alone.
+The web harness then measures **attach** (`scripts/lib/attach.mjs`): in a tab
+of its own whose pane holds 10,000 lines of history, it reloads the page and
+times from navigation start `attach-paint`, the focused pane showing its text,
+and `attach-interactive`, the first key echoed, typing a fresh token every 100 ms
+from the moment the app exists; the tokens that never show are reported as
+`lostKeys`. It also records `entryScriptBytes`, what the page's entry script cost
+the link on a first load. `perf:compare` fails on any lost key and on an entry
+script over 400 KB, whatever the machine's speed. `--only attach` runs that alone.
+
+What attach costs is mostly the page itself: the server answers the event stream
+in ~10 ms and the initial state in ~40 ms (it waits for the window to take the
+browser's size), and sends only the visible screens. So the entry script holds
+only what the terminal view needs (the preview widget, with its markdown and
+diagram renderers, loads when a pane first shows one), the server gzips its text
+files, and the hashed `assets/` are cached for a year
+(`tmuxy-server/src/server/assets.rs`): the entry went from 1.13 MB on the wire on
+every load to 292 KB once. Measured on a loaded dev machine, before and after
+interleaved: paint ~330–470 ms → ~200–220 ms, first echo ~515–675 ms →
+~375–420 ms.
 
 **Two targets, one suite.** The same interactions are measured against the web
 app and against the desktop app, because they reach the same Rust core over

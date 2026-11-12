@@ -54,14 +54,18 @@ const RATIO_BUDGETS = {
   // The keystroke with 23 panes beside it each redrawing a spinner at ~2 KB/s:
   // measured 1.1–1.8× on a loaded dev machine, p95 nearer 2×.
   'key-echo-busy': 3,
-  // Navigation start to the focused pane's prompt, and to the first key
-  // echoed, with 10k lines of scrollback: measured ~12× and ~17×.
-  'attach-paint': 30,
-  'attach-interactive': 40,
+  // Navigation start to the focused pane's text, and to the first key
+  // echoed, with 10k lines of scrollback: measured ~5–8× and ~10–14× since
+  // the entry script is gzipped and cached (it was ~11× and ~17×).
+  'attach-paint': 12,
+  'attach-interactive': 20,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */
 const ABSOLUTE_WARN_RATIO = 1.5;
+
+/** The most the page's entry script may cost the link on a first load: ~292 KB gzipped. */
+const MAX_ENTRY_SCRIPT_BYTES = 400_000;
 
 /**
  * The share of samples that may time out before the interaction fails.
@@ -137,6 +141,15 @@ for (const item of report.interactions) {
     } else {
       warnings.push(`${item.name}: ${item.timeouts} sample(s) never produced a visible result`);
     }
+  }
+
+  // The entry script's bytes on a first load: a lazy feature pulled back
+  // into it, or compression lost, shows here whatever the machine's speed.
+  if (item.load?.entryScriptBytes > MAX_ENTRY_SCRIPT_BYTES) {
+    verdict = '❌';
+    failures.push(
+      `${item.name}: the entry script took ${item.load.entryScriptBytes} bytes on the wire (budget ${MAX_ENTRY_SCRIPT_BYTES})`,
+    );
   }
 
   // Keys typed during an attach that never arrived (`lib/attach.mjs`).

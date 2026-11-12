@@ -3,7 +3,9 @@
  * screen and takes keys, and what is typed meanwhile. Web only (it reloads
  * the page; the desktop app opens its session once).
  *
- * - `attach-paint`: navigation start to the focused pane showing its text.
+ * - `attach-paint`: navigation start to the focused pane showing its text;
+ *   its `entryScriptBytes`, what the entry script cost the link on the first
+ *   load (compressed, before any cache).
  * - `attach-interactive`: navigation start to the first key echoed. From the
  *   moment the app exists a token is typed every {@link RETYPE_MS}, until one
  *   shows in the focused pane.
@@ -82,6 +84,17 @@ async function attachOnce(page, round) {
  * `attach-paint` and `attach-interactive`.
  */
 export async function measureAttach(page, { samples, prepare }) {
+  // What the page's entry script cost the link when it was first loaded,
+  // before any reload had it cached: the bytes a fresh browser waits for.
+  const entryScriptBytes = await page.evaluate(() =>
+    Math.max(
+      0,
+      ...performance
+        .getEntriesByType('resource')
+        .filter((e) => e.initiatorType === 'script' && /\/assets\/index-[^/]*\.js$/.test(e.name))
+        .map((e) => e.transferSize || e.encodedBodySize),
+    ),
+  );
   await page.addInitScript(attachProbe);
   if (prepare) await prepare();
   const paint = [];
@@ -102,7 +115,13 @@ export async function measureAttach(page, { samples, prepare }) {
     lost += seen.typed.length - seen.shown.length;
   }
   return [
-    { name: 'attach-paint', samples: paint.length, timeouts, values: paint },
+    {
+      name: 'attach-paint',
+      samples: paint.length,
+      timeouts,
+      values: paint,
+      load: { entryScriptBytes },
+    },
     {
       name: 'attach-interactive',
       samples: interactive.length,

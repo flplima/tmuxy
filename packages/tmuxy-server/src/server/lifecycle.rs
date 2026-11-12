@@ -1,6 +1,8 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use rust_embed::Embed;
+
+use super::assets::{accepts_gzip, cache_control, gzipped};
 use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, warn};
@@ -79,8 +81,22 @@ pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Res
     response
 }
 
-pub(super) async fn serve_embedded(uri: axum::http::Uri) -> Response {
-    with_app_headers(embedded_file(uri.path()), APP_CSP)
+pub(super) async fn serve_embedded(
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let accept = headers
+        .get(axum::http::header::ACCEPT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let mut response = embedded_file(uri.path(), accept);
+    let path = uri.path().trim_start_matches('/');
+    if let Ok(value) = axum::http::HeaderValue::from_str(cache_control(path)) {
+        response
+            .headers_mut()
+            .insert(axum::http::header::CACHE_CONTROL, value);
+    }
+    with_app_headers(response, APP_CSP)
 }
 
 /// The user's stylesheets are the server's to serve in dev mode too: Vite
@@ -110,7 +126,7 @@ fn titled_index_html(html: &[u8], host: &str) -> Vec<u8> {
     }
 }
 
-fn embedded_file(path: &str) -> Response {
+fn embedded_file(path: &str, accept: &str) -> Response {
     let path = path.trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
@@ -127,7 +143,26 @@ fn embedded_file(path: &str) -> Response {
         }
     } else if let Some(file) = FrontendAssets::get(path) {
         let mime = tmuxy_core::mime::content_type_for_path(path);
-        build_response(StatusCode::OK, mime, file.data.into_owned())
+        let packed = accepts_gzip(accept)
+            .then(|| gzipped(path, &file.data))
+            .flatten();
+        let mut response = match packed {
+            Some(packed) => {
+                let mut response = build_response(StatusCode::OK, mime, packed.as_ref().clone());
+                response.headers_mut().insert(
+                    axum::http::header::CONTENT_ENCODING,
+                    axum::http::HeaderValue::from_static("gzip"),
+                );
+                response
+            }
+            None => build_response(StatusCode::OK, mime, file.data.into_owned()),
+        };
+        // The answer depends on the browser's Accept-Encoding: a cache keeps one per.
+        response.headers_mut().insert(
+            axum::http::header::VARY,
+            axum::http::HeaderValue::from_static("accept-encoding"),
+        );
+        response
     } else if let Some(index) = FrontendAssets::get("index.html") {
         // SPA fallback
         build_response(

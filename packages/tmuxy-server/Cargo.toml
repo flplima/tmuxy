@@ -27,6 +27,8 @@ axum = { version = "0.8" }
 base64.workspace = true
 clap.workspace = true
 rust-embed = "8"
+# Gzips the embedded frontend for the wire (tmuxy-core already depends on it).
+flate2 = "1"
 dirs.workspace = true
 futures-util = "0.3"
 # The `--dev` proxy to Vite, and web push to a browser's push service over
