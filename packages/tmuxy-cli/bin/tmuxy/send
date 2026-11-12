@@ -45,8 +45,11 @@ Skipping the question:
   set -g @tmuxy-send-allow-into claude,agy
                                         don't ask into panes running these
 
-Exit status: 0 sent (and, with --wait, finished), 1 declined, timed out,
-at a prompt, or stalled, 2 bad usage, 3 no such pane.
+Exit status: 0 sent (and, with --wait, finished); 1 nothing sent (declined,
+unanswered, at a prompt, or --wait into an agent already working); 2 bad
+usage; 3 no such pane; 5 sent, but with --wait it stalled, stopped at a
+prompt, reported an error, was replaced, or ran out of time. Under --json a
+5 says "sent": true. Only a 1 is safe to retry.
 
 Examples:
   tmuxy pane send ls Enter

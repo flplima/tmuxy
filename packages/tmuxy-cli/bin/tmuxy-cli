@@ -156,6 +156,7 @@ Exit codes:
   2    bad command line (unknown command, bad flag, missing argument)
   3    target not found, or a label naming more than one pane
   4    no tmux server on the socket
+  5    sent, but what was waited for after it did not happen (pane send --wait)
   130  interrupted
   'pane run --wait' and 'pane wait' exit with the program's own status.
 

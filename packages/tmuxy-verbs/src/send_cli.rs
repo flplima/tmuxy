@@ -9,7 +9,7 @@ use std::time::Duration;
 use tmuxy_core::ask::{self, Argv, Deadline, Question, Refused, SendRules};
 use tmuxy_core::{CommandError, PaneId};
 
-use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_TARGET, EXIT_USAGE};
+use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_SENT, EXIT_TARGET, EXIT_USAGE};
 
 #[derive(clap::Args, Debug)]
 pub struct SendArgs {
@@ -70,6 +70,10 @@ pub async fn run(args: SendArgs) {
     let answer = Answer::new(args.json);
     let code = match send(&CliTmux, args, &answer).await {
         Ok(()) => 0,
+        // Under --json a wait that failed after the keys went in says so.
+        Err((EXIT_SENT, message)) => {
+            answer.fail_with(EXIT_SENT, &message, &[("sent", "true".into())])
+        }
         Err((code, message)) => answer.fail(code, &message),
     };
     std::process::exit(code);
@@ -263,7 +267,10 @@ impl Delivery<'_> {
         };
         // The program in front as the keys go in: a wait ends only for it.
         let pinned = match self.wait {
-            Some(_) => Some(wait::occupant(tmux, self.pane).await?),
+            Some(_) => {
+                wait::refuse_busy(tmux, self.pane).await?;
+                Some(wait::occupant(tmux, self.pane).await?)
+            }
             None => None,
         };
         if let Err(refused) = ask::deliver(tmux, self.pane, command).await {

@@ -17,7 +17,7 @@ use tmuxy_core::ask;
 use tmuxy_core::constants::tmux_options::PANE_STATE;
 use tmuxy_core::{PaneId, PaneStateName};
 
-use crate::cli_json::{EXIT_FAILED, EXIT_TARGET, EXIT_USAGE};
+use crate::cli_json::{EXIT_FAILED, EXIT_SENT, EXIT_TARGET, EXIT_USAGE};
 
 const POLL: Duration = Duration::from_millis(250);
 
@@ -89,8 +89,40 @@ fn foreground_started(pane_pid: &str) -> String {
     ps(&["-o", "lstart=", "-p", &group])
 }
 
+/// What `pane` says it is doing (`@tmuxy-pane-state`); exit 3 when it is gone.
+async fn state_of<T: ask::Tmux>(tmux: &T, pane: &PaneId) -> Result<String, (i32, String)> {
+    let argv = [
+        "display-message",
+        "-p",
+        "-t",
+        pane.as_str(),
+        &format!("#{{{PANE_STATE}}}"),
+    ];
+    ask::Tmux::read(tmux, argv.map(String::from).to_vec())
+        .await
+        .map_err(|_| (EXIT_TARGET, format!("{pane} is gone")))
+}
+
+/// Refuse a wait into an agent that is working already: the keys would be
+/// queued behind its turn, and the end of that turn would read as theirs.
+/// Nothing has been typed yet.
+pub(super) async fn refuse_busy<T: ask::Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+) -> Result<(), (i32, String)> {
+    let state = state_of(tmux, pane).await?;
+    if state.trim() == PaneStateName::Working.as_str() {
+        return Err((
+            EXIT_FAILED,
+            format!("{pane} is working; --wait waits for a turn of its own, so nothing sent"),
+        ));
+    }
+    Ok(())
+}
+
 /// Wait until the agent in `pane`, still `pinned`, has taken the keys up and
-/// finished: `Ok` with the state it settled in.
+/// finished: `Ok` with the state it settled in. Every failure is
+/// [`EXIT_SENT`]: the keys are in.
 pub(super) async fn settle<T: ask::Tmux>(
     tmux: &T,
     pane: &PaneId,
@@ -102,7 +134,7 @@ pub(super) async fn settle<T: ask::Tmux>(
     loop {
         if occupant(tmux, pane).await? != *pinned {
             return Err((
-                EXIT_FAILED,
+                EXIT_SENT,
                 format!("the program in {pane} changed while waiting"),
             ));
         }
@@ -120,12 +152,12 @@ pub(super) async fn settle<T: ask::Tmux>(
             s if s == PaneStateName::Working.as_str() => working = true,
             s if s == PaneStateName::NeedsInput.as_str() => {
                 return Err((
-                    EXIT_FAILED,
+                    EXIT_SENT,
                     format!("{pane} stopped at a prompt for the user; nothing answers it"),
                 ));
             }
             s if s == PaneStateName::Error.as_str() => {
-                return Err((EXIT_FAILED, format!("{pane} reports an error")));
+                return Err((EXIT_SENT, format!("{pane} reports an error")));
             }
             s if working => {
                 return Ok(if s.is_empty() {
@@ -139,7 +171,7 @@ pub(super) async fn settle<T: ask::Tmux>(
         let waited = start.elapsed();
         if !working && waited >= wait.stall {
             return Err((
-                EXIT_FAILED,
+                EXIT_SENT,
                 format!(
                     "stalled: {pane} did not start working within {}s",
                     wait.stall.as_secs()
@@ -148,7 +180,7 @@ pub(super) async fn settle<T: ask::Tmux>(
         }
         if waited >= wait.limit {
             return Err((
-                EXIT_FAILED,
+                EXIT_SENT,
                 format!("{pane} is still working after {}s", wait.limit.as_secs()),
             ));
         }

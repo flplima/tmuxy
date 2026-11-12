@@ -21,8 +21,9 @@ struct Fake {
     needs_input: Mutex<bool>,
     /// What `capture-pane` shows.
     screen: String,
-    /// tmux held a guarded send back (`@tmuxy-send-held`).
-    held: Mutex<bool>,
+    /// tmux held a guarded send back: its token (`@tmuxy-send-held`).
+    held: Mutex<String>,
+    /// Another program is in front once the keys are in.
     /// The pane turns to `needs-input` just as tmux runs the guarded send.
     opens_prompt_at_typing: bool,
     /// The states the pane says once the keys are in, one a read, the last
@@ -30,6 +31,8 @@ struct Fake {
     after_typing: Mutex<std::collections::VecDeque<&'static str>>,
     /// Another program is in front once the keys are in.
     replaced_after_typing: bool,
+    /// The agent is working before anything is sent.
+    working_before: bool,
     log: Mutex<Vec<String>>,
 }
 
@@ -56,9 +59,9 @@ impl ask::Tmux for Fake {
             }
             "#{pane_pid}\t#{pane_current_command}" => "4242\tclaude".into(),
             "#{@tmuxy-pane-state}" if *self.needs_input.lock().unwrap() => "needs-input".into(),
+            "#{@tmuxy-pane-state}" if self.working_before => "working".into(),
             "#{@tmuxy-pane-state}" => String::new(),
-            "#{@tmuxy-send-held}" if *self.held.lock().unwrap() => "1".into(),
-            "#{@tmuxy-send-held}" => String::new(),
+            "#{@tmuxy-send-held}" => self.held.lock().unwrap().clone(),
             _ if argv[0] == "capture-pane" => self.screen.clone(),
             "#{@tmuxy-ask-answer}" if self.gone => {
                 return Err(CommandError::tmux("can't find pane: %3"))
@@ -79,14 +82,16 @@ impl ask::Tmux for Fake {
             // A guarded send, as tmux runs it: the keys, or the held mark.
             if argv[0] == "if-shell" {
                 if *self.needs_input.lock().unwrap() || self.opens_prompt_at_typing {
-                    *self.held.lock().unwrap() = true;
+                    // The else branch: set-option -p -t %3 @tmuxy-send-held <token>.
+                    let held = unquote(&argv[6]).last().cloned().unwrap_or_default();
+                    *self.held.lock().unwrap() = held;
                 } else {
                     self.log.lock().unwrap().push(unquote(&argv[5]).join(" "));
                 }
                 continue;
             }
             if argv[..2] == ["set-option", "-pu"] && argv[4] == "@tmuxy-send-held" {
-                *self.held.lock().unwrap() = false;
+                self.held.lock().unwrap().clear();
             }
             if argv[..2] == ["set-option", "-p"] && argv[4] == "@tmuxy-ask" {
                 use base64::Engine as _;
@@ -288,7 +293,7 @@ async fn a_prompt_that_opens_as_the_keys_go_in_still_gets_none() {
     assert!(message.contains("waiting at a prompt"), "{message}");
     assert!(tmux.typed().is_empty());
     assert!(
-        !*tmux.held.lock().unwrap(),
+        tmux.held.lock().unwrap().is_empty(),
         "the held mark was left on the pane"
     );
 }
@@ -344,7 +349,7 @@ async fn a_wait_reports_a_stall_and_a_prompt_and_answers_neither() {
     ] {
         let (tmux, args) = waiting(states);
         let (code, message) = run(&tmux, args).await.unwrap_err();
-        assert_eq!(code, 1, "{message}");
+        assert_eq!(code, EXIT_SENT, "{message}");
         assert!(message.contains(said), "{message}");
         assert_eq!(tmux.typed().len(), 1, "only the keys sent: {message}");
     }
@@ -357,7 +362,7 @@ async fn a_wait_is_not_satisfied_by_another_program_in_the_pane() {
     let (mut tmux, args) = waiting(&["working", "idle"]);
     tmux.replaced_after_typing = true;
     let (code, message) = run(&tmux, args).await.unwrap_err();
-    assert_eq!(code, 1);
+    assert_eq!(code, EXIT_SENT);
     assert!(message.contains("changed while waiting"), "{message}");
 }
 
@@ -369,4 +374,40 @@ fn a_wait_takes_seconds_minutes_or_hours() {
     for bad in ["", "m", "0s", "-5", "1.5h", "5 m", "10d"] {
         assert_eq!(wait::duration(bad).unwrap_err().0, EXIT_USAGE, "{bad}");
     }
+}
+
+/// Another send's held mark on the pane is not this one's: it neither
+/// refuses this send nor is cleared by it.
+#[tokio::test]
+async fn another_sends_held_mark_is_left_alone() {
+    let tmux = Fake {
+        held: Mutex::new("someone-elses".into()),
+        ..Fake::default()
+    };
+    run(&tmux, args(Some("%3"))).await.unwrap();
+    assert_eq!(tmux.typed().len(), 1);
+    assert_eq!(*tmux.held.lock().unwrap(), "someone-elses");
+}
+
+/// --wait into an agent already working: refused before anything is typed,
+/// since the end of its current turn would read as the end of this one.
+/// Every failure after the keys went in is exit 5, never 1.
+#[tokio::test]
+async fn a_wait_is_refused_into_a_working_agent_and_a_failed_wait_is_exit_5() {
+    let busy = Fake {
+        working_before: true,
+        ..Fake::default()
+    };
+    let into_busy = SendArgs {
+        wait: true,
+        ..args(Some("%3"))
+    };
+    let (code, message) = run(&busy, into_busy).await.unwrap_err();
+    assert_eq!(code, EXIT_FAILED);
+    assert!(message.contains("is working"), "{message}");
+    assert!(busy.typed().is_empty());
+
+    let (stalls, args) = waiting(&["idle"]);
+    let (code, _) = run(&stalls, args).await.unwrap_err();
+    assert_eq!(code, EXIT_SENT);
 }

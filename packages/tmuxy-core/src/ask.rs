@@ -370,8 +370,9 @@ pub async fn at_prompt<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<bool, Command
 /// one `if-shell` that tmux runs only while `pane` does not say it needs the
 /// user, decided in the same step that would type it, so a prompt that opens
 /// between a check and the keys cannot be answered by them. Otherwise tmux
-/// marks the pane [`SEND_HELD`].
-pub fn guarded(pane: &PaneId, command: &[String]) -> Argv {
+/// marks the pane [`SEND_HELD`] with `token`, this send's own, so a send
+/// beside it can neither take the mark for its own nor clear it.
+pub fn guarded(pane: &PaneId, command: &[String], token: &str) -> Argv {
     let line = |argv: &[String]| {
         argv.iter()
             .map(|word| crate::tmux_quote(word))
@@ -386,7 +387,7 @@ pub fn guarded(pane: &PaneId, command: &[String]) -> Argv {
         pane.as_str(),
         &condition,
         &line(command),
-        &line(&set_pane(pane, SEND_HELD, "1")),
+        &line(&set_pane(pane, SEND_HELD, token)),
     ])
 }
 
@@ -397,14 +398,15 @@ pub async fn deliver<T: Tmux>(tmux: &T, pane: &PaneId, command: Argv) -> Result<
     if at_prompt(tmux, pane).await.map_err(Refused::Tmux)? {
         return Err(Refused::AtPrompt(pane.clone()));
     }
-    tmux.mutate(vec![unset_pane(pane, SEND_HELD), guarded(pane, &command)])
+    let token = crate::random::token();
+    tmux.mutate(vec![guarded(pane, &command, &token)])
         .await
         .map_err(Refused::Tmux)?;
     let held = tmux
         .read(display(pane, &format!("#{{{SEND_HELD}}}")))
         .await
         .map_err(Refused::Tmux)?;
-    if held.trim().is_empty() {
+    if held.trim() != token {
         return Ok(());
     }
     let _ = tmux.mutate(vec![unset_pane(pane, SEND_HELD)]).await;

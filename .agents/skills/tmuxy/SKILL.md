@@ -73,7 +73,8 @@ tmuxy config paths --json       # every file tmuxy reads or writes: owner, locat
   `{"ok":false,"error":"…","code":N}` on stdout, N being the exit code.
 - **Exit codes:** 0 ok · 1 failed (tmux refused, user declined, a wait timed
   out) · 2 bad command line · 3 target not found or ambiguous · 4 no tmux
-  server on the socket · 130 interrupted. A wait passes the program's status
+  server on the socket · 5 sent, but the wait after it failed (`pane send
+  --wait`: never retry it) · 130 interrupted. A wait passes the program's status
   through.
 
 ## Personalizing tmuxy

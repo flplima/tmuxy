@@ -90,6 +90,23 @@ fn send(s: &scratch::ScratchServer, caller: &str, args: &[&str]) -> Output {
         .expect("tmuxy-server runs")
 }
 
+/// `text` and Enter from `caller`'s pane into `pane`.
+fn send_into(s: &scratch::ScratchServer, caller: &str, pane: &str, text: &str) -> Output {
+    send(
+        s,
+        caller,
+        &[
+            "--target",
+            pane,
+            "--caller-pane",
+            caller,
+            "--",
+            text,
+            "Enter",
+        ],
+    )
+}
+
 /// What the agent was sent, once nothing more is coming.
 fn received(log: &Path) -> String {
     std::thread::sleep(Duration::from_millis(400));
@@ -167,19 +184,7 @@ fn a_pane_at_a_prompt_is_sent_nothing_whoever_sends_and_however() {
         "@tmuxy-pane-state",
         "needs-input",
     ]);
-    let out = send(
-        &s,
-        &caller,
-        &[
-            "--target",
-            &marked.pane,
-            "--caller-pane",
-            &caller,
-            "--",
-            "go",
-            "Enter",
-        ],
-    );
+    let out = send_into(&s, &caller, &marked.pane, "go");
     assert!(refused(&out), "{out:?}");
     assert_eq!(received(&marked.log), "");
 
@@ -187,19 +192,7 @@ fn a_pane_at_a_prompt_is_sent_nothing_whoever_sends_and_however() {
     // tmux and a shell would both read something into.
     s.tmux(&["set-option", "-pu", "-t", &marked.pane, "@tmuxy-pane-state"]);
     let text = r##"it's #{pane_id} ; "$HOME" `x` \ #[fg=red] ~"##;
-    let out = send(
-        &s,
-        &caller,
-        &[
-            "--target",
-            &marked.pane,
-            "--caller-pane",
-            &caller,
-            "--",
-            text,
-            "Enter",
-        ],
-    );
+    let out = send_into(&s, &caller, &marked.pane, text);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert_eq!(received(&marked.log), format!("{text}\n"));
     assert!(s
