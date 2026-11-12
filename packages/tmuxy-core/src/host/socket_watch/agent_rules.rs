@@ -16,10 +16,18 @@
 //! `tmuxy pane state`, a program's own report or a send's question wins.
 //! When the agent's process ends, a state that is still theirs is taken
 //! off.
+//!
+//! The user's own rules (`~/.config/tmuxy/agents/<name>.toml`, [`user`])
+//! name more agents and give states for text on screen; a matching one
+//! comes ahead of the signs above.
+
+pub mod user;
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
+use std::time::Instant;
 
 use super::PaneRow;
 use crate::argv::run_shell_word;
@@ -115,9 +123,17 @@ pub fn decide(
 }
 
 /// The panes the rules read, and what each screen has been doing.
-#[derive(Default)]
 pub struct Rules {
     tracks: HashMap<String, Option<Track>>,
+    /// Where the user's rule files are.
+    dir: PathBuf,
+    user: user::UserRules,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Self::with_dir(crate::paths::config_dir().join("agents"))
+    }
 }
 
 fn tmux_output(args: &[&str]) -> Option<String> {
@@ -167,12 +183,27 @@ fn write(pane: &str, change: &Change) {
 }
 
 impl Rules {
+    /// Rules whose user files are in `dir`.
+    pub fn with_dir(dir: PathBuf) -> Self {
+        Rules {
+            tracks: HashMap::new(),
+            dir,
+            user: user::UserRules::default(),
+        }
+    }
+
+    /// The user's rules as last read, and what was wrong with the others.
+    pub fn user(&self) -> &user::UserRules {
+        &self.user
+    }
+
     /// One pass over every pane on the socket.
     pub fn pass(&mut self, rows: &[PaneRow]) {
+        self.user.refresh(&self.dir, Instant::now());
         let mut seen = HashMap::new();
         for row in rows {
             let tracked = self.tracks.remove(&row.pane_id);
-            if !is_rule_agent(&row.command) {
+            if !is_rule_agent(&row.command) && !self.user.knows(&row.command) {
                 // The agent is gone from this pane: a state that is still the
                 // rules' own goes with it.
                 if tracked.is_some() && !row.state.is_empty() && row.state == ours(&row.pane_id) {
@@ -185,7 +216,12 @@ impl Rules {
                 seen.insert(row.pane_id.clone(), track);
                 continue;
             };
-            let wanted = judge(&mut track, &screen);
+            let signs = judge(&mut track, &screen);
+            let wanted = self
+                .user
+                .matching(&row.command, &screen)
+                .map(|rule| rule.state)
+                .or(signs);
             let mine = if row.state.is_empty() {
                 String::new()
             } else {
