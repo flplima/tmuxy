@@ -408,14 +408,13 @@ pub(super) fn sixel_extent(payload: &[u8]) -> (usize, usize) {
     (width, bands.saturating_mul(6).max(declared_height))
 }
 
-/// Where the last end of an escape string in `content` starts: a BEL, or
-/// an ESC with a byte after it (ST, or an escape that aborts the string).
+/// Where the last end of an escape string in `content` starts: a BEL, a CAN
+/// or SUB (which cancel it), or an ESC with a byte after it (ST, or an
+/// escape that aborts the string). Only a last ESC is undecided.
 pub(super) fn last_terminator_start(content: &[u8]) -> Option<usize> {
-    // Any ESC with a byte after it ends an escape string: as ST (`ESC \`), or
-    // by cutting it short. Only a last ESC is undecided.
-    (0..content.len())
-        .rev()
-        .find(|&i| content[i] == 0x07 || (content[i] == 0x1B && i + 1 < content.len()))
+    (0..content.len()).rev().find(|&i| {
+        matches!(content[i], 0x07 | CAN | SUB) || (content[i] == 0x1B && i + 1 < content.len())
+    })
 }
 
 /// Whether `next` ends the escape buffered in `pending`, counting an ESC
@@ -435,6 +434,10 @@ pub(super) enum StringEnd {
     Aborted,
 }
 
+/// Cancel and substitute: in a terminal either one aborts an escape string.
+const CAN: u8 = 0x18;
+const SUB: u8 = 0x1A;
+
 /// Where the escape string from `from` ends; `None` while it has not ended
 /// yet (no ESC, or an ESC as the last byte, which could still become ST).
 /// `bel`: BEL ends it too (an OSC).
@@ -445,6 +448,9 @@ pub(super) fn string_end(data: &[u8], from: usize, bel: bool) -> Option<StringEn
                 at: i,
                 after: i + 1,
             });
+        }
+        if byte == CAN || byte == SUB {
+            return Some(StringEnd::Aborted);
         }
         if byte == 0x1B {
             return match data.get(i + 1) {
