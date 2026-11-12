@@ -2,12 +2,15 @@
 //!
 //! Each queued send is a pane option of its own, `@tmuxy-send-queued-<id>`,
 //! so joining, leaving and retracting are each one set or unset, and two
-//! senders never rewrite each other's entry. The id is when it joined
-//! (milliseconds, zero-padded so the names sort in order) and the sender's
-//! pid; the value is base64 of `{caller, keys}`, for `tmuxy pane queue`.
+//! senders never rewrite each other's entry. The id is when it joined and
+//! the sender's pid, both zero-padded so the names sort in order; the value
+//! is base64 of `{caller, keys, started}`, `started` being when the sender's
+//! process started, so a pid reused by another process after the sender died
+//! is not taken for the sender.
 //!
 //! The sender holds its send. It waits until it is first in line and the
-//! pane is free (not working, not at a prompt), then sends as any send does,
+//! pane is free (not working, not at a prompt, no other sender's question
+//! up), then sends as any send does,
 //! the question included, with its entry as the guard's extra condition
 //! ([`super::deliver_when`]): a retract that lands before the keys stops
 //! them. An entry whose sender is gone is dropped by the next one in line.
@@ -17,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 
 use super::{at_prompt, display, set_pane, unset_pane, words, Tmux};
-use crate::constants::tmux_options::{PANE_STATE, SEND_QUEUED};
+use crate::constants::tmux_options::{ASK, PANE_STATE, SEND_QUEUED};
 use crate::{CommandError, PaneId, PaneStateName};
 
 const POLL: Duration = Duration::from_millis(250);
@@ -56,28 +59,53 @@ fn valid(id: &str) -> bool {
     }
 }
 
-#[cfg(unix)]
-fn alive(id: &str) -> bool {
-    let Some(pid) = id.rsplit('-').next().and_then(|p| p.parse::<i32>().ok()) else {
-        return false;
-    };
-    // SAFETY: signal 0 only asks whether the process exists; nothing is sent.
-    let found = unsafe { libc::kill(pid, 0) } == 0;
-    found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+fn pid_of(id: &str) -> Option<u32> {
+    id.rsplit('-').next()?.parse().ok()
 }
 
-#[cfg(not(unix))]
-fn alive(_id: &str) -> bool {
-    true
+/// When process `pid` started, in a form only compared for equality: the
+/// kernel's start time in ticks where `/proc` has it, else what `ps` says.
+/// `None` when there is no such process.
+fn started(pid: u32) -> Option<String> {
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        // Field 22; the fields after the command's closing parenthesis
+        // start at field 3.
+        let after = stat.rsplit_once(')')?.1;
+        return after.split_whitespace().nth(19).map(String::from);
+    }
+    if cfg!(target_os = "linux") {
+        return None;
+    }
+    let out = std::process::Command::new("ps")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !said.is_empty()).then_some(said)
 }
 
-fn decode(value: &str) -> (String, Vec<String>) {
+/// The entry's sender still runs: its pid names a process that started when
+/// the sender did, not one that took the pid over after it died.
+fn alive(id: &str, sender_started: &str) -> bool {
+    !sender_started.is_empty() && pid_of(id).and_then(started).as_deref() == Some(sender_started)
+}
+
+struct Payload {
+    caller: String,
+    keys: Vec<String>,
+    started: String,
+}
+
+fn decode(value: &str) -> Payload {
     let payload = base64::engine::general_purpose::STANDARD
         .decode(value)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .unwrap_or_default();
-    let caller = payload["caller"].as_str().unwrap_or_default().to_string();
+    let text = |field: &str| payload[field].as_str().unwrap_or_default().to_string();
     let keys = payload["keys"]
         .as_array()
         .map(|keys| {
@@ -86,7 +114,11 @@ fn decode(value: &str) -> (String, Vec<String>) {
                 .collect()
         })
         .unwrap_or_default();
-    (caller, keys)
+    Payload {
+        caller: text("caller"),
+        keys,
+        started: text("started"),
+    }
 }
 
 /// The sends in `pane`'s line, first first.
@@ -102,12 +134,12 @@ pub async fn list<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<Vec<Queued>, Comma
             if !valid(id) {
                 return None;
             }
-            let (caller, keys) = decode(value.trim().trim_matches('"'));
+            let payload = decode(value.trim().trim_matches('"'));
             Some(Queued {
                 id: id.to_string(),
-                caller,
-                keys,
-                waiting: alive(id),
+                waiting: alive(id, &payload.started),
+                caller: payload.caller,
+                keys: payload.keys,
             })
         })
         .collect();
@@ -124,12 +156,20 @@ pub async fn retract<T: Tmux>(tmux: &T, pane: &PaneId, id: &str) -> Result<bool,
     Ok(true)
 }
 
-/// Neither working nor waiting at a prompt for the user.
+/// Not working, not waiting at a prompt for the user, and no other sender's
+/// question up: a send that skips the question must not type while the user
+/// reads one.
 async fn free<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<bool, CommandError> {
-    let state = tmux
-        .read(display(pane, &format!("#{{{PANE_STATE}}}")))
+    let said = tmux
+        .read(display(pane, &format!("#{{{PANE_STATE}}}\t#{{{ASK}}}")))
         .await?;
-    Ok(state.trim() != PaneStateName::Working.as_str() && !at_prompt(tmux, pane).await?)
+    let (state, asking) = said
+        .trim_end()
+        .split_once('\t')
+        .unwrap_or((said.trim(), ""));
+    Ok(state != PaneStateName::Working.as_str()
+        && asking.is_empty()
+        && !at_prompt(tmux, pane).await?)
 }
 
 impl Entry {
@@ -144,8 +184,14 @@ impl Entry {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or_default();
-        let id = format!("{at:013}-{}", std::process::id());
-        let payload = serde_json::json!({ "caller": caller, "keys": keys }).to_string();
+        let pid = std::process::id();
+        let id = format!("{at:013}-{pid:010}");
+        let payload = serde_json::json!({
+            "caller": caller,
+            "keys": keys,
+            "started": started(pid).unwrap_or_default(),
+        })
+        .to_string();
         let value = base64::engine::general_purpose::STANDARD.encode(payload);
         tmux.mutate(vec![set_pane(pane, &option(&id), &value)])
             .await?;
@@ -246,11 +292,24 @@ mod tests {
     #[test]
     fn a_payload_reads_back() {
         let value = base64::engine::general_purpose::STANDARD
-            .encode(r#"{"caller":"claude","keys":["it's #[x]","Enter"]}"#);
-        assert_eq!(
-            decode(&value),
-            ("claude".into(), vec!["it's #[x]".into(), "Enter".into()])
-        );
-        assert_eq!(decode("not base64!"), (String::new(), vec![]));
+            .encode(r#"{"caller":"claude","keys":["it's #[x]","Enter"],"started":"7"}"#);
+        let payload = decode(&value);
+        assert_eq!(payload.caller, "claude");
+        assert_eq!(payload.keys, ["it's #[x]", "Enter"]);
+        assert_eq!(payload.started, "7");
+        assert!(decode("not base64!").keys.is_empty());
+    }
+
+    /// A pid is the sender only while the process behind it started when
+    /// the sender did: a pid taken over after the sender died is not it.
+    #[test]
+    fn a_reused_pid_is_not_the_sender() {
+        let me = std::process::id();
+        let id = format!("0000000000001-{me:010}");
+        let when = started(me).expect("this process has a start time");
+        assert!(alive(&id, &when));
+        assert!(!alive(&id, "a different start"));
+        assert!(!alive(&id, ""));
+        assert!(!alive("0000000000001-4294967295", &when));
     }
 }

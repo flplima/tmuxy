@@ -66,8 +66,11 @@ fn agent(s: &scratch::ScratchServer, name: &str, screen: &str) -> Agent {
     Agent { pane, log }
 }
 
+/// Poll until `ready`; the deadline only decides when a stuck wait fails,
+/// and the panic names the line that waited.
+#[track_caller]
 fn wait_for(mut ready: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !ready() {
         assert!(Instant::now() < deadline, "timed out");
         std::thread::sleep(Duration::from_millis(50));
@@ -243,6 +246,7 @@ fn line(s: &scratch::ScratchServer, caller: &str, pane: &str) -> Vec<String> {
 
 /// A sender's end, within a bounded time: a send stuck in line fails the
 /// test rather than hanging it.
+#[track_caller]
 fn finished(mut sender: Child) -> Output {
     wait_for(|| sender.try_wait().unwrap().is_some());
     sender.wait_with_output().unwrap()
@@ -267,8 +271,27 @@ fn a_queued_send_waits_out_work_and_prompts_and_can_be_taken_back() {
     let busy = agent(&s, "busy", "> ");
     set_state(&s, &busy.pane, "working");
 
+    // First in line: a sender that died and whose pid another process took
+    // over (a sleep here), so the pid is alive but is not the sender.
+    let mut squatter = Command::new("sleep").arg("60").spawn().unwrap();
+    let dead_payload =
+        r#"{"caller":"x","keys":["never: pid reused"],"started":"not this process"}"#;
+    s.tmux(&[
+        "set-option",
+        "-p",
+        "-t",
+        &busy.pane,
+        &format!("@tmuxy-send-queued-0000000000001-{:010}", squatter.id()),
+        &base64_of(dead_payload),
+    ]);
+
     let mut first = queue_send(&s, &caller, &busy.pane, "first", "20");
-    wait_for(|| line(&s, &caller, &busy.pane).len() == 1);
+    // The first sender drops the squatter's entry: its pid lives, but it
+    // is not the process that joined.
+    wait_for(|| {
+        let ids = line(&s, &caller, &busy.pane);
+        ids.len() == 1 && !ids[0].starts_with("0000000000001-")
+    });
     let mut dies = queue_send(&s, &caller, &busy.pane, "never: its sender dies", "1");
     wait_for(|| line(&s, &caller, &busy.pane).len() == 2);
     let taken_back = queue_send(&s, &caller, &busy.pane, "never: taken back", "1");
@@ -298,8 +321,13 @@ fn a_queued_send_waits_out_work_and_prompts_and_can_be_taken_back() {
         "the first send gave up"
     );
 
-    // Free: the first goes in, alone, and the agent takes it up.
+    // Free, but another sender's question is on screen: nothing goes in.
     set_state(&s, &busy.pane, "idle");
+    s.tmux(&["set-option", "-p", "-t", &busy.pane, "@tmuxy-ask", "e30="]);
+    assert_eq!(received(&busy.log), "");
+
+    // Free: the first goes in, alone, and the agent takes it up.
+    s.tmux(&["set-option", "-pu", "-t", &busy.pane, "@tmuxy-ask"]);
     wait_for(|| !std::fs::read_to_string(&busy.log).unwrap().is_empty());
     set_state(&s, &busy.pane, "working");
     assert_eq!(finished(first).status.code(), Some(0));
@@ -310,4 +338,11 @@ fn a_queued_send_waits_out_work_and_prompts_and_can_be_taken_back() {
     assert_eq!(finished(last).status.code(), Some(0));
     assert_eq!(received(&busy.log), "first\nlast\n");
     assert!(line(&s, &caller, &busy.pane).is_empty());
+    squatter.kill().unwrap();
+    squatter.wait().unwrap();
+}
+
+fn base64_of(text: &str) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(text)
 }
