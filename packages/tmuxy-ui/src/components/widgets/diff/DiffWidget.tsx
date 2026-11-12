@@ -5,14 +5,16 @@
  * screen; the last read stays on screen meanwhile and beside a failure.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { WidgetProps } from '../registry';
 import { DIFF_SCOPES, fileCounts, type DiffRead, type DiffScope } from '../../../domain/diff';
 import { useAppSelector } from '../../../machines/appHooks';
 import { selectPaneHoldsKeyboard } from '../../../machines/selectors/keyboard';
 import { selectPhoneLayout } from '../../../machines/selectors/layout';
 import { useSwallowedTyping } from '../useSwallowedTyping';
-import { DiffFileView } from './DiffFileView';
+import { DiffFileView, type FileReview } from './DiffFileView';
+import { ReviewBar } from './ReviewBar';
+import type { ReviewComment } from '../../../domain/review';
 import { useDiffRead } from './diffSource';
 import './diff.css';
 
@@ -85,10 +87,12 @@ function DiffFiles({
   read,
   closed,
   onToggle,
+  review,
 }: {
   read: DiffRead;
   closed: ReadonlySet<string>;
   onToggle: (path: string) => void;
+  review: FileReview;
 }) {
   return (
     <div className="diff-files">
@@ -102,6 +106,7 @@ function DiffFiles({
           file={file}
           open={!closed.has(file.path)}
           onToggle={onToggle}
+          review={review}
         />
       ))}
       {read.untracked.length > 0 && (
@@ -124,9 +129,38 @@ function DiffFiles({
   );
 }
 
-export function DiffWidget({ paneId }: WidgetProps) {
+/**
+ * The review being written: comments by line, kept across reads and scopes
+ * until they are sent, and the one being edited.
+ */
+function useReview(): FileReview & { list: ReviewComment[]; clear: () => void } {
+  const [comments, setComments] = useState<ReadonlyMap<string, ReviewComment>>(new Map());
+  const [editing, setEditing] = useState<string | null>(null);
+  return useMemo(
+    () => ({
+      comments,
+      editing,
+      edit: setEditing,
+      save: (key: string, comment: ReviewComment | null) => {
+        setComments((was) => {
+          const next = new Map(was);
+          if (comment) next.set(key, comment);
+          else next.delete(key);
+          return next;
+        });
+        setEditing(null);
+      },
+      list: [...comments.values()],
+      clear: () => setComments(new Map()),
+    }),
+    [comments, editing],
+  );
+}
+
+export function DiffWidget({ paneId, lines }: WidgetProps) {
   const [scope, setScope] = useState<DiffScope>('unstaged');
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const review = useReview();
   const diff = useDiffRead(paneId, scope);
   const active = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const phone = useAppSelector(selectPhoneLayout);
@@ -147,7 +181,15 @@ export function DiffWidget({ paneId }: WidgetProps) {
       <DiffBar scope={scope} onScope={setScope} read={read} onRefresh={diff.refresh} />
       {diff.error && <div className="diff-error">{diff.error}</div>}
       {!read && !diff.error && <div className="diff-message">Reading the changes…</div>}
-      {read && <DiffFiles read={read} closed={closed} onToggle={toggle} />}
+      {read && <DiffFiles read={read} closed={closed} onToggle={toggle} review={review} />}
+      <ReviewBar
+        paneId={paneId}
+        lines={lines}
+        checkout={read?.name ?? lines[0] ?? ''}
+        scope={scope}
+        comments={review.list}
+        onSent={review.clear}
+      />
     </div>
   );
 }

@@ -33,3 +33,15 @@ The files a preview reads and the checkout a diff reads: in both, tmux decides w
 **git runs nothing the repository names** (`tmuxy-core/src/diff_review/git.rs`). No filesystem monitor, hook, pager, credential helper or transport; no external diff and no textconv; every content filter driver the config holds switched off, so a filtered file is compared as the text it is; no submodule; the variables that would point git elsewhere or add config scrubbed. The plumbing commands read the index as it is and never write it, so the user's own commit is never held up by a lock. Each read has a deadline and a cap on what it returns. A test sets a trap for each of these and checks none fires.
 
 **What git prints is drawn as text.** File names and lines are strings in the answer, put on screen as text nodes only: a line of markup is shown as written. The read returns the checkout's folder name, never its path.
+
+## A Review Types Into One Pane, Never At A Question
+
+A diff's comments go to an agent as one numbered prompt (`domain/review.ts`, `components/widgets/diff/ReviewBar.tsx`): pasted into the pane the review bar names, then Enter. The pane is one of the widget's own tab, picked on screen; `tmuxy widget diff --to %N` only preselects it, and the script takes nothing but a pane id there.
+
+| Risk | What holds it |
+| ---- | ------------- |
+| The prompt answers a permission question the agent is asking | `sendRefusal` refuses while the pane reads `needs-input` (a dialog on its screen, or a `pane send` waiting there), and says so; nothing is typed. It is the one check, to be swapped for `tmuxy pane send --wait`'s own refusal once that exists |
+| The review's text drives the program | It goes as a paste: control characters dropped, bracketed when the program asked for it |
+| The checkout's text runs as markup in the widget | A comment and the line it quotes are text nodes, as every diff line is |
+
+Held by `tests/14-widget-diff.test.js` (a fake agent reads the prompt, then asks a question, and a review sent then answers nothing) and `domain/__tests__/review.test.ts`.

@@ -19,7 +19,10 @@ const {
   waitForShellPrompt,
   waitForCondition,
   waitForTerminalText,
+  splitPaneKeyboard,
+  waitForPaneCount,
 } = require('./helpers');
+const { tmuxyCli } = require('./helpers/cli');
 const { gitRepo } = require('./helpers/git-repo');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
@@ -221,3 +224,139 @@ describeE2E(
     }, 120000);
   },
 );
+
+/** A shell that runs as `claude`, as `pane_current_command` reads it. */
+function fakeAgent(dir) {
+  const agent = path.join(dir, 'claude');
+  fs.copyFileSync('/bin/bash', agent);
+  fs.chmodSync(agent, 0o755);
+  // Writes down each line it is sent until a review has come in whole (its
+  // last line, the quoted code, ended by the Enter that sends it), then
+  // asks a permission question, and writes down whatever answers it.
+  const script = path.join(dir, 'agent.sh');
+  fs.writeFileSync(
+    script,
+    [
+      'log="$1"',
+      'while IFS= read -r line; do',
+      '  printf "%s\\n" "$line" >> "$log"',
+      '  case "$line" in "   > "*) break ;; esac',
+      'done',
+      'printf "\\033[2J\\033[HDo you want to proceed?\\n> 1. Yes\\n  2. No\\n"',
+      'IFS= read -r answer',
+      'printf "answered:%s\\n" "$answer" >> "$log"',
+      'sleep 600',
+    ].join('\n'),
+  );
+  return { agent, script };
+}
+
+/** Waits for a notice on screen that holds `text`. */
+async function waitForNotice(page, text) {
+  const notices = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.snackbar-text')].map((n) => n.textContent ?? ''),
+    );
+  await waitForCondition(
+    page,
+    async () => (await notices()).some((n) => n.includes(text)),
+    10000,
+    async () =>
+      `a notice saying ${JSON.stringify(text)} (on screen: ${JSON.stringify(await notices())})`,
+  );
+}
+
+/** The review bar's pane choice, as the user reads it. */
+function reviewTarget(page) {
+  return page.evaluate(
+    () => document.querySelector('[data-diff-review] select option:checked')?.textContent ?? null,
+  );
+}
+
+describeE2E('Scenario: a diff review goes to the agent as one prompt', {}, (ctx) => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-diff-review-'));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  test('a line comment is sent as a numbered prompt, and nothing is sent while the agent asks a question', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    const repo = path.join(dir, 'shop');
+    fs.mkdirSync(repo);
+    checkout(repo);
+    const log = path.join(dir, 'agent.log');
+    const { agent, script } = fakeAgent(dir);
+
+    // The agent in the first pane, the diff beside it.
+    const agentPane = await page.evaluate(() => window.app.view().activePaneId);
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+    await waitForShellPrompt(page);
+    ctx.session.runAsOperator(`send-keys -t ${agentPane} -l '${agent} ${script} ${log}'`);
+    ctx.session.runAsOperator(`send-keys -t ${agentPane} Enter`);
+    await typeInTerminal(page, `cd ${repo} && clear && ${TMUXY_CLI} widget diff --to ${agentPane}`);
+    await pressEnter(page);
+    await waitForDiff(page, 'the unstaged changes', (s) => s.files.includes('app.txt'));
+
+    try {
+      // 1. A comment on the changed line, typed as the user types it: the
+      //    keys go to the comment, not to the pane under it.
+      await page.getByRole('button', { name: 'Comment on app.txt line 2' }).click();
+      await page.getByRole('textbox', { name: 'Comment' }).click();
+      await page.keyboard.type('Escape this before it reaches the page.');
+      await page.getByRole('button', { name: 'Save' }).click();
+      const comment = page.locator('[data-diff-comment]');
+      expect(await comment.textContent()).toContain('Escape this before it reaches the page.');
+      expect((await comment.boundingBox()).height).toBeGreaterThan(5);
+      expect(await reviewTarget(page)).toContain(agentPane);
+
+      // 2. Send review: the agent reads the prompt, numbered, with the line.
+      await page.getByRole('button', { name: 'Send review' }).click();
+      const read = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
+      await waitForCondition(
+        page,
+        // Its last line is read once the Enter that sends it arrives.
+        async () => read().endsWith('   > <img src=x onerror=alert(1)>\n'),
+        15000,
+        () => `the agent to read the review (it read ${JSON.stringify(read())})`,
+      );
+      expect(read()).toBe(
+        [
+          'Review of the unstaged changes in shop:',
+          '',
+          '1. app.txt:2 — Escape this before it reaches the page.',
+          '   > <img src=x onerror=alert(1)>',
+          '',
+        ].join('\n'),
+      );
+      await waitForNotice(page, `Sent 1 comment to ${agentPane}`);
+      expect(await page.locator('[data-diff-comment]').count()).toBe(0);
+
+      // 3. The agent now asks a question. A review sent meanwhile would
+      //    answer it, so none is sent, and the comment stays.
+      tmuxyCli(['pane', 'state', 'working', agentPane]);
+      await page.getByRole('button', { name: 'Comment on app.txt line 2' }).click();
+      await page.getByRole('textbox', { name: 'Comment' }).click();
+      await page.keyboard.type('Not now.');
+      await page.getByRole('button', { name: 'Save' }).click();
+      await waitForCondition(
+        page,
+        async () => ((await reviewTarget(page)) ?? '').includes('(waiting for you)'),
+        15000,
+        async () => `the agent to show it waits for an answer (${await reviewTarget(page)})`,
+      );
+      await page.getByRole('button', { name: 'Send review' }).click();
+      await waitForNotice(page, `Review not sent: ${agentPane} is waiting for your answer`);
+      // Given a beat to arrive, were anything sent: nothing answered.
+      await page.waitForTimeout(2000);
+      expect(read()).not.toContain('answered:');
+      expect(await page.locator('[data-diff-comment]').textContent()).toContain('Not now.');
+    } finally {
+      ctx.session.runAsOperator(`send-keys -t ${agentPane} C-c`);
+      tmuxyCli(['pane', 'state', 'clear', agentPane]);
+    }
+  }, 120000);
+});

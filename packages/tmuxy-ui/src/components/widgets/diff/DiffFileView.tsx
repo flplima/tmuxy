@@ -6,6 +6,23 @@
 
 import { memo } from 'react';
 import { fileCounts, type DiffFile, type DiffLine } from '../../../domain/diff';
+import { commentKey, type LineSide, type ReviewComment } from '../../../domain/review';
+import { CommentEditor } from './CommentEditor';
+
+/** The review's comments and the one being written, with what changes them. */
+export interface FileReview {
+  comments: ReadonlyMap<string, ReviewComment>;
+  editing: string | null;
+  edit: (key: string | null) => void;
+  save: (key: string, comment: ReviewComment | null) => void;
+}
+
+/** Where a line is commented on: its new number, or its old one when it was removed. */
+function anchor(line: DiffLine): { side: LineSide; line: number } | null {
+  if (line.new != null) return { side: 'new', line: line.new };
+  if (line.old != null) return { side: 'old', line: line.old };
+  return null;
+}
 
 const SIGN: Record<DiffLine['kind'], string> = {
   context: ' ',
@@ -21,16 +38,73 @@ const STATUS_LABEL: Record<DiffFile['status'], string> = {
   renamed: 'R',
 };
 
-function Line({ line }: { line: DiffLine }) {
+/** What goes under a commented line: its comment, or the box it is written in. */
+function LineNote({
+  at,
+  commentKey: key,
+  path,
+  code,
+  review,
+}: {
+  at: { side: LineSide; line: number };
+  commentKey: string;
+  path: string;
+  code: string;
+  review: FileReview;
+}) {
+  const comment = review.comments.get(key);
+  if (review.editing === key) {
+    return (
+      <CommentEditor
+        initial={comment?.body ?? ''}
+        onCancel={() => review.edit(null)}
+        onSave={(body) => review.save(key, { path, side: at.side, line: at.line, code, body })}
+      />
+    );
+  }
+  if (!comment) return null;
   return (
-    <div className={`diff-line is-${line.kind}`} data-diff-line={line.kind}>
-      <span className="diff-no diff-no-old">{line.old ?? ''}</span>
-      <span className="diff-no diff-no-new">{line.new ?? ''}</span>
-      <span className="diff-sign" aria-hidden="true">
-        {SIGN[line.kind]}
-      </span>
-      <span className="diff-text">{line.text}</span>
+    <div className="diff-comment" data-diff-comment="">
+      <span className="diff-comment-body">{comment.body}</span>
+      <button type="button" onClick={() => review.edit(key)}>
+        Edit
+      </button>
+      <button type="button" onClick={() => review.save(key, null)}>
+        Delete
+      </button>
     </div>
+  );
+}
+
+function Line({ path, line, review }: { path: string; line: DiffLine; review: FileReview }) {
+  const at = anchor(line);
+  const key = at ? commentKey(path, at.side, at.line) : null;
+  return (
+    <>
+      <div className={`diff-line is-${line.kind}`} data-diff-line={line.kind}>
+        {at && key ? (
+          <button
+            type="button"
+            className="diff-comment-add"
+            aria-label={`Comment on ${path} ${at.side === 'old' ? 'removed ' : ''}line ${at.line}`}
+            onClick={() => review.edit(key)}
+          >
+            +
+          </button>
+        ) : (
+          <span className="diff-comment-add" />
+        )}
+        <span className="diff-no diff-no-old">{line.old ?? ''}</span>
+        <span className="diff-no diff-no-new">{line.new ?? ''}</span>
+        <span className="diff-sign" aria-hidden="true">
+          {SIGN[line.kind]}
+        </span>
+        <span className="diff-text">{line.text}</span>
+      </div>
+      {at && key && (
+        <LineNote at={at} commentKey={key} path={path} code={line.text} review={review} />
+      )}
+    </>
   );
 }
 
@@ -38,10 +112,12 @@ export const DiffFileView = memo(function DiffFileView({
   file,
   open,
   onToggle,
+  review,
 }: {
   file: DiffFile;
   open: boolean;
   onToggle: (path: string) => void;
+  review: FileReview;
 }) {
   const { added, removed } = fileCounts(file);
   return (
@@ -71,7 +147,7 @@ export const DiffFileView = memo(function DiffFileView({
             <div className="diff-hunk" key={`${index}:${hunk.header}`}>
               <div className="diff-hunk-header">{hunk.header}</div>
               {hunk.lines.map((line, at) => (
-                <Line line={line} key={at} />
+                <Line path={file.path} line={line} review={review} key={at} />
               ))}
             </div>
           ))}
