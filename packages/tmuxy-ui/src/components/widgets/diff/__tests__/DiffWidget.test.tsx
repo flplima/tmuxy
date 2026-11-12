@@ -30,6 +30,7 @@ function read(scope: DiffRead['scope'], over: Partial<DiffRead> = {}): DiffRead 
     files: [
       {
         path: 'src/a.rs',
+        token: `tok-${scope}`,
         oldPath: null,
         status: 'modified',
         binary: false,
@@ -64,6 +65,11 @@ function mount({
   const transport = fakeTransport({
     send: async (call) => {
       asked.push(call);
+      if (call.cmd === 'change_hunk') {
+        const { action } = call.args as { action: string };
+        return action === 'revert' ? { revert: 'r1' } : {};
+      }
+      if (call.cmd === 'undo_revert') return null;
       const { scope } = call.args as { scope: DiffRead['scope'] };
       return read(scope);
     },
@@ -88,9 +94,10 @@ function mount({
     </AppActorContext.Provider>,
   );
   const diffCalls = () => asked.filter((call) => call.cmd === 'read_diff');
+  const hunkCalls = () => asked.filter((call) => call.cmd !== 'read_diff');
   const ops = () => tmux.ops();
   const notices = () => actor.getSnapshot().context.notifications.map((n) => n.text);
-  return { diffCalls, ops, notices };
+  return { diffCalls, hunkCalls, ops, notices };
 }
 
 /** Comment on the added line of src/a.rs, as a click and some typing would. */
@@ -139,6 +146,64 @@ describe('DiffWidget', () => {
       cmd: 'read_diff',
       args: { paneId: '%7', scope: 'turn' },
     });
+  });
+
+  it('stages a hunk with the token of the patch on screen', async () => {
+    const { hunkCalls } = mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Stage hunk 1 of src/a.rs' }));
+    await waitFor(() =>
+      expect(hunkCalls()).toEqual([
+        {
+          cmd: 'change_hunk',
+          args: {
+            paneId: '%7',
+            scope: 'unstaged',
+            action: 'stage',
+            path: 'src/a.rs',
+            hunk: 0,
+            token: 'tok-unstaged',
+          },
+        },
+      ]),
+    );
+  });
+
+  /**
+   * A revert throws work away: it asks first, with the hunk in front of the
+   * user, sends only on a yes, and can be undone right after.
+   */
+  it('reverts a hunk only after a confirm that shows it, then offers its undo', async () => {
+    const { hunkCalls } = mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Revert… hunk 1 of src/a.rs' }));
+    const confirm = screen.getByRole('alertdialog', { name: 'Revert this hunk?' });
+    expect(confirm.textContent).toContain('+<img src=x onerror=alert(1)>');
+    expect(confirm.querySelector('img')).toBeNull();
+    expect(hunkCalls()).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(hunkCalls()).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revert… hunk 1 of src/a.rs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revert this hunk' }));
+    await waitFor(() => expect(hunkCalls()).toHaveLength(1));
+    expect(hunkCalls()[0].args).toMatchObject({ action: 'revert', token: 'tok-unstaged' });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(hunkCalls()[1]).toEqual({ cmd: 'undo_revert', args: { paneId: '%7', id: 'r1' } }),
+    );
+  });
+
+  it('offers only Unstage in the staged changes, and nothing in the branch', async () => {
+    mount();
+    await screen.findByText('src/a.rs');
+    fireEvent.click(screen.getByRole('tab', { name: 'Staged' }));
+    await screen.findByRole('button', { name: 'Unstage hunk 1 of src/a.rs' });
+    expect(screen.queryByRole('button', { name: /^(Stage|Revert)/ })).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Branch' }));
+    await screen.findByText('feature against main');
+    expect(screen.queryByRole('button', { name: /hunk 1 of/ })).toBeNull();
   });
 
   it('folds a file away and back', async () => {

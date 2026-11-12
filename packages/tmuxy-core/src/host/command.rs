@@ -79,6 +79,23 @@ pub enum ClientCommand {
         pane_id: PaneId,
         scope: crate::diff_review::Scope,
     },
+    /// One hunk of a `diff` pane's checkout staged, unstaged or reverted
+    /// (`crate::diff_review::hunk`): authorised as `ReadDiff` is.
+    ChangeHunk {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+        scope: crate::diff_review::Scope,
+        path: String,
+        hunk: usize,
+        token: String,
+        action: crate::diff_review::hunk::HunkAction,
+    },
+    /// A revert `ChangeHunk` made, undone in the pane's own checkout.
+    UndoRevert {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+        id: String,
+    },
     GetThemeSettings,
     SetTheme {
         name: String,
@@ -331,6 +348,32 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                 crate::diff_review::read_diff(&tx, &pane_id, scope).await?,
                 "diff",
             )
+        }
+        ClientCommand::ChangeHunk {
+            pane_id,
+            scope,
+            path,
+            hunk,
+            token,
+            action,
+        } => {
+            let request = crate::diff_review::hunk::HunkRequest {
+                scope,
+                path,
+                hunk,
+                token,
+                action,
+            };
+            let tx = runtime.channel().await?;
+            to_json(
+                crate::diff_review::change_hunk(&tx, &pane_id, request).await?,
+                "hunk",
+            )
+        }
+        ClientCommand::UndoRevert { pane_id, id } => {
+            let tx = runtime.channel().await?;
+            crate::diff_review::undo_revert(&tx, &pane_id, id).await?;
+            Ok(Value::Null)
         }
         ClientCommand::StagePreview { pane_id, html } => {
             let tx = runtime.channel().await?;

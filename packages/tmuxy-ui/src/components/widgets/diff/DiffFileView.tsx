@@ -5,7 +5,9 @@
  */
 
 import { memo } from 'react';
-import { fileCounts, type DiffFile, type DiffLine } from '../../../domain/diff';
+import { fileCounts, LINE_SIGN, type DiffFile, type DiffLine } from '../../../domain/diff';
+import { HunkBar } from './HunkBar';
+import type { HunkControls } from './useHunks';
 import { commentKey, type LineSide, type ReviewComment } from '../../../domain/review';
 import { CommentEditor } from './CommentEditor';
 
@@ -23,13 +25,6 @@ function anchor(line: DiffLine): { side: LineSide; line: number } | null {
   if (line.old != null) return { side: 'old', line: line.old };
   return null;
 }
-
-const SIGN: Record<DiffLine['kind'], string> = {
-  context: ' ',
-  added: '+',
-  removed: '-',
-  note: '\\',
-};
 
 const STATUS_LABEL: Record<DiffFile['status'], string> = {
   modified: 'M',
@@ -97,7 +92,7 @@ function Line({ path, line, review }: { path: string; line: DiffLine; review: Fi
         <span className="diff-no diff-no-old">{line.old ?? ''}</span>
         <span className="diff-no diff-no-new">{line.new ?? ''}</span>
         <span className="diff-sign" aria-hidden="true">
-          {SIGN[line.kind]}
+          {LINE_SIGN[line.kind]}
         </span>
         <span className="diff-text">{line.text}</span>
       </div>
@@ -113,11 +108,13 @@ export const DiffFileView = memo(function DiffFileView({
   open,
   onToggle,
   review,
+  hunks,
 }: {
   file: DiffFile;
   open: boolean;
   onToggle: (path: string) => void;
   review: FileReview;
+  hunks: HunkControls;
 }) {
   const { added, removed } = fileCounts(file);
   return (
@@ -145,7 +142,7 @@ export const DiffFileView = memo(function DiffFileView({
           {file.binary && <div className="diff-note">Binary file: no lines to show</div>}
           {file.hunks.map((hunk, index) => (
             <div className="diff-hunk" key={`${index}:${hunk.header}`}>
-              <div className="diff-hunk-header">{hunk.header}</div>
+              <HunkBar file={file} hunk={hunk} index={index} controls={hunks} />
               {hunk.lines.map((line, at) => (
                 <Line path={file.path} line={line} review={review} key={at} />
               ))}

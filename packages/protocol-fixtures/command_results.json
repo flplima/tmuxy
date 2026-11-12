@@ -1,4 +1,9 @@
 {
+  "change_hunk": [
+    {
+      "revert": "1794452507000-0"
+    }
+  ],
   "connect_server": [
     null
   ],
@@ -399,7 +404,8 @@
           "modeChange": "100644 → 100755",
           "oldPath": "src/old.rs",
           "path": "src/new.rs",
-          "status": "renamed"
+          "status": "renamed",
+          "token": "5f0c1e2d3a4b6c7d"
         }
       ],
       "name": "app",
@@ -457,6 +463,9 @@
     null
   ],
   "stage_preview": [
+    null
+  ],
+  "undo_revert": [
     null
   ]
 }
