@@ -90,17 +90,10 @@ impl ImageParser {
         if data.len() < 4 || data[0] != 0x1B || data[1] != b'P' {
             return None;
         }
-        let mut end = 2;
-        while end + 1 < data.len() {
-            if data[end] == 0x1B && data[end + 1] == b'\\' {
-                break;
-            }
-            end += 1;
-        }
-        if end + 1 >= data.len() {
-            return None;
-        }
-        let consumed = end + 2;
+        let (end, consumed) = match string_end(data, 2, false)? {
+            StringEnd::Terminated { at, after } => (at, after),
+            StringEnd::Aborted => return None,
+        };
         let body = &data[2..end];
 
         // Sixel data starts after the `q` introducer, and all that may come
@@ -415,34 +408,66 @@ pub(super) fn sixel_extent(payload: &[u8]) -> (usize, usize) {
     (width, bands.saturating_mul(6).max(declared_height))
 }
 
-/// Where the last escape terminator (BEL, or the ESC of ESC \\) in `content`
-/// starts.
+/// Where the last end of an escape string in `content` starts: a BEL, or
+/// an ESC with a byte after it (ST, or an escape that aborts the string).
 pub(super) fn last_terminator_start(content: &[u8]) -> Option<usize> {
+    // Any ESC with a byte after it ends an escape string: as ST (`ESC \`), or
+    // by cutting it short. Only a last ESC is undecided.
     (0..content.len())
         .rev()
-        .find(|&i| content[i] == 0x07 || (content[i] == 0x1B && content.get(i + 1) == Some(&b'\\')))
+        .find(|&i| content[i] == 0x07 || (content[i] == 0x1B && i + 1 < content.len()))
 }
 
-/// Whether `next` holds a terminator for the escape buffered in `pending`,
-/// counting an ESC \\ split between the two.
+/// Whether `next` ends the escape buffered in `pending`, counting an ESC
+/// split from the byte after it: ST, or any other escape that cuts it short.
 pub(super) fn ends_pending_escape(pending: &[u8], next: &[u8]) -> bool {
-    (pending.last() == Some(&0x1B) && next.first() == Some(&b'\\'))
-        || last_terminator_start(next).is_some()
+    (pending.last() == Some(&0x1B) && !next.is_empty()) || last_terminator_start(next).is_some()
+}
+
+/// How an escape string (OSC, DCS, APC) that runs from `from` in `data`
+/// ends, as a terminal reads it.
+pub(super) enum StringEnd {
+    /// At ST (`ESC \`), or at BEL for an OSC: the body is `data[from..at]`,
+    /// and the string ends before `after`.
+    Terminated { at: usize, after: usize },
+    /// Cut short by another escape, which aborts it: no picture, and the
+    /// bytes go on to the terminal, which reads the escape that cut it.
+    Aborted,
+}
+
+/// Where the escape string from `from` ends; `None` while it has not ended
+/// yet (no ESC, or an ESC as the last byte, which could still become ST).
+/// `bel`: BEL ends it too (an OSC).
+pub(super) fn string_end(data: &[u8], from: usize, bel: bool) -> Option<StringEnd> {
+    for (i, &byte) in data.iter().enumerate().skip(from) {
+        if byte == 0x07 && bel {
+            return Some(StringEnd::Terminated {
+                at: i,
+                after: i + 1,
+            });
+        }
+        if byte == 0x1B {
+            return match data.get(i + 1) {
+                Some(b'\\') => Some(StringEnd::Terminated {
+                    at: i,
+                    after: i + 2,
+                }),
+                Some(_) => Some(StringEnd::Aborted),
+                None => None,
+            };
+        }
+    }
+    None
 }
 
 /// Find the terminator of an OSC body (BEL or ESC \\). `content` starts
 /// AFTER the `ESC ]` prefix; returns (bytes consumed from `content`,
 /// terminator included, and the body).
 pub(super) fn find_osc_end(content: &[u8]) -> Option<(usize, &[u8])> {
-    for i in 0..content.len() {
-        if content[i] == 0x07 {
-            return Some((i + 1, &content[..i]));
-        }
-        if i + 1 < content.len() && content[i] == 0x1B && content[i + 1] == b'\\' {
-            return Some((i + 2, &content[..i]));
-        }
+    match string_end(content, 0, true)? {
+        StringEnd::Terminated { at, after } => Some((after, &content[..at])),
+        StringEnd::Aborted => None,
     }
-    None
 }
 
 /// Decode standard base64 (and url-safe), padded or not, tolerating embedded

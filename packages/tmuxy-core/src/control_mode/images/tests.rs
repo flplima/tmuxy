@@ -374,3 +374,32 @@ fn a_finished_transfer_leaves_nothing_in_flight() {
     assert!(parser.kitty_chunks.is_empty());
     assert!(parser.kitty_chunk_order.is_empty());
 }
+
+/// An escape string is cut short by any escape but ST, as a terminal reads
+/// it: what comes after is the terminal's, never held as part of a picture.
+/// Found by the parser fuzzer (`ESC ] ESC T M` showed `M` or nothing,
+/// depending on where tmux's `%output` lines happened to end).
+#[test]
+fn an_escape_string_cut_short_holds_back_nothing_after_it() {
+    let passed = |chunks: &[&[u8]]| {
+        let mut parser = ImageParser::new();
+        let mut out = Vec::new();
+        for chunk in chunks {
+            let result = parser.process(chunk);
+            assert!(result.new_images.is_empty());
+            out.extend(result.clean_bytes);
+        }
+        out
+    };
+    let fuzzed: &[u8] = b"\x1b]\x1bTM";
+    assert_eq!(passed(&[fuzzed]), fuzzed);
+    // A stray OSC start, then colored output with no BEL or ST anywhere.
+    let stray: &[u8] = b"\x1b]\x1b[31mhello\x1b[0m";
+    assert_eq!(passed(&[stray]), stray);
+    assert_eq!(passed(&[&stray[..2], &stray[2..]]), stray);
+    // A sixel and a kitty picture cut short: their text reaches the terminal.
+    let sixel: &[u8] = b"\x1bPq#0;2;0;0;0\x1b[31mtext\x1b\\";
+    assert!(passed(&[sixel]).windows(4).any(|w| w == b"text"));
+    let kitty: &[u8] = b"\x1b_Ga=T,f=100;\x1b[31mtext\x1b\\";
+    assert!(passed(&[kitty]).windows(4).any(|w| w == b"text"));
+}
