@@ -277,6 +277,7 @@ function applyWindowDelta(window: WireWindow, delta: WindowDelta): WireWindow {
     ...(delta.float_drawer !== undefined && { float_drawer: delta.float_drawer }),
     ...(delta.float_bg !== undefined && { float_bg: delta.float_bg }),
     ...(delta.float_noheader !== undefined && { float_noheader: delta.float_noheader }),
+    ...(delta.float_minimized !== undefined && { float_minimized: delta.float_minimized }),
     ...(delta.sidebar_cols !== undefined && { sidebar_cols: delta.sidebar_cols }),
     ...(delta.sidebar_hidden !== undefined && { sidebar_hidden: delta.sidebar_hidden }),
     ...(delta.collapsible !== undefined && { collapsible: delta.collapsible }),

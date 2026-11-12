@@ -21,6 +21,7 @@ fn a_window_whose_index_moved_is_in_the_delta() {
         float_drawer: None,
         float_bg: None,
         float_noheader: false,
+        float_minimized: false,
         sidebar_cols: None,
         sidebar_hidden: false,
         collapsible: false,

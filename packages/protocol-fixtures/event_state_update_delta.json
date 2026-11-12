@@ -42,6 +42,7 @@
       "new_windows": [
         {
           "active": false,
+          "float_minimized": true,
           "float_parent": "@2",
           "id": "@3",
           "index": 2,
@@ -120,6 +121,7 @@
           "float_bg": "blur",
           "float_drawer": "top",
           "float_height": 25,
+          "float_minimized": true,
           "float_noheader": true,
           "float_parent": null,
           "float_width": 70,

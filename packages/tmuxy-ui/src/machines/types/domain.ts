@@ -70,6 +70,8 @@ export interface FloatPaneState {
   /** Backdrop style (default: dim) */
   backdrop?: FloatBackdrop;
   hideHeader?: boolean;
+  /** Minimized to the queue at the bottom of its tab (`@tmuxy-float-minimized`): not drawn. */
+  minimized?: boolean;
 }
 
 export interface DragState {

@@ -153,6 +153,8 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_noheader: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_minimized: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sidebar_cols: Option<Option<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidebar_hidden: Option<bool>,

@@ -18,6 +18,8 @@ pub struct WindowState {
     /// `@tmuxy-sidebar-hidden` — the user closed this sidebar column; its
     /// pane stays alive but no client draws it.
     pub sidebar_hidden: bool,
+    /// `@tmuxy-float-minimized` — the user minimized this float to the queue.
+    pub float_minimized: bool,
     /// Rows the dock's pane is sized to (@tmuxy-sidebar-rows); None = the viewport's.
     pub sidebar_rows: Option<u32>,
     /// Only the active pane's first-level row is expanded (@tmuxy-collapsible).
@@ -63,6 +65,7 @@ impl WindowState {
             window_type: None,
             sidebar_cols: None,
             sidebar_hidden: false,
+            float_minimized: false,
             sidebar_rows: None,
             collapsible: false,
             float_parent: None,
@@ -91,6 +94,7 @@ impl WindowState {
             float_drawer: self.float_drawer.clone(),
             float_bg: self.float_bg.clone(),
             float_noheader: self.float_noheader,
+            float_minimized: self.float_minimized,
             sidebar_cols: self.sidebar_cols,
             sidebar_hidden: self.sidebar_hidden,
             collapsible: self.collapsible,

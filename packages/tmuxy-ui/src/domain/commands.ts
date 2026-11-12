@@ -56,7 +56,12 @@ export type SplitDirection = 'horizontal' | 'vertical';
 export type Side = 'left' | 'right' | 'up' | 'down';
 
 /** A tmuxy window option (`@tmuxy-<tag>`) the client writes. */
-export type WindowTag = 'collapsible' | 'sidebar-hidden' | 'sidebar-rows' | 'sidebar-cols';
+export type WindowTag =
+  | 'collapsible'
+  | 'sidebar-hidden'
+  | 'sidebar-rows'
+  | 'sidebar-cols'
+  | 'float-minimized';
 
 /** One step of a divider drag: grow or shrink `paneId` by `cells` toward `direction`. */
 export interface ResizeStep {

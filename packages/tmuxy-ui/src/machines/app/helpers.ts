@@ -203,6 +203,7 @@ export function buildFloatPanesFromWindows(
     const drawer = (window.floatDrawer as DrawerDirection | null) ?? undefined;
     const backdrop = (window.floatBg as FloatBackdrop | null) ?? undefined;
     const hideHeader = window.floatNoheader || undefined;
+    const minimized = window.floatMinimized || undefined;
     // @tmuxy-float-width/height (in cells) are the float's REQUESTED size —
     // authoritative when present. The pane's tmux size is only a fallback: a
     // single-pane float window can't be shrunk by resize-pane, so on some
@@ -223,6 +224,7 @@ export function buildFloatPanesFromWindows(
         drawer,
         backdrop,
         hideHeader,
+        minimized,
       };
     } else {
       // Default dimensions: requested size, else the pane's actual size. Cap
@@ -246,6 +248,7 @@ export function buildFloatPanesFromWindows(
         drawer,
         backdrop,
         hideHeader,
+        minimized,
       };
     }
   }

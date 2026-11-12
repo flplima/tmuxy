@@ -293,7 +293,7 @@ fn list_windows_name_with_commas_keeps_fields_aligned() {
     // window_active/@tmuxy-window-type/floats.
     let name = "build, test";
     let line = format!(
-        "@7,3,1,tab,,,,,,,,,,,0,,{}",
+        "@7,3,1,tab,,,,,,,,,,,,0,,{}",
         name.replace(',', crate::constants::tmux_formats::COMMA_ESCAPE)
     );
     let mut agg = StateAggregator::new();

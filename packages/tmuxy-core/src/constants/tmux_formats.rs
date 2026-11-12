@@ -173,6 +173,7 @@ row_table! {
         FloatDrawer => Field::Var(tmux_options::FLOAT_DRAWER),
         FloatBg => Field::Var(tmux_options::FLOAT_BG),
         FloatNoheader => Field::Var(tmux_options::FLOAT_NOHEADER),
+        FloatMinimized => Field::Var(tmux_options::FLOAT_MINIMIZED),
         // Session-scoped, so every row carries the same value.
         FocusRequest => Field::Var(tmux_options::FOCUS_REQUEST),
         SidebarCols => Field::Var(tmux_options::SIDEBAR_COLS),
