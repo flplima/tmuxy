@@ -4,7 +4,7 @@ An agent tmuxy installs hooks for (Claude Code, Codex, Antigravity) says what it
 
 ## Which panes
 
-A pane whose foreground command is `gemini`, `aider`, `cursor-agent`, `amp`, `opencode`, `pi` or `crush`. An agent run by an interpreter is found by the script it runs: tmux names an npm or pip bin script's pane `node` or `python3`, so for an interpreter the foreground process's arguments are read from `/proc` (`tmuxy-core/src/host/socket_watch/agent_rules/program.rs`), and `node ~/.npm/bin/gemini` counts as `gemini`, `python3 -m aider` as `aider`. Off Linux the command stands as tmux names it. The agents with hooks are not read here; their hooks own their state, and a separate reader only watches their screens for approval dialogs ([TMUX-TAGS.md](TMUX-TAGS.md)).
+A pane whose foreground command is `gemini`, `aider`, `cursor-agent`, `amp`, `opencode`, `pi` or `crush`. An agent run by an interpreter is found by the script it runs: tmux names an npm or pip bin script's pane `node` or `python3`, so for an interpreter the foreground process's arguments are read from `/proc` (`tmuxy-core/src/host/socket_watch/agent_rules/program.rs`), and `node ~/.npm/bin/gemini` counts as `gemini`, `python3 -m aider` as `aider`. Off Linux the arguments come from `ps`, which joins them with spaces, so a script path with a space in it is cut short there. The agents with hooks are not read here; their hooks own their state, and a separate reader only watches their screens for approval dialogs ([TMUX-TAGS.md](TMUX-TAGS.md)).
 
 ## The signs
 
@@ -30,4 +30,4 @@ The rules write the state and, beside it, `@tmuxy-rules-state`: what they last w
 
 ## Tests
 
-`agent_rules_tests.rs` holds the signs and the precedence. `tests/agent_rules.rs` runs a fake agent (a script named `gemini`, run by `sh` as node runs an npm bin script) in a real tmux on the test's own socket: working while it prints, idle once it holds still, and a state set as a hook sets it left alone.
+`agent_rules_tests.rs` holds the signs and the precedence. `tests/agent_rules.rs` runs a fake agent (a Node script named `gemini`, run as node runs an npm bin script) in a real tmux on the test's own socket: working while it prints, idle once it holds still, and a state set as a hook sets it left alone.

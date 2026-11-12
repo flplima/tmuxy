@@ -7,12 +7,15 @@
 //! the program instead: `node ~/.npm/bin/gemini` is `gemini`, and
 //! `python3 -m aider` is `aider`.
 //!
-//! The arguments come from `/proc`, read only; elsewhere the command stands
-//! as tmux names it.
+//! The arguments come from `/proc` on Linux and from `ps` elsewhere (macOS,
+//! the BSDs), read only. `ps` joins them with spaces, so there a script
+//! path with a space in it is cut short.
 
-/// The commands that run a program named by their arguments.
-const INTERPRETERS: [&str; 11] = [
-    "node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl", "sh", "bash", "dash",
+/// The commands that run a program named by their arguments. Shells are
+/// not among them: a shell at its prompt is the common case, and off Linux
+/// each lookup is a `ps`.
+const INTERPRETERS: [&str; 8] = [
+    "node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl",
 ];
 
 pub fn is_interpreter(command: &str) -> bool {
@@ -74,8 +77,30 @@ fn foreground_argv(pane_pid: u32) -> Option<Vec<String>> {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn foreground_argv(_pane_pid: u32) -> Option<Vec<String>> {
-    None
+fn foreground_argv(pane_pid: u32) -> Option<Vec<String>> {
+    foreground_argv_by_ps(pane_pid)
+}
+
+/// [`foreground_argv`] through `ps`, for a system with no `/proc`. Built
+/// everywhere, so Linux's tests run it too (procps takes the same flags).
+pub fn foreground_argv_by_ps(pane_pid: u32) -> Option<Vec<String>> {
+    let ps = |fields: &str, pid: &str| {
+        let output = std::process::Command::new("ps")
+            .args(["-ww", "-o", fields, "-p", pid])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+    let tpgid: i64 = ps("tpgid=", &pane_pid.to_string())?.parse().ok()?;
+    if tpgid <= 0 {
+        return None;
+    }
+    let args = ps("args=", &tpgid.to_string())?;
+    Some(args.split_whitespace().map(String::from).collect())
 }
 
 fn pane_pid(pane: &str) -> Option<u32> {
@@ -130,7 +155,7 @@ mod tests {
             name(&["python3", "/usr/local/bin/aider"]).as_deref(),
             Some("aider")
         );
-        assert_eq!(name(&["sh", "./gemini"]).as_deref(), Some("gemini"));
+        assert_eq!(name(&["bun", "./gemini"]).as_deref(), Some("gemini"));
     }
 
     #[test]
@@ -143,10 +168,19 @@ mod tests {
 
     #[test]
     fn interpreters_are_known_and_programs_are_not() {
-        for interpreter in ["node", "python3", "python3.12", "bun", "sh"] {
+        for interpreter in ["node", "python3", "python3.12", "bun", "deno"] {
             assert!(is_interpreter(interpreter), "{interpreter}");
         }
-        for program in ["gemini", "aider", "python3.x", "python3.", "nvim", "zsh"] {
+        for program in [
+            "gemini",
+            "aider",
+            "python3.x",
+            "python3.",
+            "nvim",
+            "zsh",
+            "sh",
+            "bash",
+        ] {
             assert!(!is_interpreter(program), "{program}");
         }
     }
