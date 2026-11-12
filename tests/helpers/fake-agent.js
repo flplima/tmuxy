@@ -22,7 +22,7 @@ function fakeClaudeOnPath(session) {
   fs.mkdirSync(bin);
   fs.writeFileSync(
     path.join(bin, 'claude'),
-    `#!/bin/bash\nprintf '%s\\n' "$@" > '${marker}'\necho "fake claude resumed $2"\nexec -a claude sleep 600\n`,
+    `#!/bin/bash\nprintf '%s\\n' "$@" > '${marker}'\necho "fake claude resumed $2"\nexec -a claude sleep 120\n`,
   );
   fs.chmodSync(path.join(bin, 'claude'), 0o755);
   const before = tmuxyCli(['run', 'show-environment', '-g', 'PATH'])
