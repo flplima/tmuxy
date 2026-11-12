@@ -14,10 +14,16 @@ A good report is one we can reproduce. This page says what to put in it, how to 
 
 ## Taking a trace
 
-<!-- TO UPDATE when the Debug menu's "Copy Bug Report Snippet" and "Copy Trace…"
-land: say to paste the snippet for the versions above, and to attach the
-redacted trace after checking its preview, in place of steps 3 and 4 and the
-manual check below. Until then, this section is what works on main. -->
+<!-- TO UPDATE when the Debug menu's "Copy Bug Report Snippet" (menu id
+debug-copy-report) and "Copy Trace…" land on main. The snippet is Markdown with
+`### Environment` (tmuxy version and web or desktop, tmux version, OS) and
+`### Settings` (theme and mode, cursor blink, ask before sending keys,
+transparency, traces and level, tab and pane counts), and nothing else: no
+names, commands, paths or hosts. Then: step 2 above says to paste the snippet
+(and to read it first, as its notice asks); the issue template gets an optional
+"Bug report snippet" field beside the version fields; steps 3 and 4 and the
+manual check below give way to the redacted trace and its preview. Until then,
+this section is what works on main. -->
 
 Tracing is off by default. Nothing is sent anywhere: the trace is a file on the machine that runs tmuxy ([TELEMETRY.md](TELEMETRY.md)).
 
