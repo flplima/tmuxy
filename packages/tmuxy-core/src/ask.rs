@@ -196,14 +196,29 @@ impl SendRules {
     }
 
     /// After a send that skipped the question: the pane is unread, unless it
-    /// already says something louder about itself. The client clears it once
-    /// the user looks at the pane.
+    /// says something louder about itself. tmux decides that as it marks it,
+    /// not from the state read before the keys went in: an agent that took
+    /// them up and already says it is working stays working. The client
+    /// clears the mark once the user looks at the pane.
     pub async fn mark_unread<T: Tmux>(&self, tmux: &T, pane: &PaneId) -> Result<(), CommandError> {
-        if self.pane_state.is_empty() || self.pane_state == "idle" {
-            tmux.mutate(vec![set_pane(pane, PANE_STATE, "unread")])
-                .await?;
+        if !(self.pane_state.is_empty() || self.pane_state == "idle") {
+            return Ok(());
         }
-        Ok(())
+        let quiet = format!("#{{||:#{{==:#{{{PANE_STATE}}},}},#{{==:#{{{PANE_STATE}}},idle}}}}");
+        let mark = set_pane(pane, PANE_STATE, "unread")
+            .iter()
+            .map(|word| crate::tmux_quote(word))
+            .collect::<Vec<_>>()
+            .join(" ");
+        tmux.mutate(vec![words(&[
+            "if-shell",
+            "-F",
+            "-t",
+            pane.as_str(),
+            &quiet,
+            &mark,
+        ])])
+        .await
     }
 }
 
