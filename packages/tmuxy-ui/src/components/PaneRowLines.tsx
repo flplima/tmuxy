@@ -33,6 +33,9 @@ export interface PaneRowParts {
   fields: PaneField[] | undefined;
 }
 
+/** [`PaneRowParts`], and the fields the `fields` item draws. */
+type LineParts = PaneRowParts & { rest: PaneField[] | undefined };
+
 // The branch's slot is held even outside a repository, so every row's path
 // gets the same width and the columns line up down the tree.
 /** `+12 −3` as words: the signs alone read badly aloud. */
@@ -125,7 +128,7 @@ const badgeSpan = (badge: GitBadge | null) =>
   );
 
 /** Whether `item` has anything to show for this pane. */
-function shows(item: RowItem, parts: PaneRowParts): boolean {
+function shows(item: RowItem, parts: LineParts): boolean {
   switch (item.kind) {
     case 'process':
     case 'id':
@@ -139,7 +142,7 @@ function shows(item: RowItem, parts: PaneRowParts): boolean {
     case 'title':
       return Boolean(parts.title);
     case 'fields':
-      return Boolean(parts.fields?.length);
+      return Boolean(parts.rest?.length);
     case 'field':
       return Boolean(parts.fields?.some((f) => f.key === item.key));
   }
@@ -172,7 +175,7 @@ const fieldSpan = (field: PaneField) => (
 );
 
 /** One item as it sits in a line among others. */
-function itemNode(item: RowItem, parts: PaneRowParts): ReactNode {
+function itemNode(item: RowItem, parts: LineParts): ReactNode {
   switch (item.kind) {
     case 'process':
       return <ProcessItem parts={parts} />;
@@ -187,7 +190,7 @@ function itemNode(item: RowItem, parts: PaneRowParts): ReactNode {
     case 'title':
       return parts.title && <span className="sidebar-tree-title-inline">{parts.title}</span>;
     case 'fields':
-      return parts.fields?.map(fieldSpan);
+      return parts.rest?.map(fieldSpan);
     case 'field': {
       const field = parts.fields?.find((f) => f.key === item.key);
       return field && fieldSpan(field);
@@ -202,11 +205,11 @@ const isWhere = (item: RowItem) => item.kind === 'cwd' || item.kind === 'branch'
  * of the title alone, of the fields alone, or of the cwd and branch is drawn
  * the way the tree always drew it, with its own width and cut.
  */
-function Line({ items, parts }: { items: readonly RowItem[]; parts: PaneRowParts }) {
+function Line({ items, parts }: { items: readonly RowItem[]; parts: LineParts }) {
   if (!items.some((it) => shows(it, parts))) return null;
   const only = items.length === 1 ? items[0].kind : null;
   if (only === 'title') return <span className="sidebar-tree-title">{parts.title}</span>;
-  if (only === 'fields') return <FieldLine fields={parts.fields} />;
+  if (only === 'fields') return <FieldLine fields={parts.rest} />;
   const nodes = items.map((it, i) => <Fragment key={i}>{itemNode(it, parts)}</Fragment>);
   return (
     <span className={items.every(isWhere) ? 'sidebar-tree-where' : 'sidebar-tree-line'}>
@@ -216,10 +219,17 @@ function Line({ items, parts }: { items: readonly RowItem[]; parts: PaneRowParts
 }
 
 export function PaneRowLines({ template, parts }: { template: RowTemplate; parts: PaneRowParts }) {
+  // A field the template names on its own (`field:ci`) is not drawn again
+  // among `fields`: those are the rest.
+  const named = new Set(
+    template.flat().flatMap((item) => (item.kind === 'field' ? [item.key] : [])),
+  );
+  const rest = parts.fields?.filter((field) => !named.has(field.key));
+  const shown = { ...parts, rest };
   return (
     <>
       {template.map((items, i) => (
-        <Line key={i} items={items} parts={parts} />
+        <Line key={i} items={items} parts={shown} />
       ))}
     </>
   );

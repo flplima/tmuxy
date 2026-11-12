@@ -71,6 +71,20 @@ describeE2E('Scenario 6i: the tree row template', {}, (ctx) => {
         'the row as the template says: the ci field, then the process, nothing else',
       );
 
+      // A field named on its own is not drawn again among the rest.
+      await ctx.session.runAsOperator(`set -g @tmuxy-tree-row 'field:ci / fields'`);
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const lines = await rowLines(ctx.page, paneId);
+          return (
+            lines?.length === 2 && lines[0].text === 'ci passing' && lines[1].text === 'task other'
+          );
+        },
+        30000,
+        'ci on its own line and only task among the rest',
+      );
+
       // A word it does not know: the whole template is set aside.
       await ctx.session.runAsOperator(`set -g @tmuxy-tree-row 'field:ci / colour'`);
       await waitForCondition(
