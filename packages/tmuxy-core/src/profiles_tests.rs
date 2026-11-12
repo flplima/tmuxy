@@ -257,3 +257,47 @@ fn the_session_map_is_edited_and_written_whole() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A key a newer build wrote survives both writers, and edits made at once
+/// from several threads all land.
+#[test]
+fn state_writes_keep_unknown_keys_and_lose_no_concurrent_edit() {
+    let root = scratch("merge");
+    let layout = Layout {
+        config: root.join("config"),
+        data: root.join("data"),
+        state: root.join("state"),
+        home: root.join("home"),
+    };
+    std::fs::create_dir_all(&layout.state).unwrap();
+    std::fs::write(layout.state_file(), r#"{"future_choice": 7}"#).unwrap();
+    std::thread::scope(|scope| {
+        for n in 0..8 {
+            let layout = &layout;
+            scope.spawn(move || {
+                crate::session::edit_session_profiles_in(layout, |map| {
+                    map.insert(format!("s{n}"), "Reading".into());
+                })
+                .unwrap();
+            });
+        }
+    });
+    crate::session::write_managed_state_in(
+        &layout,
+        crate::session::ManagedState {
+            theme: Some("nord".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(layout.state_file()).unwrap()).unwrap();
+    assert_eq!(file["future_choice"], 7, "{file}");
+    assert_eq!(file["theme"], "nord", "{file}");
+    assert_eq!(
+        file["session_profiles"].as_object().unwrap().len(),
+        8,
+        "{file}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
