@@ -32,6 +32,17 @@ pub struct SendArgs {
     /// Answer in JSON.
     #[arg(long)]
     json: bool,
+    /// After sending, wait for the agent in the pane to start working and
+    /// finish (`send_cli/wait.rs`).
+    #[arg(long)]
+    wait: bool,
+    /// With --wait: seconds the agent has to start working before the send
+    /// is reported stalled.
+    #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..))]
+    stall_after: u64,
+    /// With --wait: how long it may work (`30s`, `10m`, `2h`).
+    #[arg(long, default_value = "30m")]
+    wait_for: String,
     /// The keys: literal text or key names (Enter, C-c, ...).
     #[arg(last = true)]
     keys: Vec<String>,
@@ -86,10 +97,19 @@ async fn send<T: ask::Tmux>(
         }
         keys = vec![text];
     }
+    let wait = if args.wait {
+        Some(wait::Wait {
+            stall: Duration::from_secs(args.stall_after),
+            limit: wait::duration(&args.wait_for)?,
+        })
+    } else {
+        None
+    };
     let delivery = Delivery {
         pane: &pane,
         keys: &keys,
         paste: args.paste,
+        wait,
     };
     let caller_pane = args
         .caller_pane
@@ -106,18 +126,29 @@ async fn send<T: ask::Tmux>(
         return rules.mark_unread(tmux, &pane).await.map_err(failed);
     }
 
-    let deadline = args
-        .timeout
-        .map(|s| Deadline::after(Duration::from_secs(s)));
-    let question = Question::new(
-        &pane,
-        &std::process::id().to_string(),
-        &caller,
-        &keys,
-        &rules,
-    );
+    put_question(tmux, &pane, &caller, &keys, &rules, args.timeout).await?;
+    delivery.deliver(tmux, answer).await
+}
+
+/// Ask the user in `pane` whether `caller` may type `keys`, and wait for the
+/// answer: `Ok` for a yes, and the exit code and message of every other end.
+async fn put_question<T: ask::Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+    caller: &str,
+    keys: &[String],
+    rules: &SendRules,
+    timeout: Option<u64>,
+) -> Result<(), (i32, String)> {
+    let deadline = timeout.map(|s| Deadline::after(Duration::from_secs(s)));
+    let question = Question::new(pane, &std::process::id().to_string(), caller, keys, rules);
     let asked = async {
-        ask::wait_turn(tmux, &pane, deadline).await?;
+        ask::wait_turn(tmux, pane, deadline).await?;
+        // A pane at a prompt is not asked over: the user would be asked to
+        // let keys answer it. It is checked again as the keys go in.
+        if ask::at_prompt(tmux, pane).await? {
+            return Err(Refused::AtPrompt(pane.clone()));
+        }
         question.put_up(tmux).await?;
         // Pane output is what makes the backend re-list the panes promptly:
         // a question asked from a silent pane would otherwise wait for the
@@ -143,8 +174,7 @@ async fn send<T: ask::Tmux>(
             _ => EXIT_FAILED,
         };
         (code, refused.to_string())
-    })?;
-    delivery.deliver(tmux, answer).await
+    })
 }
 
 /// Who is asking: the program in front in the caller's pane (an agent's own
@@ -198,17 +228,22 @@ struct Delivery<'a> {
     pane: &'a PaneId,
     keys: &'a [String],
     paste: bool,
+    wait: Option<wait::Wait>,
 }
 
 impl Delivery<'_> {
     async fn deliver<T: ask::Tmux>(&self, tmux: &T, answer: &Answer) -> Result<(), (i32, String)> {
-        let command = if self.paste {
-            let buffer = format!(
+        // Every send, the caller's own pane included, goes in through
+        // `ask::deliver`, which types nothing into a pane at a prompt.
+        let buffer = self.paste.then(|| {
+            format!(
                 "{}{}",
                 tmuxy_core::constants::CLI_PASTE_BUFFER_PREFIX,
                 std::process::id()
-            );
-            load_buffer(&buffer, &self.keys.concat()).map_err(|e| (EXIT_FAILED, e))?;
+            )
+        });
+        let command = if let Some(buffer) = &buffer {
+            load_buffer(buffer, &self.keys.concat()).map_err(|e| (EXIT_FAILED, e))?;
             // -p: bracketed when the program in the pane asked for it
             // (?2004h), so a multi-line paste is inserted rather than run a
             // line at a time.
@@ -217,7 +252,7 @@ impl Delivery<'_> {
                 "-p",
                 "-d",
                 "-b",
-                &buffer,
+                buffer,
                 "-t",
                 self.pane.as_str(),
             ]
@@ -226,22 +261,53 @@ impl Delivery<'_> {
         } else {
             ask::send_keys_argv(self.pane, self.keys)
         };
-        ask::Tmux::mutate(tmux, vec![command])
-            .await
-            .map_err(failed)?;
-        answer.done(
-            &[
-                ("paneId", cli_json::string(self.pane.as_str())),
-                ("sent", "true".into()),
-            ],
-            &format!("sent to {}: {}", self.pane, self.keys.join(" ")),
-        );
+        // The program in front as the keys go in: a wait ends only for it.
+        let pinned = match self.wait {
+            Some(_) => Some(wait::occupant(tmux, self.pane).await?),
+            None => None,
+        };
+        if let Err(refused) = ask::deliver(tmux, self.pane, command).await {
+            if let Some(buffer) = &buffer {
+                let drop = ["delete-buffer", "-b", buffer].map(String::from).to_vec();
+                let _ = ask::Tmux::mutate(tmux, vec![drop]).await;
+            }
+            return Err((EXIT_FAILED, refused.to_string()));
+        }
+        let settled = match (self.wait, &pinned) {
+            (Some(how), Some(pinned)) => Some(wait::settle(tmux, self.pane, pinned, how).await?),
+            _ => None,
+        };
+        let mut fields = vec![
+            ("paneId", cli_json::string(self.pane.as_str())),
+            ("sent", "true".into()),
+        ];
+        if let Some(state) = &settled {
+            fields.push(("settled", cli_json::string(state)));
+        }
+        let said = match &settled {
+            Some(state) => format!(
+                "sent to {} and it finished ({state}): {}",
+                self.pane,
+                self.keys.join(" ")
+            ),
+            None => format!("sent to {}: {}", self.pane, self.keys.join(" ")),
+        };
+        answer.done(&fields, &said);
         Ok(())
     }
 }
 
 /// `text` into a named tmux buffer, from stdin: `load-buffer` changes no
 /// window, pane or client, so it runs as a plain client.
+///
+/// It is the one tmux call here that does not go through [`ask::Tmux`], so a
+/// test's fake does not stand in for it: under test it reaches no tmux.
+#[cfg(test)]
+fn load_buffer(_buffer: &str, _text: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(test))]
 fn load_buffer(buffer: &str, text: &str) -> Result<(), String> {
     use std::io::Write;
     let mut child = tmuxy_core::session::tmux_command()
@@ -272,6 +338,8 @@ fn without_controls(text: &str) -> String {
         .filter(|&c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
         .collect()
 }
+
+mod wait;
 
 #[cfg(test)]
 mod tests;

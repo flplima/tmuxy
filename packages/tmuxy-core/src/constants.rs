@@ -115,6 +115,11 @@ pub mod tmux_options {
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
 
+    /// Set by tmux on a pane a send was held back from, because the pane said
+    /// it needs the user (`crate::ask::deliver`): the send reads it back to
+    /// know, and takes it off. Unset otherwise.
+    pub const SEND_HELD: &str = "@tmuxy-send-held";
+
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the
     /// shell scripts' `_contract`).

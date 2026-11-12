@@ -79,6 +79,20 @@ describe('tmuxy pane send', () => {
     expect(verbArgs(paste.stdout)).toMatch(/ --paste -- some text$/);
   });
 
+  test('passes on --wait, its time and its stall limit, and only with --wait', () => {
+    const waited = runCLI(
+      ['pane', 'send', '-t', '%3', '--wait', '--for', '10m', '--stall-after', '8', 'ok', 'Enter'],
+      { env: IN_PANE_1 },
+    );
+    expect(verbArgs(waited.stdout)).toMatch(/ --wait --wait-for 10m --stall-after 8 -- ok Enter$/);
+    expect(
+      verbArgs(runCLI(['pane', 'send', '-t', '%3', '--wait', 'go'], { env: IN_PANE_1 }).stdout),
+    ).toMatch(/ --wait -- go$/);
+    const stray = runCLI(['pane', 'send', '-t', '%3', '--for', '10m', 'go'], { env: IN_PANE_1 });
+    expect(stray.exitCode).toBe(2);
+    expect(verbArgs(stray.stdout)).toBeNull();
+  });
+
   describe('refusals', () => {
     test('needs keys to send', () => {
       const { exitCode, stderr } = send(['-t', '%3']);
