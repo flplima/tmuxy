@@ -368,7 +368,6 @@
       "allow": [
         "packages/tmuxy-core/src/cli_contract.rs",
         "packages/tmuxy-core/src/control_mode/connection/spawn.rs",
-        "packages/tmuxy-core/src/diff_review/git.rs",
         "packages/tmuxy-core/src/plugins/fetch.rs",
         "packages/tmuxy-core/src/plugins/gc.rs",
         "packages/tmuxy-core/src/plugins/index.rs",

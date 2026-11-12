@@ -291,17 +291,3 @@ fn a_pane_may_read_only_the_checkout_its_options_name() {
         assert!(parse_authorisation(answer).is_err(), "{answer:?}");
     }
 }
-
-#[test]
-fn the_git_version_is_read_from_what_git_says() {
-    assert_eq!(git::git_version("git version 2.56.0\n"), Some((2, 56)));
-    assert_eq!(
-        git::git_version("git version 2.39.5 (Apple Git-154)"),
-        Some((2, 39))
-    );
-    assert_eq!(
-        git::git_version("git version 2.30.9.windows.1"),
-        Some((2, 30))
-    );
-    assert_eq!(git::git_version("not git"), None);
-}

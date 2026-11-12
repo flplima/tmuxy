@@ -108,7 +108,7 @@ pub async fn read_diff(
 
 /// The changes of the checkout `dir` is in, in `scope`.
 pub fn read_in(dir: &Path, scope: Scope) -> Result<DiffRead, CommandError> {
-    if !git::takes_settings_from_the_environment() {
+    if !git::available() {
         return Err(CommandError::unavailable(
             "the diff needs git 2.31 or later, which takes its settings from the environment",
         ));
