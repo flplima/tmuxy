@@ -82,7 +82,7 @@ pub struct Facts {
 /// cannot shift the other fields: a state holding a tab stays one value.
 pub fn facts_format() -> String {
     format!(
-        "#{{{}}}\t#{{{}}}\t#{{?{},1,}}\t#{{pane_current_command}}\t#{{pane_pid}}\t#{{{}}}",
+        "#{{pane_id}}\t#{{{}}}\t#{{{}}}\t#{{?{},1,}}\t#{{pane_current_command}}\t#{{pane_pid}}\t#{{{}}}",
         tmux_options::RULES_STATE,
         tmux_options::RULES_WHY,
         tmux_options::ASK,
@@ -91,12 +91,18 @@ pub fn facts_format() -> String {
 }
 
 impl Facts {
-    pub fn parse(line: &str) -> Option<Facts> {
+    /// The facts of `pane` from a read of [`facts_format`]; `None` when
+    /// the read is of another pane: `display-message -t` falls back to one
+    /// when its target is gone.
+    pub fn parse(pane: &str, line: &str) -> Option<Facts> {
         let line = line.strip_suffix('\n').unwrap_or(line);
-        let f: Vec<&str> = line.splitn(6, '\t').collect();
-        let [rules_state, rules_why, ask, command, pid, state] = f[..] else {
+        let f: Vec<&str> = line.splitn(7, '\t').collect();
+        let [id, rules_state, rules_why, ask, command, pid, state] = f[..] else {
             return None;
         };
+        if id != pane {
+            return None;
+        }
         Some(Facts {
             state: state.into(),
             rules_state: rules_state.into(),
@@ -116,7 +122,7 @@ impl Facts {
         if !output.status.success() {
             return None;
         }
-        Facts::parse(&String::from_utf8_lossy(&output.stdout))
+        Facts::parse(pane, &String::from_utf8_lossy(&output.stdout))
     }
 }
 
