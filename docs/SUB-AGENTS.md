@@ -42,7 +42,9 @@ The pane is always in the caller's tab: spawn needs `TMUX_PANE` and refuses to r
 | the pane went away first: the agent exited | 1 |
 | no state within `--for` | 1; the agent keeps running, and the message names its pane |
 
-An agent that never gets a state (no hooks installed, no screen rule for it) never reads as ready; spawn it instead.
+Ready is any state, `needs-input` included: an agent that opens on a trust or login prompt is ready, and waiting for you. Check the `state` in the answer before handing it work. Exited and timed out are both exit 1; the message (or a following `agent wait`) tells them apart.
+
+An agent that never gets a state (no hooks installed, no screen rule for it) always waits out `--for`; spawn it instead.
 
 ## Wait
 
