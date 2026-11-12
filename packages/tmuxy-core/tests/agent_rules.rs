@@ -85,13 +85,12 @@ async fn an_agent_without_hooks_is_working_then_idle_and_a_declared_state_wins()
     ])
     .unwrap();
     assert_eq!(command.trim(), "node", "tmux names the interpreter");
-    assert_eq!(program::program(&pane, "node"), "gemini");
-    // The `ps` path macOS takes finds it too.
     let pid: u32 = common::tmux(&["display-message", "-p", "-t", &pane, "#{pane_pid}"])
         .unwrap()
         .trim()
         .parse()
         .unwrap();
+    assert_eq!(program::program(Some(pid), "node"), "gemini");
     let by_ps = program::foreground_argv_by_ps(pid).expect("ps reads the foreground");
     assert_eq!(
         program::script_name(&by_ps).as_deref(),

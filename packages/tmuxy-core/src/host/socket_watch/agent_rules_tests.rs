@@ -82,7 +82,7 @@ fn only_the_agents_without_hooks_are_read() {
 
 #[test]
 fn a_write_happens_only_while_the_state_still_reads_what_the_pass_read() {
-    let set = guarded_command("%5", "working", &Change::Set("idle"));
+    let set = guarded_command("%5", "working", &Change::Set("idle")).unwrap();
     assert_eq!(
         set,
         [
@@ -94,10 +94,16 @@ fn a_write_happens_only_while_the_state_still_reads_what_the_pass_read() {
             "set-option -p -t %5 @tmuxy-pane-state idle ; set-option -p -t %5 @tmuxy-rules-state idle",
         ]
     );
-    let clear = guarded_command("%5", "", &Change::Clear);
+    let clear = guarded_command("%5", "", &Change::Clear).unwrap();
     assert_eq!(clear[4], "#{==:#{@tmuxy-pane-state},}");
     assert_eq!(
         clear[5],
         "set-option -pu -t %5 @tmuxy-pane-state ; set-option -pu -t %5 @tmuxy-rules-state"
     );
+}
+
+#[test]
+fn a_state_that_is_not_a_state_word_is_never_put_in_the_condition() {
+    assert_eq!(guarded_command("%5", "idle},1}", &Change::Clear), None);
+    assert_eq!(guarded_command("%5", "busy", &Change::Set("idle")), None);
 }

@@ -25,15 +25,40 @@ pub fn is_interpreter(command: &str) -> bool {
             .is_some_and(|minor| !minor.is_empty() && minor.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// The interpreters' options that take the next argument as their value:
+/// node's preloads and loaders, python's warning and `-X` options.
+const VALUED_FLAGS: [&str; 9] = [
+    "-r",
+    "--require",
+    "--import",
+    "--loader",
+    "--experimental-loader",
+    "--env-file",
+    "-W",
+    "-X",
+    "--config",
+];
+
 /// The script an interpreter's `argv` runs, by its file name without an
 /// extension, or the module after `-m`. `None` for inline code (`-c`, `-e`)
-/// or no script at all (a REPL, a shell at its prompt).
+/// or no script at all (a REPL, a shell at its prompt). `deno run` and
+/// `bun run` name their script after `run`.
 pub fn script_name(argv: &[String]) -> Option<String> {
-    let mut args = argv.iter().skip(1);
+    let mut args = argv.iter().skip(1).peekable();
+    let runner = argv
+        .first()
+        .map(|a| a.rsplit('/').next().unwrap_or(a))
+        .is_some_and(|a| a == "deno" || a == "bun");
+    if runner && args.peek().is_some_and(|a| *a == "run") {
+        args.next();
+    }
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-m" => return args.next().cloned(),
             "-c" | "-e" | "--eval" | "-p" | "--print" => return None,
+            flag if VALUED_FLAGS.contains(&flag) => {
+                args.next();
+            }
             flag if flag.starts_with('-') => continue,
             path => {
                 let name = path.rsplit('/').next().unwrap_or(path);
@@ -103,21 +128,14 @@ pub fn foreground_argv_by_ps(pane_pid: u32) -> Option<Vec<String>> {
     Some(args.split_whitespace().map(String::from).collect())
 }
 
-fn pane_pid(pane: &str) -> Option<u32> {
-    let output = crate::session::tmux_command()
-        .args(["display-message", "-p", "-t", pane, "#{pane_pid}"])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
-}
-
-/// The program in `pane`, given the command tmux names: the interpreter's
-/// script when there is one, else the command.
-pub fn program(pane: &str, command: &str) -> String {
+/// The program in the pane whose first process is `pane_pid`, given the
+/// command tmux names: the interpreter's script when there is one, else the
+/// command.
+pub fn program(pane_pid: Option<u32>, command: &str) -> String {
     if !is_interpreter(command) {
         return command.to_string();
     }
-    pane_pid(pane)
+    pane_pid
         .and_then(foreground_argv)
         .and_then(|argv| script_name(&argv))
         .unwrap_or_else(|| command.to_string())
@@ -156,6 +174,23 @@ mod tests {
             Some("aider")
         );
         assert_eq!(name(&["bun", "./gemini"]).as_deref(), Some("gemini"));
+        // A flag's value is not the script.
+        assert_eq!(
+            name(&["node", "--require", "./setup.js", "gemini.js"]).as_deref(),
+            Some("gemini")
+        );
+        assert_eq!(
+            name(&["python3", "-W", "ignore", "aider.py"]).as_deref(),
+            Some("aider")
+        );
+        assert_eq!(
+            name(&["deno", "run", "-A", "amp.ts"]).as_deref(),
+            Some("amp")
+        );
+        assert_eq!(
+            name(&["/usr/bin/bun", "run", "pi.js"]).as_deref(),
+            Some("pi")
+        );
     }
 
     #[test]

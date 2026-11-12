@@ -152,7 +152,13 @@ fn ours(pane: &str) -> String {
 /// reads `read`, as argv words: the state and the rules' own note of it
 /// together, so a reader never sees one without the other, and nothing at
 /// all when a writer declared another state since the pass read it.
-pub fn guarded_command(pane: &str, read: &str, change: &Change) -> Vec<String> {
+///
+/// `None` when `read` is not a state word or empty: it goes into the
+/// condition as written.
+pub fn guarded_command(pane: &str, read: &str, change: &Change) -> Option<Vec<String>> {
+    if !read.is_empty() && PaneStateName::parse(read).is_none() {
+        return None;
+    }
     let both = |verb: &str, value: &str| {
         [tmux_options::PANE_STATE, tmux_options::RULES_STATE]
             .map(|option| format!("{verb} -t {pane} {option}{value}"))
@@ -163,17 +169,22 @@ pub fn guarded_command(pane: &str, read: &str, change: &Change) -> Vec<String> {
         Change::Clear => both("set-option -pu", ""),
     };
     let still = format!("#{{==:#{{{}}},{read}}}", tmux_options::PANE_STATE);
-    ["if-shell", "-F", "-t", pane, &still, &commands]
-        .map(String::from)
-        .to_vec()
+    Some(
+        ["if-shell", "-F", "-t", pane, &still, &commands]
+            .map(String::from)
+            .to_vec(),
+    )
 }
 
 /// Write `change` on `pane` through `run-shell`, if its state still reads
 /// `read`.
 fn write(pane: &str, read: &str, change: &Change) {
+    let Some(guarded) = guarded_command(pane, read, change) else {
+        return;
+    };
     let words: Vec<String> = crate::session::tmux_argv(false)
         .into_iter()
-        .chain(guarded_command(pane, read, change))
+        .chain(guarded)
         .map(|w| run_shell_word(&w))
         .collect();
     let line = words.join(" ");
@@ -188,7 +199,7 @@ impl Rules {
         let mut seen = HashMap::new();
         for row in rows {
             let tracked = self.tracks.remove(&row.pane_id);
-            let program = program::program(&row.pane_id, &row.command);
+            let program = program::program(row.pid, &row.command);
             if !is_rule_agent(&program) {
                 // The agent is gone from this pane: a state that is still the
                 // rules' own goes with it.
