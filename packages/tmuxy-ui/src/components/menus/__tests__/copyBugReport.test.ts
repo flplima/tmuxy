@@ -61,4 +61,11 @@ describe('the bug report snippet', () => {
       expect(text).not.toContain(held);
     }
   });
+
+  it("names a bundled theme, and a user's own only as custom", () => {
+    const own = { ...busyContext(), themeName: 'acme-corp-alice' };
+    const text = bugReportSnippet(own, facts);
+    expect(text).toContain('- theme: custom (dark)');
+    expect(text).not.toContain('acme-corp-alice');
+  });
 });

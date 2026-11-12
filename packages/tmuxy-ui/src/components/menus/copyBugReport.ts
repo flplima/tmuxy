@@ -11,6 +11,7 @@
 import { Effect } from 'effect';
 import { version as TMUXY_VERSION } from '../../../../../package.json';
 import { TMUX_VERSION_QUERY } from '../../domain/commandHelpers';
+import { BUNDLED_THEMES } from '../../domain/tmuxyConstants.gen';
 import { writeClipboard } from '../../infra/clipboard';
 import { isMacPlatform, isTauri } from '../../infra/platform';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
@@ -29,6 +30,9 @@ export interface ReportFacts {
 
 const onOff = (on: boolean) => (on ? 'on' : 'off');
 
+/** A bundled theme by name; a user's own theme only as `custom`, since its file name could say who they are. */
+const themeName = (name: string) => (BUNDLED_THEMES.some((t) => t.name === name) ? name : 'custom');
+
 /** The snippet itself: Markdown, with nothing a terminal holds. */
 export function bugReportSnippet(ctx: AppMachineContext, facts: ReportFacts): string {
   const tabs = ctx.windows.filter((w) => !w.windowType || w.windowType === 'tab').length;
@@ -42,7 +46,7 @@ export function bugReportSnippet(ctx: AppMachineContext, facts: ReportFacts): st
     '',
     '### Settings',
     '',
-    `- theme: ${ctx.themeName} (${ctx.themeMode})`,
+    `- theme: ${themeName(ctx.themeName)} (${ctx.themeMode})`,
     `- cursor blink ${onOff(ctx.cursorBlink)}, ask before sending keys ${onOff(ctx.sendAsk)}, transparency ${onOff(ctx.transparency)}`,
     `- traces: ${trace ? (trace.enabled ? `on, ${trace.level}` : 'off') : 'not available'}`,
     `- ${tabs} tab(s), ${ctx.panes.length} pane(s)`,
