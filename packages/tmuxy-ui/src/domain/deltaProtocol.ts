@@ -136,8 +136,11 @@ function mergeRecords<K, R, C>(
 export function applyDelta(state: ServerState, delta: ServerDelta): ServerState {
   return {
     ...state,
-    active_window_id: delta.active_window_id ?? state.active_window_id,
-    active_pane_id: delta.active_pane_id ?? state.active_pane_id,
+    // `null` clears: the window or pane is gone; absent leaves it.
+    active_window_id:
+      delta.active_window_id !== undefined ? delta.active_window_id : state.active_window_id,
+    active_pane_id:
+      delta.active_pane_id !== undefined ? delta.active_pane_id : state.active_pane_id,
     focus_request: delta.focus_request ?? state.focus_request,
     plugins_rev: delta.plugins_rev ?? state.plugins_rev,
     theme_rev: delta.theme_rev ?? state.theme_rev,

@@ -394,3 +394,37 @@ fn a_current_window_with_no_panes_listed_names_no_active_pane() {
     assert_eq!(state.active_window_id, Some(wid("@1")));
     assert_eq!(state.active_pane_id, None);
 }
+
+/// An active pane that is gone (its window closed) reaches the client as
+/// `null`, not as an absent field, which reads as "unchanged": a client kept
+/// the pane that was gone as its active one. Found by the update-stream
+/// contract (`tests/protocol_streams.rs`). The active window takes the same
+/// form when it changes.
+#[test]
+fn an_active_pane_that_is_gone_rides_the_delta_as_null() {
+    let mut agg = StateAggregator::new();
+    seed_active_pane(&mut agg, "%0", "@0");
+    agg.panes.get_mut(&pid("%0")).unwrap().active = true;
+    mark_initial_sync_done(&mut agg);
+    match agg.to_state_update() {
+        Some(crate::StateUpdate::Full { state }) => {
+            assert_eq!(state.active_pane_id, Some(pid("%0")));
+        }
+        other => panic!("expected Full, got {other:?}"),
+    }
+
+    agg.step(ControlModeEvent::WindowClose {
+        window_id: wid("@0"),
+    });
+    match agg.to_state_update() {
+        Some(crate::StateUpdate::Delta { delta }) => {
+            assert_eq!(delta.active_pane_id, Some(None));
+            let wire = serde_json::to_value(&delta).unwrap();
+            assert!(
+                wire.get("active_pane_id").is_some_and(|v| v.is_null()),
+                "{wire}"
+            );
+        }
+        other => panic!("expected Delta, got {other:?}"),
+    }
+}

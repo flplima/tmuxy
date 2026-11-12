@@ -57,10 +57,10 @@ impl StateAggregator {
         }
 
         if current.active_window_id != prev.active_window_id {
-            delta.active_window_id = current.active_window_id.clone();
+            delta.active_window_id = Some(current.active_window_id.clone());
         }
         if current.active_pane_id != prev.active_pane_id {
-            delta.active_pane_id = current.active_pane_id.clone();
+            delta.active_pane_id = Some(current.active_pane_id.clone());
         }
 
         // A queued focus request, or its clearing. The empty string is the
