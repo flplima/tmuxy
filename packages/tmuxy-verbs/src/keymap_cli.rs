@@ -35,8 +35,11 @@ pub fn run(args: KeymapArgs) {
         .ok()
         .filter(|out| out.status.success())
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
+    let mut defaults_unknown = false;
     if let Some(listing) = &live {
-        let defaults = tmux_defaults().unwrap_or_default();
+        let defaults = tmux_defaults();
+        defaults_unknown = defaults.is_none();
+        let defaults = defaults.unwrap_or_default();
         map.add_unattributed(tmuxy_core::list_keys::rows(listing).map(|row| {
             let own = (
                 row.table.to_string(),
@@ -81,12 +84,18 @@ pub fn run(args: KeymapArgs) {
                 ("shadowed", json(&shadows)),
                 ("warnings", json(&map.warnings)),
                 ("serverRead", live.is_some().to_string()),
+                ("tmuxDefaultsRead", (!defaults_unknown).to_string()),
             ],
             "",
         );
         return;
     }
     print!("{}", text(&map, &layout.home, live.is_some()));
+    if defaults_unknown {
+        println!(
+            "\ntmux's own bindings could not be read, so every binding that is in no file is listed as set while running."
+        );
+    }
 }
 
 /// tmux's own bindings, as a server started with no config lists them:
