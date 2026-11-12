@@ -7,13 +7,14 @@
  * driver.
  *
  * Usage:
- *   node measure-interactions.mjs [--url URL] [--samples N] [--out FILE]
+ *   node measure-interactions.mjs --url URL [--samples N] [--out FILE]
  *                                 [--label NAME] [--session NAME] [--cdp URL]
  */
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { buildReport, runInteractions, waitForReady } from './lib/perf-harness.mjs';
+import { assertThrowawayServer, requiredUrl } from './lib/throwaway.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (flag, fallback) => {
@@ -21,7 +22,7 @@ const opt = (flag, fallback) => {
   return i === -1 ? fallback : argv[i + 1];
 };
 
-const URL_BASE = opt('--url', 'http://localhost:9000');
+const URL_BASE = requiredUrl(argv);
 const SAMPLES = Number(opt('--samples', '10'));
 const OUT = opt('--out', null);
 const LABEL = opt('--label', 'local');
@@ -68,6 +69,7 @@ async function main() {
 
   const adapter = playwrightAdapter(page);
   await waitForReady(adapter);
+  await assertThrowawayServer(adapter.evaluate);
   const results = await runInteractions(adapter, { samples: SAMPLES });
 
   // A CDP browser belongs to the developer, not to us — close only the tab.

@@ -26,7 +26,7 @@
 import { execSync } from 'node:child_process';
 
 /** A sample slower than this is a timeout, not a datapoint. */
-import { BUSY_PANES, startBusyPanes } from './busy-panes.mjs';
+import { BUSY_PANES, closeWindow, newWindowId, startBusyPanes } from './busy-panes.mjs';
 
 export const SAMPLE_TIMEOUT_MS = 5000;
 
@@ -371,28 +371,31 @@ export async function runInteractions(adapter, { samples }) {
  * costs while other panes are loud. The tab goes when it is measured.
  */
 async function measureKeyEchoBusy(adapter, prefix, samples) {
-  await ensureTabs(adapter, prefix, (await tabCount(adapter)) + 1);
+  const windowId = await newWindowId(adapter, () => prefixKey(adapter, prefix, 'c'));
   await adapter.wait(800);
-  const busy = await startBusyPanes(adapter, { count: BUSY_PANES });
+  let busy = null;
+  let result = null;
+  let closed = false;
   try {
+    busy = await startBusyPanes(adapter, { windowId, count: BUSY_PANES });
     await adapter.wait(1500);
     await adapter.clickActivePane();
     await adapter.press('Control+u');
     await adapter.wait(500);
-    const result = await measure(adapter, {
+    result = await measure(adapter, {
       name: 'key-echo-busy',
       samples,
       probe: 'charCount',
       probeArg: (i) => LETTERS[i % 26],
       act: (i) => adapter.press(LETTERS[i % 26]),
     });
-    const load = busy.stop();
-    return { ...result, load };
   } finally {
-    busy.stop();
-    await busy.close();
-    await adapter.wait(800);
+    busy?.stop();
+    // The tab this run made, by its id, however the run ended.
+    closed = await closeWindow(adapter, windowId);
   }
+  if (!closed) throw new Error(`the busy tab ${windowId} could not be closed`);
+  return { ...result, load: busy.stop() };
 }
 
 /**
