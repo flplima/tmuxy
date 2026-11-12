@@ -1,0 +1,84 @@
+name: nightly fuzz
+
+# The parser fuzz targets (packages/tmuxy-core/tests/fuzz_parsers.rs) with far
+# more cases than `cargo test` runs: what tmux writes on the control-mode
+# connection and what a pane's program prints, random and hostile, against
+# the parsers that read it. In-process, stable Rust, no network and no
+# secrets; `bin/fuzz` caps the time, memory and cores. A failure files the
+# nightly issue with the shrunk input, and uploads the regressions file to
+# commit with the fix.
+
+on:
+  schedule:
+    - cron: '45 3 * * *'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Minutes of fuzzing'
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-fuzz
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          node: 'false'
+
+      - name: Fuzz the parsers
+        id: fuzz
+        env:
+          FUZZ_CORES: '2'
+          FUZZ_MEMORY: 4G
+          MINUTES: ${{ inputs.minutes || 20 }}
+        run: bin/fuzz "$MINUTES" 2>&1 | tee "$RUNNER_TEMP/fuzz.log"
+
+      - name: Keep the regressions file
+        if: failure() && steps.fuzz.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fuzz-regressions
+          path: packages/tmuxy-core/tests/fuzz_parsers.proptest-regressions
+          if-no-files-found: ignore
+
+      - name: Report
+        if: failure() && steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          BODY="A parser fuzz target failed.
+
+          \`\`\`
+          $(grep -E -A30 'Test failed|minimal failing input' "$RUNNER_TEMP/fuzz.log" | head -60)
+          \`\`\`
+
+          Run: $RUN_URL
+          Commit: ${{ github.sha }}
+
+          The regressions file is attached to that run: add it to the fix, so the input replays first." \
+            bin/ci/nightly-issue report "Nightly parser fuzzing is failing"
+
+      - name: Resolve
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bin/ci/nightly-issue resolve "Nightly parser fuzzing is failing"

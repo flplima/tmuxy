@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# bin/fuzz [minutes]
+#
+# The parser fuzz targets (packages/tmuxy-core/tests/fuzz_parsers.rs) with
+# many cases, capped so a run cannot starve the machine it shares: the lowest
+# CPU priority, at most FUZZ_CORES cores (default 2), at most FUZZ_MEMORY of
+# address space (default 4G), and `minutes` of running (default 10). The
+# build comes first, outside the time limit, with the same cores.
+#
+#   TMUXY_FUZZ_CASES   cases per target (default 50000; `cargo test` runs 48)
+#
+# Exit 0 when every target passed or the time ran out first (cases not run
+# are not failures), 1 on a failure: its shrunk input is printed and saved to
+# packages/tmuxy-core/tests/fuzz_parsers.proptest-regressions, which replays
+# it first on every later run. Commit that file with the fix.
+set -euo pipefail
+
+minutes=${1:-10}
+cores=${FUZZ_CORES:-2}
+memory=${FUZZ_MEMORY:-4G}
+export TMUXY_FUZZ_CASES=${TMUXY_FUZZ_CASES:-50000}
+
+case "$memory" in
+  *G) kib=$((${memory%G} * 1024 * 1024)) ;;
+  *M) kib=$((${memory%M} * 1024)) ;;
+  *) kib=$memory ;;
+esac
+
+cd "$(dirname "$0")/.."
+
+pin=()
+if command -v taskset >/dev/null; then
+  pin=(taskset -c "0-$((cores - 1))")
+fi
+
+nice -n 19 "${pin[@]}" cargo test -j "$cores" -p tmuxy-core --test fuzz_parsers --no-run
+
+echo "fuzz: $TMUXY_FUZZ_CASES cases per target, $minutes min, $cores cores, $memory"
+status=0
+(
+  ulimit -v "$kib"
+  exec timeout "${minutes}m" nice -n 19 "${pin[@]}" \
+    cargo test -j "$cores" -q -p tmuxy-core --test fuzz_parsers
+) || status=$?
+
+case "$status" in
+  0) echo "fuzz: every target passed" ;;
+  124)
+    echo "fuzz: the time ran out before every case ran; nothing failed"
+    status=0
+    ;;
+  *) echo "fuzz: a target failed (exit $status); its input is above and in fuzz_parsers.proptest-regressions" ;;
+esac
+exit "$status"
