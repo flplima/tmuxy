@@ -42,6 +42,8 @@ jobs:
 
       - name: Fuzz the parsers
         id: fuzz
+        # bash -eo pipefail: the pipe into tee must fail the step when bin/fuzz does.
+        shell: bash
         env:
           FUZZ_CORES: '2'
           FUZZ_MEMORY: 4G

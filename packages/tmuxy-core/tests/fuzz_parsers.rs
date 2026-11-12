@@ -136,6 +136,26 @@ fn tmux_escape(bytes: &[u8]) -> Vec<u8> {
 
 const GUARD: &str = "1700000000 7 1";
 
+/// Pane %0's rows and cursor after `chunks` reach it as `%output` lines.
+fn screen_after(chunks: &[&[u8]]) -> (Vec<tmuxy_core::TerminalLine>, u32, u32) {
+    let mut parser = Parser::new();
+    let mut agg = seeded_aggregator();
+    for chunk in chunks.iter().filter(|chunk| !chunk.is_empty()) {
+        let mut line = b"%output %0 ".to_vec();
+        line.extend(tmux_escape(chunk));
+        if let Some(event) = parser.parse_line(line) {
+            agg.step(event);
+        }
+    }
+    let state = agg.to_tmux_state();
+    let pane = state
+        .panes
+        .into_iter()
+        .find(|pane| pane.tmux_id.as_str() == "%0")
+        .expect("pane %0");
+    (pane.content.to_vec(), pane.cursor_x, pane.cursor_y)
+}
+
 /// A line inside a reply block: anything tmux could write, and often a
 /// well-formed one (pane output, a notification, another block's guard).
 fn body_line() -> impl Strategy<Value = Vec<u8>> {
@@ -214,6 +234,26 @@ proptest! {
             passed += images.process(&chunk).clean_bytes.len();
             prop_assert!(passed <= fed, "{passed} bytes out of {fed}");
         }
+    }
+
+    /// The same output split into `%output` lines at other places leaves the
+    /// same screen: what is carried across a line's end (an unfinished
+    /// sequence, half a character, a held image start) is carried whole.
+    #[test]
+    fn the_same_output_split_differently_leaves_the_same_screen(
+        bytes in hostile_bytes(),
+        cuts in prop::collection::vec(any::<prop::sample::Index>(), 0..6),
+    ) {
+        let mut points: Vec<usize> = cuts.iter().map(|cut| cut.index(bytes.len() + 1)).collect();
+        points.sort_unstable();
+        points.dedup();
+        let mut pieces = Vec::new();
+        let mut from = 0;
+        for point in points.into_iter().chain([bytes.len()]) {
+            pieces.push(&bytes[from..point]);
+            from = point;
+        }
+        prop_assert_eq!(screen_after(&[&bytes]), screen_after(&pieces));
     }
 
     /// Whatever a pane prints, split across `%output` lines any way, through
