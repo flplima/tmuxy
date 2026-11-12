@@ -194,9 +194,32 @@ describeE2E("Scenario: an orchestrator waits on its agents' states", {}, (ctx) =
       expect(late.stderr).toContain('timed out');
       const nobody = await tmuxyCliAsync(['agent', 'wait', 'nobody', '--for', '2s']);
       expect(nobody.code).toBe(3);
+
+      // A pane that goes away is not a pane that finished: exit 3, unless
+      // the wait was for exactly that.
+      const gone = tmuxyCliAsync(['agent', 'wait', 'child-b', '--for', '30s']);
+      const goneAsked = tmuxyCliAsync([
+        'agent',
+        'wait',
+        'child-b',
+        '--until',
+        'exited',
+        '--for',
+        '30s',
+      ]);
+      tmuxyCli(['pane', 'kill', second]);
+      const ended = await gone;
+      expect(ended.code).toBe(3);
+      expect(ended.stderr).toContain(`${second} went away`);
+      expect((await goneAsked).code).toBe(0);
     } finally {
-      tmuxyCli(['pane', 'state', 'clear', first]);
-      tmuxyCli(['pane', 'state', 'clear', second]);
+      for (const pane of [first, second]) {
+        try {
+          tmuxyCli(['pane', 'state', 'clear', pane]);
+        } catch {
+          // The test closed it.
+        }
+      }
     }
   }, 120000);
 });

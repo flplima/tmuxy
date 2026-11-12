@@ -111,17 +111,27 @@ fn any_ends_on_the_first_pane_and_all_on_the_last() {
     );
 }
 
+/// A crashed or closed pane is not a finished one: the wait ends, marked
+/// gone, unless it was asked to wait for exactly that.
 #[test]
-fn a_pane_that_is_gone_counts_as_exited() {
+fn a_pane_that_is_gone_ends_the_wait_as_gone_unless_exited_was_asked_for() {
+    let start = listing(&[("%1", "", "working"), ("%2", "", "working")]);
+    let after = listing(&[("%2", "", "working")]);
+
     let mut wait = Waiter::new(panes(&["%1", "%2"]), &[Until::Idle], true, false);
-    wait.read(
-        &listing(&[("%1", "", "working"), ("%2", "", "working")]),
+    wait.read(&start, true);
+    assert_eq!(wait.read(&after, false).unwrap()[0].state, "exited");
+    assert!(wait.gone);
+
+    let mut asked = Waiter::new(
+        panes(&["%1", "%2"]),
+        &[Until::Exited, Until::Idle],
         true,
+        false,
     );
-    assert_eq!(
-        wait.read(&listing(&[("%2", "", "idle")]), false).unwrap()[0].state,
-        "exited"
-    );
+    asked.read(&start, true);
+    assert_eq!(asked.read(&after, false), None, "%2 is still working");
+    assert!(!asked.gone);
 }
 
 #[test]

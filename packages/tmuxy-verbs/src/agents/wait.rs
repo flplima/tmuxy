@@ -6,16 +6,25 @@
 //! A pane counts once its state changes to one the caller waits for: an
 //! agent already idle when the wait begins (finished earlier, or not yet
 //! given its task) does not end the wait at once. `--now` counts a pane that
-//! is already there. A pane that is gone counts as `exited`, whatever was
-//! asked for.
+//! is already there. A pane that is gone ends the wait with exit 3 unless
+//! `--until exited` asked for that, so a script never reads a crashed or
+//! closed pane as a finished one.
+//!
+//! What it cannot see: a state reached before its first read (an agent that
+//! finished before the wait began), or one that came and went between two
+//! reads. Both need the writers to stamp each change, which is not done
+//! yet.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::cli_json::{Answer, EXIT_FAILED, EXIT_NO_SERVER, EXIT_TARGET, EXIT_USAGE};
 
-/// How often the panes' states are read.
+/// How often the panes' states are read: often at first, when a short turn
+/// ends, then less, so a wait of hours costs little.
 const POLL: Duration = Duration::from_millis(250);
+const SLOW_POLL: Duration = Duration::from_secs(1);
+const FAST_FOR: Duration = Duration::from_secs(10);
 
 /// The listing a wait reads: every pane, its label and its state.
 fn listing_format() -> String {
@@ -30,6 +39,8 @@ pub enum Until {
     NeedsInput,
     Error,
     Done,
+    /// The pane is gone.
+    Exited,
 }
 
 impl Until {
@@ -40,10 +51,14 @@ impl Until {
             Until::NeedsInput => PaneStateName::NeedsInput,
             Until::Error => PaneStateName::Error,
             Until::Done => PaneStateName::Unread,
+            Until::Exited => return EXITED,
         }
         .as_str()
     }
 }
+
+/// What a gone pane counts as.
+const EXITED: &str = "exited";
 
 /// Every state but `working`: the agent has stopped and has something to say.
 const SETTLED: [Until; 4] = [Until::Idle, Until::NeedsInput, Until::Error, Until::Done];
@@ -54,6 +69,8 @@ pub struct WaitArgs {
     #[arg(required = true)]
     targets: Vec<String>,
     /// The states to wait for, comma-separated; default: any but working.
+    /// A pane that goes away ends the wait with exit 3, unless `exited` is
+    /// one of them.
     #[arg(long, value_enum, value_delimiter = ',')]
     until: Vec<Until>,
     /// Wait until every pane counts, not the first one.
@@ -152,6 +169,8 @@ pub(crate) struct Waiter {
     /// reaches a wanted state from something else.
     before: HashMap<String, String>,
     counted: Vec<Counted>,
+    /// A pane went away that the wait was not for: it cannot end as asked.
+    pub(crate) gone: bool,
 }
 
 impl Waiter {
@@ -173,6 +192,7 @@ impl Waiter {
             all,
             before,
             counted: Vec::new(),
+            gone: false,
         }
     }
 
@@ -190,8 +210,11 @@ impl Waiter {
                 self.counted.push(Counted {
                     pane: pane.clone(),
                     label: String::new(),
-                    state: "exited".into(),
+                    state: EXITED.into(),
                 });
+                if !self.wanted.contains(&EXITED) {
+                    self.gone = true;
+                }
                 continue;
             };
             let wanted = self.wanted.contains(&seen.state.as_str());
@@ -207,7 +230,9 @@ impl Waiter {
             }
             self.before.insert(pane.clone(), seen.state.clone());
         }
-        let done = if self.all {
+        let done = if self.gone {
+            true
+        } else if self.all {
             self.counted.len() == self.panes.len()
         } else {
             !self.counted.is_empty()
@@ -246,7 +271,8 @@ pub fn run(answer: &Answer, args: WaitArgs) {
     let first = listing().unwrap_or_else(|e| fail(e));
     let panes = resolve(&args.targets, &first).unwrap_or_else(|e| fail((EXIT_TARGET, e)));
     let mut waiter = Waiter::new(panes, &args.until, args.all, args.now);
-    let deadline = limit.map(|limit| Instant::now() + limit);
+    let started = Instant::now();
+    let deadline = limit.map(|limit| started + limit);
     let mut snapshot = first;
     let mut is_first = true;
     let counted = loop {
@@ -257,7 +283,11 @@ pub fn run(answer: &Answer, args: WaitArgs) {
         if deadline.is_some_and(|at| Instant::now() >= at) {
             answer.exit(EXIT_FAILED, "the wait timed out");
         }
-        std::thread::sleep(POLL);
+        std::thread::sleep(if started.elapsed() < FAST_FOR {
+            POLL
+        } else {
+            SLOW_POLL
+        });
         snapshot = listing().unwrap_or_else(|e| fail(e));
     };
     let text = counted
@@ -279,6 +309,17 @@ pub fn run(answer: &Answer, args: WaitArgs) {
         })
         .collect::<Vec<_>>()
         .join(",");
+    if waiter.gone {
+        let gone: Vec<&str> = counted
+            .iter()
+            .filter(|c| c.state == EXITED)
+            .map(|c| c.pane.as_str())
+            .collect();
+        answer.exit(
+            EXIT_TARGET,
+            &format!("{} went away before it got there", gone.join(", ")),
+        );
+    }
     answer.done(&[("panes", format!("[{panes}]"))], &text);
 }
 
