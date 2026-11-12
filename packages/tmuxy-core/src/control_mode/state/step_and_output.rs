@@ -16,14 +16,18 @@ impl StateAggregator {
     pub fn step_at(&mut self, event: ControlModeEvent, now: Instant) -> StepResult {
         // A window closing needs the same re-list as one appearing: with
         // renumber-windows on, tmux shifts every later window's index and
-        // announces none of them, and the tab strip is ordered by index.
-        let is_window_add = matches!(
-            &event,
+        // announces none of them, and the tab strip is ordered by index. So
+        // does a window option or index a subscription saw change.
+        let is_window_add = match &event {
             ControlModeEvent::WindowAdd { .. }
-                | ControlModeEvent::UnlinkedWindowAdd { .. }
-                | ControlModeEvent::WindowClose { .. }
-                | ControlModeEvent::UnlinkedWindowClose { .. }
-        );
+            | ControlModeEvent::UnlinkedWindowAdd { .. }
+            | ControlModeEvent::WindowClose { .. }
+            | ControlModeEvent::UnlinkedWindowClose { .. } => true,
+            ControlModeEvent::SessionSubscriptionChanged { name, .. } => {
+                crate::constants::tmux_formats::relists_windows(name)
+            }
+            _ => false,
+        };
         let mut result = self.process_event(event);
         let mut effects = Vec::new();
         let send = |batch, commands: Vec<String>| SideEffect::Send { batch, commands };
