@@ -15,6 +15,7 @@ use crate::cli_json::{self, Answer, EXIT_FAILED};
 use serde_json::Value;
 
 mod config;
+mod spawn;
 mod wait;
 pub(crate) use config::SKILL;
 use config::*;
@@ -240,6 +241,9 @@ enum AgentVerb {
     /// Wait for agents in panes to reach a state (`@tmuxy-pane-state`): idle,
     /// needs-input, error or done; by default any of them, in the first pane.
     Wait(wait::WaitArgs),
+    /// Start an agent in a new pane of your own tab, with its task: a row of
+    /// a collapsible stack by default, focus staying with you.
+    Spawn(spawn::SpawnArgs),
     /// The pane state an agent event means (backs `tmuxy agent hook`). Reads
     /// the event's JSON on stdin.
     #[command(hide = true)]
@@ -263,15 +267,17 @@ pub fn run(args: AgentArgs) {
         return;
     }
     let answer = Answer::new(args.json);
-    if let AgentVerb::Wait(wait) = args.verb {
-        return wait::run(&answer, wait);
-    }
+    let verb = match args.verb {
+        AgentVerb::Wait(wait) => return wait::run(&answer, wait),
+        AgentVerb::Spawn(spawn) => return spawn::run(&answer, spawn),
+        verb => verb,
+    };
     let places = match Places::from_env() {
         Ok(places) => places,
         Err(e) => answer.exit(EXIT_FAILED, &e),
     };
     let mut out = String::new();
-    let result = match args.verb {
+    let result = match verb {
         AgentVerb::Install {
             which,
             force,
@@ -282,7 +288,7 @@ pub fn run(args: AgentArgs) {
             status(&mut out, &places, &agents, scope(project));
             Ok(())
         }
-        AgentVerb::State { .. } | AgentVerb::Wait(_) => Ok(()),
+        AgentVerb::State { .. } | AgentVerb::Wait(_) | AgentVerb::Spawn(_) => Ok(()),
     };
     // What was done before a failure is still said.
     if !answer.is_json() {
