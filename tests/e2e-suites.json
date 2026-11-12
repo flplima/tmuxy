@@ -33,7 +33,7 @@
     },
     {
       "name": "session",
-      "path": "tests/(snapshots/|4-session-connectivity)"
+      "path": "tests/(snapshots/|4-session-connectivity|4-attach-input)"
     },
     {
       "name": "stress",

@@ -193,6 +193,9 @@ export const appMachine = setup({
           actions: 'connection_onConnected',
         },
         TMUX_ERROR: { actions: 'connection_error' },
+        // Held until connected, then replayed in order (`heldCommands`).
+        SEND_TMUX_COMMAND: { actions: 'connection_holdCommand' },
+        DISPATCH_OP: { actions: 'connection_holdCommand' },
       },
     },
 

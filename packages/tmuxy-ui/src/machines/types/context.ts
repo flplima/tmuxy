@@ -6,6 +6,7 @@ import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
 import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
+import type { TmuxOp } from '../../domain/commands';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type {
   AppNotification,
@@ -270,6 +271,12 @@ export interface AppMachineContext {
   themeRev: string;
   /** Whether the app container is focused (for keyboard capture gating) */
   appFocused: boolean;
+  /**
+   * What was typed or asked for before the first connection, in order:
+   * replayed the moment it lands, so a key pressed while the page attaches
+   * arrives late rather than never.
+   */
+  heldCommands: ReadonlyArray<HeldCommand>;
   /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */
   prefixActive: boolean;
   /** While the prefix is a repeat window, the only keys it still takes. */
@@ -317,3 +324,8 @@ export interface AppMachineContext {
   /** Sessions a snapshot could bring back; see {@link RestorableSession}. */
   restorableSessions: RestorableSession[];
 }
+
+/** A command held while the app first connects (`heldCommands`). */
+export type HeldCommand =
+  | { type: 'SEND_TMUX_COMMAND'; command: string }
+  | { type: 'DISPATCH_OP'; op: TmuxOp };

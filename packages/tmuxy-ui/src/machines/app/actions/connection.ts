@@ -30,6 +30,9 @@ function fetchStateAtViewport(context: Ctx, enqueue: EnqueueAction): void {
   }
 }
 
+/** The most keys and commands held while the page first connects. */
+export const MAX_HELD_COMMANDS = 512;
+
 export const connectionActions = {
   connection_logAppend: assignCtx(({ context, event }) => {
     if (event.type !== 'LOG_APPEND') return {};
@@ -185,10 +188,25 @@ export const connectionActions = {
   // The size actor answers RESEND_SIZE by sending the target size again, and
   // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
   // the client measured).
-  connection_onConnected: act(({ enqueue }) => {
-    enqueue(assign({ connected: true, error: null, fatalError: null }));
+  connection_onConnected: act(({ context, enqueue }) => {
+    enqueue(assign({ connected: true, error: null, fatalError: null, heldCommands: [] }));
     enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
     fetchThemes(enqueue);
+    // Typed while the page attached: sent now, in the order typed, ahead of
+    // anything typed after (a raised event goes before the next one in).
+    for (const command of context.heldCommands) enqueue.raise(command);
+  }),
+
+  /**
+   * A key or command before the first connection is held, not dropped: the
+   * page takes keys from its first frame, the session arrives a moment later.
+   * Past {@link MAX_HELD_COMMANDS} the oldest go: a page that never connects
+   * does not grow without end.
+   */
+  connection_holdCommand: act(({ context, event, enqueue }) => {
+    if (event.type !== 'DISPATCH_OP' && event.type !== 'SEND_TMUX_COMMAND') return;
+    const held = [...context.heldCommands, event].slice(-MAX_HELD_COMMANDS);
+    enqueue(assign({ heldCommands: held }));
   }),
 
   // A reconnect fetches the state too: the stream that came back may belong
