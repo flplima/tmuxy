@@ -14,6 +14,7 @@ import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
 import { paneMenuSpec } from './paneMenu';
 import { tabMenuSpec } from './tabMenu';
 import { pluginsSubmenu } from './pluginMenu';
+import { profilesSubmenu } from './profilesMenu';
 import {
   command,
   commandHint,
@@ -93,6 +94,8 @@ export function themeMenuSpec(ctx: AppMachineContext): AppMenuSpec {
 export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec {
   return tidy([
     { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
+    // The demo's backend keeps no profiles.
+    !env.isDemo && profilesSubmenu(ctx.profiles),
     separator,
     ...LAYOUTS.map((l): AppMenuNode => {
       const layout = TmuxOp.SelectLayout({ layout: l.layout });

@@ -51,3 +51,33 @@
   border-color: var(--error-color);
   color: var(--error-color);
 }
+
+.app-menu-dialog-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.app-menu-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+
+.app-menu-dialog-field input {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.app-menu-dialog-field input[aria-invalid='true'] {
+  border-color: var(--error-color);
+}
+
+.app-menu-dialog-problem {
+  margin: var(--spacing-xs) 0 0;
+  color: var(--error-color);
+}

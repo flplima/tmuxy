@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::plugins;
+use super::profiles::{self, ProfileCall};
 use super::requests::{self, to_json};
 use super::{ClientId, HostEvent, SessionRuntime};
 use crate::command_router::Route;
@@ -82,6 +83,27 @@ pub enum ClientCommand {
         mode: String,
     },
     GetThemesList,
+    /// The profiles, and the one the caller's session uses
+    /// (`crate::profiles`). Every profile command answers the same.
+    ListProfiles,
+    /// Move the caller's session to a profile, live.
+    UseProfile {
+        name: String,
+    },
+    /// A new profile, a copy of `from` (the default: one that changes
+    /// nothing), which the caller's session then uses.
+    CreateProfile {
+        name: String,
+        #[serde(default)]
+        from: Option<String>,
+    },
+    RenameProfile {
+        from: String,
+        to: String,
+    },
+    DeleteProfile {
+        name: String,
+    },
     SetCursorBlink {
         enabled: bool,
     },
@@ -340,6 +362,17 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             Ok(Value::Null)
         }
         ClientCommand::GetThemesList => to_json(crate::theme::get_themes_list(), "themes"),
+        ClientCommand::ListProfiles => profiles::run(runtime, ProfileCall::List).await,
+        ClientCommand::UseProfile { name } => profiles::run(runtime, ProfileCall::Use(name)).await,
+        ClientCommand::CreateProfile { name, from } => {
+            profiles::run(runtime, ProfileCall::Create { name, from }).await
+        }
+        ClientCommand::RenameProfile { from, to } => {
+            profiles::run(runtime, ProfileCall::Rename { from, to }).await
+        }
+        ClientCommand::DeleteProfile { name } => {
+            profiles::run(runtime, ProfileCall::Delete(name)).await
+        }
         ClientCommand::SetCursorBlink { enabled } => {
             set_flag(runtime, ManagedOption::CursorBlink, enabled).await
         }

@@ -23,6 +23,16 @@ export const ThemeInfo = Schema.Struct({
 });
 export type ThemeInfo = Schema.Schema.Type<typeof ThemeInfo>;
 
+/**
+ * The terminal profiles and the one this session uses (`profiles.rs`): what
+ * every profile command answers. `names` lists the Default Profile first.
+ */
+export const ProfilesInfo = Schema.Struct({
+  active: Schema.String,
+  names: Schema.Array(Schema.String),
+});
+export type ProfilesInfo = Schema.Schema.Type<typeof ProfilesInfo>;
+
 /** Usefulness↔sensitivity dial for the local action trace. */
 export const TraceLevel = Schema.Literal('shape', 'labeled', 'full');
 export type TraceLevel = Schema.Schema.Type<typeof TraceLevel>;

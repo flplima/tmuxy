@@ -276,6 +276,36 @@ pub fn profile_commands(
     }
 }
 
+/// The profile `session` uses, by the remembered map: the default one when
+/// it has none.
+pub fn session_profile(session: &str) -> String {
+    read_managed_state()
+        .session_profiles
+        .get(session)
+        .cloned()
+        .unwrap_or_else(|| crate::profiles::DEFAULT_PROFILE.to_string())
+}
+
+/// Change which session uses which profile, and write it down. The map is
+/// written whole, so an entry dropped here is gone from the file, and the
+/// key itself when the map ends empty.
+pub fn edit_session_profiles(
+    edit: impl FnOnce(&mut std::collections::BTreeMap<String, String>),
+) -> std::io::Result<()> {
+    edit_session_profiles_in(&Layout::current(), edit)
+}
+
+pub(crate) fn edit_session_profiles_in(
+    layout: &Layout,
+    edit: impl FnOnce(&mut std::collections::BTreeMap<String, String>),
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(&layout.state)?;
+    let mut state = read_strict(layout)?;
+    edit(&mut state.session_profiles);
+    let body = serde_json::to_string_pretty(&state)?;
+    crate::private_files::replace(&layout.state_file(), format!("{body}\n"))
+}
+
 /// [`profile_commands`] for what is on disk now.
 pub fn current_profile_commands(session: &str) -> Vec<String> {
     profile_commands(
@@ -298,7 +328,7 @@ pub fn read_managed_state() -> ManagedState {
     read_managed_state_in(&Layout::current())
 }
 
-pub(super) fn read_managed_state_in(layout: &Layout) -> ManagedState {
+pub(crate) fn read_managed_state_in(layout: &Layout) -> ManagedState {
     read_strict(layout).unwrap_or_else(|e| {
         warn!(path = ?layout.state_file(), error = %e, "could not read the managed state file, using defaults");
         ManagedState::default()
@@ -322,7 +352,7 @@ pub fn write_managed_state(changes: ManagedState) -> std::io::Result<PathBuf> {
     write_managed_state_in(&Layout::current(), changes)
 }
 
-pub(super) fn write_managed_state_in(
+pub(crate) fn write_managed_state_in(
     layout: &Layout,
     changes: ManagedState,
 ) -> std::io::Result<PathBuf> {

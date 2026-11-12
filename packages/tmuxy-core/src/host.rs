@@ -16,6 +16,7 @@ pub mod command;
 mod event;
 mod plugins;
 pub mod prepare;
+mod profiles;
 mod requests;
 mod runtime;
 pub mod socket_watch;

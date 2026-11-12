@@ -13,7 +13,7 @@ import { PaneId } from './ids';
 import { PreviewDocument, PreviewResource } from './preview';
 import { GitRepository, RestorableSession, ServerList } from './servers';
 import { type CommandFailure, ScrollbackCells, ServerState, ThemeSettings } from './wire';
-import { ThemeInfo, TraceLevel, TraceSettings } from './wireSettings';
+import { ProfilesInfo, ThemeInfo, TraceLevel, TraceSettings } from './wireSettings';
 
 interface Command<A, AI, R, RI> {
   readonly args: Schema.Schema<A, AI>;
@@ -62,6 +62,17 @@ export const BACKEND_COMMANDS = {
   set_theme: command(Schema.Struct({ name: Schema.String, mode: optional(Schema.String) }), Done),
   set_theme_mode: command(Schema.Struct({ mode: Schema.String }), Done),
   get_themes_list: command(NoArgs, Schema.Array(ThemeInfo)),
+  /** The profiles and the one this session uses; every profile command answers the same. */
+  list_profiles: command(NoArgs, ProfilesInfo),
+  /** Move this session to a profile, live. */
+  use_profile: command(Schema.Struct({ name: Schema.String }), ProfilesInfo),
+  /** A new profile, a copy of `from` (the default when absent), which this session then uses. */
+  create_profile: command(
+    Schema.Struct({ name: Schema.String, from: optional(Schema.String) }),
+    ProfilesInfo,
+  ),
+  rename_profile: command(Schema.Struct({ from: Schema.String, to: Schema.String }), ProfilesInfo),
+  delete_profile: command(Schema.Struct({ name: Schema.String }), ProfilesInfo),
   set_cursor_blink: command(Flag, Done),
   set_send_ask: command(Flag, Done),
   set_transparency: command(Flag, Done),
@@ -137,6 +148,25 @@ export type LaneCommand =
 export type PlainCommand = Exclude<CommandName, LaneCommand>;
 
 export type PlainCall = Extract<BackendCall, { readonly cmd: PlainCommand }>;
+
+/** The View menu's profile commands, each answered with the profiles (`ProfilesInfo`). */
+export type ProfileCall = Extract<
+  BackendCall,
+  {
+    readonly cmd:
+      | 'list_profiles'
+      | 'use_profile'
+      | 'create_profile'
+      | 'rename_profile'
+      | 'delete_profile';
+  }
+>;
+
+/** A profile command, typed as one: `backendCall` widens to any call. */
+export const profileRequest = <K extends ProfileCall['cmd']>(
+  cmd: K,
+  args: CommandArgs<K>,
+): ProfileCall => ({ cmd, args }) as ProfileCall;
 
 /**
  * What a backend that does not run `cmd` answers: null where null is an

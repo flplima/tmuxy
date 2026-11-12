@@ -196,3 +196,64 @@ fn a_theme_or_mode_no_theme_could_have_is_refused() {
     }
     assert!(parse("T", r#"{"theme":"devtools__dark","themeMode":"auto"}"#).is_ok());
 }
+
+/// A switch clears what the last profile set on the session before setting
+/// the new one's, and a switch to the default only clears.
+#[test]
+fn a_switch_clears_the_last_profile_first() {
+    let commands = switch_commands("work", "Reading", &nord(), &[]);
+    let (clears, sets) = commands.split_at(5);
+    assert!(
+        clears
+            .iter()
+            .all(|c| c.starts_with("set-option -t 'work' -u @tmuxy-")),
+        "{clears:?}"
+    );
+    assert_eq!(sets, session_commands("work", "Reading", &nord(), &[]));
+    let back = switch_commands("work", DEFAULT_PROFILE, &Profile::default(), &[]);
+    assert_eq!(back, clears);
+}
+
+/// The session-to-profile map is written whole: a rename follows, a delete
+/// drops, and the key leaves the file when nothing is left.
+#[test]
+fn the_session_map_is_edited_and_written_whole() {
+    let root = scratch("map");
+    let layout = Layout {
+        config: root.join("config"),
+        data: root.join("data"),
+        state: root.join("state"),
+        home: root.join("home"),
+    };
+    let read = || crate::session::read_managed_state_in(&layout).session_profiles;
+    crate::session::edit_session_profiles_in(&layout, |map| {
+        map.insert("work".into(), "Reading".into());
+        map.insert("play".into(), "Reading".into());
+    })
+    .unwrap();
+    crate::session::write_managed_state_in(
+        &layout,
+        crate::session::ManagedState {
+            theme: Some("nord".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(read().len(), 2, "a menu choice keeps the map");
+    crate::session::edit_session_profiles_in(&layout, |map| {
+        for used in map.values_mut() {
+            *used = "Night".into();
+        }
+    })
+    .unwrap();
+    assert!(read().values().all(|p| p == "Night"));
+    crate::session::edit_session_profiles_in(&layout, |map| map.retain(|_, p| p != "Night"))
+        .unwrap();
+    let file = std::fs::read_to_string(layout.state_file()).unwrap();
+    assert!(!file.contains("session_profiles"), "{file}");
+    assert!(
+        file.contains("nord"),
+        "the map's edits keep the menus' choices: {file}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
