@@ -403,3 +403,34 @@ fn an_escape_string_cut_short_holds_back_nothing_after_it() {
     let kitty: &[u8] = b"\x1b_Ga=T,f=100;\x1b[31mtext\x1b\\";
     assert!(passed(&[kitty]).windows(4).any(|w| w == b"text"));
 }
+
+/// tmux's passthrough wrapper doubles every ESC inside it, so a wrapped
+/// picture is full of ESC ESC: none of them may count as cutting the
+/// string short. Cut anywhere, it reads as if it came whole.
+#[test]
+fn a_wrapped_picture_cut_at_any_byte_reads_as_if_whole() {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
+    let inner = format!("\x1b_Ga=T,f=100,c=4,r=2;{b64}\x1b\\");
+    let wrapped = format!("a\x1bPtmux;{}\x1b\\b", inner.replace('\x1b', "\x1b\x1b"));
+    let bytes = wrapped.as_bytes();
+    let read = |chunks: &[&[u8]]| {
+        let mut parser = ImageParser::new();
+        let (mut clean, mut images) = (Vec::new(), 0);
+        for chunk in chunks {
+            let result = parser.process(chunk);
+            clean.extend(result.clean_bytes);
+            images += result.new_images.len();
+        }
+        (clean, images, parser.placements.len())
+    };
+    let whole = read(&[bytes]);
+    assert_eq!(whole, (b"ab".to_vec(), 1, 1));
+    let failing: Vec<usize> = (1..bytes.len())
+        .filter(|&cut| read(&[&bytes[..cut], &bytes[cut..]]) != whole)
+        .collect();
+    assert!(
+        failing.is_empty(),
+        "cuts that differ: {failing:?} of {}",
+        bytes.len()
+    );
+}

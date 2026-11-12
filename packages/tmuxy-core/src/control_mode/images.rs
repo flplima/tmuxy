@@ -344,6 +344,15 @@ impl ImageParser {
         let mut i = 0;
 
         while i < content.len() {
+            // An ESC that ends the chunk may start a picture (or tmux's
+            // wrapper around one) in the next: held, so the escape is read
+            // whole whatever byte the line ended on.
+            // Before any wrapper tail the unwrapping held: it came later.
+            if i + 1 == content.len() && content[i] == 0x1B {
+                self.pending_unterminated = self.pending.is_empty();
+                self.pending.insert(0, 0x1B);
+                break;
+            }
             if i + 1 < content.len() && content[i] == 0x1B {
                 let nxt = content[i + 1];
 
