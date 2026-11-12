@@ -4,11 +4,12 @@
 //! not a float or sidebar, which are drawn over it) is on no client's
 //! screen; an agent's spinner there redraws twenty times a second, and every
 //! frame used to cross the link in full (`perf:hidden-bytes`). Its screen
-//! changes (content, cursor, scrollback size, images) now go out at most
+//! changes (content, cursor, scrollback size, images, and the title an agent
+//! animates with its spinner) now go out at most
 //! once per [`HIDDEN_PANE_EVERY`]: the first at once, then the latest when
 //! the interval ends, so the client's copy is never older than that and its
-//! last frame always arrives. Anything else about the pane (its state, title,
-//! size, a question it asks) goes at once, and so does all of it the moment
+//! last frame always arrives. Anything else about the pane (its state, its
+//! command, size, a question it asks) goes at once, and so does all of it the moment
 //! its tab is shown.
 //!
 //! A pane held back keeps its last sent copy in `prev_state`, so the delta
@@ -59,6 +60,10 @@ fn screen_only(delta: &PaneDelta) -> bool {
     rest.cursor_hidden = None;
     rest.history_size = None;
     rest.images = None;
+    // An agent animates its terminal title with its spinner: drawn on the
+    // pane's header, which a hidden tab does not show either.
+    rest.title = None;
+    rest.border_title = None;
     rest.is_empty()
 }
 

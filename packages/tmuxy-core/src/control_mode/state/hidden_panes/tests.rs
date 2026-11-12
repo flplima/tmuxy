@@ -119,9 +119,17 @@ fn only_a_hidden_screen_change_may_wait() {
         pane_state: Some(Some(crate::PaneStateName::NeedsInput.as_str().into())),
         ..Default::default()
     };
+    let title = crate::PaneDelta {
+        title: Some("⠙ Thinking".into()),
+        ..Default::default()
+    };
     let pane = pid("%1");
     assert!(held.send_now(&pane, true, &screen, t0));
     assert!(!held.send_now(&pane, true, &screen, t0 + MS));
+    assert!(
+        !held.send_now(&pane, true, &title, t0 + MS),
+        "a spinner in the title waits too"
+    );
     assert!(held.send_now(&pane, true, &state, t0 + 2 * MS));
     assert!(held.send_now(&pane, false, &screen, t0 + 3 * MS), "shown");
 }

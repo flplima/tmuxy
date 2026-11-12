@@ -118,7 +118,7 @@ reaches the app as delay (head-of-line retransmit), not dropped events.
 throwaway server only, like the interactions below,
 (`packages/tmuxy-ui/scripts/measure-hidden-bytes.mjs`) measures what the event
 stream (`GET /events`) carries to a browser while one pane redraws an agent's
-spinner at ~2 KB/s: with no spinner, with the spinner in a tab the browser does
+spinner at ~2 KB/s (its terminal title animated with it, as Claude Code does): with no spinner, with the spinner in a tab the browser does
 not show, and with its tab shown. The bytes are the ones Chrome received on the
 stream's connection (CDP), so what the link carries. `perf:compare` reads the
 report and holds what a hidden spinner adds per byte it prints to a budget
@@ -126,7 +126,7 @@ report and holds what a hidden spinner adds per byte it prints to a budget
 
 Measured: the stream idles at ~30 B/s and a visible spinner adds ~16 KB/s, about
 8 bytes per byte it printed. A hidden one adds ~0.7 KB/s (~0.35 per byte, ~2.6 MB
-an hour): its screen is sent at most once a second, the latest frame, and at
+an hour): its screen and title are sent at most once a second, the latest frame, and at
 once when its tab is shown (`control_mode/state/hidden_panes.rs`, A15 in
 [INVARIANTS.md](INVARIANTS.md)). Before that it cost as much as a visible one,
 every frame in full: ~55 MB an hour per agent left spinning in a background tab.
