@@ -148,7 +148,7 @@ fi
 # ever answer.
 TARGET="$(_resolve_target "$TARGET")" || exit $?
 rc=0
-resolved="$(_tmux_read display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)" || rc=$?
+resolved="$(_pane_read "$TARGET" '#{pane_id}' 2>/dev/null)" || rc=$?
 _exit_if_no_server "$rc"
 [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $TARGET"
 [ -n "$resolved" ] && TARGET="$resolved"

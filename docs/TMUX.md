@@ -126,6 +126,8 @@ Window indices (`:0`, `:1`, `:3`) can shift when windows are created or destroye
 
 This matters especially in automation and tests where multiple operations happen in sequence — between a query and the next command, indices may have shifted.
 
+An id can name a pane that has closed, and `display-message -t %N` does not fail for one: it exits 0 and answers for no pane, or for tmux's default pane when a client is attached. Any read that decides something about a pane asks for `#{pane_id}` first and refuses an answer that is not the pane's own: `ask::pane_read` in `tmuxy-core/src/ask.rs`, `_pane_read` in `tmuxy-cli/bin/tmuxy/_contract`, and the same check inline where a hot path keeps one spawn (`nav`).
+
 The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and ships no `bind -n C-N` lines in its config.
 
 Every window or pane the client names in a command is an **id** (`@N` / `%N`), never a tmux index: `renumber-windows` shifts indices whenever a window closes and tmux announces none of the shifts, so an index the client holds can be a beat stale. The backend re-lists windows after any window add, close or reorder, but the id rule is what makes a stale list harmless.
