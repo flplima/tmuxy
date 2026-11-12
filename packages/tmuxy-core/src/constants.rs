@@ -116,8 +116,9 @@ pub mod tmux_options {
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
 
     /// Set by tmux on a pane a send was held back from, because the pane said
-    /// it needs the user (`crate::ask::deliver`): the send reads it back to
-    /// know, and takes it off. Unset otherwise.
+    /// it needs the user (`crate::ask::deliver`): with the send's own token
+    /// after it (`@tmuxy-send-held-<token>`), so senders at once each read
+    /// their own. The send reads it back to know, and takes it off.
     pub const SEND_HELD: &str = "@tmuxy-send-held";
 
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI

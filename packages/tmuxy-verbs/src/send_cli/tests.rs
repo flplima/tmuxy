@@ -21,7 +21,8 @@ struct Fake {
     needs_input: Mutex<bool>,
     /// What `capture-pane` shows.
     screen: String,
-    /// tmux held a guarded send back: its token (`@tmuxy-send-held`).
+    /// tmux held a guarded send back: the name of its mark
+    /// (`@tmuxy-send-held-<token>`).
     held: Mutex<String>,
     /// Another program is in front once the keys are in.
     /// The pane turns to `needs-input` just as tmux runs the guarded send.
@@ -61,7 +62,15 @@ impl ask::Tmux for Fake {
             "#{@tmuxy-pane-state}" if *self.needs_input.lock().unwrap() => "needs-input".into(),
             "#{@tmuxy-pane-state}" if self.working_before => "working".into(),
             "#{@tmuxy-pane-state}" => String::new(),
-            "#{@tmuxy-send-held}" => self.held.lock().unwrap().clone(),
+            // This send's own mark only: another's is another option.
+            f if f.starts_with("#{@tmuxy-send-held-") => {
+                let held = self.held.lock().unwrap().clone();
+                if f == format!("#{{{held}}}") {
+                    "1".into()
+                } else {
+                    String::new()
+                }
+            }
             _ if argv[0] == "capture-pane" => self.screen.clone(),
             "#{@tmuxy-ask-answer}" if self.gone => {
                 return Err(CommandError::tmux("can't find pane: %3"))
@@ -82,15 +91,15 @@ impl ask::Tmux for Fake {
             // A guarded send, as tmux runs it: the keys, or the held mark.
             if argv[0] == "if-shell" {
                 if *self.needs_input.lock().unwrap() || self.opens_prompt_at_typing {
-                    // The else branch: set-option -p -t %3 @tmuxy-send-held <token>.
-                    let held = unquote(&argv[6]).last().cloned().unwrap_or_default();
+                    // The else branch: set-option -p -t %3 @tmuxy-send-held-<token> 1.
+                    let held = unquote(&argv[6]).get(4).cloned().unwrap_or_default();
                     *self.held.lock().unwrap() = held;
                 } else {
                     self.log.lock().unwrap().push(unquote(&argv[5]).join(" "));
                 }
                 continue;
             }
-            if argv[..2] == ["set-option", "-pu"] && argv[4] == "@tmuxy-send-held" {
+            if argv[..2] == ["set-option", "-pu"] && argv[4] == *self.held.lock().unwrap() {
                 self.held.lock().unwrap().clear();
             }
             if argv[..2] == ["set-option", "-p"] && argv[4] == "@tmuxy-ask" {
@@ -381,12 +390,12 @@ fn a_wait_takes_seconds_minutes_or_hours() {
 #[tokio::test]
 async fn another_sends_held_mark_is_left_alone() {
     let tmux = Fake {
-        held: Mutex::new("someone-elses".into()),
+        held: Mutex::new("@tmuxy-send-held-someone-elses".into()),
         ..Fake::default()
     };
     run(&tmux, args(Some("%3"))).await.unwrap();
     assert_eq!(tmux.typed().len(), 1);
-    assert_eq!(*tmux.held.lock().unwrap(), "someone-elses");
+    assert_eq!(*tmux.held.lock().unwrap(), "@tmuxy-send-held-someone-elses");
 }
 
 /// --wait into an agent already working: refused before anything is typed,

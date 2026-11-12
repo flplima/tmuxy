@@ -195,14 +195,9 @@ fn a_pane_at_a_prompt_is_sent_nothing_whoever_sends_and_however() {
     let out = send_into(&s, &caller, &marked.pane, text);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert_eq!(received(&marked.log), format!("{text}\n"));
-    assert!(s
-        .tmux(&[
-            "show-options",
-            "-p",
-            "-t",
-            &marked.pane,
-            "-qv",
-            "@tmuxy-send-held"
-        ])
-        .is_empty());
+    // No send left a held mark of its own on either pane.
+    for pane in [&at_dialog.pane, &marked.pane] {
+        let options = s.tmux(&["show-options", "-p", "-t", pane]);
+        assert!(!options.contains("@tmuxy-send-held"), "{options}");
+    }
 }

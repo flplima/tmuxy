@@ -370,8 +370,9 @@ pub async fn at_prompt<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<bool, Command
 /// one `if-shell` that tmux runs only while `pane` does not say it needs the
 /// user, decided in the same step that would type it, so a prompt that opens
 /// between a check and the keys cannot be answered by them. Otherwise tmux
-/// marks the pane [`SEND_HELD`] with `token`, this send's own, so a send
-/// beside it can neither take the mark for its own nor clear it.
+/// marks the pane with `@tmuxy-send-held-<token>` ([`SEND_HELD`]), an
+/// option of this send's own, so a send beside it can neither read the mark
+/// as its own nor clear it.
 pub fn guarded(pane: &PaneId, command: &[String], token: &str) -> Argv {
     let line = |argv: &[String]| {
         argv.iter()
@@ -387,7 +388,7 @@ pub fn guarded(pane: &PaneId, command: &[String], token: &str) -> Argv {
         pane.as_str(),
         &condition,
         &line(command),
-        &line(&set_pane(pane, SEND_HELD, token)),
+        &line(&set_pane(pane, &format!("{SEND_HELD}-{token}"), "1")),
     ])
 }
 
@@ -403,13 +404,15 @@ pub async fn deliver<T: Tmux>(tmux: &T, pane: &PaneId, command: Argv) -> Result<
         .await
         .map_err(Refused::Tmux)?;
     let held = tmux
-        .read(display(pane, &format!("#{{{SEND_HELD}}}")))
+        .read(display(pane, &format!("#{{{SEND_HELD}-{token}}}")))
         .await
         .map_err(Refused::Tmux)?;
-    if held.trim() != token {
+    if held.trim().is_empty() {
         return Ok(());
     }
-    let _ = tmux.mutate(vec![unset_pane(pane, SEND_HELD)]).await;
+    let _ = tmux
+        .mutate(vec![unset_pane(pane, &format!("{SEND_HELD}-{token}"))])
+        .await;
     Err(Refused::AtPrompt(pane.clone()))
 }
 

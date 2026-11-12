@@ -89,6 +89,11 @@ fn foreground_started(pane_pid: &str) -> String {
     ps(&["-o", "lstart=", "-p", &group])
 }
 
+/// A failure after the keys went in: whatever it was, exit 5 says they did.
+fn sent((_, message): (i32, String)) -> (i32, String) {
+    (EXIT_SENT, message)
+}
+
 /// What `pane` says it is doing (`@tmuxy-pane-state`); exit 3 when it is gone.
 async fn state_of<T: ask::Tmux>(tmux: &T, pane: &PaneId) -> Result<String, (i32, String)> {
     let argv = [
@@ -132,22 +137,13 @@ pub(super) async fn settle<T: ask::Tmux>(
     let start = tokio::time::Instant::now();
     let mut working = false;
     loop {
-        if occupant(tmux, pane).await? != *pinned {
+        if occupant(tmux, pane).await.map_err(sent)? != *pinned {
             return Err((
                 EXIT_SENT,
                 format!("the program in {pane} changed while waiting"),
             ));
         }
-        let argv = [
-            "display-message",
-            "-p",
-            "-t",
-            pane.as_str(),
-            &format!("#{{{PANE_STATE}}}"),
-        ];
-        let state = ask::Tmux::read(tmux, argv.map(String::from).to_vec())
-            .await
-            .map_err(|_| (EXIT_TARGET, format!("{pane} is gone")))?;
+        let state = state_of(tmux, pane).await.map_err(sent)?;
         match state.trim() {
             s if s == PaneStateName::Working.as_str() => working = true,
             s if s == PaneStateName::NeedsInput.as_str() => {
