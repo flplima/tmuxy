@@ -128,6 +128,10 @@ pub mod tmux_options {
     /// (`claude`, `codex`, `gemini`, or a `cmd`'s program).
     pub const AGENT: &str = "@tmuxy-agent";
 
+    /// Pane-scoped: the agent session the pane runs, `<agent>:<uuid>`, from
+    /// its hooks; `tmuxy agent revive` resumes it. Never a command line.
+    pub const AGENT_SESSION: &str = "@tmuxy-agent-session";
+
     /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
     /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys
     /// are meant for. The value is base64 of a JSON object

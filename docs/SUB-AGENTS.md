@@ -44,6 +44,19 @@ The pane is always in the caller's tab: spawn needs `TMUX_PANE` and refuses to r
 
 An agent that never gets a state (no hooks installed, no screen rule for it) never reads as ready; spawn it instead.
 
+## Revive
+
+The hooks of Claude Code and Codex record the session a pane runs: on a session's start and on each prompt, `@tmuxy-agent-session` becomes `<agent>:<session id>`, from the event's own JSON (`session.rs`). `tmuxy agent revive <pane>` resumes it in place once the agent has exited: it respawns the pane with `claude --resume <id>` (or `codex resume <id>`), and a shell after it, in the pane's directory.
+
+| Rule | Why |
+| --- | --- |
+| only the agent's kind and the id are kept, never a command line | any process of the same user can write a pane option; a command revive ran as written would be one anyone could plant |
+| the id must be a UUID, checked when recorded and again when read | an event's JSON is input like any other: `; rm`, `#(…)` or a newline never reach an option or a command |
+| the command comes from revive's own table of agents | the recorded kind only picks an entry |
+| a pane still running something other than a shell is refused | revive replaces the pane's process |
+
+Nothing reads an agent's files: the id is the one the hook was handed.
+
 ## Wait
 
 `tmuxy agent wait <pane>...` waits for panes, by id or label, to change to a state: `idle`, `needs-input`, `error`, `done` or `exited`; by default any but working. The first pane that gets there ends the wait, or every one with `--all`. A pane that goes away ends it with exit 3, unless `exited` was asked for. `--for` gives up with exit 1.
@@ -52,4 +65,4 @@ It reads `@tmuxy-pane-state` every 250 ms for the first 10 s, then every second 
 
 ## Tests
 
-`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` runs both through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running.
+`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` runs both through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent revive` resumes a session a hook event recorded, in a fake `claude` on a PATH set for the test server only, and refuses while it runs, and a hostile session id is never recorded. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running.
