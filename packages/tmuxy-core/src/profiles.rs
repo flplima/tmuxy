@@ -1,6 +1,12 @@
-//! Terminal profiles: named sets of the settings the menus manage (theme and
-//! mode, cursor blink, asking before a send, transparency), one per tmux
-//! session if the user wants.
+//! Terminal profiles: named sets of the menus' look-and-feel settings (theme
+//! and mode, cursor blink, transparency), one per tmux session if the user
+//! wants.
+//!
+//! A profile holds appearance only, never a setting that guards access:
+//! asking before keys are sent to a pane, trusting a pane's claims, the
+//! permission files. A profile file is plain JSON any program of the user's
+//! can write, and is applied by name, so such a key in it is refused with a
+//! message rather than read ([`SECURITY_KEYS`]).
 //!
 //! A profile holds only what it changes. The **Default Profile** is not a
 //! file and changes nothing: a session with no profile, or with the default
@@ -13,7 +19,8 @@
 //!
 //! A profile applies to its session only: its values are set on the session
 //! (`set-option -t <session>`), over the global ones, and the session carries
-//! `@tmuxy-profile` naming it.
+//! `@tmuxy-profile` naming it. Sessions are matched by name: a renamed
+//! session loses its profile, and a new session given an old name gets it.
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +34,23 @@ pub const DEFAULT_PROFILE: &str = "Default Profile";
 /// The most characters a profile's name may have.
 const MAX_NAME_CHARS: usize = 64;
 
+/// The keys a profile file may hold: [`Profile`]'s fields, nothing else.
+pub const FIELDS: [&str; 4] = ["theme", "themeMode", "cursorBlink", "transparency"];
+
+/// Keys that name a setting guarding access, refused by name so the user
+/// learns why: a profile cannot loosen (or set) any of them.
+pub const SECURITY_KEYS: [&str; 6] = [
+    "sendAsk",
+    "sendAskAllow",
+    "trustPaneClaims",
+    "permissions",
+    "permissionsFile",
+    "allowedHosts",
+];
+
+/// The theme modes a profile may pick.
+const THEME_MODES: [&str; 3] = ["dark", "light", "auto"];
+
 /// What a profile changes; `None` leaves the setting as the menus and the
 /// config have it.
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -39,8 +63,6 @@ pub struct Profile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_blink: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub send_ask: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transparency: Option<bool>,
 }
 
@@ -52,6 +74,8 @@ pub enum ProfileError {
     Missing(String),
     Exists(String),
     Unreadable(String),
+    /// A key that is not a profile field, or a security setting.
+    Refused(String),
 }
 
 impl std::fmt::Display for ProfileError {
@@ -65,7 +89,7 @@ impl std::fmt::Display for ProfileError {
             Self::Default => write!(f, "the {DEFAULT_PROFILE} has no file to change"),
             Self::Missing(name) => write!(f, "there is no profile {name:?}"),
             Self::Exists(name) => write!(f, "a profile {name:?} already exists"),
-            Self::Unreadable(why) => write!(f, "{why}"),
+            Self::Unreadable(why) | Self::Refused(why) => write!(f, "{why}"),
         }
     }
 }
@@ -123,7 +147,61 @@ pub fn load(dir: &Path, name: &str) -> Result<Profile, ProfileError> {
         std::io::ErrorKind::NotFound => ProfileError::Missing(name.to_string()),
         _ => ProfileError::Unreadable(format!("{}: {e}", path.display())),
     })?;
-    serde_json::from_str(&text).map_err(|e| ProfileError::Unreadable(format!("{name}: {e}")))
+    parse(name, &text)
+}
+
+/// A profile file's text, checked key by key before it is read: a security
+/// setting or an unknown key is refused naming it, and so is a theme or mode
+/// value no theme could have.
+pub fn parse(name: &str, text: &str) -> Result<Profile, ProfileError> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| ProfileError::Unreadable(format!("{name}: {e}")))?;
+    let Some(object) = value.as_object() else {
+        return Err(ProfileError::Unreadable(format!(
+            "{name}: a profile is a JSON object"
+        )));
+    };
+    for key in object.keys() {
+        if SECURITY_KEYS.contains(&key.as_str()) {
+            return Err(ProfileError::Refused(format!(
+                "{name}: {key:?} guards access to your panes; a profile cannot change it"
+            )));
+        }
+        if !FIELDS.contains(&key.as_str()) {
+            return Err(ProfileError::Refused(format!(
+                "{name}: {key:?} is not a profile setting (one of {})",
+                FIELDS.join(", ")
+            )));
+        }
+    }
+    let profile: Profile = serde_json::from_value(value)
+        .map_err(|e| ProfileError::Unreadable(format!("{name}: {e}")))?;
+    check_values(name, &profile)?;
+    Ok(profile)
+}
+
+fn check_values(name: &str, profile: &Profile) -> Result<(), ProfileError> {
+    if let Some(theme) = &profile.theme {
+        let stem = !theme.is_empty()
+            && theme.len() <= MAX_NAME_CHARS
+            && theme
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'));
+        if !stem {
+            return Err(ProfileError::Refused(format!(
+                "{name}: {theme:?} is not a theme name (a theme file's name, like \"tokyo-night\")"
+            )));
+        }
+    }
+    if let Some(mode) = &profile.theme_mode {
+        if !THEME_MODES.contains(&mode.as_str()) {
+            return Err(ProfileError::Refused(format!(
+                "{name}: {mode:?} is not a theme mode (one of {})",
+                THEME_MODES.join(", ")
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Write `profile` as `name`, made or replaced.
@@ -183,7 +261,6 @@ pub fn session_commands(
         (tmux_options::THEME, profile.theme.clone()),
         (tmux_options::THEME_MODE, profile.theme_mode.clone()),
         (tmux_options::CURSOR_BLINK, profile.cursor_blink.map(on_off)),
-        (tmux_options::SEND_ASK, profile.send_ask.map(on_off)),
         (tmux_options::TRANSPARENCY, profile.transparency.map(on_off)),
     ];
     let target = crate::tmux_quote(session);

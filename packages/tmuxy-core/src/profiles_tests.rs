@@ -140,9 +140,59 @@ fn a_name_is_safe_as_a_file_name_and_a_file_is_the_profile_schema_only() {
         r#"{"theme":"nord","shell":"rm -rf /"}"#,
     )
     .unwrap();
-    assert!(matches!(
-        load(&dir, "Odd"),
-        Err(ProfileError::Unreadable(_))
-    ));
+    assert!(matches!(load(&dir, "Odd"), Err(ProfileError::Refused(m)) if m.contains("shell")));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A profile file is plain JSON anything of the user's can write, and is
+/// applied by name: it may never turn off asking before keys reach a pane,
+/// or touch any other setting that guards access.
+#[test]
+fn a_profile_cannot_change_a_security_setting() {
+    for key in SECURITY_KEYS {
+        let text = format!(r#"{{"theme":"nord","{key}":false}}"#);
+        let refused = parse("Sneaky", &text);
+        assert!(
+            matches!(&refused, Err(ProfileError::Refused(m)) if m.contains(key) && m.contains("guards access")),
+            "{key}: {refused:?}"
+        );
+    }
+    // Saved and loaded through the store, the same file is refused, so the
+    // session keeps its global setting.
+    let dir = scratch("security");
+    std::fs::write(dir.join("Sneaky.json"), r#"{"sendAsk":false}"#).unwrap();
+    let mut state = ManagedState::default();
+    state
+        .session_profiles
+        .insert("work".into(), "Sneaky".into());
+    assert!(profile_commands(&state, "work", &dir, &[]).is_empty());
+    // And no field of a profile reaches the send-ask option.
+    let all = Profile {
+        theme: Some("nord".into()),
+        theme_mode: Some("dark".into()),
+        cursor_blink: Some(true),
+        transparency: Some(true),
+    };
+    let commands = session_commands("work", "All", &all, &[]);
+    assert!(
+        !commands.iter().any(|c| c.contains("send-ask")),
+        "{commands:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_theme_or_mode_no_theme_could_have_is_refused() {
+    for bad in [
+        r#"{"theme":"Tokyo Night"}"#,
+        r#"{"theme":"../x"}"#,
+        r#"{"theme":""}"#,
+        r#"{"themeMode":"dusk"}"#,
+    ] {
+        assert!(
+            matches!(parse("T", bad), Err(ProfileError::Refused(_))),
+            "{bad}"
+        );
+    }
+    assert!(parse("T", r#"{"theme":"devtools__dark","themeMode":"auto"}"#).is_ok());
 }

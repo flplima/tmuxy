@@ -1,6 +1,6 @@
 # Profiles
 
-A profile is a named set of the settings the menus manage: the theme and its mode, the blinking cursor, asking before a send, and transparency. Each tmux session can use one (`tmuxy-core/src/profiles.rs`).
+A profile is a named set of the menus' look-and-feel settings: the theme and its mode, the blinking cursor and transparency. Each tmux session can use one (`tmuxy-core/src/profiles.rs`).
 
 ## The Default Profile
 
@@ -13,7 +13,9 @@ Every session starts on the **Default Profile**, which is not a file and changes
 | A named profile | `profiles/<name>.json` in the config dir, holding only what it changes |
 | Which session uses which | `session_profiles` in `tmuxy.state.json`, with the menus' other choices, since tmux forgets a session's options when its server exits |
 
-A profile's name is up to 64 letters, digits, spaces, `-`, `_` or `.`, not starting with `.`, so it is safe as a file name. A file with a key the schema does not know is refused rather than half-read.
+A profile's name is up to 64 letters, digits, spaces, `-`, `_` or `.`, not starting with `.`, so it is safe as a file name. A profile holds those four keys (`theme`, `themeMode`, `cursorBlink`, `transparency`) and nothing else. A key that guards access, such as asking before keys are sent to a pane, is refused by name: a profile file is plain JSON any program of the user's can write, so it never loosens a security setting. Any other unknown key, a theme that is not a theme file's name, or a mode other than `dark`, `light` or `auto` is refused too, rather than half-read.
+
+Sessions are matched by name: a renamed session loses its profile, and a new session given an old name gets it.
 
 ## How a profile applies
 
@@ -27,4 +29,5 @@ When the app attaches to a session with a profile, after the config chain and th
 - a session's profile sets its values on that session only, and leaves pinned options alone;
 - a broken or missing profile changes nothing;
 - profiles are created, copied, renamed and deleted, and the default one cannot be;
-- names and the file schema are checked.
+- names and the file schema are checked, and a theme or mode no theme could have is refused;
+- a profile setting any security key, `sendAsk` off among them, is refused, and no profile field reaches the send-ask option.
