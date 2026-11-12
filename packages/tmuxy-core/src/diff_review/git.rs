@@ -47,32 +47,74 @@ pub fn available() -> bool {
     safe_git::available()
 }
 
+/// Where a snapshot of a checkout is kept, apart from the checkout: an index
+/// and an object store of tmuxy's own, the checkout's objects read through
+/// as alternates. git run with it writes there and nowhere in the checkout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Store {
+    pub index: std::path::PathBuf,
+    pub objects: std::path::PathBuf,
+    /// The checkout's own object directory, read only.
+    pub alternates: std::path::PathBuf,
+}
+
+/// `git <args>` in `dir`, as [`safe_git`] runs it, writing to `store` if any.
+fn command(
+    dir: &Path,
+    settings: &[(String, String)],
+    args: &[&str],
+    store: Option<&Store>,
+) -> std::process::Command {
+    let mut command = safe_git::command(dir, settings, args);
+    if let Some(store) = store {
+        command
+            .env("GIT_INDEX_FILE", &store.index)
+            .env("GIT_OBJECT_DIRECTORY", &store.objects)
+            .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &store.alternates);
+    }
+    command
+}
+
 /// What `git <args>` printed when it succeeded, as text.
 pub fn text(dir: &Path, args: &[&str], deadline: Instant) -> Option<String> {
-    let said = safe_git::run(
-        safe_git::command(dir, &[unquoted()], args),
-        deadline,
-        TEXT_CAP,
-    )?;
+    text_in(None, dir, args, deadline)
+}
+
+/// [`text`], with a snapshot's store: a snapshot reads files in as git
+/// would store them, so every content filter is switched off for it too.
+pub fn text_in(
+    store: Option<&Store>,
+    dir: &Path,
+    args: &[&str],
+    deadline: Instant,
+) -> Option<String> {
+    let mut settings = match store {
+        Some(_) => safe_git::filters_off(dir, deadline)?,
+        None => Vec::new(),
+    };
+    settings.push(unquoted());
+    let said = safe_git::run(command(dir, &settings, args, store), deadline, TEXT_CAP)?;
     said.success
         .then(|| String::from_utf8_lossy(&said.stdout).into_owned())
 }
 
-/// The patch `git <command>` prints (a `diff-files` or `diff-index`), with
-/// [`DIFF_ARGS`] and every content filter switched off, and whether it was
-/// cut at its cap. `None` when it failed or ran past `deadline`.
-pub fn patch(dir: &Path, command: &[&str], deadline: Instant) -> Option<(String, bool)> {
+/// The patch `git <command>` prints (a `diff-files`, `diff-index` or
+/// `diff-tree`), with [`DIFF_ARGS`] and every content filter switched off,
+/// and whether it was cut at its cap. `None` when it failed or ran past
+/// `deadline`.
+pub fn patch(
+    store: Option<&Store>,
+    dir: &Path,
+    command_args: &[&str],
+    deadline: Instant,
+) -> Option<(String, bool)> {
     let mut settings = safe_git::filters_off(dir, deadline)?;
     settings.push(unquoted());
-    let (verb, rest) = command.split_first()?;
+    let (verb, rest) = command_args.split_first()?;
     let mut args: Vec<&str> = vec![verb];
     args.extend_from_slice(DIFF_ARGS);
     args.extend_from_slice(rest);
-    let said = safe_git::run(
-        safe_git::command(dir, &settings, &args),
-        deadline,
-        PATCH_CAP,
-    )?;
+    let said = safe_git::run(command(dir, &settings, &args, store), deadline, PATCH_CAP)?;
     said.success
         .then(|| (String::from_utf8_lossy(&said.stdout).into_owned(), said.cut))
 }

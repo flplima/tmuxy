@@ -23,6 +23,7 @@ function read(scope: DiffRead['scope'], over: Partial<DiffRead> = {}): DiffRead 
     scope,
     branch: 'feature',
     base: scope === 'branch' ? 'main' : null,
+    turn: scope === 'turn' ? { agent: '%3', ongoing: true } : null,
     files: [
       {
         path: 'src/a.rs',
@@ -123,6 +124,17 @@ describe('DiffWidget', () => {
       args: { paneId: '%7', scope: 'branch' },
     });
     expect(screen.getByRole('tab', { name: 'Branch' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('shows the last turn, and whose it is', async () => {
+    const { diffCalls } = mount();
+    await screen.findByText('src/a.rs');
+    fireEvent.click(screen.getByRole('tab', { name: 'Last turn' }));
+    await screen.findByText("%3's turn so far");
+    expect(diffCalls()[diffCalls().length - 1]).toEqual({
+      cmd: 'read_diff',
+      args: { paneId: '%7', scope: 'turn' },
+    });
   });
 
   it('folds a file away and back', async () => {

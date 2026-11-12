@@ -281,6 +281,7 @@ fn every_command_answer_matches_its_fixture() {
                 untracked: vec!["notes.txt".to_string()],
                 untracked_more: 0,
                 truncated: false,
+                turn: None,
             }),
         ),
         ("stage_preview", null()),

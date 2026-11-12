@@ -19,9 +19,9 @@ pub struct Started<F> {
     /// Every pane on the socket, read once for everything that follows them
     /// (the agent-dialog correction, the web's push).
     pub panes: socket_watch::Rows,
-    /// The socket watch and the config watch, until dropped: a saved
-    /// stylesheet is announced to every client, a saved `tmuxy.conf` sourced
-    /// into every session.
+    /// The socket watch, the config watch and the diff's turn watch, until
+    /// dropped: a saved stylesheet is announced to every client, a saved
+    /// `tmuxy.conf` sourced into every session.
     pub background: F,
 }
 
@@ -34,6 +34,7 @@ pub fn start<S: Sessions>(
 ) -> Started<impl Future<Output = ()> + Send + 'static> {
     crate::trace::init(trace, dev);
     let (panes_tx, panes) = socket_watch::channel();
+    let turns = super::diff_turns::watch(panes.clone());
     let background = async move {
         let config = watch_config(move |change| {
             let sessions = Arc::clone(&sessions);
@@ -43,7 +44,7 @@ pub fn start<S: Sessions>(
                 }
             });
         });
-        tokio::join!(socket_watch::run(panes_tx), config);
+        tokio::join!(socket_watch::run(panes_tx), config, turns);
     };
     Started { panes, background }
 }

@@ -13,6 +13,7 @@
 
 mod bindings;
 pub mod command;
+pub mod diff_turns;
 mod event;
 mod plugins;
 pub mod prepare;

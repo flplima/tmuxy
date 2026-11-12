@@ -1,7 +1,7 @@
 /**
  * The `diff` widget (`tmuxy widget diff`): the changes of one git checkout,
- * in the scope the bar above them is switched to — unstaged, staged, or the
- * branch against its base. Read again every few seconds while the app is on
+ * in the scope the bar above them is switched to — unstaged, staged, the
+ * branch against its base, or an agent's last turn. Read again every few seconds while the app is on
  * screen; the last read stays on screen meanwhile and beside a failure.
  */
 
@@ -22,6 +22,7 @@ const SCOPE_LABEL: Record<DiffScope, string> = {
   unstaged: 'Unstaged',
   staged: 'Staged',
   branch: 'Branch',
+  turn: 'Last turn',
 };
 
 function summary(read: DiffRead): string {
@@ -36,9 +37,13 @@ function summary(read: DiffRead): string {
   return `${files} · +${added} −${removed}`;
 }
 
-/** What the read compares, in words: `feature against main`, `main`. */
+/** What the read compares, in words: `feature against main`, `%3's last turn`, `main`. */
 function compared(read: DiffRead): string | null {
   if (read.scope === 'branch' && read.base) return `${read.branch ?? 'HEAD'} against ${read.base}`;
+  if (read.turn) {
+    const { agent, ongoing } = read.turn;
+    return ongoing ? `${agent}'s turn so far` : `${agent}'s last turn`;
+  }
   return read.branch ?? null;
 }
 

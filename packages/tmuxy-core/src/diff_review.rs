@@ -11,7 +11,9 @@
 //! - **staged**: the index against `HEAD`;
 //! - **branch**: the working tree against where the branch left its base
 //!   (the merge base with `origin/HEAD`, else `main`, else `master`), so what
-//!   the branch has committed and what it has not, together.
+//!   the branch has committed and what it has not, together;
+//! - **turn**: what an agent beside the diff changed in its last turn
+//!   ([`turn`]), untracked files included.
 //!
 //! git runs in a directory the user chose but whose content is anyone's (a
 //! clone, a pull request checked out), so it runs nothing the repository
@@ -28,6 +30,7 @@ use crate::{CommandError, PaneId};
 
 mod git;
 mod patch;
+pub mod turn;
 
 pub use patch::{DiffFile, DiffLine, FileStatus, Hunk, LineKind};
 
@@ -43,6 +46,7 @@ pub enum Scope {
     Unstaged,
     Staged,
     Branch,
+    Turn,
 }
 
 /// One read of a checkout's changes.
@@ -66,6 +70,9 @@ pub struct DiffRead {
     pub untracked_more: usize,
     /// The diff was larger than a read returns: what is here is its start.
     pub truncated: bool,
+    /// For the turn scope: whose turn, and whether it is still going.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn: Option<turn::TurnInfo>,
 }
 
 /// The checkout a pane may read, from its options: the pane must be showing
@@ -141,6 +148,7 @@ pub fn read_in(dir: &Path, scope: Scope) -> Result<DiffRead, CommandError> {
             ],
             None,
         ),
+        Scope::Turn => return read_turn(&root, branch, deadline),
         Scope::Branch => {
             let (base, merge_base) = branch_base(&root, deadline)?;
             (
@@ -150,17 +158,14 @@ pub fn read_in(dir: &Path, scope: Scope) -> Result<DiffRead, CommandError> {
         }
     };
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    let (patch, truncated) = git::patch(&root, &args, deadline)
+    let (patch, truncated) = git::patch(None, &root, &args, deadline)
         .ok_or_else(|| CommandError::unavailable("git could not read the changes in time"))?;
     let (untracked, untracked_more) = match scope {
-        Scope::Staged => (Vec::new(), 0),
+        Scope::Staged | Scope::Turn => (Vec::new(), 0),
         Scope::Unstaged | Scope::Branch => untracked(&root, deadline),
     };
     Ok(DiffRead {
-        name: root
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        name: folder_name(&root),
         scope,
         branch,
         base,
@@ -168,7 +173,35 @@ pub fn read_in(dir: &Path, scope: Scope) -> Result<DiffRead, CommandError> {
         untracked,
         untracked_more,
         truncated,
+        turn: None,
     })
+}
+
+/// The turn scope: the agent's last turn, untracked files in its patch.
+fn read_turn(
+    root: &Path,
+    branch: Option<String>,
+    deadline: std::time::Instant,
+) -> Result<DiffRead, CommandError> {
+    let (patch, truncated, turn) = turn::read(root, deadline)?;
+    Ok(DiffRead {
+        name: folder_name(root),
+        scope: Scope::Turn,
+        branch,
+        base: None,
+        files: patch::parse(&patch),
+        untracked: Vec::new(),
+        untracked_more: 0,
+        truncated,
+        turn: Some(turn),
+    })
+}
+
+/// The checkout's folder name, for the title.
+fn folder_name(root: &Path) -> String {
+    root.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// The ref a branch is compared with, and the commit it left it at.

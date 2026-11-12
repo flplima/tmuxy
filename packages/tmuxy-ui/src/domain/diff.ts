@@ -8,11 +8,15 @@ import { Schema } from 'effect';
 
 const optional = <A, I>(schema: Schema.Schema<A, I>) => Schema.optional(Schema.NullOr(schema));
 
-/** unstaged: the working tree against the index; staged: the index against HEAD; branch: the working tree against the branch's base. */
-export const DiffScope = Schema.Literal('unstaged', 'staged', 'branch');
+/**
+ * unstaged: the working tree against the index; staged: the index against
+ * HEAD; branch: the working tree against the branch's base; turn: what an
+ * agent beside the diff changed in its last turn.
+ */
+export const DiffScope = Schema.Literal('unstaged', 'staged', 'branch', 'turn');
 export type DiffScope = Schema.Schema.Type<typeof DiffScope>;
 
-export const DIFF_SCOPES: readonly DiffScope[] = ['unstaged', 'staged', 'branch'];
+export const DIFF_SCOPES: readonly DiffScope[] = ['unstaged', 'staged', 'branch', 'turn'];
 
 export const DiffLine = Schema.Struct({
   kind: Schema.Literal('context', 'added', 'removed', 'note'),
@@ -49,6 +53,8 @@ export const DiffRead = Schema.Struct({
   untracked: Schema.Array(Schema.String),
   untrackedMore: Schema.Number,
   truncated: Schema.Boolean,
+  /** The turn scope's turn: the agent's pane, and whether it is still at it. */
+  turn: optional(Schema.Struct({ agent: Schema.String, ongoing: Schema.Boolean })),
 });
 export type DiffRead = Schema.Schema.Type<typeof DiffRead>;
 
