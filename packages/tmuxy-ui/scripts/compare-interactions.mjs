@@ -54,6 +54,10 @@ const RATIO_BUDGETS = {
   // The keystroke with 23 panes beside it each redrawing a spinner at ~2 KB/s:
   // measured 1.1–1.8× on a loaded dev machine, p95 nearer 2×.
   'key-echo-busy': 3,
+  // Navigation start to the focused pane's prompt, and to the first key
+  // echoed, with 10k lines of scrollback: measured ~12× and ~17×.
+  'attach-paint': 30,
+  'attach-interactive': 40,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */
@@ -133,6 +137,14 @@ for (const item of report.interactions) {
     } else {
       warnings.push(`${item.name}: ${item.timeouts} sample(s) never produced a visible result`);
     }
+  }
+
+  // Keys typed during an attach that never arrived (`lib/attach.mjs`).
+  if (item.load?.lostKeys > 0) {
+    if (verdict === '✅') verdict = '⚠️';
+    warnings.push(
+      `${item.name}: ${item.load.lostKeys} of ${item.load.typedKeys} keys typed during the attach never arrived`,
+    );
   }
 
   rows.push({

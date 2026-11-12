@@ -131,6 +131,16 @@ into the panes' terminals itself, so the load is exactly that and stops with
 the run). Its ratio to `key-echo` is what other panes' output costs a
 keystroke.
 
+The web harness then measures **attach** (`scripts/lib/attach.mjs`): it gives
+the focused pane 10,000 lines of history and reloads the page, timing from
+navigation start `attach-paint`, the focused pane showing its prompt, and
+`attach-interactive`, the first key echoed, typing a fresh token every 100 ms
+from the moment the app exists. The tokens that never show are reported as
+`lostKeys`, and `perf:compare` warns about them: a key typed during an attach
+should arrive late, never be dropped. Measured on a loaded dev machine: ~470–510
+ms to paint (~11× a keystroke), ~690–775 ms to the first echo (~17×), and about
+a third of the keys typed meanwhile lost. `--only attach` runs that alone.
+
 **Two targets, one suite.** The same interactions are measured against the web
 app and against the desktop app, because they reach the same Rust core over
 different transports — `POST /commands` + SSE versus Tauri IPC — and a

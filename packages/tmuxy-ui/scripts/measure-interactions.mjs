@@ -15,6 +15,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { buildReport, runInteractions, waitForReady } from './lib/perf-harness.mjs';
 import { assertThrowawayServer, requiredUrl } from './lib/throwaway.mjs';
+import { HISTORY_LINES, measureAttach } from './lib/attach.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (flag, fallback) => {
@@ -30,6 +31,7 @@ const SESSION = opt('--session', null);
 // The dev environment has a browser on 9222 and does not install Playwright's
 // own; CI launches one.
 const CDP = opt('--cdp', null);
+const ONLY = opt('--only', null);
 const URL = SESSION ? `${URL_BASE}?session=${encodeURIComponent(SESSION)}` : URL_BASE;
 
 function playwrightAdapter(page) {
@@ -70,7 +72,19 @@ async function main() {
   const adapter = playwrightAdapter(page);
   await waitForReady(adapter);
   await assertThrowawayServer(adapter.evaluate);
-  const results = await runInteractions(adapter, { samples: SAMPLES });
+  // `--only attach` skips the rest, to iterate on attach alone.
+  const results = ONLY === 'attach' ? [] : await runInteractions(adapter, { samples: SAMPLES });
+  results.push(
+    ...(await measureAttach(page, {
+      samples: SAMPLES,
+      // The focused pane with a long history, as a working session has.
+      prepare: async () => {
+        await adapter.clickActivePane();
+        await adapter.type(`seq 1 ${HISTORY_LINES}\n`);
+        await adapter.wait(2000);
+      },
+    })),
+  );
 
   // A CDP browser belongs to the developer, not to us — close only the tab.
   if (CDP) await page.close();
