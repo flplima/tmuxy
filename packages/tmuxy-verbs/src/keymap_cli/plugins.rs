@@ -6,8 +6,6 @@
 //! a file of the chain always wins, then the plugin that asked first
 //! (`tmuxy_core::plugins::keys`).
 
-#[cfg(feature = "native")]
-use std::path::Path;
 use std::path::PathBuf;
 
 use tmuxy_core::paths::Layout;
@@ -87,45 +85,61 @@ pub fn add(map: &mut Keymap, layout: &Layout) -> Plugins {
             .collect(),
         ..Plugins::default()
     };
+    out.skipped = add_keys(map, &registry);
     for plugin in registry.plugins.iter().filter(|p| p.manifest.runs_here()) {
-        let manifest = plugin.root.join(tmuxy_core::plugins::MANIFEST_FILE);
-        out.skipped
-            .extend(add_keys(map, &plugin.name, &plugin.manifest, &manifest));
         if plugin.kind == Kind::User {
+            let manifest = plugin.root.join(tmuxy_core::plugins::MANIFEST_FILE);
             out.user = Some(user_plugin(&plugin.manifest, manifest));
         }
     }
     out
 }
 
+/// The plugin keys, planned by the app's own rule
+/// (`tmuxy_core::plugins::keys::plan_with`) with what the keymap binds as
+/// what holds a key: each bound one goes into `map` under its plugin, and
+/// the ones something else holds are returned.
 #[cfg(feature = "native")]
-fn add_keys(
-    map: &mut Keymap,
-    plugin: &str,
-    manifest: &tmuxy_core::plugins::manifest::Manifest,
-    path: &Path,
-) -> Vec<Skipped> {
+fn add_keys(map: &mut Keymap, registry: &tmuxy_core::plugins::registry::Registry) -> Vec<Skipped> {
+    let held = |table: tmuxy_core::plugins::manifest::KeyTable, key: &str| {
+        map.bindings
+            .iter()
+            .find(|binding| binding.table == table.as_str() && binding.key == key)
+            .map(|binding| binding.source.to_string())
+    };
+    let planned = tmuxy_core::plugins::keys::plan_with(registry, held);
     let mut skipped = Vec::new();
-    for key in &manifest.keys {
-        if !manifest.actions_here().any(|a| a.id == key.action) {
+    for key in planned {
+        let table = key.table.as_str().to_string();
+        let manifest = registry
+            .get(&key.plugin)
+            .map(|plugin| plugin.root.join(tmuxy_core::plugins::MANIFEST_FILE))
+            .unwrap_or_default();
+        if key.taken_by.is_none() {
+            map.add_plugin_key(Binding {
+                table,
+                key: key.key,
+                command: format!("plugin action {}:{}", key.plugin, key.action),
+                repeat: false,
+                source: Source::plugin(&key.plugin, &manifest),
+            });
             continue;
         }
-        let binding = Binding {
-            table: key.table.as_str().to_string(),
-            key: key.key.clone(),
-            command: format!("plugin action {plugin}:{}", key.action),
-            repeat: false,
-            source: Source::plugin(plugin, path),
-        };
-        if let Some(held_by) = map.add_plugin_key(binding) {
-            skipped.push(Skipped {
-                plugin: plugin.to_string(),
-                action: key.action.clone(),
-                table: key.table.as_str().to_string(),
-                key: key.key.clone(),
-                held_by,
-            });
-        }
+        // What holds it is in the keymap: a file's line, or a plugin that
+        // asked first and was bound above.
+        let held_by = map
+            .bindings
+            .iter()
+            .find(|binding| binding.table == table && binding.key == key.key)
+            .map(|binding| binding.source.clone())
+            .unwrap_or_else(|| Source::plugin(&key.plugin, &manifest));
+        skipped.push(Skipped {
+            plugin: key.plugin,
+            action: key.action,
+            table,
+            key: key.key,
+            held_by,
+        });
     }
     skipped
 }
