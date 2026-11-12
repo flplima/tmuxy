@@ -381,6 +381,8 @@ fn a_finished_transfer_leaves_nothing_in_flight() {
 /// depending on where tmux's `%output` lines happened to end).
 #[test]
 fn an_escape_string_cut_short_holds_back_nothing_after_it() {
+    // What reached the terminal, then what is still held for the next
+    // chunk: the same bytes in the same order however the input was cut.
     let passed = |chunks: &[&[u8]]| {
         let mut parser = ImageParser::new();
         let mut out = Vec::new();
@@ -389,10 +391,19 @@ fn an_escape_string_cut_short_holds_back_nothing_after_it() {
             assert!(result.new_images.is_empty());
             out.extend(result.clean_bytes);
         }
+        out.extend(&parser.pending);
         out
     };
     let fuzzed: &[u8] = b"\x1b]\x1bTM";
     assert_eq!(passed(&[fuzzed]), fuzzed);
+    // An escape before a wrapper cut off at the line's end keeps its place
+    // ahead of the wrapper when both are held (fuzzer: ESC ] ESC Ptmux;0 ESC \).
+    let before_wrapper: &[u8] = b"\x1b]\x1bPtmux;0\x1b\\";
+    let whole = passed(&[before_wrapper]);
+    for cut in 1..before_wrapper.len() {
+        let split = passed(&[&before_wrapper[..cut], &before_wrapper[cut..]]);
+        assert_eq!(split, whole, "cut at {cut}");
+    }
     // A stray OSC start, then colored output with no BEL or ST anywhere.
     let stray: &[u8] = b"\x1b]\x1b[31mhello\x1b[0m";
     assert_eq!(passed(&[stray]), stray);
