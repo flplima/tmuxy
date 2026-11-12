@@ -144,10 +144,10 @@ What attach costs is mostly the page itself: the server answers the event stream
 in ~10 ms and the initial state in ~40 ms (it waits for the window to take the
 browser's size), and sends only the visible screens. So the entry script holds
 only what the terminal view needs (the preview widget, with its markdown and
-diagram renderers, loads when a pane first shows one), the server gzips its text
-files, and the hashed `assets/` are cached for a year
-(`tmuxy-server/src/server/assets.rs`): the entry went from 1.13 MB on the wire on
-every load to 292 KB once. Measured on a loaded dev machine, before and after
+diagram renderers, loads when a pane first shows one), and the server compresses
+its answers and lets the browser keep the hashed `assets/` for a year
+(`tmuxy-server/src/server/delivery.rs`): the entry went from 1.13 MB on the wire
+on every load to ~250 KB once. Measured on a loaded dev machine, before and after
 interleaved: paint ~330–470 ms → ~200–220 ms, first echo ~515–675 ms →
 ~375–420 ms.
 

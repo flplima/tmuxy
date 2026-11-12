@@ -27,8 +27,6 @@ axum = { version = "0.8" }
 base64.workspace = true
 clap.workspace = true
 rust-embed = "8"
-# Gzips the embedded frontend for the wire (tmuxy-core already depends on it).
-flate2 = "1"
 dirs.workspace = true
 futures-util = "0.3"
 # The `--dev` proxy to Vite, and web push to a browser's push service over
@@ -41,6 +39,8 @@ hkdf = "0.12"
 sha2 = "0.10"
 aes-gcm = "0.10"
 tower = { version = "0.5", features = ["util"] }
+# Compressed answers for a client that is not on this machine (`server/delivery.rs`).
+tower-http = { version = "0.6", features = ["compression-gzip", "compression-br"] }
 async-stream = "0.3"
 tmuxy-verbs = { path = "../tmuxy-verbs" }
 regex = "1"
