@@ -22,8 +22,14 @@ transparency, traces and level, tab and pane counts), and nothing else: no
 names, commands, paths or hosts. Then: step 2 above says to paste the snippet
 (and to read it first, as its notice asks); the issue template gets an optional
 "Bug report snippet" field beside the version fields; steps 3 and 4 and the
-manual check below give way to the redacted trace and its preview. Until then,
-this section is what works on main. -->
+manual check below give way to the redacted trace: Debug ▸ "Copy Trace…"
+(id trace-copy-share) opens a "Copy Trace" dialog with the last 20 actions
+redacted (session names, paths, error text, command arguments and marker
+labels become placeholders such as session-1 and path-2; ids, operations and
+timing stay), a full preview, and a "Copy N lines" button. The CLI twin is
+`tmuxy trace --last 20 --redact > tmuxy-trace-slice.ndjson` (also with
+--window and --export). It redacts at any trace level, so the "take it at
+Shape" advice goes. Until then, this section is what works on main. -->
 
 Tracing is off by default. Nothing is sent anywhere: the trace is a file on the machine that runs tmuxy ([TELEMETRY.md](TELEMETRY.md)).
 
