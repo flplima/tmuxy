@@ -4,11 +4,11 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { Modal } from '../Modal';
 import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
 import { isTauri } from '../../infra/platform';
 import { copyAppState, type ClipboardReport } from './copyAppState';
+import { CopyTraceDialog } from './CopyTraceDialog';
+import { KillSessionDialog } from './KillSessionDialog';
 import { writeClipboard } from '../../infra/clipboard';
 import {
   closeGuiWindow,
@@ -55,6 +55,7 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   useEffect(refreshWindows, [refreshWindows]);
 
   const [confirmKill, setConfirmKill] = useState(false);
+  const [copyTrace, setCopyTrace] = useState(false);
 
   const report: ClipboardReport = {
     onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
@@ -65,6 +66,8 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     switch (local.verb) {
       case 'confirm-kill-session':
         return setConfirmKill(true);
+      case 'copy-trace':
+        return setCopyTrace(true);
       case 'copy-app-state':
         return copyAppState(actor.getSnapshot().context, report);
       case 'copy-trace-path':
@@ -92,31 +95,17 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
 
   const dialogs = (
     <>
-      {confirmKill &&
-        createPortal(
-          <Modal open title="Kill Session" width={360} onClose={() => setConfirmKill(false)}>
-            <p className="app-menu-dialog-text">
-              Kill session <strong>{sessionName}</strong>? Every window and pane in it closes, and
-              what is running in them is ended.
-            </p>
-            <div className="app-menu-dialog-actions">
-              <button type="button" onClick={() => setConfirmKill(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="is-destructive"
-                onClick={() => {
-                  setConfirmKill(false);
-                  dispatch(op(TmuxOp.KillSession({ name: null })));
-                }}
-              >
-                Kill Session
-              </button>
-            </div>
-          </Modal>,
-          document.body,
-        )}
+      {confirmKill && (
+        <KillSessionDialog
+          sessionName={sessionName}
+          onCancel={() => setConfirmKill(false)}
+          onKill={() => {
+            setConfirmKill(false);
+            dispatch(op(TmuxOp.KillSession({ name: null })));
+          }}
+        />
+      )}
+      {copyTrace && <CopyTraceDialog onClose={() => setCopyTrace(false)} report={report} />}
     </>
   );
 

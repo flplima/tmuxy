@@ -22,6 +22,7 @@ export type MenuLocal =
   | { verb: 'rename' }
   | { verb: 'confirm-kill-session' }
   | { verb: 'copy-app-state' }
+  | { verb: 'copy-trace' }
   | { verb: 'copy-trace-path' }
   | { verb: 'quit' }
   | { verb: 'window-refresh' }
