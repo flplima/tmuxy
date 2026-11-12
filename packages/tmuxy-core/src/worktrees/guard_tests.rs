@@ -237,6 +237,11 @@ fn nothing_the_repository_names_is_run() {
         git(&scene.main, &["config", key, value]);
     }
     std::fs::write(scene.linked.join(".gitattributes"), "* filter=tell\n").unwrap();
+    // The repository's own attributes file, which no attribute source
+    // setting covers, names the filter too.
+    let info = scene.main.join(".git/info");
+    std::fs::create_dir_all(&info).unwrap();
+    std::fs::write(info.join("attributes"), "* filter=tell\n").unwrap();
     // Same text, newer time: git has to look inside the file to compare it.
     std::fs::write(scene.linked.join("README"), "hello\n").unwrap();
 
@@ -265,4 +270,18 @@ fn what_is_unsaved_is_said_in_words() {
         "uncommitted changes, untracked files, 3 commits on no remote"
     );
     assert_eq!(Unsaved::default().said(), "");
+}
+
+#[test]
+fn every_filter_driver_is_switched_off_by_name() {
+    assert_eq!(
+        filters_off(&["tell".to_string()]),
+        [
+            ("filter.tell.clean".to_string(), String::new()),
+            ("filter.tell.smudge".to_string(), String::new()),
+            ("filter.tell.process".to_string(), String::new()),
+            ("filter.tell.required".to_string(), "false".to_string()),
+        ]
+    );
+    assert!(filters_off(&[]).is_empty());
 }
