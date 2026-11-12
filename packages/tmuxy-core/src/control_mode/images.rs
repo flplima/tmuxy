@@ -424,8 +424,10 @@ impl ImageParser {
                 if matches!(nxt, b']' | b'_' | b'P') && !terminated_after(i + 2) {
                     let tail = &content[i..];
                     if tail.len() <= MAX_PENDING_IMAGE {
+                        // Before any wrapper tail the unwrapping held: in the
+                        // stream it came first.
                         self.pending_unterminated = self.pending.is_empty();
-                        self.pending.extend_from_slice(tail);
+                        self.pending.splice(0..0, tail.iter().copied());
                         break;
                     }
                 }
