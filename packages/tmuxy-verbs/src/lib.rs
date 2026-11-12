@@ -19,6 +19,7 @@ mod float_cli;
 mod group_cli;
 #[cfg(feature = "native")]
 mod plugin_cli;
+mod report_cli;
 mod run_cli;
 mod send_cli;
 #[cfg(feature = "native")]
@@ -82,6 +83,11 @@ pub enum Verb {
     /// Backs `float-create` (`tmuxy pane float`).
     #[command(hide = true)]
     Float(float_cli::FloatArgs),
+    /// Write the caller's pane report, or read another pane's. Backs
+    /// `tmuxy pane report`, which verifies the caller's pane and resolves
+    /// a target.
+    #[command(hide = true)]
+    Report(report_cli::ReportArgs),
     /// A `capture-pane -e` screen, on stdin, as HTML. Backs
     /// `tmuxy pane capture --format html`.
     #[command(hide = true)]
@@ -116,6 +122,7 @@ pub async fn run(verb: Verb) {
         Verb::Float(args) => float_cli::run(args),
         Verb::Run(args) => run_cli::run(args),
         Verb::NewTab(args) => run_cli::tab_create(args),
+        Verb::Report(args) => report_cli::run(args),
         Verb::CaptureHtml => capture_cli::html(),
         #[cfg(not(feature = "native"))]
         Verb::NotHere(argv) => not_here(&argv),

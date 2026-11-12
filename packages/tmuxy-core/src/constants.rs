@@ -128,6 +128,10 @@ pub mod tmux_options {
     /// (`claude`, `codex`, `gemini`, or a `cmd`'s program).
     pub const AGENT: &str = "@tmuxy-agent";
 
+    /// Pane-scoped: when the pane's report was written (Unix seconds),
+    /// by `tmuxy pane report`. The report counts only while this is set.
+    pub const REPORT_AT: &str = "@tmuxy-report-at";
+
     /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
     /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys
     /// are meant for. The value is base64 of a JSON object
