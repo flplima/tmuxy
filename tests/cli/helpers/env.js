@@ -70,12 +70,15 @@ function withScratchDir(prefix, fn) {
   return result;
 }
 
+/**
+ * The run's own socket name: what every CLI under test is told to use. The
+ * global setup made it before any test file loads.
+ */
+const SOCKET = suite().socket;
+
 module.exports = {
   MOCKS_DIR,
-  /** The run's own socket name: what every CLI under test is told to use. */
-  get SOCKET() {
-    return suite().socket;
-  },
+  SOCKET,
   scriptEnv,
   sealedEnv,
   withScratchDir,

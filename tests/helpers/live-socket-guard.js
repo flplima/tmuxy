@@ -81,7 +81,6 @@ function liveSocketProblem({
 }
 
 module.exports = {
-  LIVE_SOCKET_NAMES,
   isSocketFile,
   liveSocketDirectory,
   liveSocketProblem,
