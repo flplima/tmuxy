@@ -277,6 +277,8 @@ export interface AppMachineContext {
    * arrives late rather than never.
    */
   heldCommands: ReadonlyArray<HeldCommand>;
+  /** Held commands pushed out by the bound, to be counted in the notice. */
+  heldOverflow: number;
   /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */
   prefixActive: boolean;
   /** While the prefix is a repeat window, the only keys it still takes. */
@@ -325,7 +327,8 @@ export interface AppMachineContext {
   restorableSessions: RestorableSession[];
 }
 
-/** A command held while the app first connects (`heldCommands`). */
-export type HeldCommand =
-  | { type: 'SEND_TMUX_COMMAND'; command: string }
-  | { type: 'DISPATCH_OP'; op: TmuxOp };
+/** A command held while the app first connects (`heldCommands`), and when (ms since epoch). */
+export interface HeldCommand {
+  command: { type: 'SEND_TMUX_COMMAND'; command: string } | { type: 'DISPATCH_OP'; op: TmuxOp };
+  at: number;
+}

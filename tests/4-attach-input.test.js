@@ -4,7 +4,12 @@
  * are held and sent the moment the session is there, in the order typed.
  */
 
-const { describeE2E, waitForShellPrompt, waitForTerminalText } = require('./helpers');
+const {
+  describeE2E,
+  waitForNotice,
+  waitForShellPrompt,
+  waitForTerminalText,
+} = require('./helpers');
 
 describeE2E('Scenario: keys typed during an attach arrive, in order', {}, (ctx) => {
   test('a command typed before the session arrives runs exactly as typed', async () => {
@@ -43,4 +48,52 @@ describeE2E('Scenario: keys typed during an attach arrive, in order', {}, (ctx) 
     expect(held).toBeGreaterThan(0);
     await page.unroute('**/events**');
   }, 60000);
+
+  /**
+   * The first connection fails: what was typed meanwhile is dropped, and a
+   * later connection never sends it (an Enter in it could run a command the
+   * user has given up on). The user is told.
+   */
+  test('keys typed before a failed first connection never arrive', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+
+    let attempts = 0;
+    let release;
+    const typed = new Promise((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/events**', async (route) => {
+      attempts++;
+      if (attempts === 1) {
+        await typed;
+        await route.abort('failed');
+      } else {
+        await route.continue();
+      }
+    });
+    await page.reload({ waitUntil: 'commit' });
+    await page.waitForFunction(() => !!window.app, null, { timeout: 15000 });
+    await page.keyboard.type('echo given-up-$((6*7))');
+    await page.keyboard.press('Enter');
+    release();
+
+    // A later connection succeeds; something typed after it arrives, and
+    // nothing from before it ever does (it would have landed first).
+    await page.waitForFunction(() => window.app.view().activePaneId !== null, null, {
+      timeout: 30000,
+    });
+    await waitForShellPrompt(page);
+    await page.keyboard.type('echo after-$((1+1))');
+    await page.keyboard.press('Enter');
+    await waitForTerminalText(page, 'after-2', 15000);
+    const screen = await page.evaluate(
+      () => document.querySelector('.pane-layout-item.pane-active [role="log"]')?.textContent ?? '',
+    );
+    expect(screen).not.toContain('given-up');
+    await waitForNotice(page, 'typed before the connection failed were not sent');
+    expect(attempts).toBeGreaterThan(1);
+    await page.unroute('**/events**');
+  }, 90000);
 });

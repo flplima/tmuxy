@@ -223,6 +223,8 @@ export const appMachine = setup({
     // then `noticed`, which the snackbar's ReconnectNotice renders. The panes
     // stay mounted and usable throughout: no overlay, no blur.
     reconnecting: {
+      // The first connection failed: nothing held is ever sent.
+      entry: 'connection_dropHeld',
       initial: 'quiet',
       states: {
         quiet: { after: { [RECONNECT_NOTICE_DELAY_MS]: 'noticed' } },
@@ -248,6 +250,8 @@ export const appMachine = setup({
     },
 
     detached: {
+      // The first connection failed: nothing held is ever sent.
+      entry: 'connection_dropHeld',
       on: {
         TMUX_CONNECTED: { target: 'idle', actions: 'connection_onConnected' },
         TMUX_RECONNECTED: { target: 'idle', actions: 'connection_onReconnected' },
@@ -257,6 +261,8 @@ export const appMachine = setup({
     },
 
     disconnected: {
+      // The first connection failed: nothing held is ever sent.
+      entry: 'connection_dropHeld',
       on: {
         TMUX_RECONNECTING: { target: 'reconnecting' },
         TMUX_CONNECTED: { target: 'idle', actions: 'connection_onConnected' },

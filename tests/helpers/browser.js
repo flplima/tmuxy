@@ -333,7 +333,23 @@ async function waitForSettled(page, timeout = 10000) {
   }
 }
 
+/** Waits for a notice on screen (the snackbar) that holds `text`. */
+async function waitForNotice(page, text, timeout = 10000) {
+  const notices = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.snackbar-text')].map((n) => n.textContent ?? ''),
+    );
+  await waitForCondition(
+    page,
+    async () => (await notices()).some((n) => n.includes(text)),
+    timeout,
+    async () =>
+      `a notice saying ${JSON.stringify(text)} (on screen: ${JSON.stringify(await notices())})`,
+  );
+}
+
 module.exports = {
+  waitForNotice,
   waitForSettled,
   afterFrames,
   disconnectBrowser,

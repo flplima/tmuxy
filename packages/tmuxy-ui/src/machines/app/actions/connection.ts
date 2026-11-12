@@ -33,6 +33,11 @@ function fetchStateAtViewport(context: Ctx, enqueue: EnqueueAction): void {
 /** The most keys and commands held while the page first connects. */
 export const MAX_HELD_COMMANDS = 512;
 
+/** A held key older than this when the connection lands is dropped, not sent. */
+export const HELD_MAX_AGE_MS = 5000;
+
+const keysWord = (n: number) => (n === 1 ? '1 key' : `${n} keys`);
+
 export const connectionActions = {
   connection_logAppend: assignCtx(({ context, event }) => {
     if (event.type !== 'LOG_APPEND') return {};
@@ -189,24 +194,51 @@ export const connectionActions = {
   // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
   // the client measured).
   connection_onConnected: act(({ context, enqueue }) => {
-    enqueue(assign({ connected: true, error: null, fatalError: null, heldCommands: [] }));
+    enqueue(
+      assign({ connected: true, error: null, fatalError: null, heldCommands: [], heldOverflow: 0 }),
+    );
     enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
     fetchThemes(enqueue);
     // Typed while the page attached: sent now, in the order typed, ahead of
     // anything typed after (a raised event goes before the next one in).
-    for (const command of context.heldCommands) enqueue.raise(command);
+    // What waited longer than HELD_MAX_AGE_MS is not: the user has moved on.
+    const fresh = context.heldCommands.filter((held) => Date.now() - held.at <= HELD_MAX_AGE_MS);
+    for (const held of fresh) enqueue.raise(held.command);
+    const dropped = context.heldCommands.length - fresh.length + context.heldOverflow;
+    if (dropped > 0) {
+      enqueue.raise({
+        type: 'NOTIFY' as const,
+        text: `${keysWord(dropped)} typed while connecting took too long to send and were dropped`,
+      });
+    }
   }),
 
   /**
    * A key or command before the first connection is held, not dropped: the
    * page takes keys from its first frame, the session arrives a moment later.
-   * Past {@link MAX_HELD_COMMANDS} the oldest go: a page that never connects
-   * does not grow without end.
+   * Past {@link MAX_HELD_COMMANDS} the oldest go (and are counted): a page
+   * that never connects does not grow without end.
    */
   connection_holdCommand: act(({ context, event, enqueue }) => {
     if (event.type !== 'DISPATCH_OP' && event.type !== 'SEND_TMUX_COMMAND') return;
-    const held = [...context.heldCommands, event].slice(-MAX_HELD_COMMANDS);
-    enqueue(assign({ heldCommands: held }));
+    const all = [...context.heldCommands, { command: event, at: Date.now() }];
+    const over = Math.max(0, all.length - MAX_HELD_COMMANDS);
+    enqueue(assign({ heldCommands: all.slice(over), heldOverflow: context.heldOverflow + over }));
+  }),
+
+  /**
+   * The first connection failed: what was typed meanwhile is dropped, never
+   * sent when a later one succeeds (an Enter in it could run a command the
+   * user has given up on). A notice says how much.
+   */
+  connection_dropHeld: act(({ context, enqueue }) => {
+    const dropped = context.heldCommands.length + context.heldOverflow;
+    if (dropped === 0) return;
+    enqueue(assign({ heldCommands: [], heldOverflow: 0 }));
+    enqueue.raise({
+      type: 'NOTIFY' as const,
+      text: `${keysWord(dropped)} typed before the connection failed were not sent`,
+    });
   }),
 
   // A reconnect fetches the state too: the stream that came back may belong
