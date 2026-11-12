@@ -18,6 +18,9 @@ describe('jumpHintMode', () => {
     expect(jumpHintMode(keys({ altKey: true }))).toBeNull();
     expect(jumpHintMode(keys({ ctrlKey: true, shiftKey: true }))).toBeNull();
     expect(jumpHintMode(keys({ ctrlKey: true, metaKey: true }))).toBeNull();
+    // Windows reports AltGr as ctrl+alt; it types characters, it is not a jump.
+    const altGr = { ...keys({ ctrlKey: true, altKey: true }), getModifierState: () => true };
+    expect(jumpHintMode(altGr)).toBeNull();
   });
 });
 

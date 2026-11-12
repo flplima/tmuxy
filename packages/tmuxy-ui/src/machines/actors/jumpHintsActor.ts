@@ -65,8 +65,18 @@ export function createJumpHintsActor() {
       wait(mode);
     };
 
+    // A click or a scroll under ctrl (opening a link, zooming) is not a
+    // jump either: it ends the hold the way another key does.
+    const onPointer = () => {
+      if (!shown && !timer) return;
+      spoiled = true;
+      reset();
+    };
+
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
+    window.addEventListener('pointerdown', onPointer, true);
+    window.addEventListener('wheel', onPointer, { capture: true, passive: true });
     // A switch to another app while the chord is down never sees its keyup.
     window.addEventListener('blur', reset);
     document.addEventListener('visibilitychange', reset);
@@ -74,6 +84,8 @@ export function createJumpHintsActor() {
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
+      window.removeEventListener('pointerdown', onPointer, true);
+      window.removeEventListener('wheel', onPointer, true);
       window.removeEventListener('blur', reset);
       document.removeEventListener('visibilitychange', reset);
       reset();

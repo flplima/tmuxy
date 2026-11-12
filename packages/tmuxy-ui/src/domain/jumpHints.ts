@@ -18,11 +18,17 @@ interface Modifiers {
   readonly altKey: boolean;
   readonly metaKey: boolean;
   readonly shiftKey: boolean;
+  readonly getModifierState?: (key: string) => boolean;
 }
 
-/** The numbers the modifiers held now would jump by, or null for any other chord. */
+/**
+ * The numbers the modifiers held now would jump by, or null for any other
+ * chord. AltGr is not a jump: Windows reports it as ctrl+alt, and on many
+ * layouts AltGr with a digit types a character (`{ [ ] }` on a German one).
+ */
 export function jumpHintMode(keys: Modifiers): JumpHintMode | null {
   if (!keys.ctrlKey || keys.metaKey || keys.shiftKey) return null;
+  if (keys.getModifierState?.('AltGraph')) return null;
   return keys.altKey ? 'panes' : 'tabs';
 }
 

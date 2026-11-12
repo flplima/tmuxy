@@ -193,6 +193,21 @@ describe('keyboardActor — ctrl+alt+digit is the panes of the tab in front', ()
     expect(ofType('SELECT_TAB_BY_POSITION')).toEqual([]);
     expect(sendCommands(events)).toEqual([]);
 
+    // AltGr on Windows arrives as ctrl+alt: AltGr+8 on a German layout is `[`.
+    const altGr = new KeyboardEvent('keydown', {
+      key: '[',
+      code: 'Digit8',
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(altGr, 'getModifierState', { value: (k: string) => k === 'AltGraph' });
+    window.dispatchEvent(altGr);
+    expect(ofType('SELECT_PANE_BY_POSITION')).toHaveLength(1);
+    // ...and its character reaches the pane.
+    expect(sendCommands(events)).toEqual(["send-keys -t %1 -l -- '['"]);
+
     // With shift too, it is not the jump.
     pressKey({ key: '#', code: 'Digit3', ctrlKey: true, altKey: true, shiftKey: true });
     expect(ofType('SELECT_PANE_BY_POSITION')).toHaveLength(1);

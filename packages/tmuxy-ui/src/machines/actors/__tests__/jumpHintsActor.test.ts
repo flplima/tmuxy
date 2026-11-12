@@ -80,6 +80,23 @@ describe('jumpHintsActor', () => {
     expect(shown().tabs).toBe(false);
   });
 
+  it('a click or a scroll under ctrl ends them, and a fresh hold is needed', () => {
+    for (const pointer of ['pointerdown', 'wheel']) {
+      down({ key: 'Control', ctrlKey: true });
+      vi.advanceTimersByTime(JUMP_HINT_DELAY_MS);
+      expect(shown().tabs, pointer).toBe(true);
+      window.dispatchEvent(new Event(pointer));
+      expect(shown().tabs, pointer).toBe(false);
+      // Before they appeared, too: the wait is called off.
+      up({ key: 'Control' });
+      down({ key: 'Control', ctrlKey: true });
+      window.dispatchEvent(new Event(pointer));
+      vi.advanceTimersByTime(JUMP_HINT_DELAY_MS * 2);
+      expect(shown().tabs, pointer).toBe(false);
+      up({ key: 'Control' });
+    }
+  });
+
   it('a chord with shift or cmd is not a jump chord', () => {
     down({ key: 'Shift', ctrlKey: true, shiftKey: true });
     down({ key: 'Meta', metaKey: true });
