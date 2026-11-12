@@ -506,7 +506,11 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
       agentHookEvent('claude', 'SessionStart', { session_id: id }, holder);
       const stopped = await tmuxyCliAsync(['agent', 'revive', holder]);
       expect(stopped.code).toBe(1);
-      expect(stopped.stderr).toContain(`${holder}'s shell still has jobs (sleep)`);
+      // The job is named as the system lists it: `sleep`, or `bash` when it
+      // was stopped before it became sleep.
+      expect(stopped.stderr).toMatch(
+        new RegExp(`${holder}'s shell still has jobs \\((sleep|bash)\\): revive would kill them`),
+      );
 
       // A session that ends normally is taken off the pane.
       agentHookEvent('claude', 'SessionEnd', {}, holder);

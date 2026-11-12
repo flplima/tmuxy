@@ -250,7 +250,7 @@ pub fn revive_script(dir: &std::path::Path, argv: &[String]) -> String {
 
 #[derive(clap::Args, Debug)]
 pub struct ReviveArgs {
-    /// The pane, by id or label: the shell resolves a label first.
+    /// The pane, by id or label.
     pane: String,
 }
 
@@ -273,7 +273,8 @@ fn pane_children(pid: Option<u32>) -> Option<Vec<String>> {
 }
 
 pub fn revive(answer: &Answer, args: ReviveArgs) {
-    let pane = args.pane;
+    let pane =
+        super::wait::resolve_one(&args.pane).unwrap_or_else(|(code, e)| answer.exit(code, &e));
     let Some(now) = read_pane(&pane) else {
         answer.exit(EXIT_TARGET, &format!("no pane {pane}"))
     };

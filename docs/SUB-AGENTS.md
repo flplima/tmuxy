@@ -61,6 +61,10 @@ The hooks of Claude Code and Codex record the session a pane runs: on a session'
 
 A shell that keeps a helper process at its prompt (a prompt theme's status daemon) always has a child, so revive refuses there; quit the shell or close the pane, and revive the dead pane. Nothing reads an agent's files: the id is the one the hook was handed. The record is a claim like any pane option: a process of the same user could plant another valid id and pick which of its own conversations a revive resumes.
 
+## Fork
+
+`tmuxy agent fork <pane> [--branch B]` carries a pane's conversation on in a new worktree and tab, as a fork (`fork.rs`): Claude Code's `claude --resume <id> --fork-session`, which leaves the original conversation as it is. The session is the one the hooks recorded, validated as for revive, and the command comes from the same table. The worktree is made by `tmuxy worktree new`'s code, from the repository the pane is in, on `fork-<first part of the id>` unless `--branch` names one; the tab is named after the branch. Codex has no fork here.
+
 ## Wait
 
 `tmuxy agent wait <pane>...` waits for panes, by id or label, to change to a state: `idle`, `needs-input`, `error`, `done` or `exited`; by default any but working. The first pane that gets there ends the wait, or every one with `--all`. A pane that goes away ends it with exit 3, unless `exited` was asked for. `--for` gives up with exit 1.
@@ -69,4 +73,4 @@ It reads `@tmuxy-pane-state` every 250 ms for the first 10 s, then every second 
 
 ## Tests
 
-`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` runs both through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent revive` resumes a session a hook event recorded, in a fake `claude` on a PATH set for the test server only, and refuses while it runs, and a hostile session id is never recorded. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running.
+`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` runs both through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent fork` (in `tests/24-worktrees.test.js`) opens a recorded conversation as a fork in a new worktree and tab of a throwaway repository, again with a fake `claude`. `agent revive` resumes a session a hook event recorded, in a fake `claude` on a PATH set for the test server only, and refuses while it runs, and a hostile session id is never recorded. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running.
