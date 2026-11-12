@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Every `file › title` in an `Enforced by` cell of docs/INVARIANTS*.md names a
+ * Every `file › title` in an `Enforced by` cell of docs/INVARIANTS*.md (and of
+ * the capability catalog, docs/FEATURES*.md) names a
  * test that exists: a tracked file whose path ends in `file` holds `title`. A
  * title cut short with `…` is matched by its longest uncut piece, and a cell's
  * `› title` with no file reuses the file named before it. A test that moves to
@@ -32,7 +33,7 @@ export function checkInvariantEnforcers(root, addError) {
     return contents.get(file);
   };
 
-  for (const doc of tracked.filter((file) => /^docs\/INVARIANTS.*\.md$/.test(file))) {
+  for (const doc of tracked.filter((file) => /^docs\/(INVARIANTS|FEATURES).*\.md$/.test(file))) {
     read(doc)
       .split('\n')
       .forEach((line, index) => {

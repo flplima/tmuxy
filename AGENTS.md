@@ -15,6 +15,7 @@ See [docs/TELEMETRY.md](docs/TELEMETRY.md) for every network connection tmuxy an
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NIGHTLY-SWEEP.md](docs/NIGHTLY-SWEEP.md) for why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it now tells a flake from a defect.
 See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, session lifecycle) and the test that holds each one.
+See [docs/FEATURES.md](docs/FEATURES.md) for what a user or an agent can do, by surface (mouse, menu, keys, CLI, config), with the test that holds each; `npm run check:policy` fails when a surface gains or loses an action without a row.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/PLUGINS.md](docs/PLUGINS.md) for plugins: the manifest, the install gate, how an action runs.
 See [docs/MCP.md](docs/MCP.md) for the `/mcp` endpoint (`tmuxy mcp`) and its tools.
