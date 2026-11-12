@@ -82,6 +82,12 @@ fn keymap_says_where_a_key_comes_from_and_what_the_users_file_replaced() {
         "{stdout}"
     );
     assert!(stdout.contains("No tmux server answered"));
+    // The read never starts a server to answer.
+    let idle = tmuxy_core::session::local_tmux_on(&server.socket)
+        .args(["-N", "list-sessions"])
+        .output()
+        .unwrap();
+    assert!(!idle.status.success());
 
     // One key, as JSON: the full path and the line.
     let out = keymap(home, &server.socket, &["--table", "prefix", "t", "--json"]);
@@ -105,9 +111,23 @@ fn keymap_says_where_a_key_comes_from_and_what_the_users_file_replaced() {
 }
 
 /// tmux's own bindings are in no file: listed as tmux's, from the server.
+/// One bound while the server ran (a plugin manager's, a `bind` typed at the
+/// prompt) is neither tmux's nor a file's, and says so.
 #[test]
 fn a_running_server_adds_what_tmux_binds_by_itself() {
     let server = scratch::ScratchServer::with_session("keymap-live", 80, 24);
+    server.tmux(&[
+        "bind-key",
+        "-T",
+        "prefix",
+        "F8",
+        "display-message",
+        "made at the prompt",
+    ]);
+    let out = keymap(&server.home, &server.socket, &["--table", "prefix", "F8"]);
+    let made = text(&out).0;
+    let bound = row(&made, "prefix", "F8").unwrap_or_else(|| panic!("{made}"));
+    assert!(bound.contains("set while running"), "{bound}");
     let out = keymap(&server.home, &server.socket, &["--table", "prefix"]);
     let (stdout, stderr) = text(&out);
     assert_eq!(out.status.code(), Some(0), "{stderr}");

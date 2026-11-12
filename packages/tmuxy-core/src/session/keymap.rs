@@ -46,6 +46,10 @@ pub enum Layer {
     /// tmux itself, or something that bound the key on the running server:
     /// in tmux's listing, in none of the files.
     Tmux,
+    /// On the running server, and neither in a file of the chain nor one of
+    /// tmux's own: bound while it ran (a plugin manager's keys, a
+    /// `run-shell` in a config, a `bind` typed at the prompt).
+    Running,
     Essentials,
     Defaults,
     TmuxConf,
@@ -57,6 +61,7 @@ impl Layer {
     pub fn label(self) -> &'static str {
         match self {
             Self::Tmux => "tmux",
+            Self::Running => "set while running",
             Self::Essentials => "tmuxy.essentials.conf",
             Self::Defaults => "tmuxy.defaults.conf",
             Self::TmuxConf => "~/.tmux.conf",
@@ -74,18 +79,26 @@ impl Layer {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Source {
     pub layer: Layer,
-    /// `None` for [`Layer::Tmux`].
+    /// `None` for [`Layer::Tmux`] and [`Layer::Running`].
     pub file: Option<PathBuf>,
     /// 1-based, as an editor counts.
     pub line: Option<usize>,
 }
 
 impl Source {
-    /// A binding no file of the chain makes: tmux's own, or one made on the
-    /// running server.
+    /// One of tmux's own bindings, made by no file.
     pub fn tmux() -> Self {
         Self {
             layer: Layer::Tmux,
+            file: None,
+            line: None,
+        }
+    }
+
+    /// A binding made on the running server by something no file says.
+    pub fn running() -> Self {
+        Self {
+            layer: Layer::Running,
             file: None,
             line: None,
         }
@@ -481,8 +494,9 @@ pub fn keymap(layout: &Layout) -> Keymap {
 
 impl Keymap {
     /// Add what a server lists and no file of the chain binds: tmux's own
-    /// bindings, and any made on the running server. The caller reads the
-    /// server; each binding it hands over has a [`Source::tmux`].
+    /// bindings ([`Source::tmux`]) and any made on the running server
+    /// ([`Source::running`]). The caller reads the server and tells them
+    /// apart.
     pub fn add_unattributed(&mut self, listed: impl IntoIterator<Item = Binding>) {
         for binding in listed {
             let known = self

@@ -36,12 +36,24 @@ pub fn run(args: KeymapArgs) {
         .filter(|out| out.status.success())
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
     if let Some(listing) = &live {
-        map.add_unattributed(tmuxy_core::list_keys::rows(listing).map(|row| Binding {
-            table: row.table.to_string(),
-            key: row.key_name().to_string(),
-            command: row.command.clone(),
-            repeat: row.repeat,
-            source: Source::tmux(),
+        let defaults = tmux_defaults().unwrap_or_default();
+        map.add_unattributed(tmuxy_core::list_keys::rows(listing).map(|row| {
+            let own = (
+                row.table.to_string(),
+                row.key.to_string(),
+                row.command.clone(),
+            );
+            Binding {
+                table: row.table.to_string(),
+                key: row.key_name().to_string(),
+                command: row.command.clone(),
+                repeat: row.repeat,
+                source: if defaults.contains(&own) {
+                    Source::tmux()
+                } else {
+                    Source::running()
+                },
+            }
         }));
     }
     if let Some(table) = &args.table {
@@ -77,6 +89,38 @@ pub fn run(args: KeymapArgs) {
     print!("{}", text(&map, &layout.home, live.is_some()));
 }
 
+/// tmux's own bindings, as a server started with no config lists them:
+/// what the running server holds that is in no file and not here was bound
+/// while it ran. The server is a throwaway, on a socket in a folder of its
+/// own that only this user can read, and gone with its one command. `None`
+/// when it could not be asked.
+fn tmux_defaults() -> Option<std::collections::HashSet<(String, String, String)>> {
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    let dir = std::env::temp_dir().join(format!("tmuxy-keymap-{}", std::process::id()));
+    builder.create(&dir).ok()?;
+    let socket = dir.join("s").to_string_lossy().into_owned();
+    let listed = tmuxy_core::session::local_tmux_on(&socket)
+        .env_remove("TMUX")
+        .args(["-f", "/dev/null", "start-server", ";", "list-keys"])
+        .output();
+    let _ = tmuxy_core::session::local_tmux_on(&socket)
+        .args(["-N", "kill-server"])
+        .output();
+    let _ = std::fs::remove_dir_all(&dir);
+    let listed = listed.ok().filter(|out| out.status.success())?;
+    let text = String::from_utf8_lossy(&listed.stdout);
+    Some(
+        tmuxy_core::list_keys::rows(&text)
+            .map(|row| (row.table.to_string(), row.key.to_string(), row.command))
+            .collect(),
+    )
+}
+
 fn json<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
 }
@@ -87,7 +131,7 @@ fn json<T: serde::Serialize>(value: &T) -> String {
 fn from(source: &Source, home: &Path) -> String {
     let line = source.line.map(|l| format!(":{l}")).unwrap_or_default();
     match (&source.file, source.layer) {
-        (_, Layer::Tmux) | (None, _) => source.layer.label().to_string(),
+        (_, Layer::Tmux | Layer::Running) | (None, _) => source.layer.label().to_string(),
         (Some(file), layer) if !layer.is_users() => format!(
             "{}{line}",
             file.file_name().unwrap_or_default().to_string_lossy()
