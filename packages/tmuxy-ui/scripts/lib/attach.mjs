@@ -3,7 +3,7 @@
  * screen and takes keys, and what is typed meanwhile. Web only (it reloads
  * the page; the desktop app opens its session once).
  *
- * - `attach-paint`: navigation start to the focused pane showing its prompt.
+ * - `attach-paint`: navigation start to the focused pane showing its text.
  * - `attach-interactive`: navigation start to the first key echoed. From the
  *   moment the app exists a token is typed every {@link RETYPE_MS}, until one
  *   shows in the focused pane.
@@ -37,7 +37,8 @@ function attachProbe() {
   window.__attachShown = (tokens) => tokens.filter((t) => shown().includes(t));
   const check = () => {
     const text = shown();
-    if (seen.paint === null && /[$#%>❯]/.test(text)) seen.paint = performance.now();
+    // Painted: the pane shows anything at all, whatever its prompt looks like.
+    if (seen.paint === null && text.trim().length > 0) seen.paint = performance.now();
     if (seen.echo === null && seen.typed.some((t) => text.includes(t))) {
       seen.echo = performance.now();
     }
