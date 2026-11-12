@@ -15,20 +15,28 @@
  * against what the spinner printed tells whether a hidden pane is sent in
  * full, whatever the machine.
  *
- *   node measure-hidden-bytes.mjs [--url URL] [--seconds N] [--out FILE] [--cdp URL]
+ *   node measure-hidden-bytes.mjs --url URL [--seconds N] [--out FILE] [--cdp URL]
+ *
+ * Only against a throwaway server: it refuses any other (`lib/throwaway.mjs`).
  */
 
 import fs from 'node:fs';
 import { chromium } from 'playwright';
 import { waitForReady } from './lib/perf-harness.mjs';
-import { BUSY_BYTES_PER_SECOND, startBusyPanes } from './lib/busy-panes.mjs';
+import {
+  BUSY_BYTES_PER_SECOND,
+  closeWindow,
+  newWindowId,
+  startBusyPanes,
+} from './lib/busy-panes.mjs';
+import { assertThrowawayServer, requiredUrl } from './lib/throwaway.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (flag, fallback) => {
   const i = argv.indexOf(flag);
   return i === -1 ? fallback : argv[i + 1];
 };
-const URL_BASE = opt('--url', 'http://localhost:9000');
+const URL_BASE = requiredUrl(argv);
 const SECONDS = Number(opt('--seconds', '10'));
 const OUT = opt('--out', null);
 const CDP = opt('--cdp', null);
@@ -92,21 +100,33 @@ async function main() {
   await waitForReady(adapterFor(page));
   if (meter.streams() === 0) throw new Error('no event stream seen: is this the web app?');
 
+  const adapter = adapterFor(page);
+  await assertThrowawayServer(adapter.evaluate);
   const quiet = await rate(page, meter);
 
-  // The spinner in a tab of its own (the server rewrites `neww` to the
-  // split-and-break tmux takes safely), then back to the first: hidden.
-  await tmux(page, 'neww');
-  await page.waitForTimeout(1200);
-  const busy = await startBusyPanes(adapterFor(page), { count: 1 });
-  await tmux(page, 'last-window');
-  const hidden = await rate(page, meter);
-
-  // Its tab shown: visible.
-  await tmux(page, 'last-window');
-  const visible = await rate(page, meter);
-  const load = busy.stop();
-  await page.waitForTimeout(500);
+  // The tab the browser shows, and a tab of the run's own for the spinner
+  // (the server rewrites `neww` to the split-and-break tmux takes safely).
+  // Every command after names one of the two by id.
+  const shown = await adapter.evaluate(() => window.app.getSnapshot().context.activeWindowId);
+  const spinnerTab = await newWindowId(adapter, () => tmux(page, 'neww'));
+  let busy = null;
+  let measured = null;
+  let closed = false;
+  try {
+    await page.waitForTimeout(1200);
+    busy = await startBusyPanes(adapter, { windowId: spinnerTab, count: 1 });
+    await tmux(page, `select-window -t ${shown}`);
+    const hidden = await rate(page, meter);
+    await tmux(page, `select-window -t ${spinnerTab}`);
+    const visible = await rate(page, meter);
+    measured = { hidden, visible, load: busy.stop() };
+  } finally {
+    busy?.stop();
+    // The run's own tab, by its id, however the run ended.
+    closed = await closeWindow(adapter, spinnerTab);
+  }
+  if (!closed) throw new Error(`the spinner's tab ${spinnerTab} could not be closed`);
+  const { hidden, visible, load } = measured;
 
   if (CDP) await page.close();
   else await browser.close();

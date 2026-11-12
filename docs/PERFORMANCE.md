@@ -114,7 +114,8 @@ reaches the app as delay (head-of-line retransmit), not dropped events.
 
 ### A pane nobody looks at
 
-`npm run perf:hidden-bytes -- --url … [--seconds N] [--out FILE]`
+`npm run perf:hidden-bytes -- --url … [--seconds N] [--out FILE]`, against a
+throwaway server only, like the interactions below,
 (`packages/tmuxy-ui/scripts/measure-hidden-bytes.mjs`) measures what the event
 stream (`GET /events`) carries to a browser while one pane redraws an agent's
 spinner at ~2 KB/s: with no spinner, with the spinner in a tab the browser does
