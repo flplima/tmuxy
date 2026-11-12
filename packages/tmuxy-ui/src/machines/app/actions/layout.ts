@@ -4,7 +4,11 @@ import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { isPlaceholderId, realId, type PaneId, type WindowId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { scrollViewsIn, takeKeyboard } from '../helpers';
-import { groupMemberInTab, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
+import {
+  groupMemberInTab,
+  selectPaneJumpOrder,
+  selectRightSidebarPane,
+} from '../../selectors/panesAndSidebars';
 import { PANES_OWN_KEYBOARD, selectFocusedFloat } from '../../selectors/keyboard';
 
 // A finished resize keeps its preview until a model update shows tmux's sizes
@@ -45,6 +49,13 @@ export const layoutActions = {
    * stash would race the swap); a pane in another tab switches to that tab
    * first, since `select-pane` never changes the session's current window.
    */
+  /** ctrl+alt+1…9: the Nth pane of the tab in front, as the hints number them. */
+  layout_selectPaneByPosition: act(({ event, context, enqueue }) => {
+    if (event.type !== 'SELECT_PANE_BY_POSITION') return;
+    const paneId = selectPaneJumpOrder(context)[event.position - 1];
+    if (paneId) enqueue.raise({ type: 'SELECT_PANE', paneId });
+  }),
+
   layout_selectPane: act(({ event, context, enqueue }) => {
     if (event.type !== 'SELECT_PANE') return;
     const { paneId } = event;

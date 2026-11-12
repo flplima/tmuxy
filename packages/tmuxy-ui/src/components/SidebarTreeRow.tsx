@@ -1,3 +1,4 @@
+import { TabJumpHint } from './JumpHint';
 import { paneRowLines, tabIcon } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
@@ -192,6 +193,7 @@ export function SidebarTreeRow({
               )}
               {label}
             </span>
+            <TabJumpHint position={row.position} />
           </span>
         )}
         {row.collapsed && summary && summary.count > 0 && (

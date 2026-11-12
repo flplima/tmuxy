@@ -180,6 +180,25 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
   });
 });
 
+describe('keyboardActor — ctrl+alt+digit is the panes of the tab in front', () => {
+  it('sends the pane position for ctrl+alt+1–9, read off the key, never to tmux', () => {
+    const { events } = spawnWithLiveContext(pid('%1'));
+    const ofType = (type: string) => events.filter((e) => e.type === type);
+
+    // macOS: Option turns the digit into another character; the key is still Digit3.
+    pressKey({ key: '£', code: 'Digit3', ctrlKey: true, altKey: true });
+    expect(ofType('SELECT_PANE_BY_POSITION')).toEqual([
+      { type: 'SELECT_PANE_BY_POSITION', position: 3 },
+    ]);
+    expect(ofType('SELECT_TAB_BY_POSITION')).toEqual([]);
+    expect(sendCommands(events)).toEqual([]);
+
+    // With shift too, it is not the jump.
+    pressKey({ key: '#', code: 'Digit3', ctrlKey: true, altKey: true, shiftKey: true });
+    expect(ofType('SELECT_PANE_BY_POSITION')).toHaveLength(1);
+  });
+});
+
 describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', () => {
   it('sends the strip position for ctrl+1–9 and toggles the overview on ctrl+0', () => {
     const { events, set } = spawnWithLiveContext(pid('%1'));
