@@ -350,12 +350,24 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
         // new settings at once; clients of other monitors learn it from the
         // pane-metadata subscription (`theme_rev`) about a second later.
         ClientCommand::SetTheme { name, mode } => {
+            let mut changes = vec![(ManagedOption::Theme.name(), name.as_str())];
+            changes.extend(
+                mode.as_deref()
+                    .map(|m| (ManagedOption::ThemeMode.name(), m)),
+            );
+            if profiles::into_profile(runtime, &changes).await? {
+                return Ok(Value::Null);
+            }
             let tx = runtime.channel().await?;
             crate::theme::set_theme(&tx, &name, mode.as_deref()).await?;
             runtime.push_theme_settings().await;
             Ok(Value::Null)
         }
         ClientCommand::SetThemeMode { mode } => {
+            let change = [(ManagedOption::ThemeMode.name(), mode.as_str())];
+            if profiles::into_profile(runtime, &change).await? {
+                return Ok(Value::Null);
+            }
             let tx = runtime.channel().await?;
             crate::theme::set_theme_mode(&tx, &mode).await?;
             runtime.push_theme_settings().await;
@@ -495,6 +507,13 @@ async fn set_flag(
     option: ManagedOption,
     enabled: bool,
 ) -> Result<Value, CommandError> {
+    // Asking before a send guards access: a profile never holds it.
+    let value = if enabled { "on" } else { "off" };
+    if !matches!(option, ManagedOption::SendAsk)
+        && profiles::into_profile(runtime, &[(option.name(), value)]).await?
+    {
+        return Ok(Value::Null);
+    }
     let tx = runtime.channel().await?;
     crate::theme::set_flag(&tx, option, enabled).await?;
     Ok(Value::Null)

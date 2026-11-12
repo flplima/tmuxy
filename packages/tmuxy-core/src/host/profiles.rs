@@ -4,6 +4,11 @@
 //! A switch reaches tmux first and is written down only once tmux took it,
 //! then every client of the session is sent the new theme settings, which
 //! read the session's own values: the page repaints with no reload.
+//!
+//! In a session on a named profile, a menu change (theme, mode, blinking
+//! cursor, transparency) is saved into the profile and set on that session
+//! only ([`into_profile`]); on the Default Profile it is the global change it
+//! always was.
 
 use std::path::Path;
 
@@ -100,6 +105,38 @@ async fn apply(
         .map_err(|e| e.context("Failed to apply the profile"))?;
     runtime.push_theme_settings().await;
     Ok(())
+}
+
+/// A menu change, as tmux option names and values, made in a session on a
+/// named profile: saved into the profile, then the profile is applied to the
+/// session again. False, with nothing done, when the session is on the
+/// Default Profile, when every option is pinned by `tmuxy.conf` (the global
+/// path refuses that, naming them), or when one is no profile's to hold.
+pub(super) async fn into_profile(
+    runtime: &SessionRuntime,
+    changes: &[(&str, &str)],
+) -> Result<bool, CommandError> {
+    let active = session::session_profile(&runtime.session());
+    if active == DEFAULT_PROFILE {
+        return Ok(false);
+    }
+    let dir = profiles::profiles_dir(&Layout::current());
+    let mut values = profiles::load(&dir, &active).map_err(refused)?;
+    let pinned = session::pinned_options();
+    let free: Vec<_> = changes
+        .iter()
+        .filter(|(option, _)| !pinned.contains(option))
+        .collect();
+    if free.is_empty()
+        || !free
+            .iter()
+            .all(|(option, value)| profiles::set_field(&mut values, option, value))
+    {
+        return Ok(false);
+    }
+    profiles::save(&dir, &active, &values).map_err(refused)?;
+    apply(runtime, &active, &values).await?;
+    Ok(true)
 }
 
 fn remember(
