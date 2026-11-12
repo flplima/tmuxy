@@ -58,6 +58,9 @@ const RATIO_BUDGETS = {
   // echoed, with 10k lines of scrollback: measured ~12× and ~17×.
   'attach-paint': 30,
   'attach-interactive': 40,
+  // A first wheel scroll over 10k lines of history to the rows in view
+  // loaded: ~2.5× since history comes newest first (it was ~11×).
+  'attach-scroll': 6,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */

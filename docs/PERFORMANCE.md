@@ -136,7 +136,9 @@ the focused pane 10,000 lines of history and reloads the page, timing from
 navigation start `attach-paint`, the focused pane showing its prompt, and
 `attach-interactive`, the first key echoed, typing a fresh token every 100 ms
 from the moment the app exists. The tokens that never show are reported as
-`lostKeys`, and `perf:compare` warns about them: a key typed during an attach
+`lostKeys`, and `attach-scroll`, a first wheel scroll over that history to every
+row in view loaded (~100 ms here since history comes newest first; ~450 ms when
+the whole of it came at once). `perf:compare` warns about lost keys: a key typed during an attach
 should arrive late, never be dropped. Measured on a loaded dev machine: ~470–510
 ms to paint (~11× a keystroke), ~690–775 ms to the first echo (~17×), and about
 a third of the keys typed meanwhile lost. `--only attach` runs that alone.

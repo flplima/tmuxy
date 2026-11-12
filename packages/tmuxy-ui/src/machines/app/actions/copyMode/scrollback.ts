@@ -143,17 +143,25 @@ export function buildScrollbackState(
   };
 }
 
+/** The history a view just opened asks for first: what a first wheel scroll shows. */
+export const FIRST_HISTORY_ROWS = 500;
+
+/** Each later fetch of older history, newest first, until the oldest row is in. */
+export const HISTORY_CHUNK_ROWS = 2000;
+
 /**
- * The fetch that backs a view just opened on `record`: the pane's whole
- * history up to its last row on screen, so nothing is truncated to a fixed
- * slab and scrolling never finds placeholders above the first page.
+ * The fetch that backs a view just opened on `record`: the newest
+ * {@link FIRST_HISTORY_ROWS} rows of history and the screen, so the first
+ * scroll shows rows at once even over a long history; the answer then asks
+ * for the rest, older and older ({@link HISTORY_CHUNK_ROWS} at a time),
+ * while the view is already usable (`mergeScrollbackResponse`).
  */
 export function fetchHistory(enqueue: EnqueueAction, paneId: PaneId, record: CopyModeState): void {
   enqueue(
     sendTo('tmux', {
       type: 'FETCH_SCROLLBACK_CELLS' as const,
       paneId,
-      start: -record.historySize,
+      start: -Math.min(record.historySize, FIRST_HISTORY_ROWS),
       end: record.height - 1,
     }),
   );
@@ -298,13 +306,15 @@ export function applyScrollbackChunk(
     }
   }
 
+  // The older history, the next chunk above what is in: newest first, so
+  // the rows nearest the screen arrive before the oldest.
   if (!existing.pendingSelectAll && topRow > 0) {
     updated.loading = true;
     enqueue(
       sendTo('tmux', {
         type: 'FETCH_SCROLLBACK_CELLS' as const,
         paneId: event.paneId,
-        start: -event.historySize,
+        start: Math.max(-event.historySize, topRow - HISTORY_CHUNK_ROWS - event.historySize),
         end: topRow - event.historySize - 1,
       }),
     );
