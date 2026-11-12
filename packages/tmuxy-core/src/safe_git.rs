@@ -27,15 +27,18 @@
 //! `--ignore-submodules=all` for a diff) is the caller's: they are options
 //! of commands, not settings.
 
+use std::collections::HashMap;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// The tree with nothing in it: attributes read from it are none at all,
-/// and a checkout with no commit yet is compared with it.
-pub const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+/// The tree with nothing in it, in a SHA-1 repository and in a SHA-256 one:
+/// attributes read from it are none at all, and a checkout with no commit
+/// yet is compared with it. [`empty_tree`] says which a repository uses.
+const EMPTY_TREE_SHA1: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const EMPTY_TREE_SHA256: &str = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
 
 /// The settings every call runs with.
 const SETTINGS: &[(&str, &str)] = &[
@@ -45,11 +48,14 @@ const SETTINGS: &[(&str, &str)] = &[
     ("core.askPass", ""),
     ("core.sshCommand", "false"),
     ("core.attributesFile", "/dev/null"),
-    ("attr.tree", EMPTY_TREE),
     ("diff.external", ""),
     ("credential.helper", ""),
     ("protocol.allow", "never"),
     ("submodule.recurse", "false"),
+    ("log.showSignature", "false"),
+    ("gpg.program", ""),
+    ("gpg.ssh.program", ""),
+    ("gpg.x509.program", ""),
 ];
 
 /// Variables of the caller's that would aim git at another repository, or
@@ -74,8 +80,65 @@ const SCRUBBED: &[&str] = &[
 ];
 
 /// git rooted at `dir`, running `args` with every setting above, and
-/// `extra` settings of the caller's on top (later ones win).
+/// `extra` settings of the caller's on top (later ones win). Attributes come
+/// from the empty tree of `dir`'s repository ([`empty_tree`]).
 pub fn command(dir: &Path, extra: &[(String, String)], args: &[&str]) -> Command {
+    let tree = empty_tree(dir);
+    let mut command = base(dir, extra, args);
+    command.env("GIT_ATTR_SOURCE", tree);
+    with_setting(&mut command, "attr.tree", tree);
+    command
+}
+
+/// The empty tree of the repository `dir` is in: SHA-256's in a SHA-256
+/// repository, SHA-1's otherwise (and outside any repository, where nothing
+/// reads attributes). A SHA-1 tree named in a SHA-256 repository is no tree
+/// at all, and git then refuses every command that reads attributes. Asked
+/// once a directory.
+pub fn empty_tree(dir: &Path) -> &'static str {
+    static FORMATS: OnceLock<Mutex<HashMap<PathBuf, bool>>> = OnceLock::new();
+    let formats = FORMATS.get_or_init(Default::default);
+    if let Some(&sha256) = formats
+        .lock()
+        .ok()
+        .and_then(|f| f.get(dir).copied())
+        .as_ref()
+    {
+        return if sha256 {
+            EMPTY_TREE_SHA256
+        } else {
+            EMPTY_TREE_SHA1
+        };
+    }
+    let asked = base(dir, &[], &["rev-parse", "--show-object-format"]);
+    let sha256 = run(asked, Instant::now() + Duration::from_secs(2), 64)
+        .is_some_and(|said| said.success && said.stdout.starts_with(b"sha256"));
+    if let Ok(mut f) = formats.lock() {
+        f.insert(dir.to_path_buf(), sha256);
+    }
+    if sha256 {
+        EMPTY_TREE_SHA256
+    } else {
+        EMPTY_TREE_SHA1
+    }
+}
+
+/// One more setting on a [`base`] command, numbered after the others.
+fn with_setting(command: &mut Command, key: &str, value: &str) {
+    let count: usize = command
+        .get_envs()
+        .find(|(k, _)| *k == "GIT_CONFIG_COUNT")
+        .and_then(|(_, v)| v?.to_str()?.parse().ok())
+        .unwrap_or(0);
+    command
+        .env(format!("GIT_CONFIG_KEY_{count}"), key)
+        .env(format!("GIT_CONFIG_VALUE_{count}"), value)
+        .env("GIT_CONFIG_COUNT", (count + 1).to_string());
+}
+
+/// [`command`] without the attribute source: what asking a repository for
+/// its object format runs with.
+fn base(dir: &Path, extra: &[(String, String)], args: &[&str]) -> Command {
     let mut command = Command::new("git");
     command
         .arg("--no-pager")
@@ -87,7 +150,6 @@ pub fn command(dir: &Path, extra: &[(String, String)], args: &[&str]) -> Command
         .env("GIT_NO_LAZY_FETCH", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_ATTR_NOSYSTEM", "1")
-        .env("GIT_ATTR_SOURCE", EMPTY_TREE)
         .env("GIT_ASKPASS", "")
         .env("SSH_ASKPASS", "")
         .env("GIT_LFS_SKIP_SMUDGE", "1")
