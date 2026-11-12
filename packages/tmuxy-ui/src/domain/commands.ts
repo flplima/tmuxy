@@ -125,7 +125,7 @@ export type TmuxOp = Data.TaggedEnum<{
   /** Text pasted as one paste: bracketed when the program in the pane asked for it. */
   PasteText: { readonly target: PaneId | string; readonly text: string };
   /** A diff review pasted and entered for the agent in a pane, only if tmux finds it ready. */
-  SendReview: { readonly target: PaneId; readonly text: string };
+  SendReview: { readonly target: PaneId; readonly text: string; readonly id: string };
   /** An SGR mouse report for a mouse-tracking pane; coordinates are 1-based cells. */
   SendMouse: {
     readonly paneId: PaneId;
@@ -284,7 +284,7 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'PasteText':
       return pastedText(op.target, op.text);
     case 'SendReview':
-      return reviewInto(op.target, op.text);
+      return reviewInto(op.target, op.text, op.id);
     case 'SendMouse':
       return mouseReport(op);
     case 'EnterCopyMode':

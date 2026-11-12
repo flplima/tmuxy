@@ -187,9 +187,6 @@ function staged(buffer: string, text: string): string[] {
   return commands;
 }
 
-/** The buffer a review is staged in, apart from a paste's. */
-const REVIEW_BUFFER = 'tmuxy-review';
-
 /**
  * A diff review typed to the agent in pane `to`: staged, then pasted and
  * entered only if tmux, in the same command list, finds an agent there that
@@ -198,11 +195,13 @@ const REVIEW_BUFFER = 'tmuxy-review';
  * review is dropped and a message says so. The paste goes to that pane
  * alone, even in a synchronized window.
  */
-export function reviewInto(to: PaneId, text: string): string {
-  const commands = staged(REVIEW_BUFFER, text);
+export function reviewInto(to: PaneId, text: string, id: string): string {
+  // A buffer of its own, apart from a paste's and from another review's.
+  const buffer = `tmuxy-review-${id.replace(/[^a-z0-9]/gi, '')}`;
+  const commands = staged(buffer, text);
   if (commands.length === 0) return '';
-  const send = `paste-buffer -p -d -b ${REVIEW_BUFFER} -t ${to} ; send-keys -t ${to} Enter`;
-  const refuse = `delete-buffer -b ${REVIEW_BUFFER} ; display-message ${tmuxDoubleQuoted(REVIEW_REFUSED)}`;
+  const send = `paste-buffer -p -d -b ${buffer} -t ${to} ; send-keys -t ${to} Enter`;
+  const refuse = `delete-buffer -b ${buffer} ; display-message ${tmuxDoubleQuoted(REVIEW_REFUSED)}`;
   commands.push(`if-shell -F -t ${to} '${AGENT_TAKES_INPUT}' { ${send} } { ${refuse} }`);
   return commands.join('\n');
 }

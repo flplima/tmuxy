@@ -72,12 +72,14 @@ describe('a review', () => {
    * up between the check and the keys.
    */
   it('is pasted and entered only inside one tmux check of the agent', () => {
-    const lines = reviewInto(pid('%3'), 'Review:\n1. a.rs:2 — x').split('\n');
-    expect(lines.slice(0, -1).every((line) => line.startsWith('set-buffer '))).toBe(true);
+    const lines = reviewInto(pid('%3'), 'Review:\n1. a.rs:2 — x', 'r1').split('\n');
+    expect(
+      lines.slice(0, -1).every((line) => line.startsWith('set-buffer -b tmuxy-review-r1 ')),
+    ).toBe(true);
     expect(lines[lines.length - 1]).toBe(
       `if-shell -F -t %3 '${AGENT_TAKES_INPUT}' ` +
-        '{ paste-buffer -p -d -b tmuxy-review -t %3 ; send-keys -t %3 Enter } ' +
-        `{ delete-buffer -b tmuxy-review ; display-message "${REVIEW_REFUSED}" }`,
+        '{ paste-buffer -p -d -b tmuxy-review-r1 -t %3 ; send-keys -t %3 Enter } ' +
+        `{ delete-buffer -b tmuxy-review-r1 ; display-message "${REVIEW_REFUSED}" }`,
     );
     // Neither the paste nor the Enter is outside the check.
     expect(lines.filter((line) => /paste-buffer|send-keys/.test(line))).toHaveLength(1);

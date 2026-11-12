@@ -77,7 +77,8 @@ export function ReviewBar({
       return;
     }
     const text = reviewPrompt(checkout, scope, comments);
-    send({ type: 'DISPATCH_OP', op: TmuxOp.SendReview({ target: target.tmuxId, text }) });
+    const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    send({ type: 'DISPATCH_OP', op: TmuxOp.SendReview({ target: target.tmuxId, text, id }) });
     send({ type: 'NOTIFY', kind: 'info', text: `Sent ${count} to ${target.tmuxId}` });
     onSent();
   };

@@ -165,6 +165,7 @@ describe('DiffWidget', () => {
     expect(sent).toEqual([
       {
         _tag: 'SendReview',
+        id: expect.stringMatching(/^[a-z0-9]+$/),
         target: '%3',
         text: 'Review of the unstaged changes in app:\n\n1. src/a.rs:2 — Escape this.\n   > <img src=x onerror=alert(1)>',
       },
