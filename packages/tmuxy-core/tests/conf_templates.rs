@@ -151,12 +151,15 @@ fn a_session_name_crafted_to_break_out_runs_nothing() {
         ("conf-crafted-unsafe", "join-pane -h -s '%%'", false),
     ] {
         let marker = std::env::temp_dir().join(format!("{label}-{}", std::process::id()));
-        let _ = std::fs::remove_file(&marker);
-        // tmux turns `.` and `:` in a session name into `_`.
-        let crafted = format!(
-            "' -s %1 ; run-shell 'touch {}' ; display '",
-            marker.display().to_string().replace(['.', ':'], "_")
+        let path = marker.display().to_string();
+        // tmux turns `.` and `:` in a session name into `_`: the command
+        // would touch another path than the one checked.
+        assert!(
+            !path.contains(['.', ':']),
+            "{path}: set TMPDIR to a directory without '.' or ':'"
         );
+        let _ = std::fs::remove_file(&marker);
+        let crafted = format!("' -s %1 ; run-shell 'touch {path}' ; display '");
         let (_server, version) = pick_a_window(label, &crafted, template);
         let ran = marker.exists();
         let _ = std::fs::remove_file(&marker);
