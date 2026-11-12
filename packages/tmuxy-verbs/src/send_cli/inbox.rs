@@ -23,8 +23,7 @@ pub(super) async fn post<T: ask::Tmux>(
 ) -> Result<(), (i32, String)> {
     let nothing = |why: String| (EXIT_FAILED, format!("{why}; nothing sent"));
     let format = format!("#{{{SEND_INBOX}}}\t#{{{AGENT_INBOX}}}\t#{{pane_current_command}}");
-    let argv = ["display-message", "-p", "-t", pane.as_str(), &format];
-    let said = ask::Tmux::read(tmux, argv.map(String::from).to_vec())
+    let said = ask::pane_read(tmux, pane, &format)
         .await
         .map_err(|_| (EXIT_TARGET, format!("{pane} is gone")))?;
     let mut fields = said.trim_end_matches('\n').splitn(3, '\t');
@@ -60,10 +59,7 @@ pub(super) async fn post<T: ask::Tmux>(
     }
     // A queued send taken back meanwhile is not posted.
     if let Some(also) = also {
-        let argv = ["display-message", "-p", "-t", pane.as_str(), also];
-        let holds = ask::Tmux::read(tmux, argv.map(String::from).to_vec())
-            .await
-            .unwrap_or_default();
+        let holds = ask::pane_read(tmux, pane, also).await.unwrap_or_default();
         if holds.trim().is_empty() || holds.trim() == "0" {
             return Err((EXIT_FAILED, Refused::Held(pane.clone()).to_string()));
         }

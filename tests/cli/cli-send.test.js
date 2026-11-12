@@ -138,6 +138,22 @@ describe('tmuxy pane send', () => {
       expect(exitCode).toBe(3);
       expect(verbArgs(stdout)).toBeNull();
     });
+
+    // tmux answers a closed pane's read for no pane, or for its default one,
+    // and exits 0: before, the send went on and could resolve to that pane.
+    test('a pane closed since is exit 3, and nothing is handed on', () => {
+      // Answered for no pane (no client), or for the default pane (a client).
+      for (const answersAs of ['', '%0']) {
+        const { exitCode, stdout, stderr } = send(['-t', '%7', 'ls'], {
+          ...IN_PANE_1,
+          MOCK_TMUX_GONE_PANES: '%7',
+          MOCK_TMUX_GONE_ANSWERS_AS: answersAs,
+        });
+        expect(exitCode).toBe(3);
+        expect(stderr).toContain('no such pane: %7');
+        expect(verbArgs(stdout)).toBeNull();
+      }
+    });
   });
 
   test('--help explains itself without touching tmux', () => {

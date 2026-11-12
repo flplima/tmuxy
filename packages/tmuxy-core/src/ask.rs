@@ -184,9 +184,7 @@ impl SendRules {
     }
 
     pub async fn read<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<Self, CommandError> {
-        Ok(Self::parse(
-            &tmux.read(display(pane, &Self::format())).await?,
-        ))
+        Ok(Self::parse(&pane_read(tmux, pane, &Self::format()).await?))
     }
 
     pub fn skip_question(&self, callers: &[&str], pane: &PaneId) -> bool {
@@ -292,9 +290,8 @@ impl Question {
         let pane = &self.pane;
         let (yes, no) = (format!("{}:yes", self.token), format!("{}:no", self.token));
         loop {
-            // A pane that is gone cannot be answered in: tmux fails the read.
-            let answer = tmux
-                .read(display(pane, &format!("#{{{ASK_ANSWER}}}")))
+            // A pane that is gone cannot be answered in.
+            let answer = pane_read(tmux, pane, &format!("#{{{ASK_ANSWER}}}"))
                 .await
                 .map_err(|e| match e.kind {
                     crate::ErrorKind::Tmux => Refused::Gone(pane.clone()),
@@ -322,8 +319,8 @@ impl Question {
     pub async fn take_down<T: Tmux>(&self, tmux: &T) {
         let pane = &self.pane;
         let read = |option: &str| {
-            let argv = display(pane, &format!("#{{{option}}}"));
-            async move { tmux.read(argv).await.unwrap_or_default() }
+            let format = format!("#{{{option}}}");
+            async move { pane_read(tmux, pane, &format).await.unwrap_or_default() }
         };
         let mut commands = Vec::new();
         if read(ASK).await.trim() == self.encoded {
@@ -354,7 +351,7 @@ pub async fn wait_turn<T: Tmux>(
 ) -> Result<(), Refused> {
     let abandoned = Instant::now() + PENDING_LIMIT;
     loop {
-        let asking = tmux.read(display(pane, &format!("#{{{ASK}}}"))).await?;
+        let asking = pane_read(tmux, pane, &format!("#{{{ASK}}}")).await?;
         if asking.trim().is_empty() || Instant::now() >= abandoned {
             return Ok(());
         }
@@ -376,9 +373,7 @@ pub fn encode_question(token: &str, caller: &str, keys: &[String]) -> String {
 /// (`crate::agent_dialog`), whatever program draws it. Read fresh, never
 /// from rules read earlier: a dialog can open while a sender waits its turn.
 pub async fn at_prompt<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<bool, CommandError> {
-    let state = tmux
-        .read(display(pane, &format!("#{{{PANE_STATE}}}")))
-        .await?;
+    let state = pane_read(tmux, pane, &format!("#{{{PANE_STATE}}}")).await?;
     if state.trim() == NEEDS_INPUT {
         return Ok(true);
     }
@@ -443,8 +438,7 @@ pub async fn deliver_when<T: Tmux>(
     tmux.mutate(vec![guarded(pane, &command, &token, also)])
         .await
         .map_err(Refused::Tmux)?;
-    let held = tmux
-        .read(display(pane, &format!("#{{{SEND_HELD}-{token}}}")))
+    let held = pane_read(tmux, pane, &format!("#{{{SEND_HELD}-{token}}}"))
         .await
         .map_err(Refused::Tmux)?;
     if held.trim().is_empty() {
@@ -465,6 +459,25 @@ pub fn send_keys_argv(pane: &PaneId, keys: &[String]) -> Argv {
     let mut argv = words(&["send-keys", "-t", pane.as_str(), "--"]);
     argv.extend(keys.iter().cloned());
     argv
+}
+
+/// `format` as `pane` itself answers it. tmux's `display-message` does not
+/// fail when the target is gone: it answers for no pane, or for its default
+/// one when a client is attached. So the answer carries the pane's own id,
+/// and any other answer counts as the pane being gone: an error of kind
+/// `Tmux`, as when tmux refuses a read.
+pub async fn pane_read<T: Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+    format: &str,
+) -> Result<String, CommandError> {
+    let said = tmux
+        .read(display(pane, &format!("#{{pane_id}}\t{format}")))
+        .await?;
+    match said.split_once('\t') {
+        Some((id, rest)) if id == pane.as_str() => Ok(rest.to_string()),
+        _ => Err(CommandError::tmux(format!("{pane} is gone"))),
+    }
 }
 
 fn display(pane: &PaneId, format: &str) -> Argv {

@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 
-use super::{at_prompt, display, set_pane, unset_pane, words, Tmux};
+use super::{at_prompt, pane_read, set_pane, unset_pane, words, Tmux};
 use crate::constants::tmux_options::{ASK, PANE_STATE, SEND_QUEUED};
 use crate::{CommandError, PaneId, PaneStateName};
 
@@ -126,6 +126,9 @@ pub async fn list<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<Vec<Queued>, Comma
     let shown = tmux
         .read(words(&["show-options", "-p", "-t", pane.as_str()]))
         .await?;
+    // tmux answers a closed pane's options from its default pane: a pane
+    // still there afterwards was there for the read (ids are never reused).
+    pane_read(tmux, pane, "").await?;
     let mut line: Vec<Queued> = shown
         .lines()
         .filter_map(|row| {
@@ -160,9 +163,7 @@ pub async fn retract<T: Tmux>(tmux: &T, pane: &PaneId, id: &str) -> Result<bool,
 /// question up: a send that skips the question must not type while the user
 /// reads one.
 async fn free<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<bool, CommandError> {
-    let said = tmux
-        .read(display(pane, &format!("#{{{PANE_STATE}}}\t#{{{ASK}}}")))
-        .await?;
+    let said = pane_read(tmux, pane, &format!("#{{{PANE_STATE}}}\t#{{{ASK}}}")).await?;
     let (state, asking) = said
         .trim_end()
         .split_once('\t')
@@ -219,7 +220,7 @@ impl Entry {
 
     /// Still in line, not retracted.
     pub async fn in_line<T: Tmux>(&self, tmux: &T) -> Result<bool, CommandError> {
-        let value = tmux.read(display(&self.pane, &self.condition())).await?;
+        let value = pane_read(tmux, &self.pane, &self.condition()).await?;
         Ok(!value.trim().is_empty())
     }
 
@@ -254,9 +255,7 @@ impl Entry {
     pub async fn leave_once_taken<T: Tmux>(&self, tmux: &T, within: Duration) {
         let start = tokio::time::Instant::now();
         while start.elapsed() < within {
-            let state = tmux
-                .read(display(&self.pane, &format!("#{{{PANE_STATE}}}")))
-                .await;
+            let state = pane_read(tmux, &self.pane, &format!("#{{{PANE_STATE}}}")).await;
             match state {
                 Ok(state) if state.trim() != PaneStateName::Working.as_str() => {
                     tokio::time::sleep(POLL).await;

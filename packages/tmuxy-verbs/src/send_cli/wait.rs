@@ -43,14 +43,7 @@ pub(super) async fn occupant<T: ask::Tmux>(
     tmux: &T,
     pane: &PaneId,
 ) -> Result<Occupant, (i32, String)> {
-    let argv = [
-        "display-message",
-        "-p",
-        "-t",
-        pane.as_str(),
-        "#{pane_pid}\t#{pane_current_command}",
-    ];
-    let line = ask::Tmux::read(tmux, argv.map(String::from).to_vec())
+    let line = ask::pane_read(tmux, pane, "#{pane_pid}\t#{pane_current_command}")
         .await
         .map_err(|_| (EXIT_TARGET, format!("{pane} is gone")))?;
     let (pid, command) = line
@@ -96,14 +89,7 @@ fn sent((_, message): (i32, String)) -> (i32, String) {
 
 /// What `pane` says it is doing (`@tmuxy-pane-state`); exit 3 when it is gone.
 async fn state_of<T: ask::Tmux>(tmux: &T, pane: &PaneId) -> Result<String, (i32, String)> {
-    let argv = [
-        "display-message",
-        "-p",
-        "-t",
-        pane.as_str(),
-        &format!("#{{{PANE_STATE}}}"),
-    ];
-    ask::Tmux::read(tmux, argv.map(String::from).to_vec())
+    ask::pane_read(tmux, pane, &format!("#{{{PANE_STATE}}}"))
         .await
         .map_err(|_| (EXIT_TARGET, format!("{pane} is gone")))
 }
