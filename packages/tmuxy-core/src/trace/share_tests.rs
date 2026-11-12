@@ -71,17 +71,17 @@ fn one_value_reads_the_same_placeholder_everywhere() {
     // An op or id that does not look like one is replaced too.
     assert_eq!(shared[4]["op"], "op-1");
     assert_eq!(shared[4]["pane"], "pane-1");
-    assert_eq!(shared[4]["nested"]["cwd"], "cwd-1");
-    assert_eq!(shared[4]["nested"]["list"], json!(["list-1", 3]));
+    // A key the writers do not use is renamed as well.
+    assert!(shared[4].get("nested").is_none());
 }
 
 #[test]
 fn a_key_that_is_not_a_field_name_is_replaced_too() {
     let shared = redact_for_sharing(&events(json!([
-        {"layer": "client", "counts": {"acme-payroll": 3, "lines": 2}}
+        {"layer": "client", "counts": {"acme-payroll": 3, "acme_web": 4, "lines": 2}}
     ])));
     let text = serde_json::to_string(&shared).unwrap();
     assert!(!text.contains("acme"), "{text}");
-    assert_eq!(shared[0]["counts"]["key-1"], 3);
-    assert_eq!(shared[0]["counts"]["lines"], 2);
+    // `counts` is not a field the writers use either: it is replaced too.
+    assert!(shared[0].get("counts").is_none(), "{text}");
 }

@@ -107,8 +107,8 @@ fn value(key: &str, value: &Value, names: &mut Placeholders) -> Value {
 fn object(map: &Map<String, Value>, names: &mut Placeholders) -> Map<String, Value> {
     map.iter()
         .map(|(key, v)| {
-            // The writer's keys are fixed field names; a key that is not one
-            // (a map keyed by something a user named) is replaced as well.
+            // A key the writers do not use (a map keyed by something a user
+            // named) is replaced as well.
             let shown = if field_name(key) {
                 key.clone()
             } else {
@@ -119,13 +119,10 @@ fn object(map: &Map<String, Value>, names: &mut Placeholders) -> Map<String, Val
         .collect()
 }
 
+/// A key the trace's writers use: the schema's fields, and the few the
+/// tools write themselves (a marker's label, an overflow line's count).
 fn field_name(key: &str) -> bool {
-    let mut chars = key.chars();
-    key.len() <= 64
-        && chars
-            .next()
-            .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    super::schema::class_of(key).is_some() || ["label", "dropped"].contains(&key)
 }
 
 /// `events`, redacted for sharing, in order.
