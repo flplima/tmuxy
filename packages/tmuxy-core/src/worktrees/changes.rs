@@ -2,21 +2,24 @@
 //! beside a pane's branch.
 //!
 //! This is git run on a timer in directories the user merely stands in, so
-//! it is held to reading:
+//! it runs the way tmuxy runs git in a repository it did not make
+//! (`crate::safe_git`): nothing the repository names runs, and every content
+//! filter driver is switched off, so a changed git-lfs file is compared as
+//! the text it is. On top of that:
 //!
 //!   * `git diff-index`, not `git diff`: the porcelain refreshes the index
 //!     and writes it back under `index.lock` (with `GIT_OPTIONAL_LOCKS=0`
 //!     too), and the user's own `git commit` in that second would fail on
 //!     the lock. The plumbing command reads the index as it is;
-//!   * no filesystem monitor, external diff or textconv: each is a program
-//!     the repository's config names, and counting lines must not run it;
-//!   * a time limit: a checkout too large to diff in it shows no numbers
-//!     rather than holding the whole discovery.
+//!   * no external diff, no textconv, and no submodule, inside which git
+//!     would run a status under that submodule's own config;
+//!   * a time limit, per checkout and for all of them together: a checkout
+//!     too large to diff in it shows no numbers.
 
-use std::io::Read;
 use std::path::Path;
-use std::process::Stdio;
 use std::time::{Duration, Instant};
+
+use crate::safe_git;
 
 use serde::Serialize;
 
@@ -28,53 +31,30 @@ pub struct GitChanges {
     pub removed: u32,
 }
 
-const TIME_LIMIT: Duration = Duration::from_secs(2);
+/// The longest one checkout is given.
+const CHECKOUT_LIMIT: Duration = Duration::from_secs(2);
+
+/// The longest all the checkouts of one discovery are given together: six
+/// slow ones must not hold the request for twelve seconds.
+pub(super) const PASS_LIMIT: Duration = Duration::from_secs(4);
 
 const DIFF_ARGS: &[&str] = &[
-    "-c",
-    "core.fsmonitor=false",
     "diff-index",
     "--no-ext-diff",
     "--no-textconv",
+    "--ignore-submodules=all",
     "--shortstat",
     "HEAD",
 ];
 
 /// The changes in the checkout at `worktree`, or `None` when git cannot say
-/// in time: no commit yet, a repository it refuses to read, a diff too slow.
-pub(super) fn of(worktree: &Path) -> Option<GitChanges> {
-    of_within(worktree, TIME_LIMIT)
-}
-
-fn of_within(worktree: &Path, limit: Duration) -> Option<GitChanges> {
-    let mut command = super::git(worktree, DIFF_ARGS);
-    command
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let mut child = command.spawn().ok()?;
-    let deadline = Instant::now() + limit;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    };
-    if !status.success() {
-        return None;
-    }
-    // One line at most, so it was never waiting on a full pipe.
-    let mut stat = String::new();
-    child.stdout.take()?.read_to_string(&mut stat).ok()?;
-    Some(parse_shortstat(&stat))
+/// by `pass_deadline` or within its own limit: no commit yet, a repository
+/// it refuses to read, a diff too slow.
+pub(super) fn of(worktree: &Path, pass_deadline: Instant) -> Option<GitChanges> {
+    let deadline = pass_deadline.min(Instant::now() + CHECKOUT_LIMIT);
+    let off = safe_git::filters_off(worktree, deadline)?;
+    let said = safe_git::run(safe_git::command(worktree, &off, DIFF_ARGS), deadline, 4096)?;
+    (said.success && !said.cut).then(|| parse_shortstat(&String::from_utf8_lossy(&said.stdout)))
 }
 
 /// ` 3 files changed, 12 insertions(+), 3 deletions(-)`, either count left

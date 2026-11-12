@@ -110,6 +110,7 @@ pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<Git
     }
 
     let candidates = canonical_input_directories(paths);
+    let counted_by = std::time::Instant::now() + changes::PASS_LIMIT;
     let mut seen_common_dirs = HashSet::new();
     let mut repositories = Vec::new();
 
@@ -127,7 +128,7 @@ pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<Git
         }
         match discover_repository(&search_path, &common_dir) {
             Ok(mut repository) => {
-                count_changes(&mut repository, &candidates);
+                count_changes(&mut repository, &candidates, counted_by);
                 repositories.push(repository);
             }
             Err(error) => tracing::warn!(%error, "skipping repository in worktree discovery"),
@@ -145,8 +146,13 @@ pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<Git
 
 /// Count the changes of each checkout a pane sits in: the innermost one
 /// around a pane's directory, so a pane in a nested worktree does not have
-/// the checkout around it diffed as well.
-fn count_changes(repository: &mut GitRepository, pane_dirs: &[PathBuf]) {
+/// the checkout around it diffed as well. All of them by `counted_by`: a
+/// checkout reached after it shows no numbers.
+fn count_changes(
+    repository: &mut GitRepository,
+    pane_dirs: &[PathBuf],
+    counted_by: std::time::Instant,
+) {
     let mut occupied = HashSet::new();
     for dir in pane_dirs {
         let innermost = repository
@@ -161,7 +167,7 @@ fn count_changes(repository: &mut GitRepository, pane_dirs: &[PathBuf]) {
     }
     for index in occupied {
         let worktree = &mut repository.worktrees[index];
-        worktree.changes = changes::of(Path::new(&worktree.path));
+        worktree.changes = changes::of(Path::new(&worktree.path), counted_by);
     }
 }
 

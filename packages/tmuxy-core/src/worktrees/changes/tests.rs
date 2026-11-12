@@ -1,6 +1,11 @@
 use super::*;
 use std::path::PathBuf;
 
+/// A pass deadline no test reaches.
+fn later() -> Instant {
+    Instant::now() + Duration::from_secs(60)
+}
+
 /// Run git in `dir` with nobody's config but the repository's own.
 fn git(dir: &Path, args: &[&str]) {
     let output = super::super::git(dir, args)
@@ -64,7 +69,7 @@ fn the_summary_line_is_read_whichever_counts_it_holds() {
 fn a_checkout_reports_its_lines_changed_against_head() {
     let dir = repository("counts");
     assert_eq!(
-        of(&dir),
+        of(&dir, later()),
         Some(GitChanges {
             added: 0,
             removed: 0
@@ -76,20 +81,28 @@ fn a_checkout_reports_its_lines_changed_against_head() {
         added: 3,
         removed: 1,
     });
-    assert_eq!(of(&dir), edited);
+    assert_eq!(of(&dir, later()), edited);
     // From a directory inside the checkout, the same.
     std::fs::create_dir(dir.join("sub")).unwrap();
-    assert_eq!(of(&dir.join("sub")), edited);
+    assert_eq!(of(&dir.join("sub"), later()), edited);
 
     git(&dir, &["add", "notes.txt"]);
-    assert_eq!(of(&dir), edited, "a staged change is still a change");
+    assert_eq!(
+        of(&dir, later()),
+        edited,
+        "a staged change is still a change"
+    );
 
     std::fs::write(dir.join("untracked.txt"), "a\nb\n").unwrap();
-    assert_eq!(of(&dir), edited, "an untracked file is not counted");
+    assert_eq!(
+        of(&dir, later()),
+        edited,
+        "an untracked file is not counted"
+    );
 
     commit(&dir, "second");
     assert_eq!(
-        of(&dir),
+        of(&dir, later()),
         Some(GitChanges {
             added: 0,
             removed: 0
@@ -105,49 +118,93 @@ fn where_git_cannot_say_there_are_no_numbers() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     git(&dir, &["init", "-q", "-b", "main"]);
-    assert_eq!(of(&dir), None);
+    assert_eq!(of(&dir, later()), None);
     // Not a repository at all.
-    assert_eq!(of(&dir.join(".git").join("objects")), None);
+    assert_eq!(of(&dir.join(".git").join("objects"), later()), None);
     // And a diff that does not finish in time is stopped, not waited for.
     let slow = repository("slow");
-    assert_eq!(of_within(&slow, Duration::ZERO), None);
+    assert_eq!(of(&slow, Instant::now()), None);
     for dir in [dir, slow] {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
 /// Counting lines is a read. It must not take the index lock (the user's
-/// own `git commit` in that moment would fail on it) and must not run a
-/// program the repository's config names.
+/// own `git commit` in that moment would fail on it), and it must not run
+/// any program the repository's own config or attributes name: a directory
+/// that arrived with its own `.git` would otherwise run code because a pane
+/// sits in it. Every such knob points at one script that leaves a mark.
 #[test]
-fn counting_writes_nothing_and_runs_nothing_of_the_repositorys() {
-    let dir = repository("readonly");
-    let marker = dir.join("hook-ran");
-    let hook = dir.join("monitor.sh");
-    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+fn counting_writes_nothing_and_runs_nothing_the_repository_names() {
+    let dir = repository("booby-trapped");
+    // A second tracked file, for a driver whose name holds `=`: on
+    // `-c filter.x=y.clean=` git would read the key as `filter.x`.
+    std::fs::write(dir.join("other.dat"), "a\n").unwrap();
+    commit(&dir, "second file");
+    let marker = dir.join("RAN");
+    let trap = dir.join("trap.sh");
+    std::fs::write(
+        &trap,
+        format!("#!/bin/sh\necho \"$0 $*\" >> '{}'\ncat\n", marker.display()),
+    )
+    .unwrap();
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&trap, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    git(
-        &dir,
-        &["config", "core.fsmonitor", &hook.display().to_string()],
-    );
-    git(
-        &dir,
-        &["config", "diff.external", &hook.display().to_string()],
-    );
+    let trap = trap.display().to_string();
+    let hooks = dir.join("hooks");
+    std::fs::create_dir(&hooks).unwrap();
+    for hook in [
+        "post-index-change",
+        "reference-transaction",
+        "post-checkout",
+    ] {
+        std::os::unix::fs::symlink(&trap, hooks.join(hook)).unwrap();
+        std::os::unix::fs::symlink(&trap, dir.join(".git/hooks").join(hook)).unwrap();
+    }
+    for (key, value) in [
+        ("core.fsmonitor", trap.as_str()),
+        ("core.hooksPath", &hooks.display().to_string()),
+        ("core.pager", trap.as_str()),
+        ("core.sshCommand", trap.as_str()),
+        ("core.askPass", trap.as_str()),
+        ("credential.helper", trap.as_str()),
+        ("diff.external", trap.as_str()),
+        ("diff.trap.command", trap.as_str()),
+        ("diff.trap.textconv", trap.as_str()),
+        ("filter.trap.clean", trap.as_str()),
+        ("filter.trap.smudge", trap.as_str()),
+        ("filter.trap.process", trap.as_str()),
+        ("filter.trap.required", "true"),
+        ("filter.x=y.clean", trap.as_str()),
+        ("filter.x=y.smudge", trap.as_str()),
+        ("filter.x=y.process", trap.as_str()),
+        ("filter.x=y.required", "true"),
+        ("pager.diff-index", trap.as_str()),
+        ("pager.config", trap.as_str()),
+        ("remote.origin.url", "ext::sh -c touch% /tmp/never"),
+        ("remote.origin.promisor", "true"),
+        ("extensions.partialClone", "origin"),
+    ] {
+        git(&dir, &["config", key, value]);
+    }
+    std::fs::write(
+        dir.join(".gitattributes"),
+        "* filter=trap diff=trap\nother.dat filter=x=y\n",
+    )
+    .unwrap();
 
     // The same content written again, a second later: the file's stat no
     // longer matches the index, which is when a plain `git diff` refreshes
-    // the index and writes it back.
+    // the index and writes it back. Then a real edit, which a clean filter
+    // would be run on.
     std::thread::sleep(Duration::from_millis(1100));
     std::fs::write(dir.join("notes.txt"), "one\ntwo\nthree\n").unwrap();
     let index = dir.join(".git").join("index");
     let before = std::fs::read(&index).unwrap();
-
     assert_eq!(
-        of(&dir),
+        of(&dir, later()),
         Some(GitChanges {
             added: 0,
             removed: 0
@@ -161,16 +218,19 @@ fn counting_writes_nothing_and_runs_nothing_of_the_repositorys() {
     assert!(!dir.join(".git").join("index.lock").exists());
 
     std::fs::write(dir.join("notes.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    std::fs::write(dir.join("other.dat"), "a\nb\n").unwrap();
     assert_eq!(
-        of(&dir),
+        of(&dir, later()),
         Some(GitChanges {
-            added: 1,
+            added: 2,
             removed: 0
         })
     );
-    assert!(
-        !marker.exists(),
-        "a program from the repository's config ran"
-    );
+    // The branch and layout discovery the row already ran, through the same
+    // helper: as quiet.
+    let repositories = super::super::list_git_worktrees(vec![dir.display().to_string()]).unwrap();
+    assert_eq!(repositories[0].worktrees[0].branch.as_deref(), Some("main"));
+    let ran = std::fs::read_to_string(&marker).unwrap_or_default();
+    assert!(ran.is_empty(), "a program the repository names ran: {ran}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -37,6 +37,7 @@ const badgeSpan = (badge: GitBadge | null) =>
         {badge.changes && (
           <span
             className="sidebar-tree-git-changes"
+            role="img"
             aria-label={changesLabel(badge.changes)}
             data-testid="tree-git-changes"
           >

@@ -198,8 +198,11 @@ fn changes_are_counted_for_the_checkouts_panes_sit_in_and_no_other() {
         main.file_name().unwrap().to_string_lossy()
     ));
     let _ = fs::remove_dir_all(&other);
+    // With nobody's config: the developer's own hooks stay out of it.
     let added = git(&main, &["worktree", "add", "-q", "-b", "side"])
         .arg(&other)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()
         .unwrap();
     assert!(added.status.success());
