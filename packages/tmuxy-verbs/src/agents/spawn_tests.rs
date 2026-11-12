@@ -22,11 +22,15 @@ fn each_agent_takes_its_task_its_own_way() {
     );
     assert_eq!(
         argv(SpawnAgent::Gemini, Some("explain"), None, &[]).unwrap(),
-        ["gemini", "--prompt-interactive", "explain"]
+        ["gemini", "--prompt-interactive=explain"]
     );
     assert_eq!(
         argv(SpawnAgent::Claude, None, None, &[]).unwrap(),
         ["claude"]
+    );
+    assert_eq!(
+        argv(SpawnAgent::Gemini, Some("-v please"), None, &[]).unwrap(),
+        ["gemini", "--prompt-interactive=-v please"]
     );
 }
 
@@ -135,4 +139,33 @@ fn the_new_pane_is_tagged_with_its_spawner_agent_and_label() {
          set-option -p -t %9 @tmuxy-label fix-a ; select-pane -t %9 -T fix-a"
     );
     assert!(!tag_argv("%9", "%3", "codex", None).contains(&"@tmuxy-label".to_string()));
+}
+
+/// `split-window -c` and `select-pane -T` expand formats: a `#(…)` in a
+/// path or a label would run as the server unless every `#` is doubled.
+#[test]
+fn a_label_or_path_reaches_tmux_formats_as_text() {
+    let script = Path::new("/tmp/d/spawn.sh");
+    let placed = place_argv(
+        Place::Split,
+        "%3",
+        Some(Path::new("/w/#(touch x)")),
+        false,
+        script,
+    );
+    assert!(
+        placed.windows(2).any(|w| w == ["-c", "/w/##(touch x)"]),
+        "{placed:?}"
+    );
+    let tagged = tag_argv("%9", "%3", "bash", Some("#(touch x) #{pane_id}"));
+    assert!(
+        tagged
+            .windows(2)
+            .any(|w| w == ["-T", "##(touch x) ##{pane_id}"]),
+        "{tagged:?}"
+    );
+    // An option's value is not expanded: the label is kept as given.
+    assert!(tagged
+        .windows(2)
+        .any(|w| w == ["@tmuxy-label", "#(touch x) #{pane_id}"]));
 }

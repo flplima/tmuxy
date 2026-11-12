@@ -146,7 +146,8 @@ pub fn agent_argv(
             return Err(format!("the task is over {} KiB", MAX_PROMPT_BYTES / 1024));
         }
         match adapter.prompt_flag {
-            Some(flag) => argv.extend([flag.to_string(), prompt.to_string()]),
+            // `--flag=task`: a task that starts with `-` stays its value.
+            Some(flag) => argv.push(format!("{flag}={prompt}")),
             None => argv.extend(["--".to_string(), prompt.to_string()]),
         }
     }
@@ -161,6 +162,13 @@ pub fn wrapper(dir: &Path, argv: &[String]) -> String {
         shell_word(&dir.to_string_lossy()),
         words.join(" ")
     )
+}
+
+/// `value` as tmux reads it back literally from an argument it expands as
+/// a format (`split-window -c`, `select-pane -T`): every `#` doubled, so a
+/// `#(…)` in a label or a path never runs as the server.
+pub fn format_literal(value: &str) -> String {
+    value.replace('#', "##")
 }
 
 /// The tmux command list that places the pane and prints its id.
@@ -195,7 +203,7 @@ pub fn place_argv(
     argv.extend(split.into_iter().map(String::from));
     let cwd = cwd.map_or_else(
         || "#{pane_current_path}".to_string(),
-        |dir| dir.to_string_lossy().into_owned(),
+        |dir| format_literal(&dir.to_string_lossy()),
     );
     argv.extend(["-t", caller, "-c", &cwd, "-P", "-F", "#{pane_id}"].map(String::from));
     argv.push(format!("sh {}", shell_word(&script.to_string_lossy())));
@@ -237,7 +245,7 @@ pub fn tag_argv(pane: &str, caller: &str, agent: &str, label: Option<&str>) -> V
                 "-t",
                 pane,
                 "-T",
-                label,
+                &format_literal(label),
             ]
             .map(String::from),
         );
@@ -284,6 +292,33 @@ fn label_taken(label: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// The task, from `--prompt` or `--prompt-file`.
+fn task(answer: &Answer, args: &SpawnArgs) -> Option<String> {
+    let Some(file) = &args.prompt_file else {
+        return args.prompt.clone();
+    };
+    match std::fs::read(file) {
+        Ok(bytes) if bytes.len() <= MAX_PROMPT_BYTES => {
+            Some(String::from_utf8_lossy(&bytes).into_owned())
+        }
+        Ok(_) => answer.exit(
+            EXIT_USAGE,
+            &format!("the task is over {} KiB", MAX_PROMPT_BYTES / 1024),
+        ),
+        Err(e) => answer.exit(EXIT_USAGE, &format!("{}: {e}", file.display())),
+    }
+}
+
+/// A label must name one pane: not an id, and not one in use.
+fn check_label(answer: &Answer, label: &str) {
+    if label.is_empty() || label.starts_with('%') {
+        answer.exit(EXIT_USAGE, "a label is a name, not a pane id");
+    }
+    if label_taken(label) {
+        answer.exit(EXIT_FAILED, &format!("a pane is already labelled {label}"));
+    }
+}
+
 pub fn run(answer: &Answer, args: SpawnArgs) {
     let Some(caller) = run_shell::caller_pane() else {
         answer.exit(
@@ -291,19 +326,7 @@ pub fn run(answer: &Answer, args: SpawnArgs) {
             "run this inside a pane: the agent goes in that pane's tab",
         )
     };
-    let prompt = match &args.prompt_file {
-        Some(file) => match std::fs::read(file) {
-            Ok(bytes) if bytes.len() <= MAX_PROMPT_BYTES => {
-                Some(String::from_utf8_lossy(&bytes).into_owned())
-            }
-            Ok(_) => answer.exit(
-                EXIT_USAGE,
-                &format!("the task is over {} KiB", MAX_PROMPT_BYTES / 1024),
-            ),
-            Err(e) => answer.exit(EXIT_USAGE, &format!("{}: {e}", file.display())),
-        },
-        None => args.prompt.clone(),
-    };
+    let prompt = task(answer, &args);
     let argv = agent_argv(
         args.agent,
         prompt.as_deref(),
@@ -312,12 +335,7 @@ pub fn run(answer: &Answer, args: SpawnArgs) {
     )
     .unwrap_or_else(|e| answer.exit(EXIT_USAGE, &e));
     if let Some(label) = &args.label {
-        if label.is_empty() || label.starts_with('%') {
-            answer.exit(EXIT_USAGE, "a label is a name, not a pane id");
-        }
-        if label_taken(label) {
-            answer.exit(EXIT_FAILED, &format!("a pane is already labelled {label}"));
-        }
+        check_label(answer, label);
     }
     let dir = wrapper_dir().unwrap_or_else(|e| answer.exit(EXIT_FAILED, &e.to_string()));
     let script = dir.join("spawn.sh");
@@ -353,6 +371,9 @@ pub fn run(answer: &Answer, args: SpawnArgs) {
         &layout,
         &tag_argv(&pane, &caller, &agent, args.label.as_deref()),
     ) {
+        // An untagged pane would be one a retry cannot see: close it.
+        let close = ["kill-pane", "-t", &pane].map(String::from);
+        let _ = run_shell::tmux(&layout, &close);
         fail_to_run(answer, e);
     }
     let label = args.label.as_deref().unwrap_or_default();

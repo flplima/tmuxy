@@ -231,13 +231,15 @@ describeE2E("Scenario: an orchestrator waits on its agents' states", {}, (ctx) =
  * (agents/spawn_tests.rs).
  */
 describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (ctx) => {
-  test("agent spawn adds a tagged row to the caller's tab, keeps the focus, hands over the task and refuses a taken label", async () => {
+  test("agent spawn adds a tagged row to the caller's tab, keeps the focus, hands over the task, refuses a taken label and keeps #() in a label or path as text", async () => {
     const { page } = ctx;
     await ctx.setupPage();
     await waitForShellPrompt(page);
     const caller = await page.evaluate(() => window.app?.view().activePaneId);
     const asCaller = { TMUX_PANE: caller };
     let child = null;
+    let second = null;
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-e2e-spawn-'));
     try {
       const out = tmuxyCli(
         [
@@ -307,14 +309,50 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
       );
       expect(taken.code).not.toBe(0);
       expect(taken.stderr).toContain('already labelled child-x');
+
+      // A label or a directory holding `#(…)` reaches tmux as text: tmux
+      // expands formats in a pane's title and start directory, where an
+      // unescaped one would run the command as the server.
+      const marker = path.join(scratch, 'ran');
+      const hostile = `#(touch ${marker})`;
+      const cwd = path.join(scratch, hostile);
+      fs.mkdirSync(cwd, { recursive: true });
+      second = JSON.parse(
+        tmuxyCli(
+          [
+            'agent',
+            'spawn',
+            '--json',
+            '--agent',
+            'cmd',
+            '--place',
+            'split',
+            '--label',
+            hostile,
+          ].concat(['--cwd', cwd, '--', 'sleep', '600']),
+          asCaller,
+        ),
+      ).paneId;
+      const readSecond = (format) =>
+        tmuxyCli(['run', 'display-message', '-p', '-t', second, format]).trim();
+      await waitForCondition(
+        page,
+        () => readSecond('#{pane_current_path}') === cwd,
+        15000,
+        () => `the second agent to start in ${cwd}, not ${readSecond('#{pane_current_path}')}`,
+      );
+      expect(readSecond('#{pane_title}')).toBe(hostile);
+      expect(readSecond('#{@tmuxy-label}')).toBe(hostile);
+      expect(fs.existsSync(marker)).toBe(false);
     } finally {
-      if (child) {
+      for (const pane of [child, second].filter(Boolean)) {
         try {
-          tmuxyCli(['pane', 'kill', child]);
+          tmuxyCli(['pane', 'kill', pane]);
         } catch {
           // Already gone.
         }
       }
+      fs.rmSync(scratch, { recursive: true, force: true });
     }
   }, 120000);
 });
