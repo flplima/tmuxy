@@ -157,3 +157,98 @@ fn a_base_is_never_read_as_an_option() {
     assert!(root.join("app-y/README").is_file());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_copy_carries_the_uncommitted_changes_and_untracked_files_only_when_asked() {
+    let (root, repo) = repository("carry");
+    std::fs::write(repo.join("README"), "hello, edited\n").unwrap();
+    std::fs::write(repo.join("notes.txt"), "draft\n").unwrap();
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/new.rs"), "fn main() {}\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/etc/passwd", repo.join("link")).unwrap();
+    let base = head(&repo).unwrap();
+    assert_eq!(base.len(), 40, "{base}");
+
+    let plain = create(&repo, "fork-a", Some(&base)).unwrap();
+    let plain_path = PathBuf::from(&plain.path);
+    let carried = carry(&repo, &plain_path, false).unwrap();
+    assert_eq!(carried.changed, ["README"]);
+    assert!(carried.untracked.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(plain_path.join("README")).unwrap(),
+        "hello, edited\n"
+    );
+    assert!(!plain_path.join("notes.txt").exists());
+
+    let full = create(&repo, "fork-b", Some(&base)).unwrap();
+    let full_path = PathBuf::from(&full.path);
+    let mut carried = carry(&repo, &full_path, true).unwrap();
+    carried.untracked.sort();
+    assert_eq!(carried.untracked, ["notes.txt", "src/new.rs"]);
+    #[cfg(unix)]
+    assert_eq!(carried.skipped, ["link"], "a symlink is left behind");
+    assert_eq!(
+        std::fs::read_to_string(full_path.join("src/new.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+    // The original keeps its changes.
+    assert_eq!(
+        std::fs::read_to_string(repo.join("README")).unwrap(),
+        "hello, edited\n"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_deleted_file_is_deleted_and_a_tracked_symlink_is_left_behind() {
+    let (root, repo) = repository("carry-odd");
+    std::fs::write(repo.join("gone.txt"), "x\n").unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["add", "gone.txt"]);
+    git(&["commit", "-qm", "second"]);
+    std::fs::remove_file(repo.join("gone.txt")).unwrap();
+    std::fs::remove_file(repo.join("README")).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/etc/passwd", repo.join("README")).unwrap();
+    let fork = create(&repo, "fork-e", Some(&head(&repo).unwrap())).unwrap();
+    let fork_path = PathBuf::from(&fork.path);
+    let carried = carry(&repo, &fork_path, false).unwrap();
+    assert_eq!(carried.changed, ["gone.txt"]);
+    assert!(!fork_path.join("gone.txt").exists());
+    #[cfg(unix)]
+    {
+        assert_eq!(carried.skipped, ["README"], "a symlink is not followed");
+        assert_eq!(
+            std::fs::read_to_string(fork_path.join("README")).unwrap(),
+            "hello\n"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn nothing_to_carry_is_nothing() {
+    let (root, repo) = repository("clean");
+    let fork = create(&repo, "fork-d", None).unwrap();
+    assert_eq!(
+        carry(&repo, &PathBuf::from(&fork.path), true).unwrap(),
+        Carried::default()
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -20,6 +20,10 @@ pub struct ForkArgs {
     /// The new worktree's branch; default: `fork-<first part of the id>`.
     #[arg(long)]
     branch: Option<String>,
+    /// Copy the pane's untracked files into the fork too. Uncommitted
+    /// changes to tracked files are always carried.
+    #[arg(long)]
+    untracked: bool,
 }
 
 /// The command that forks `id`, for an agent that can fork.
@@ -35,10 +39,14 @@ pub fn fork_argv(kind: Resumable, id: &str) -> Option<Vec<String>> {
     }
 }
 
-/// The tab's shell line: the fork, then a shell, so the tab outlives it.
+/// The tab's shell line: the fork, a word if it fails (a conversation it
+/// cannot find, say), then a shell, so the tab outlives it.
 pub fn fork_line(argv: &[String]) -> String {
     let words: Vec<String> = argv.iter().map(|w| shell_word(w)).collect();
-    format!("{}; exec \"${{SHELL:-sh}}\"", words.join(" "))
+    format!(
+        "{} || echo \"tmuxy: the fork ended with an error (exit $?): see above\"; exec \"${{SHELL:-sh}}\"",
+        words.join(" ")
+    )
 }
 
 /// The branch a fork of `id` gets unless one is named.
@@ -61,11 +69,30 @@ pub fn run(answer: &Answer, args: ForkArgs) {
             &format!("{pane}'s agent cannot fork a conversation"),
         )
     };
+    let named = args.branch.is_some();
     let branch = args.branch.unwrap_or_else(|| default_branch(&id));
-    let created = match create::create(std::path::Path::new(&now.path), &branch, None) {
-        Ok(created) => created,
-        Err(error) => answer.exit(EXIT_FAILED, &error.to_string()),
-    };
+    let source = std::path::Path::new(&now.path);
+    // The fork starts where the pane's worktree is, with its uncommitted
+    // work: the conversation is about those files as they are.
+    let created = create::head(source)
+        .and_then(|base| create::create(source, &branch, Some(&base)))
+        .unwrap_or_else(|e| {
+            // A second fork of one conversation meets the first's branch.
+            let hint = if named {
+                ""
+            } else {
+                "; name another branch with --branch"
+            };
+            answer.exit(EXIT_FAILED, &format!("{e}{hint}"))
+        });
+    let carried = create::carry(source, std::path::Path::new(&created.path), args.untracked)
+        .unwrap_or_else(|e| {
+            let _ = tmuxy_core::worktrees::guard::remove(std::path::Path::new(&created.path), true);
+            answer.exit(
+                EXIT_FAILED,
+                &format!("could not carry the uncommitted work, so no fork was made: {e}"),
+            )
+        });
     let cwd = tmuxy_core::argv::format_literal(&created.path);
     let tab = crate::run_cli::new_tab(answer, Some(&branch), Some(&cwd), Some(&fork_line(&argv)));
     answer.done(
@@ -74,10 +101,24 @@ pub fn run(answer: &Answer, args: ForkArgs) {
             ("branch", cli_json::string(&created.branch)),
             ("tabId", cli_json::string(&tab)),
             ("session", cli_json::string(&id)),
+            ("carried", carried.changed.len().to_string()),
+            ("untracked", carried.untracked.len().to_string()),
+            (
+                "skipped",
+                serde_json::to_string(&carried.skipped).unwrap_or_else(|_| "[]".into()),
+            ),
         ],
         &format!(
-            "{} on branch {}, in tab {tab}",
-            created.path, created.branch
+            "{} on branch {}, in tab {tab}; carried {} changed and {} untracked files{}",
+            created.path,
+            created.branch,
+            carried.changed.len(),
+            carried.untracked.len(),
+            if carried.skipped.is_empty() {
+                String::new()
+            } else {
+                format!(", left behind: {}", carried.skipped.join(", "))
+            }
         ),
     );
 }
@@ -97,7 +138,10 @@ mod tests {
         assert_eq!(fork_argv(Resumable::Codex, ID), None);
         assert_eq!(
             fork_line(&fork_argv(Resumable::Claude, ID).unwrap()),
-            format!("claude --resume {ID} --fork-session; exec \"${{SHELL:-sh}}\"")
+            format!(
+                "claude --resume {ID} --fork-session || echo \"tmuxy: the fork ended with an \
+                 error (exit $?): see above\"; exec \"${{SHELL:-sh}}\""
+            )
         );
     }
 

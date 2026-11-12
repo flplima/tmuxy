@@ -188,12 +188,21 @@ describeE2E('Scenario: a task in a worktree of its own', {}, (ctx) => {
         ),
       ).paneId;
       agentHookEvent('claude', 'SessionStart', { session_id: id }, original);
+      // Work the conversation is about, not committed yet, and a scratch file.
+      fs.writeFileSync(path.join(where.repo, 'README'), 'hello, being edited\n');
+      fs.writeFileSync(path.join(where.repo, 'notes.txt'), 'scratch\n');
 
       const answer = JSON.parse(
         tmuxyCli(['agent', 'fork', 'talk', '--json'], { TMUX_PANE: caller }),
       );
       const worktree = path.join(where.root, 'app-fork-0b5c2f4e');
-      expect(answer).toMatchObject({ ok: true, branch: 'fork-0b5c2f4e', session: id });
+      expect(answer).toMatchObject({
+        ok: true,
+        branch: 'fork-0b5c2f4e',
+        session: id,
+        carried: 1,
+        untracked: 0,
+      });
       expect(fs.realpathSync(answer.path)).toBe(worktree);
 
       // The fork runs in the new tab, in the worktree, with the fork flags.
@@ -230,6 +239,15 @@ describeE2E('Scenario: a task in a worktree of its own', {}, (ctx) => {
       );
       expect(git(worktree, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('fork-0b5c2f4e');
       expect(git(where.repo, 'worktree', 'list')).toContain(worktree);
+      // The uncommitted edit came along; the untracked file did not, unasked.
+      expect(fs.readFileSync(path.join(worktree, 'README'), 'utf-8')).toBe('hello, being edited\n');
+      expect(fs.existsSync(path.join(worktree, 'notes.txt'))).toBe(false);
+      expect(fs.readFileSync(path.join(where.repo, 'README'), 'utf-8')).toBe(
+        'hello, being edited\n',
+      );
+
+      // A second fork of the same conversation needs a branch of its own.
+      expect(() => tmuxyCli(['agent', 'fork', 'talk'], { TMUX_PANE: caller })).toThrow(/--branch/);
 
       // A pane with no recorded session has nothing to fork.
       expect(() => tmuxyCli(['agent', 'fork', caller], { TMUX_PANE: caller })).toThrow(
