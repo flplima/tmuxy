@@ -88,6 +88,48 @@ pub struct Linked {
     pub branch: Option<String>,
 }
 
+/// The filter drivers the repository's config names (`filter.<name>.*`).
+/// An attributes file can name any of them, `.git/info/attributes` included,
+/// which no attribute-source setting reaches, so each is switched off by
+/// name instead. Reading the config runs nothing.
+///
+/// To be replaced by `safe_git`'s `filters_off` once it lands.
+fn filter_drivers(path: &Path) -> Vec<String> {
+    let mut command = super::git(
+        path,
+        &["config", "--name-only", "-z", "--get-regexp", r"^filter\."],
+    );
+    command.stdin(Stdio::null()).stderr(Stdio::null());
+    let Ok(output) = command.output() else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .split(['\0', '\n'])
+        .filter_map(|key| key.strip_prefix("filter.")?.rsplit_once('.'))
+        .map(|(name, _)| name.to_string())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The config pairs that leave each of `drivers` doing nothing: no clean,
+/// smudge or long-running process command, and not required.
+fn filters_off(drivers: &[String]) -> Vec<(String, String)> {
+    drivers
+        .iter()
+        .flat_map(|name| {
+            [
+                ("clean", ""),
+                ("smudge", ""),
+                ("process", ""),
+                ("required", "false"),
+            ]
+            .map(|(key, value)| (format!("filter.{name}.{key}"), value.to_string()))
+        })
+        .collect()
+}
+
 /// git, rooted at `path`, with everything a repository's config could make
 /// it run turned off.
 pub(super) fn quiet_git(path: &Path, args: &[&str]) -> Command {
@@ -109,6 +151,14 @@ pub(super) fn quiet_git(path: &Path, args: &[&str]) -> Command {
     ];
     all.extend_from_slice(args);
     let mut command = super::git(path, &all);
+    // Set through the environment, which git reads above every config file.
+    let off = filters_off(&filter_drivers(path));
+    command.env("GIT_CONFIG_COUNT", off.len().to_string());
+    for (i, (key, value)) in off.iter().enumerate() {
+        command
+            .env(format!("GIT_CONFIG_KEY_{i}"), key)
+            .env(format!("GIT_CONFIG_VALUE_{i}"), value);
+    }
     command
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
