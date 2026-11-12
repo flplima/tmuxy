@@ -63,6 +63,10 @@ display_answer() {
     *'#{pane_dead}'*) printf '%s\t%s\n' "${MOCK_TMUX_PANE_DEAD:-0}" "${MOCK_TMUX_PANE_DEAD_STATUS:-0}" ;;
     *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
     *'#{@tmuxy-group-id}'*) echo "${MOCK_TMUX_GROUP_ID:-}" ;;
+    # A float's spot (`Spot::pane_read`): the pane's own id first.
+    *'#{pane_id} #{window_id} #{session_id} #{window_height}'*)
+      printf '%s %s %s %s\n' "${target:-%0}" "${MOCK_TMUX_WINDOW_ID:-@0}" '$0' "${MOCK_TMUX_WINDOW_ROWS:-24}"
+      ;;
     *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
     *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
     *'#{window_height}'*) echo "${MOCK_TMUX_WINDOW_ROWS:-}" ;;
@@ -126,16 +130,17 @@ case "${1:-}" in
     ;;
   display-message)
     fmt="${*: -1}"
+    target="" prev=""
+    for arg in "$@"; do
+      [ "$prev" = -t ] && target=$arg
+      prev=$arg
+    done
     # `_pane_read` asks for the pane's id first. A pane MOCK_TMUX_GONE_PANES
-    # lists answers as tmux answers for a gone one: for no pane.
+    # lists answers as tmux answers for a gone one: for no pane, or, with
+    # MOCK_TMUX_GONE_ANSWERS_AS set, for that pane (a client's default one).
     if [[ "$fmt" == '#{pane_id}'$'\t'* ]]; then
-      target="" prev=""
-      for arg in "$@"; do
-        [ "$prev" = -t ] && target=$arg
-        prev=$arg
-      done
       case " ${MOCK_TMUX_GONE_PANES:-} " in
-        *" $target "*) printf '\t\n' ;;
+        *" $target "*) printf '%s\t%s\n' "${MOCK_TMUX_GONE_ANSWERS_AS:-}" "$(display_answer "${fmt#*$'\t'}")" ;;
         *) printf '%s\t%s\n' "$target" "$(display_answer "${fmt#*$'\t'}")" ;;
       esac
     else
