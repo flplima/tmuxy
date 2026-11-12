@@ -408,6 +408,14 @@ fn an_escape_string_cut_short_holds_back_nothing_after_it() {
     let stray: &[u8] = b"\x1b]\x1b[31mhello\x1b[0m";
     assert_eq!(passed(&[stray]), stray);
     assert_eq!(passed(&[&stray[..2], &stray[2..]]), stray);
+    // CAN cancels a string as an ESC does (fuzzer: ESC ] CAN TAB ESC Ptmux;).
+    let cancelled: &[u8] = b"\x1b]\x18\t\x1bPtmux;";
+    let whole = passed(&[cancelled]);
+    assert!(whole.starts_with(b"\x1b]\x18\t"));
+    for cut in 1..cancelled.len() {
+        let split = passed(&[&cancelled[..cut], &cancelled[cut..]]);
+        assert_eq!(split, whole, "cut at {cut}");
+    }
     // A sixel and a kitty picture cut short: their text reaches the terminal.
     let sixel: &[u8] = b"\x1bPq#0;2;0;0;0\x1b[31mtext\x1b\\";
     assert!(passed(&[sixel]).windows(4).any(|w| w == b"text"));
