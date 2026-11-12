@@ -11,7 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 #[path = "../../tmuxy-core/tests/common/scratch.rs"]
@@ -75,9 +75,17 @@ fn wait_for(mut ready: impl FnMut() -> bool) {
 }
 
 fn send(s: &scratch::ScratchServer, caller: &str, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tmuxy-server"))
-        .arg("send")
+    verb(s, caller, "send")
         .args(args)
+        .output()
+        .expect("tmuxy-server runs")
+}
+
+/// The server binary's `verb`, on this server, from `caller`'s pane.
+fn verb(s: &scratch::ScratchServer, caller: &str, verb: &str) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tmuxy-server"));
+    command
+        .arg(verb)
         .env("TMUX_SOCKET", &s.socket)
         .env("TMUX_PANE", caller)
         .env("HOME", &s.home)
@@ -85,9 +93,8 @@ fn send(s: &scratch::ScratchServer, caller: &str, args: &[&str]) -> Output {
         .env("TMUXY_STATE_DIR", s.home.join("state"))
         .env_remove("TMUX")
         .env_remove("TMUX_BIN")
-        .env_remove("TMUXY_DATA_DIR")
-        .output()
-        .expect("tmuxy-server runs")
+        .env_remove("TMUXY_DATA_DIR");
+    command
 }
 
 /// `text` and Enter from `caller`'s pane into `pane`.
@@ -200,4 +207,107 @@ fn a_pane_at_a_prompt_is_sent_nothing_whoever_sends_and_however() {
         let options = s.tmux(&["show-options", "-p", "-t", pane]);
         assert!(!options.contains("@tmuxy-send-held"), "{options}");
     }
+}
+
+/// `send --queue` into `pane`, left running: it waits in line, and holds
+/// its place for up to `stall` seconds after its keys go in.
+fn queue_send(
+    s: &scratch::ScratchServer,
+    caller: &str,
+    pane: &str,
+    text: &str,
+    stall: &str,
+) -> Child {
+    verb(s, caller, "send")
+        .args(["--target", pane, "--caller-pane", caller, "--queue"])
+        .args(["--stall-after", stall, "--", text, "Enter"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("tmuxy-server runs")
+}
+
+/// The ids in `pane`'s line, first first.
+fn line(s: &scratch::ScratchServer, caller: &str, pane: &str) -> Vec<String> {
+    let out = verb(s, caller, "send-queue")
+        .args(["--target", pane, "--json"])
+        .output()
+        .expect("tmuxy-server runs");
+    let rows: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    rows.as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// A sender's end, within a bounded time: a send stuck in line fails the
+/// test rather than hanging it.
+fn finished(mut sender: Child) -> Output {
+    wait_for(|| sender.try_wait().unwrap().is_some());
+    sender.wait_with_output().unwrap()
+}
+
+fn set_state(s: &scratch::ScratchServer, pane: &str, state: &str) {
+    s.tmux(&["set-option", "-p", "-t", pane, "@tmuxy-pane-state", state]);
+}
+
+/// Queued sends wait while the agent works and while it is at a prompt, go
+/// in one at a time once it is free, first come first served; one taken
+/// back, or whose sender died, is never sent.
+#[test]
+fn a_queued_send_waits_out_work_and_prompts_and_can_be_taken_back() {
+    let s = scratch::ScratchServer::with_session(
+        &format!("send-queue-{}", std::process::id()),
+        120,
+        40,
+    );
+    let caller = s.tmux(&["display-message", "-p", "-t", "work:0.0", "#{pane_id}"]);
+    s.tmux(&["set-option", "-g", "@tmuxy-send-ask", "off"]);
+    let busy = agent(&s, "busy", "> ");
+    set_state(&s, &busy.pane, "working");
+
+    let mut first = queue_send(&s, &caller, &busy.pane, "first", "20");
+    wait_for(|| line(&s, &caller, &busy.pane).len() == 1);
+    let mut dies = queue_send(&s, &caller, &busy.pane, "never: its sender dies", "1");
+    wait_for(|| line(&s, &caller, &busy.pane).len() == 2);
+    let taken_back = queue_send(&s, &caller, &busy.pane, "never: taken back", "1");
+    wait_for(|| line(&s, &caller, &busy.pane).len() == 3);
+    let last = queue_send(&s, &caller, &busy.pane, "last", "1");
+    wait_for(|| line(&s, &caller, &busy.pane).len() == 4);
+    let ids = line(&s, &caller, &busy.pane);
+
+    // Taken back: its sender ends with exit 1 and says so.
+    let retract = verb(&s, &caller, "send-queue")
+        .args(["--target", &busy.pane, "--retract", &ids[2]])
+        .output()
+        .unwrap();
+    assert_eq!(retract.status.code(), Some(0), "{retract:?}");
+    let out = finished(taken_back);
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("taken out of"));
+    dies.kill().unwrap();
+    dies.wait().unwrap();
+
+    // Working, then at a prompt: nothing goes in.
+    assert_eq!(received(&busy.log), "");
+    set_state(&s, &busy.pane, "needs-input");
+    assert_eq!(received(&busy.log), "");
+    assert!(
+        first.try_wait().unwrap().is_none(),
+        "the first send gave up"
+    );
+
+    // Free: the first goes in, alone, and the agent takes it up.
+    set_state(&s, &busy.pane, "idle");
+    wait_for(|| !std::fs::read_to_string(&busy.log).unwrap().is_empty());
+    set_state(&s, &busy.pane, "working");
+    assert_eq!(finished(first).status.code(), Some(0));
+    assert_eq!(received(&busy.log), "first\n");
+
+    // Its turn over, the last goes in past the dead sender's entry.
+    set_state(&s, &busy.pane, "idle");
+    assert_eq!(finished(last).status.code(), Some(0));
+    assert_eq!(received(&busy.log), "first\nlast\n");
+    assert!(line(&s, &caller, &busy.pane).is_empty());
 }

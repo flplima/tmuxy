@@ -120,6 +120,9 @@ pub mod tmux_options {
     /// after it (`@tmuxy-send-held-<token>`), so senders at once each read
     /// their own. The send reads it back to know, and takes it off.
     pub const SEND_HELD: &str = "@tmuxy-send-held";
+    /// A send waiting in line for a busy pane (`crate::ask::queue`), one
+    /// option per send: `@tmuxy-send-queued-<id>`, base64 of who and what.
+    pub const SEND_QUEUED: &str = "@tmuxy-send-queued";
 
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the

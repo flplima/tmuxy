@@ -224,6 +224,25 @@ cmd_pane() {
       JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/send" "$@"
       ;;
 
+    queue)
+      local args=()
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --help|-h)
+            echo "Usage: tmuxy pane queue [-t <target>] [--retract <id>]"
+            echo
+            echo "The sends waiting in line for a pane (tmuxy pane send --queue), first"
+            echo "first; --retract takes one back before any of it is sent."
+            return
+            ;;
+          -t) args+=(-t "${2:?-t needs a pane}"); shift 2 ;;
+          --retract) args+=(--retract "${2:?--retract needs an id}"); shift 2 ;;
+          *) _die_usage "unknown argument '$1'" ;;
+        esac
+      done
+      JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/send" --list-queue ${args[@]+"${args[@]}"}
+      ;;
+
     paste)
       local target=()
       case "${1:-}" in
