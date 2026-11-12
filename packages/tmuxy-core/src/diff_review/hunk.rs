@@ -241,6 +241,16 @@ fn plain_inside(file: &Path, root: &Path) -> bool {
     plain && inside
 }
 
+/// `bytes` written over `file`, never through a link: one swapped in after
+/// the checks fails to open.
+fn put_back(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NOFOLLOW);
+    std::io::Write::write_all(&mut options.open(file)?, bytes)
+}
+
 /// Copies of reverts older than [`KEEP_REVERTS`] go.
 fn prune_old_reverts() {
     let Ok(entries) = std::fs::read_dir(reverts_dir()) else {
@@ -282,7 +292,8 @@ pub fn undo_in(dir: &Path, id: &str) -> Result<(), CommandError> {
             "the file changed since the revert: nothing was undone (what the revert took out is kept in tmuxy's state folder)",
         ));
     }
-    std::fs::copy(saved.join("before"), &file)
+    let before = std::fs::read(saved.join("before")).map_err(|_| gone())?;
+    put_back(&file, &before)
         .map_err(|e| CommandError::unavailable(format!("the file could not be put back: {e}")))?;
     let _ = std::fs::remove_dir_all(&saved);
     Ok(())

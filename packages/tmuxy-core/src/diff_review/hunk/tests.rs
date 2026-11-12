@@ -165,3 +165,29 @@ fn an_action_is_asked_of_the_scope_it_belongs_to() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The file became a link after the revert: the undo writes nothing through it.
+#[cfg(unix)]
+#[test]
+fn an_undo_never_writes_through_a_link() {
+    test_reverts();
+    let (dir, path) = two_hunks("hunk-undo-link");
+    let unstaged = read_in(&dir, Scope::Unstaged).unwrap();
+    let id = change_in(&dir, &request(&unstaged, "list.txt", 0, HunkAction::Revert))
+        .unwrap()
+        .revert
+        .unwrap();
+    let after = std::fs::read(&path).unwrap();
+    let outside = std::env::temp_dir().join(format!("tmuxy-undo-target-{}", std::process::id()));
+    std::fs::write(&outside, &after).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink(&outside, &path).unwrap();
+    assert!(undo_in(&dir, &id).is_err());
+    assert_eq!(
+        std::fs::read(&outside).unwrap(),
+        after,
+        "written through the link"
+    );
+    std::fs::remove_file(&outside).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
