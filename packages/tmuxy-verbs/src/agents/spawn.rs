@@ -15,7 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tmuxy_core::argv::shell_word;
+use tmuxy_core::argv::{format_literal, shell_word};
 use tmuxy_core::constants::tmux_options;
 use tmuxy_core::paths::Layout;
 use tmuxy_core::run_shell;
@@ -162,13 +162,6 @@ pub fn wrapper(dir: &Path, argv: &[String]) -> String {
         shell_word(&dir.to_string_lossy()),
         words.join(" ")
     )
-}
-
-/// `value` as tmux reads it back literally from an argument it expands as
-/// a format (`split-window -c`, `select-pane -T`): every `#` doubled, so a
-/// `#(…)` in a label or a path never runs as the server.
-pub fn format_literal(value: &str) -> String {
-    value.replace('#', "##")
 }
 
 /// The tmux command list that places the pane and prints its id.
