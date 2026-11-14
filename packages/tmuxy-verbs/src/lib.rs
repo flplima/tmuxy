@@ -17,6 +17,7 @@ mod config_cli;
 mod connect_cli;
 mod float_cli;
 mod group_cli;
+mod keymap_cli;
 #[cfg(feature = "native")]
 mod plugin_cli;
 mod run_cli;
@@ -59,6 +60,9 @@ pub enum Verb {
     /// The config files tmuxy-core owns: `paths`, `reload`, `init`,
     /// `use-tmux-conf`, `doctor`. Backs `tmuxy config`.
     Config(config_cli::ConfigArgs),
+    /// Every key binding, and the file and line it comes from. Backs
+    /// `tmuxy keymap`.
+    Keymap(keymap_cli::KeymapArgs),
     /// Type keys, or paste text, into a pane, asking the user there first
     /// when it is not the caller's own. Backs `tmuxy pane send` and
     /// `tmuxy pane paste`, which resolve the target and the caller.
@@ -115,6 +119,7 @@ pub async fn run(verb: Verb) {
         #[cfg(feature = "native")]
         Verb::Worktree(args) => worktree_cli::run(args),
         Verb::Config(args) => config_cli::run(args),
+        Verb::Keymap(args) => keymap_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
         #[cfg(feature = "native")]
         Verb::Connect(args) => connect_cli::run(args),
