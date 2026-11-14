@@ -132,7 +132,7 @@ fn filters_off(drivers: &[String]) -> Vec<(String, String)> {
 
 /// git, rooted at `path`, with everything a repository's config could make
 /// it run turned off.
-fn quiet_git(path: &Path, args: &[&str]) -> Command {
+pub(super) fn quiet_git(path: &Path, args: &[&str]) -> Command {
     let attributes = format!("attr.tree={EMPTY_TREE}");
     let mut all = vec![
         "--no-pager",
@@ -229,7 +229,11 @@ fn run(mut command: Command, operation: &'static str, path: &Path) -> Result<Sai
 }
 
 /// `operation`'s output, or its error when it did not exit 0.
-fn read(path: &Path, operation: &'static str, args: &[&str]) -> Result<String, GuardError> {
+pub(super) fn read(
+    path: &Path,
+    operation: &'static str,
+    args: &[&str],
+) -> Result<String, GuardError> {
     let said = run(quiet_git(path, args), operation, path)?;
     if said.code == Some(0) {
         Ok(said.stdout)

@@ -128,7 +128,7 @@ Commands:
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
   mcp         Show the MCP endpoint that lets an AI agent drive this session
   run         Run any tmux command safely
-  worktree    Remove a git worktree, refused while it holds unsaved work (remove)
+  worktree    A git worktree for a task in its own tab, and its safe removal (new, remove)
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations

@@ -66,6 +66,18 @@ export function handleModalOrCopyKeyDown(
     }
   }
 
+  // The close confirmation: Enter closes, Escape keeps, and nothing typed
+  // meanwhile reaches the pane behind the question, a Ctrl+C least of all.
+  // A chord keeps its default, so the browser's own shortcuts still work. A
+  // held Enter is the one that asked (the command prompt's), not an answer.
+  if (keys.closePending) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return true;
+    event.preventDefault();
+    if (event.key === 'Enter' && !event.repeat) parent.send({ type: 'CONFIRM_CLOSE' });
+    else if (event.key === 'Escape') parent.send({ type: 'CANCEL_CLOSE' });
+    return true;
+  }
+
   // Modal keys view (`prefix ?`)
   if (keys.keysViewOpen && !event.ctrlKey && !event.metaKey && !event.altKey && !prefixActive) {
     event.preventDefault();

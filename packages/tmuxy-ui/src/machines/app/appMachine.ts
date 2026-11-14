@@ -27,6 +27,8 @@ import { commandUiActions } from './actions/commandUi';
 import { notificationsState } from './states/notifications';
 import { notificationsActions } from './actions/notifications';
 import { copyModeState } from './states/copyMode';
+import { activityState } from './states/activity';
+import { activityActions } from './actions/activity';
 import { copyModeActions } from './actions/copyMode';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
@@ -57,6 +59,7 @@ import type { KeyboardActorInput } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
+import type { JumpHintsActorEvent } from '../actors/jumpHintsActor';
 import type { GestureActorEvent, GestureActorInput } from '../gestures/gestureActor';
 import type { ServersActorEvent, ServersActorInput } from '../actors/serversActor';
 import { keyboardGlobalEvents } from './states/keyboard';
@@ -72,6 +75,7 @@ const relayState = { actions: 'relayState' } as const;
 const commandEntry = {
   SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
   DISPATCH_OP: { actions: 'dispatch_op' },
+  CONFIRM_CLOSE: { actions: 'dispatch_confirmedClose' },
 } as const;
 
 export const appMachine = setup({
@@ -85,6 +89,7 @@ export const appMachine = setup({
     keyboardActor: fromCallback<EventObject, KeyboardActorInput>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
+    jumpHintsActor: fromCallback<JumpHintsActorEvent>(() => () => {}),
     gestureActor: fromCallback<GestureActorEvent, GestureActorInput>(() => () => {}),
     serversActor: fromCallback<ServersActorEvent, ServersActorInput>(() => () => {}),
     dragMachine,
@@ -97,6 +102,7 @@ export const appMachine = setup({
     ...commandUiActions,
     ...notificationsActions,
     ...copyModeActions,
+    ...activityActions,
     ...groupsAndFloatsActions,
     ...keyboardActions,
     ...sidebarsActions,
@@ -148,6 +154,10 @@ export const appMachine = setup({
       src: 'linkModifierActor',
     },
     {
+      id: 'jumpHints',
+      src: 'jumpHintsActor',
+    },
+    {
       id: 'gestures',
       src: 'gestureActor',
       input: ({ self }) => ({
@@ -197,12 +207,16 @@ export const appMachine = setup({
           actions: 'connection_onConnected',
         },
         TMUX_ERROR: { actions: 'connection_error' },
+        // Held until connected, then replayed in order (`heldCommands`).
+        SEND_TMUX_COMMAND: { actions: 'connection_holdCommand' },
+        DISPATCH_OP: { actions: 'connection_holdCommand' },
       },
     },
 
     idle: {
       on: {
         ...copyModeState.on,
+        ...activityState.on,
         ...groupsAndFloatsIdleEvents,
         ...sidebarsIdleEvents,
         ...layoutState.on,
@@ -224,6 +238,8 @@ export const appMachine = setup({
     // then `noticed`, which the snackbar's ReconnectNotice renders. The panes
     // stay mounted and usable throughout: no overlay, no blur.
     reconnecting: {
+      // The first connection failed: nothing held is ever sent.
+      entry: 'connection_dropHeld',
       initial: 'quiet',
       states: {
         quiet: { after: { [RECONNECT_NOTICE_DELAY_MS]: 'noticed' } },
@@ -249,6 +265,8 @@ export const appMachine = setup({
     },
 
     detached: {
+      // The first connection failed: nothing held is ever sent.
+      entry: 'connection_dropHeld',
       on: {
         TMUX_CONNECTED: { target: 'idle', actions: 'connection_onConnected' },
         TMUX_RECONNECTED: { target: 'idle', actions: 'connection_onReconnected' },
@@ -258,6 +276,8 @@ export const appMachine = setup({
     },
 
     disconnected: {
+      // The first connection failed: nothing held is ever sent.
+      entry: 'connection_dropHeld',
       on: {
         TMUX_RECONNECTING: { target: 'reconnecting' },
         TMUX_CONNECTED: { target: 'idle', actions: 'connection_onConnected' },

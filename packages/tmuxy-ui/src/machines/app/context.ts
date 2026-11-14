@@ -28,6 +28,7 @@ export type StateName =
   | 'gestures'
   | 'ask'
   | 'plugins'
+  | 'activity'
   | 'palette';
 
 /**
@@ -51,6 +52,8 @@ export const FIELD_OWNERS = {
   serverHostname: 'connection',
   keybindings: 'connection',
   appFocused: 'connection',
+  heldCommands: 'connection',
+  heldOverflow: 'connection',
   sessions: 'connection',
   repositories: 'connection',
   servers: 'connection',
@@ -60,6 +63,7 @@ export const FIELD_OWNERS = {
   targetCols: 'viewport',
   targetRows: 'viewport',
   viewportMeasured: 'viewport',
+  reportedSize: 'viewport',
   charWidth: 'viewport',
   charHeight: 'viewport',
   cellGap: 'viewport',
@@ -119,8 +123,11 @@ export const FIELD_OWNERS = {
   prefixRepeatOnly: 'commandUi',
   keyTable: 'commandUi',
   keysViewOpen: 'commandUi',
+  pendingClose: 'commandUi',
   renamingPaneId: 'commandUi',
 
+  activityOpen: 'activity',
+  activityRows: 'activity',
   palette: 'palette',
   pendingGoTo: 'palette',
 
@@ -134,6 +141,7 @@ export const FIELD_OWNERS = {
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
   sendAsk: 'uiPrefs',
+  confirmClose: 'uiPrefs',
   notifyAllowed: 'uiPrefs',
   pushState: 'uiPrefs',
   processIcons: 'uiPrefs',
@@ -174,6 +182,7 @@ export function createInitialContext(): AppMachineContext {
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
     viewportMeasured: false,
+    reportedSize: null,
     drag: null,
     resize: null,
     resizeActive: false,
@@ -242,10 +251,15 @@ export function createInitialContext(): AppMachineContext {
     pluginsRev: '',
     themeRev: '',
     appFocused: true,
+    heldCommands: [],
+    heldOverflow: 0,
     prefixActive: false,
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
+    activityOpen: false,
+    activityRows: [],
+    pendingClose: null,
     palette: null,
     pendingGoTo: null,
     renamingPaneId: null,

@@ -16,7 +16,8 @@ import {
   sidebarWindowCommand,
   list,
   literalText,
-  mouseReport,
+  mouseReports,
+  type MouseReport,
   NAV_WORD,
   pastedText,
   pluginAction,
@@ -56,7 +57,12 @@ export type SplitDirection = 'horizontal' | 'vertical';
 export type Side = 'left' | 'right' | 'up' | 'down';
 
 /** A tmuxy window option (`@tmuxy-<tag>`) the client writes. */
-export type WindowTag = 'collapsible' | 'sidebar-hidden' | 'sidebar-rows' | 'sidebar-cols';
+export type WindowTag =
+  | 'collapsible'
+  | 'sidebar-hidden'
+  | 'sidebar-rows'
+  | 'sidebar-cols'
+  | 'float-minimized';
 
 /** One step of a divider drag: grow or shrink `paneId` by `cells` toward `direction`. */
 export interface ResizeStep {
@@ -123,14 +129,8 @@ export type TmuxOp = Data.TaggedEnum<{
   SendText: { readonly target: PaneId | string; readonly text: string };
   /** Text pasted as one paste: bracketed when the program in the pane asked for it. */
   PasteText: { readonly target: PaneId | string; readonly text: string };
-  /** An SGR mouse report for a mouse-tracking pane; coordinates are 1-based cells. */
-  SendMouse: {
-    readonly paneId: PaneId;
-    readonly button: number;
-    readonly x: number;
-    readonly y: number;
-    readonly release: boolean;
-  };
+  /** SGR mouse reports for a mouse-tracking pane, in the order they happened. */
+  SendMouse: { readonly paneId: PaneId; readonly reports: ReadonlyArray<MouseReport> };
   EnterCopyMode: { readonly paneId: PaneId | null };
   CancelCopyMode: { readonly paneId: PaneId };
   /**
@@ -291,7 +291,7 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'PasteText':
       return pastedText(op.target, op.text);
     case 'SendMouse':
-      return mouseReport(op);
+      return mouseReports(op.paneId, op.reports);
     case 'EnterCopyMode':
       return op.paneId ? `copy-mode -t ${op.paneId}` : 'copy-mode';
     case 'CancelCopyMode':

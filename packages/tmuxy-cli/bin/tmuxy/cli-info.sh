@@ -85,7 +85,7 @@ cmd_agent() {
       ;;
     ""|--help|-h)
       cat <<EOF
-Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy]...
+Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy|opencode|pi|crush]...
        tmuxy agent wait <pane>... [--until <states>] [--all] [--now] [--for 10m]
        tmuxy agent spawn [--agent claude|codex|gemini|cmd] [--label L] [--prompt TEXT]
                          [--place stack|split] [--permission-mode M] [-- cmd...]
@@ -94,11 +94,12 @@ Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy]...
 
 Show what a coding agent is doing on its tree row: working, waiting for you,
 done, failed. Its lifecycle hooks report to tmuxy; the tmuxy skill is
-installed alongside, so the agent knows the CLI.
+installed alongside, so the agent knows the CLI. OpenCode, Pi and Crush
+keep their hooks in code: they get the skill only.
 
   install     Add the hooks and the skill (default: every agent found)
   uninstall   Remove them, leaving everything else as it was
-  status      What is installed, per agent
+  status      Each item: current, outdated, missing, foreign, unsupported
   wait        Wait for agents in panes to stop: idle, needs input, error, done
 
 Options:

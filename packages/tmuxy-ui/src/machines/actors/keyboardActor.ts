@@ -3,6 +3,7 @@
  * dispatches prefix, sticky key-table, root, and literal/keystroke ops.
  */
 
+import { jumpDigit, jumpHintMode } from '../../domain/jumpHints';
 import { clearNativeSelection, terminalSelection } from '../../infra/dom/nativeSelection';
 import { fromCallback, type AnyActorRef, type EventObject } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
@@ -161,6 +162,10 @@ export function createKeyboardActor() {
           return input.parent.send({ type: 'TOGGLE_TAB_OVERVIEW' });
         case 'keys-view':
           return input.parent.send({ type: 'TOGGLE_KEYS_VIEW' });
+        case 'activity':
+          return input.parent.send({ type: 'TOGGLE_ACTIVITY' });
+        case 'activity-most-urgent':
+          return input.parent.send({ type: 'ACTIVITY_GO_MOST_URGENT' });
         case 'tab-left':
           return input.parent.send({ type: 'MOVE_ACTIVE_TAB', by: -1 });
         case 'tab-right':
@@ -362,6 +367,15 @@ export function createKeyboardActor() {
           const binding = tables.get(keyTable)?.get(bindingKey);
           setKeyTable(binding ? (runBinding(binding) ?? null) : null);
         }
+        notifyKeyPress(event);
+        return;
+      }
+
+      // ctrl+alt+1…9: the Nth pane of the tab in front, as the hints number them.
+      const paneDigit = jumpHintMode(event) === 'panes' ? jumpDigit(event.code) : null;
+      if (!replayed && paneDigit) {
+        event.preventDefault();
+        input.parent.send({ type: 'SELECT_PANE_BY_POSITION', position: paneDigit });
         notifyKeyPress(event);
         return;
       }

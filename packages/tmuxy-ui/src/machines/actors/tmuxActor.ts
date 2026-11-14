@@ -13,6 +13,7 @@ import { parseThemeMode, type TraceLevel } from '../../domain/wireSettings';
 import type { PlainCall } from '../../domain/backendCalls';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
 import { openExternalUrl } from '../../infra/openUrl';
+import { LIST_ACTIVITY_COMMAND, parseActivity, type ActivityTarget } from '../../domain/activity';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(
@@ -32,6 +33,10 @@ export type TmuxActorEvent =
   /** The grid this client shows, for the backend to size the session to. */
   | { type: 'SET_CLIENT_SIZE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
+  /** Read every pane's state on the server; `go` rides along to the answer. */
+  | { type: 'FETCH_ACTIVITY'; go?: 'most-urgent' }
+  /** Put a pane in front in its own session, then move this client there. */
+  | ({ type: 'GO_TO_PANE' } & ActivityTarget)
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_TRACE_SETTINGS' }
   | { type: 'SET_TRACE_ENABLED'; enabled: boolean }
@@ -86,6 +91,8 @@ export function createTmuxActor(runtime: AppRuntime) {
 
     interface RunOptions<T> {
       onSuccess?: (value: T) => void;
+      /** Called for any failure, before it is reported. */
+      onFailure?: () => void;
       /** A context label for the LOG_APPEND error entry (e.g. the command). */
       logPrefix?: string;
       /**
@@ -107,6 +114,7 @@ export function createTmuxActor(runtime: AppRuntime) {
             opts.onSuccess?.(exit.value);
             return;
           }
+          opts.onFailure?.();
           const display = failureText(exit.cause);
           if (display === null) return;
           if (opts.silentFail) {
@@ -225,7 +233,13 @@ export function createTmuxActor(runtime: AppRuntime) {
         logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
         run(
           withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
-          { logPrefix: 'set_client_size' },
+          {
+            logPrefix: 'set_client_size',
+            // The app reports a size once; one the backend never took has
+            // to be reported again.
+            onFailure: () =>
+              parent.send({ type: 'CLIENT_SIZE_UNREPORTED', cols: event.cols, rows: event.rows }),
+          },
         );
       } else if (event.type === 'RESTORE_SESSION') {
         logCommand(`restore_session ${event.sessionName}`);
@@ -298,6 +312,38 @@ export function createTmuxActor(runtime: AppRuntime) {
 
         const fiber = runtime.runFork(program);
         scrollbackFibers.set(event.paneId, fiber);
+      } else if (event.type === 'FETCH_ACTIVITY') {
+        run(
+          withTransport((t) => t.query(LIST_ACTIVITY_COMMAND)),
+          {
+            onSuccess: (listing) =>
+              parent.send({
+                type: 'ACTIVITY_LOADED',
+                rows: parseActivity(listing),
+                go: event.go,
+              }),
+            logPrefix: 'activity',
+            // The poll of an open inbox says nothing when it fails; a jump
+            // that was asked for does.
+            silentFail: !event.go,
+          },
+        );
+      } else if (event.type === 'GO_TO_PANE') {
+        run(
+          withTransport((t) =>
+            Effect.all(
+              [
+                t.run(TmuxOp.SelectWindow({ target: event.windowId })),
+                t.run(TmuxOp.SelectPane({ paneId: event.paneId })),
+              ],
+              { discard: true },
+            ),
+          ),
+          {
+            onSuccess: () => parent.send({ type: 'SWITCH_SESSION', sessionName: event.session }),
+            logPrefix: `go to ${event.paneId}`,
+          },
+        );
       } else if (
         event.type === 'FETCH_TRACE_SETTINGS' ||
         event.type === 'SET_TRACE_ENABLED' ||
