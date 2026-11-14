@@ -40,6 +40,9 @@ export const GitWorktree = Schema.Struct({
   bare: Schema.Boolean,
   locked: Schema.Boolean,
   prunable: Schema.Boolean,
+  /** Lines changed against HEAD. Only for a checkout a pane sits in, and
+   *  only where git could say (`tmuxy-core/src/worktrees/changes.rs`). */
+  changes: Schema.optional(Schema.Struct({ added: Schema.Number, removed: Schema.Number })),
 });
 export type GitWorktree = Schema.Schema.Type<typeof GitWorktree>;
 

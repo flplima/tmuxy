@@ -262,6 +262,7 @@ fn every_command_answer_matches_its_fixture() {
                     bare: false,
                     locked: false,
                     prunable: false,
+                    changes: None,
                 }],
             }]),
         ),
