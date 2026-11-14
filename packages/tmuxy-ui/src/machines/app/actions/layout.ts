@@ -41,6 +41,13 @@ function isParkedMember(context: Ctx, paneId: PaneId): boolean {
 }
 
 export const layoutActions = {
+  /** ctrl+alt+1…9: the Nth pane of the tab in front, as the hints number them. */
+  layout_selectPaneByPosition: act(({ event, context, enqueue }) => {
+    if (event.type !== 'SELECT_PANE_BY_POSITION') return;
+    const paneId = selectPaneJumpOrder(context)[event.position - 1];
+    if (paneId) enqueue.raise({ type: 'SELECT_PANE', paneId });
+  }),
+
   /**
    * The user picked a pane — clicked it, its header tab, its tree row, a
    * notification for it. The machine works out how to get there: the dock
@@ -49,13 +56,6 @@ export const layoutActions = {
    * stash would race the swap); a pane in another tab switches to that tab
    * first, since `select-pane` never changes the session's current window.
    */
-  /** ctrl+alt+1…9: the Nth pane of the tab in front, as the hints number them. */
-  layout_selectPaneByPosition: act(({ event, context, enqueue }) => {
-    if (event.type !== 'SELECT_PANE_BY_POSITION') return;
-    const paneId = selectPaneJumpOrder(context)[event.position - 1];
-    if (paneId) enqueue.raise({ type: 'SELECT_PANE', paneId });
-  }),
-
   layout_selectPane: act(({ event, context, enqueue }) => {
     if (event.type !== 'SELECT_PANE') return;
     const { paneId } = event;
