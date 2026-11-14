@@ -20,8 +20,8 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | --- | --- | --- | --- |
 | `@tmuxy-window-type` | window | `float` \| `sidebar-left` \| `sidebar-right` | non-tab chrome windows only (tabs are untagged) |
 | `@tmuxy-float-parent` | window | `@<window-id>` | floats |
-| `@tmuxy-float-width` | window | integer (columns) | floats |
-| `@tmuxy-float-height` | window | integer (rows) | floats |
+| `@tmuxy-float-width` | window | integer (columns) | floats; its window is sized to it ([TMUX-SIDEBARS.md](TMUX-SIDEBARS.md), Sizing) |
+| `@tmuxy-float-height` | window | integer (rows) | floats, likewise |
 | `@tmuxy-float-drawer` | window | `top` \| `bottom` \| `left` \| `right` \| unset | drawer-style floats |
 | `@tmuxy-float-bg` | window | `blur` \| `dim` \| unset | floats with a backdrop |
 | `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
