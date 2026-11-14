@@ -156,8 +156,9 @@ times from navigation start `attach-paint`, the focused pane showing its text,
 and `attach-interactive`, the first key echoed, typing a fresh token every 100 ms
 from the moment the app exists; the tokens that never show are reported as
 `lostKeys`. It also records `entryScriptBytes`, what the page's entry script cost
-the link on a first load. `perf:compare` fails on any lost key and on an entry
-script over 400 KB, whatever the machine's speed. `--only attach` runs that alone.
+the link on a first load. `perf:compare` warns about any lost key and fails on
+an entry script over 400 KB, whatever the machine's speed. `--only attach` runs
+that alone.
 
 What attach costs is mostly the page itself: the server answers the event stream
 in ~10 ms and the initial state in ~40 ms (it waits for the window to take the
