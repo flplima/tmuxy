@@ -36,7 +36,7 @@ export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 
 export interface ServersActorInput {
   parent: AnyActorRef;
-  /** Whether the tree is on screen (selectTreeVisible): the poll runs only then. */
+  /** Whether the tree is on screen (selectTreeVisible): the poll runs only then, and only in a visible tab. */
   treeVisible: ContextView<boolean>;
 }
 
@@ -45,7 +45,8 @@ const POLL_INTERVAL_MS = 4000;
 // Until a listing comes back the poll looks again this soon: on a page load
 // the first look finds the app still connecting and the tree not yet restored
 // open, and a full interval's wait left the tree's rows without their cwd and
-// branch for seconds. A look with no tree on screen never reaches tmux.
+// branch for seconds. A look with no tree on screen, or from a hidden tab,
+// never reaches tmux.
 const WAKE_INTERVAL_MS = 250;
 
 // Worktree discovery runs git once per repository; branches change far less
@@ -198,8 +199,10 @@ export function createServersActor(runtime: AppRuntime) {
     const tick = (force = false): Effect.Effect<boolean, never, TmuxTransport> =>
       Effect.suspend(() => {
         // `force` is for the nudges: the tree coming on screen,
-        // REFRESH_SESSIONS, the session menu opening.
-        if (!force && !treeVisible.get()) return Effect.succeed(false);
+        // REFRESH_SESSIONS, the session menu opening. A tab nobody is
+        // looking at shows its tree to nobody: it asks again when it is
+        // looked at, within a wake interval.
+        if (!force && (!treeVisible.get() || document.hidden)) return Effect.succeed(false);
 
         // Concurrent, so a slow socket scan never holds up the snapshot list.
         const listSessions = TmuxTransport.pipe(

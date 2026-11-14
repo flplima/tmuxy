@@ -145,15 +145,23 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
     // The first measurement may have used a fallback font.
     document.fonts.ready.then(remeasure);
 
-    const updateTargetSize = () => {
+    const updateTargetSize = (resend = false) => {
       const { cols, rows } = phone
         ? { cols: PHONE_COLS, rows: PHONE_ROWS }
         : calculateTargetSize(metrics.cellWidth, containerWidth, containerHeight);
-      if (cols !== lastCols || rows !== lastRows) {
+      if (resend || cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
         lastRows = rows;
-        input.parent.send({ type: 'SET_TARGET_SIZE', cols, rows });
+        input.parent.send({ type: 'SET_TARGET_SIZE', cols, rows, ...(resend && { resend }) });
       }
+    };
+
+    // A container being dragged passes through every size on the way: tmux
+    // is asked for the one it comes to rest at, not for a resize and a
+    // redraw of every pane at each step.
+    const updateTargetSizeOnceStill = () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(updateTargetSize, RESIZE_DEBOUNCE_MS);
     };
 
     updateTargetSize();
@@ -171,8 +179,7 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
 
     const handleResize = () => {
       if (!bodyObserved) screenChanged(window.innerWidth, window.innerHeight);
-      if (resizeTimeout) clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(updateTargetSize, RESIZE_DEBOUNCE_MS);
+      updateTargetSizeOnceStill();
     };
     window.addEventListener('resize', handleResize);
 
@@ -198,6 +205,9 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
         containerObserver = new ResizeObserver((entries) => {
           const entry = entries[0];
           if (entry) {
+            // The container's first measurement is the size the state is
+            // fetched at; every later one is a container on the move.
+            const first = containerWidth === undefined;
             containerWidth = entry.contentRect.width;
             containerHeight = entry.contentRect.height;
             input.parent.send({
@@ -205,10 +215,10 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
               width: containerWidth,
               height: containerHeight,
             });
-            // Recalculate target size when container resizes; on a phone the
-            // width is what the cell is cut from.
+            // On a phone the width is what the cell is cut from.
             if (phone) sendCharSize();
-            updateTargetSize();
+            if (first) updateTargetSize();
+            else updateTargetSizeOnceStill();
           }
         });
         containerObserver.observe(event.element);
@@ -226,11 +236,7 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
           bodyObserver.observe(body);
         }
       }
-      if (event.type === 'RESEND_SIZE') {
-        lastCols = 0;
-        lastRows = 0;
-        updateTargetSize();
-      }
+      if (event.type === 'RESEND_SIZE') updateTargetSize(true);
       if (event.type === 'REMEASURE') {
         remeasure();
       }

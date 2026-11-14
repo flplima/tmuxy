@@ -71,6 +71,7 @@ export const DEFAULT_APPEARANCE = {
   activeTextOpacity: 1,
   animations: true,
   blur: true,
+  confirmClose: true,
   cursorBlink: true,
   gesturePinchOverview: true,
   gesturePinchZoom: true,

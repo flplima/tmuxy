@@ -121,13 +121,89 @@ describe('KeyBatcher', async () => {
     expect(sent).toEqual(['send-keys -t s0 Up', 'send-keys -t s0 Down Left']);
   });
 
-  it('sends key names that start with a flag alone, and any op that is not a keystroke', async () => {
+  it('sends key names that start with a flag alone, and any op that is not an input', async () => {
     expect(special('-X cancel')).toBe(false);
-    expect(
-      batcher.take(TmuxOp.SendMouse({ paneId: pid('%1'), button: 0, x: 1, y: 1, release: false })),
-    ).toBe(false);
     expect(batcher.take(TmuxOp.SelectPane({ paneId: pid('%1') }))).toBe(false);
     expect(sent).toHaveLength(0);
+  });
+
+  describe('mouse reports', () => {
+    const PANE = pid('%1');
+    const mouse = (button: number, x: number, y = 1, release = false) =>
+      batcher.take(TmuxOp.SendMouse({ paneId: PANE, reports: [{ button, x, y, release }] }));
+    const DRAG = 32; // the left button held, moving
+    const command = (...reports: Array<[button: number, x: number, release?: boolean]>) =>
+      toTmuxCommand(
+        TmuxOp.SendMouse({
+          paneId: PANE,
+          reports: reports.map(([button, x, release = false]) => ({ button, x, y: 1, release })),
+        }),
+      );
+
+    it('sends a lone click at once', async () => {
+      expect(mouse(0, 5)).toBe(true);
+      expect(sent).toEqual([command([0, 5])]);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(sent).toHaveLength(1);
+    });
+
+    it('sends a drag as one command a frame, carrying where the pointer got to', async () => {
+      mouse(0, 1); // press: leading, sent at once
+      // 60 cells crossed in 120ms: a pointer event every 2ms.
+      for (let x = 2; x <= 61; x++) {
+        mouse(DRAG, x);
+        await vi.advanceTimersByTimeAsync(2);
+      }
+      mouse(0, 61, 1, true);
+      await vi.advanceTimersByTimeAsync(16);
+
+      // A command a frame, not 62 of them; the release last, after the
+      // final position.
+      expect(sent.length).toBeLessThanOrEqual(9);
+      expect(sent[0]).toBe(command([0, 1]));
+      expect(sent[sent.length - 1]).toBe(command([DRAG, 61], [0, 61, true]));
+    });
+
+    it('never sends a motion report that repeats the one before it', async () => {
+      mouse(0, 5);
+      await vi.advanceTimersByTimeAsync(16);
+      // The pointer moves inside cell 6 for a second.
+      for (let i = 0; i < 60; i++) {
+        mouse(DRAG, 6);
+        await vi.advanceTimersByTimeAsync(16);
+      }
+      expect(sent).toEqual([command([0, 5]), command([DRAG, 6])]);
+    });
+
+    it('keeps every wheel step and every click of a burst, in order', async () => {
+      const WHEEL_DOWN = 65;
+      batcher.take(
+        TmuxOp.SendMouse({
+          paneId: PANE,
+          reports: Array.from({ length: 3 }, () => ({
+            button: WHEEL_DOWN,
+            x: 4,
+            y: 1,
+            release: false,
+          })),
+        }),
+      );
+      mouse(WHEEL_DOWN, 4);
+      mouse(0, 4);
+      mouse(0, 4, 1, true);
+      await vi.advanceTimersByTimeAsync(16);
+      expect(sent).toEqual([
+        command([WHEEL_DOWN, 4], [WHEEL_DOWN, 4], [WHEEL_DOWN, 4]),
+        command([WHEEL_DOWN, 4], [0, 4], [0, 4, true]),
+      ]);
+    });
+
+    it('keeps a key and a click in the order they happened', async () => {
+      mouse(0, 5);
+      mouse(DRAG, 6); // waits for the window
+      batcher.take(TmuxOp.SendText({ target: PANE, text: 'x' }));
+      expect(sent).toEqual([command([0, 5]), command([DRAG, 6]), "send-keys -t %1 -l -- 'x'"]);
+    });
   });
 
   it('joins text holding control characters like any other, quoted for control mode', async () => {

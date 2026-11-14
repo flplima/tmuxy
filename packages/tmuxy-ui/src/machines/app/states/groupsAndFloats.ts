@@ -6,4 +6,5 @@ export const groupsAndFloatsGlobalEvents = {
 
 export const groupsAndFloatsIdleEvents = {
   CLOSE_FLOAT: { actions: 'groupsAndFloats_closeFloat' },
+  MINIMIZE_FLOAT: { actions: 'groupsAndFloats_minimizeFloat' },
 } as const;

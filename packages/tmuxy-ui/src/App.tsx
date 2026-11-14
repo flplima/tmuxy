@@ -10,6 +10,7 @@ import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
 import { FloatContainer } from './components/FloatPane';
+import { CloseConfirm } from './components/CloseConfirm';
 import { KeysView } from './components/KeysView';
 import { ActivityInbox } from './components/ActivityInbox';
 import { Sidebar } from './components/Sidebar';
@@ -185,6 +186,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       )}
       {showLayout && <KeysView />}
       {showLayout && <ActivityInbox />}
+      {showLayout && <CloseConfirm />}
       {overlayMode && (
         <ConnectionOverlay
           mode={overlayMode}

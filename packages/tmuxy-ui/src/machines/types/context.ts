@@ -7,6 +7,7 @@ import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
 import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
+import type { PendingClose } from '../../domain/closeGuard';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
 import type {
@@ -64,6 +65,12 @@ export interface AppMachineContext {
    * this client's, not the defaults. The state is fetched at that size.
    */
   viewportMeasured: boolean;
+  /**
+   * The size last sent to the backend as this client's, on this connection;
+   * null until one is. While another client holds the session smaller the
+   * grid never comes to match, and the same size is not sent again.
+   */
+  reportedSize: { cols: number; rows: number } | null;
   drag: DragState | null;
   resize: ResizeState | null;
   resizeActive: boolean;
@@ -184,6 +191,8 @@ export interface AppMachineContext {
    * pane the caller does not own asks the user there first.
    */
   sendAsk: boolean;
+  /** Whether closing a busy pane or tab asks first (`@tmuxy-confirm-close`). */
+  confirmClose: boolean;
   /** Whether tmuxy.conf lets the server push notifications (`@tmuxy-notify`). */
   notifyAllowed: boolean;
   /** Whether this device gets them (infra/pushNotifications.ts). */
@@ -285,6 +294,8 @@ export interface AppMachineContext {
   activityOpen: boolean;
   /** Every pane that declared a state, most urgent first, as last read. */
   activityRows: readonly ActivityRow[];
+  /** The close of a busy pane or tab the user is being asked about, if any. */
+  pendingClose: PendingClose | null;
   /** The command palette, while it is open: everything, or only the places to go. */
   palette: PaletteMode | null;
   /**
