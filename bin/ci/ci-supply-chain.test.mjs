@@ -82,3 +82,40 @@ describe('Dependabot action bumps', () => {
     expect(actions).toMatch(/exclude-patterns: \["actions\/\*"\]/);
   });
 });
+
+describe('the Claude QA review workflow uses WIF and stack-aware live QA', () => {
+  const workflow = read('.github/workflows/claude-qa-review.yml');
+
+  it('authenticates via Workload Identity Federation without a static Anthropic API key', () => {
+    expect(workflow).toMatch(/^permissions:\n\s+contents: read$/m);
+    expect(workflow).toMatch(/id-token:\s+write/);
+    expect(workflow).toContain(
+      'uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1',
+    );
+    expect(workflow).toContain(
+      'anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}',
+    );
+    expect(workflow).toContain('anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}');
+    expect(workflow).toContain(
+      'anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}',
+    );
+    expect(workflow).toContain('anthropic_workspace_id: ${{ vars.ANTHROPIC_WORKSPACE_ID }}');
+    expect(workflow).toContain('anthropic_oidc_audience: https://api.anthropic.com');
+    expect(workflow).toContain("classify_inline_comments: 'false'");
+    expect(workflow).not.toContain('anthropic_api_key:');
+    expect(workflow).not.toContain('ANTHROPIC_API_KEY');
+  });
+
+  it('runs Opus with Sonnet sub-agents, resolves PR stacks, and boots all live QA surfaces', () => {
+    expect(workflow).toContain('--model opus');
+    expect(workflow).toContain('--max-turns 30');
+    expect(workflow).toContain('--max-budget-usd 20');
+    expect(workflow).toContain('"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"');
+    expect(workflow).toContain('Agent,Task');
+    expect(workflow).toContain('/tmp/pr-stack.md');
+    expect(workflow).toContain('--trace /tmp/tmuxy-qa-trace.ndjson');
+    expect(workflow).toContain('agent-browser --session qa-web');
+    expect(workflow).toContain('agent-browser --session qa-sb');
+    expect(workflow).toContain('tauri-driver --port 4444');
+  });
+});
