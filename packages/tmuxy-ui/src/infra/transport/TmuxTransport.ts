@@ -72,7 +72,14 @@ export interface TmuxTransportService {
   readonly answersQueries: () => boolean;
   /** Stage a preview pane's page (see `TransportDriver.stagePreview`); its frame's URL. */
   readonly stagePreview: (paneId: PaneId, html: string) => Effect.Effect<string, AdapterError>;
-  readonly switchSession: (sessionName: string) => Effect.Effect<void, AdapterError>;
+  /**
+   * Move this client to another session. True when that opened a new stream
+   * (the web reconnects under the session's name): a new stream starts with
+   * no state, and its caller has to ask for one. False when the one client
+   * moved (the desktop's `switch-client`, sent and not waited on), whose
+   * monitor reports the session it lands in.
+   */
+  readonly switchSession: (sessionName: string) => Effect.Effect<boolean, AdapterError>;
   /** Retry a dropped connection now rather than at the next backoff tick. */
   readonly reconnectNow: Effect.Effect<void>;
 
@@ -217,8 +224,8 @@ export function serviceOver(
         : unsupported('stagePreview', 'stage_preview'),
     switchSession: (sessionName) =>
       driver.switchSession
-        ? attempt('switchSession', () => driver.switchSession!(sessionName))
-        : run(TmuxOp.SwitchClient({ session: sessionName })),
+        ? attempt('switchSession', () => driver.switchSession!(sessionName)).pipe(Effect.as(true))
+        : run(TmuxOp.SwitchClient({ session: sessionName })).pipe(Effect.as(false)),
     reconnectNow: Effect.sync(() => driver.reconnectNow?.()),
 
     enumeratesSessions: () => driver.enumeratesSessions === true,
