@@ -42,6 +42,7 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.cursorShape === next.cursorShape &&
     prev.cursorHidden === next.cursorHidden &&
     (prev.paneState ?? null) === (next.paneState ?? null) &&
+    (prev.paneStatus ?? null) === (next.paneStatus ?? null) &&
     (prev.paneAsk ?? null) === (next.paneAsk ?? null) &&
     (prev.paneWidget ?? null) === (next.paneWidget ?? null) &&
     prev.windowId === next.windowId &&

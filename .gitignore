@@ -64,6 +64,7 @@ split-smooth-animations.png
 # Perf run output (the baselines next to it ARE tracked)
 tests/perf/interaction-report.json
 tests/perf/interaction-report-tauri.json
+tests/perf/interaction-report-rtt150.json
 tests/perf/core-pipeline-report.json
 tests/perf/soak-report.json
 tests/perf/v86-probe-timings.json
