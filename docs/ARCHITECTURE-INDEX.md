@@ -7,6 +7,7 @@ Feature-to-files retrieval map for agents.
 | tmux control-mode command routing | `packages/tmuxy-core/src/command_router.rs`<br>`packages/tmuxy-core/src/command_router/cli_run.rs` (what `tmuxy run` passes on)<br>`packages/tmuxy-ui/src/infra/transport/drivers/TauriAdapter.ts` |
 | A CLI verb's mutation, inside `run-shell` as the caller's pane | `packages/tmuxy-core/src/run_shell.rs`<br>`packages/tmuxy-cli/bin/tmuxy/_lib` (`_run_shell`, `_run_as_caller`) |
 | The CLI's contract: exit codes, `--json` answers | `packages/tmuxy-core/src/cli_contract.rs`<br>`packages/tmuxy-verbs/src/cli_json.rs`<br>`packages/tmuxy-cli/bin/tmuxy/_contract` |
+| Removing a git worktree without losing work (`tmuxy worktree remove`) | `packages/tmuxy-core/src/worktrees/guard.rs`<br>`packages/tmuxy-verbs/src/worktree_cli.rs` |
 | Values the UI, the CLI scripts, the guests and CI share with tmuxy-core and the workspace (generated files) | `packages/tmuxy-core/tests/generated_constants.rs`<br>`packages/tmuxy-core/tests/generated/crate-graph.gen.json` (the crate graph, from `cargo metadata`) |
 | Unguessable tokens (marker, plugin, ask, MCP, trace salt) | `packages/tmuxy-core/src/random.rs` |
 | What tmux leaves unannounced (the re-lists behind a command), and the map of version workarounds | `packages/tmuxy-core/src/tmux_compat.rs` |
