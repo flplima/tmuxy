@@ -139,4 +139,63 @@ describe('sizeActor', () => {
     expect(cell()).toEqual(upright);
     actor.stop();
   });
+
+  /** A desktop client in a 960x480 container of 8px cells, with what it sent the machine. */
+  function observedDesktop() {
+    vi.stubGlobal('ResizeObserver', RecordingObserver);
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { ready: new Promise(() => {}) },
+    });
+    const body = document.createElement('div');
+    body.className = 'app-body';
+    const container = document.createElement('div');
+    body.appendChild(container);
+    const sent: Array<Record<string, unknown>> = [];
+    const parent = { send: (e: Record<string, unknown>) => sent.push(e) } as unknown as AnyActorRef;
+    const sizeActor = createSizeActor(() => ({ advance: 8, cellWidth: 8, cellGap: 0 }), {
+      phoneLayout: false,
+    });
+    const actor = createActor(sizeActor, { input: { parent } }).start();
+    actor.send({ type: 'OBSERVE_CONTAINER', element: container });
+    const [containerObserver] = RecordingObserver.live;
+    containerObserver.report(960, 480);
+    const targets = () => sent.filter((e) => e.type === 'SET_TARGET_SIZE');
+    return { actor, containerObserver, targets };
+  }
+
+  it('asks for the size a dragged container comes to rest at, not for each one on the way', () => {
+    vi.useFakeTimers();
+    try {
+      const { actor, containerObserver, targets } = observedDesktop();
+      // The first measurement is asked for at once: the state is fetched at it.
+      const measured = targets().length;
+      const first = targets()[measured - 1];
+
+      // A window edge dragged for a second, a step every 50ms.
+      for (let step = 1; step <= 20; step++) {
+        containerObserver.report(960 - step * 16, 480);
+        vi.advanceTimersByTime(50);
+      }
+      expect(targets()).toHaveLength(measured);
+
+      vi.advanceTimersByTime(100);
+      expect(targets()).toHaveLength(measured + 1);
+      const rested = targets()[measured];
+      expect(rested.cols).toBe((first.cols as number) - 40);
+      expect(rested.rows).toBe(first.rows);
+      actor.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends an unchanged size again when asked to, and says it is a resend', () => {
+    const { actor, targets } = observedDesktop();
+    const before = targets().length;
+    const last = targets()[before - 1];
+    actor.send({ type: 'RESEND_SIZE' });
+    expect(targets().slice(before)).toEqual([{ ...last, resend: true }]);
+    actor.stop();
+  });
 });

@@ -7,6 +7,7 @@ import type { AskAnswer } from '../../domain/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
 import type { TmuxOp } from '../../domain/commands';
+import type { PendingClose } from '../../domain/closeGuard';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
 import type {
@@ -122,10 +123,14 @@ export type AppMachineEvent =
   | { type: 'SUPPRESS_ANIMATIONS' }
   /** The grid is the size this client asked for and settled: layout changes may animate again. */
   | { type: 'ANIMATIONS_SETTLED' }
+  /** A size report did not reach the backend (tmuxActor): it is owed again. */
+  | { type: 'CLIENT_SIZE_UNREPORTED'; cols: number; rows: number }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;
       rows: number;
+      /** Report it to the backend even if it was reported before: the connection or the size policy is new. */
+      resend?: boolean;
     }
   | { type: 'SET_CONTAINER_SIZE'; width: number; height: number }
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
@@ -145,6 +150,10 @@ export type AppMachineEvent =
   | { type: 'SEND_TMUX_COMMAND'; command: string }
   /** An intent the client issues itself, routed and dispatched through the store. */
   | { type: 'DISPATCH_OP'; op: TmuxOp }
+  /** A close that would end a busy pane, held until the user answers (`domain/closeGuard.ts`). */
+  | { type: 'REQUEST_CLOSE_CONFIRM'; pending: PendingClose }
+  | { type: 'CONFIRM_CLOSE' }
+  | { type: 'CANCEL_CLOSE' }
   | { type: 'COPY_SELECTION' }
   /** `paneId` null: the pane the keyboard is in (a focused float, else the active pane). */
   | { type: 'CLOSE_PANE'; paneId: PaneId | null }
@@ -158,6 +167,8 @@ export type AppMachineEvent =
   /** A plain key typed into a pane with a question on it; the ask slice decides what it does. */
   | { type: 'ASK_KEY'; paneId: PaneId; key: string }
   | { type: 'CLOSE_FLOAT'; paneId: PaneId }
+  /** Send a float to the queue at the bottom of its tab, or bring it back (`@tmuxy-float-minimized`). */
+  | { type: 'MINIMIZE_FLOAT'; paneId: PaneId; minimized: boolean }
 
   // Who holds the keyboard (the keyboard slice)
   | { type: 'TAKE_KEYBOARD'; owner: KeyboardOwner }

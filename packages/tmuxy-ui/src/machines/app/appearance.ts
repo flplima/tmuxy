@@ -14,6 +14,7 @@ export type AppearancePrefs = Pick<
   | 'animationsAllowed'
   | 'cursorBlink'
   | 'sendAsk'
+  | 'confirmClose'
   | 'notifyAllowed'
   | 'transparency'
   | 'tabOverviewCols'
@@ -26,6 +27,7 @@ export function appearancePrefs(appearance: Appearance | undefined): AppearanceP
     animationsAllowed: appearance?.animations ?? D.animations,
     cursorBlink: appearance?.cursorBlink ?? D.cursorBlink,
     sendAsk: appearance?.sendAsk ?? D.sendAsk,
+    confirmClose: appearance?.confirmClose ?? D.confirmClose,
     notifyAllowed: appearance?.notify ?? D.notify,
     transparency: appearance?.transparency ?? D.transparency,
     tabOverviewCols: appearance?.tabOverviewCols ?? D.tabOverviewCols,

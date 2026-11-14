@@ -93,7 +93,7 @@ Adding a transport means writing a sink and its `Host` policy, nothing else.
 Three timing policies the monitor applies on top of the aggregator's effects. All are about _when_ to flush state, not _what_ the state contains.
 
 - **Settling** suppresses intermediate window/layout emissions while a compound command (`splitw ; breakp ; set-option ...`) is mid-flight. The aggregator owns the suppression flag and its deadline, disarmed by its `tick`; the monitor sleeps until `MonitorCore::next_deadline` to run it.
-- **Adaptive throttling** caps state emissions during high-frequency output (rate-window hysteresis with a ~60fps ceiling) so terminal-output bursts don't drown the SSE channel. Below the threshold, emissions are immediate for low-latency typing feedback.
+- **Adaptive throttling** caps state emissions during high-frequency output (rate-window hysteresis with a ~60fps ceiling) so terminal-output bursts don't drown the SSE channel. Below the threshold, output waits for 16ms of silence (100ms at most): that keeps a clear and the redraw after it in one frame, and it is the largest fixed share of a keystroke's echo.
 - **Layout debounce** coalesces rapid layout changes (e.g., zoom-out cascades) into a single emission.
 
 The tunables are constants in `control_mode/monitor/event_loop.rs` (only the throttle interval is a `MonitorConfig` field). The exact durations + thresholds drift as we tune for real workloads; the durable contract is "the aggregator is correct; the monitor decides cadence."

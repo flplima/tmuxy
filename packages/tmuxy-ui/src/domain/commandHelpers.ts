@@ -187,21 +187,29 @@ export function pasteBufferInto(to: string): string {
   return `if-shell -F -t ${to} '#{pane_synchronized}' '${synced}' '${single}'`;
 }
 
-/**
- * An SGR mouse report as `send-keys -H` hex bytes — the one reliable way in:
- * tmux ≥ 3.7 consumes mouse sequences pasted through a buffer, and `-l`
- * literals are format-expanded (see docs/TMUX.md).
- */
-export function mouseReport(op: {
-  readonly paneId: PaneId;
+/** One mouse event as SGR reports it: the button code, a 1-based cell, press or release. */
+export interface MouseReport {
   readonly button: number;
   readonly x: number;
   readonly y: number;
   readonly release: boolean;
-}): string {
-  const seq = `\x1b[<${op.button};${op.x};${op.y}${op.release ? 'm' : 'M'}`;
+}
+
+/** SGR adds 32 to the button code of a report that is the pointer moving. */
+export const isMouseMotion = (report: MouseReport): boolean =>
+  !report.release && (report.button & 32) !== 0;
+
+/**
+ * SGR mouse reports as the hex bytes of one `send-keys -H`, the one reliable
+ * way in: tmux ≥ 3.7 consumes mouse sequences pasted through a buffer, and
+ * `-l` literals are format-expanded (see docs/TMUX.md).
+ */
+export function mouseReports(paneId: PaneId, reports: ReadonlyArray<MouseReport>): string {
+  const seq = reports
+    .map((r) => `\x1b[<${r.button};${r.x};${r.y}${r.release ? 'm' : 'M'}`)
+    .join('');
   const hex = Array.from(seq, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
-  return `send-keys -t ${op.paneId} -H ${hex}`;
+  return `send-keys -t ${paneId} -H ${hex}`;
 }
 
 /**

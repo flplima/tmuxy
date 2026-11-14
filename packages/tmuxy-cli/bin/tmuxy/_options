@@ -28,6 +28,7 @@ PANE_STATE_WORDS='needs-input|error|unread|working|idle'
 # The tmuxy options the scripts read and write (`constants::tmux_options`).
 OPT_WINDOW_TYPE='@tmuxy-window-type'
 OPT_SIDEBAR_HIDDEN='@tmuxy-sidebar-hidden'
+OPT_FLOAT_MINIMIZED='@tmuxy-float-minimized'
 OPT_COLLAPSIBLE='@tmuxy-collapsible'
 OPT_FOCUS_REQUEST='@tmuxy-focus-request'
 OPT_GROUP_ID='@tmuxy-group-id'
