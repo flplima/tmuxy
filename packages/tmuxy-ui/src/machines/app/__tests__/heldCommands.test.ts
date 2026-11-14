@@ -58,7 +58,7 @@ describe('keys typed while the page first connects', () => {
     actor.send({ type: 'TMUX_CONNECTED' });
     actor.send({ type: 'TMUX_RECONNECTED' } as never);
     expect(sentTexts(store)).toEqual([]);
-    expect(notices(actor)).toContain('1 key typed before the connection failed were not sent');
+    expect(notices(actor)).toContain('1 key typed before the connection failed was not sent');
   });
 
   /**

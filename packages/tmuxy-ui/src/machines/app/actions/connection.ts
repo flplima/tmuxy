@@ -37,6 +37,7 @@ export const MAX_HELD_COMMANDS = 512;
 export const HELD_MAX_AGE_MS = 5000;
 
 const keysWord = (n: number) => (n === 1 ? '1 key' : `${n} keys`);
+const was = (n: number) => (n === 1 ? 'was' : 'were');
 
 export const connectionActions = {
   connection_logAppend: assignCtx(({ context, event }) => {
@@ -207,9 +208,10 @@ export const connectionActions = {
     const held = context.heldCommands;
     const stale = held.length > 0 && Date.now() - held[0].at > HELD_MAX_AGE_MS;
     if (stale || context.heldOverflow > 0) {
+      const dropped = held.length + context.heldOverflow;
       enqueue.raise({
         type: 'NOTIFY' as const,
-        text: `${keysWord(held.length + context.heldOverflow)} typed while connecting took too long to send and were dropped`,
+        text: `${keysWord(dropped)} typed while connecting took too long to send and ${was(dropped)} dropped`,
       });
       return;
     }
@@ -241,7 +243,7 @@ export const connectionActions = {
     enqueue(assign({ heldCommands: [], heldOverflow: 0 }));
     enqueue.raise({
       type: 'NOTIFY' as const,
-      text: `${keysWord(dropped)} typed before the connection failed were not sent`,
+      text: `${keysWord(dropped)} typed before the connection failed ${was(dropped)} not sent`,
     });
   }),
 
