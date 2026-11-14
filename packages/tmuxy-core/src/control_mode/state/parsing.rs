@@ -177,6 +177,7 @@ impl StateAggregator {
             .entry(window_id.clone())
             .or_insert_with(|| WindowState::new(window_id.clone(), index));
 
+        window.awaiting_list = false;
         window.listed = true;
         window.index = index;
         window.name = name;
