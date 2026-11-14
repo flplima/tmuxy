@@ -78,6 +78,13 @@ export const commandUiActions = {
     keysViewOpen: !context.keysViewOpen,
   })),
 
+  commandUi_holdClose: assignCtx(({ event }) => {
+    if (event.type !== 'REQUEST_CLOSE_CONFIRM') return {};
+    return { pendingClose: event.pending };
+  }),
+
+  commandUi_dropPendingClose: assignCtx(() => ({ pendingClose: null })),
+
   commandUi_openCommandPrompt: act(({ event, context, enqueue }) => {
     if (event.type !== 'OPEN_COMMAND_PROMPT') return;
     const windowName = context.windows.find((w) => w.id === context.activeWindowId)?.name ?? '';

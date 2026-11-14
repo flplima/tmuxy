@@ -40,7 +40,16 @@ real work the pipeline must do, and byte parsing itself remains cheap
 
 ### Axis B — transport (input → paint)
 
-The transport curve was measured once with a latency-injection proxy that no longer exists, so no table stands here; what it showed is kept as the framing below and in [PERFORMANCE.md](PERFORMANCE.md) § Axis B. The `key-echo` interaction of the Axis-C suite measures keydown→paint on every nightly, on both targets; the tracker and HUD remain the send→apply instrumentation.
+Measured through `tests/helpers/latency-proxy.js` on a Linux x64 desktop, release server, headless Chrome over HTTP/1.1; keydown → the key's echo painted, in ms. A burst is 30 keys; `p50 / last` is the median key and the last one.
+
+| | isolated key p50 | 150 ms apart | 100 ms apart | 60 ms apart | 30 ms apart |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 170 ms link, one POST at a time (before S7) | 223 | 624 / 1020 | 1309 / 2476 | 1851 / 3595 | 2268 / 4466 |
+| 170 ms link, pipelined | 206 | 211 / 210 | 212 / 212 | 213 / 205 | 276 / 327 |
+| no added delay, one POST at a time | 48 | 52 / 54 | 46 / 46 | 43 / 53 | 41 / 42 |
+| no added delay, pipelined | 39 | 30 / 27 | 29 / 33 | 35 / 39 | 36 / 27 |
+
+A key costs the link's round trip plus about 35 ms, however fast the typing, until the browser's six HTTP/1.1 connections are all in use (the 30 ms column); see [PERFORMANCE.md](PERFORMANCE.md) § Axis B. The `key-echo` and `key-burst` interactions of the Axis-C suite measure keydown→paint on every nightly, on the bare link and over 150 ms; the tracker and HUD remain the send→apply instrumentation.
 
 ### Where tmuxy sits vs terminal emulators (honest framing)
 

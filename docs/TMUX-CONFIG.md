@@ -41,7 +41,7 @@ A "server" in the desktop app is a tmux server tmuxy drives — the local machin
 
 The live state the app holds is single-session, and the left column's tree draws exactly that: the attached session's tabs and panes. The socket's other sessions are listed in the session switcher (`components/SessionMenu.tsx`); a poll (`serversActor`, see [STATE-MANAGEMENT-ACTORS.md](STATE-MANAGEMENT-ACTORS.md)) reads `list-windows -a` / `list-panes -a` through `query` while a tree is on screen and feeds the switcher, the tree's pane cwds and its git badges. The column itself is in [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md).
 
-The git badges come from the `list_git_worktrees` command (`tmuxy-core/src/worktrees.rs`, both transports). The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`), never from the request, so a web client cannot point git at a directory of its choosing; discovery is read-only, scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, and returns nothing for an SSH-backed server, whose pane paths are remote. `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root.
+The git badges come from the `list_git_worktrees` command (`tmuxy-core/src/worktrees.rs`, both transports). The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`), never from the request, so a web client cannot point git at a directory of its choosing; discovery is read-only, scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, and returns nothing for an SSH-backed server, whose pane paths are remote. `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root. A row also shows its checkout's lines changed against `HEAD`, counted with every program the repository names switched off (`tmuxy-core/src/worktrees/changes.rs`). Its `:8123` marks are the TCP ports its programs listen on, read from the process table (`tmuxy-core/src/ports.rs`). What a row shows, and on which lines, is the user's `@tmuxy-tree-row` (`tmuxy-ui/src/domain/rowTemplate.ts`).
 
 ## Session groups: two GUI windows over one session
 
@@ -81,7 +81,7 @@ The app builds the chain itself (`entry_conf` in `tmuxy-core/src/session/config.
 | 4 | `tmuxy.conf` | config | user | written on the first run only, never again |
 | 5 | `tmuxy.essentials.conf` again | data | app | every launch |
 
-`tmuxy config use-tmux-conf on` fills in step 3. The order is the whole design: the user's configs come after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.conf` comes after `~/.tmux.conf`, so the tmuxy-specific file has the last word on taste; and `tmuxy.essentials.conf` is sourced **again** on top, so the settings tmuxy cannot work without are restored whatever any config did to them. The essentials also come first because every binding in the defaults (and in a user's file) resolves through their command-aliases, which must exist before anything binds to them.
+`tmuxy keymap` (`tmuxy-core/src/session/keymap.rs`) reads these files in this order and says which line binds each key. `tmuxy config use-tmux-conf on` fills in step 3. The order is the whole design: the user's configs come after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.conf` comes after `~/.tmux.conf`, so the tmuxy-specific file has the last word on taste; and `tmuxy.essentials.conf` is sourced **again** on top, so the settings tmuxy cannot work without are restored whatever any config did to them. The essentials also come first because every binding in the defaults (and in a user's file) resolves through their command-aliases, which must exist before anything binds to them.
 
 The entry file is rebuilt right before every use — the `-f` of a new server, the `source-file` of every connect, reload and Reload Config — from the `use-tmux-conf` choice and the user's file, so it never goes stale. Being built from this machine's state and this process's config dir, it lives in the state dir: two tmuxy processes with their own dirs (a test server beside the app) never rewrite each other's. Reload Config sends `source-file $TMUXY_ENTRY_CONF`, which a tmuxy process swaps for its own path.
 
@@ -167,8 +167,12 @@ whichever table they belong to: `prefix s` / `S` (open a sidebar over the
 panes; the same key again while it is open docks it, and again frees it — the
 prefix stays armed for that one key, tmux's repeat, and any other key goes on
 as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
-`prefix ?` (the keys view), and TAB's `<` / `>` (move the tab along the strip,
+`prefix ?` (the keys view), `prefix A` / `U` (the activity inbox and the jump to the pane that needs you, [ACTIVITY.md](ACTIVITY.md)), and TAB's `<` / `>` (move the tab along the strip,
 which skips the windows floats and sidebars occupy where a relative
-`swap-window` would not). The status line names the mode in force and shows a
+`swap-window` would not). `prefix P` (the command palette, also
+`ctrl+shift+p`) and `prefix g` (the palette on sessions, tabs and panes alone)
+are client keys too, but on keys tmux binds nothing to: a binding the config or
+a plugin puts on `P` or `g` runs instead, and the palette keeps its chord and
+its View menu items. The status line names the mode in force and shows a
 handful of its keys, each line fitting 80 columns
 (`tmuxy-ui/src/components/statusLineHints.ts`).

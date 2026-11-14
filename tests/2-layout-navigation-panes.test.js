@@ -330,3 +330,83 @@ describeE2E('Scenario 4b: Split right after a tab switch', {}, (ctx) => {
     }
   }, 120000);
 });
+
+// ==================== Scenario 4g: Numbered jumps ====================
+
+describeE2E('Scenario 4g: Numbered jump hints', {}, (ctx) => {
+  /** The jump numbers drawn on screen, by kind: only those with a box count. */
+  const hintsShown = (page, kind) =>
+    page.evaluate(
+      (kind) =>
+        [...document.querySelectorAll(`.jump-hint-${kind}`)]
+          .filter((el) => {
+            const box = el.getBoundingClientRect();
+            return box.width > 4 && box.height > 4 && getComputedStyle(el).display !== 'none';
+          })
+          .map((el) => el.textContent),
+      kind,
+    );
+  const activePane = (page) => page.evaluate(() => window.app?.view().activePaneId);
+  const leftPane = (page) =>
+    page.evaluate(() => {
+      const items = [...document.querySelectorAll('.pane-layout-item[data-pane-id]')].filter(
+        (el) => el.getBoundingClientRect().width > 0,
+      );
+      items.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+      return items[0]?.dataset.paneId ?? null;
+    });
+
+  test('holding ctrl numbers the tabs → ctrl+alt numbers the panes → ctrl+alt+1 jumps to the first pane → letting go hides them', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await createWindowKeyboard(page);
+    await waitForWindowCount(page, 2);
+    await splitPaneKeyboard(page, 'vertical');
+    await waitForPaneCount(page, 2);
+    await waitForLayoutSettled(page);
+    const first = await leftPane(page);
+    expect(await activePane(page)).not.toBe(first);
+
+    // Nothing is shown until the chord is held.
+    expect(await hintsShown(page, 'tab')).toEqual([]);
+
+    await page.keyboard.down('Control');
+    await waitForCondition(
+      page,
+      async () => (await hintsShown(page, 'tab')).includes('2'),
+      5000,
+      'holding ctrl to number the tabs',
+    );
+    expect(await hintsShown(page, 'pane')).toEqual([]);
+
+    await page.keyboard.down('Alt');
+    await waitForCondition(
+      page,
+      async () => (await hintsShown(page, 'pane')).sort().join() === '1,2',
+      5000,
+      'ctrl+alt to number the two panes',
+    );
+    expect(await hintsShown(page, 'tab')).toEqual([]);
+
+    await page.keyboard.press('Digit1');
+    await waitForCondition(
+      page,
+      async () => (await activePane(page)) === first,
+      5000,
+      'ctrl+alt+1 to select the left pane',
+    );
+    // A jump made under the hints keeps them up.
+    expect((await hintsShown(page, 'pane')).length).toBe(2);
+
+    await page.keyboard.up('Alt');
+    await page.keyboard.up('Control');
+    await waitForCondition(
+      page,
+      async () =>
+        (await hintsShown(page, 'tab')).length === 0 &&
+        (await hintsShown(page, 'pane')).length === 0,
+      5000,
+      'letting go to hide the numbers',
+    );
+  }, 90000);
+});

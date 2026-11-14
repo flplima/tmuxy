@@ -24,6 +24,7 @@ machine (`--json` for a script).
 | `custom.css`            | config | you   | yes          | yes             | Your CSS, loaded last. Create it to tweak anything the themes do not cover.                              |
 | `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme.                   |
 | `icons/<name>.svg`      | config | you   | yes          | yes             | SVG icons an `@tmuxy-icon-<process>` option names (`claude.svg`).                                        |
+| `permissions.json`      | config | you   | yes          | yes             | Rules for what a caller may type into another pane's shell. Absent until you write it.                   |
 | `tmuxy-plugin.toml`     | config | you   | yes          | yes             | Your own actions and verbs: the `user` plugin (see Plugins below).                                       |
 | `plugins.json`          | config | you   | yes          | yes             | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
 | `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's `settings.toml` (`tmuxy plugin config`) and credentials; kept unless `remove --purge`.     |
@@ -175,6 +176,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-send-ask`               | on       | `tmuxy pane send` into another pane asks there first.                                                                                                                                                               |
 | `@tmuxy-send-allow`             | —        | Callers (`claude,codex`) and panes (`%3,%5`) that never ask.                                                                                                                                                        |
 | `@tmuxy-send-allow-into`        | —        | Programs (`claude,agy`) whose panes a send into never asks for: an agent's prompt.                                                                                                                                  |
+| `@tmuxy-confirm-close`          | on       | Closing a pane or tab asks first while a pane in it is working or waiting for you.                                                                                                                                  |
 | `@tmuxy-notify`                 | on       | Push a notification to the devices that turned them on when a pane needs you or errors.                                                                                                                             |
 | `@tmuxy-tab-overview-cols`      | 3        | Cards per row in the "all tabs" view, 1–12.                                                                                                                                                                         |
 | `@tmuxy-gesture-swipe-tabs`     | on       | Two-finger slide left/right switches tabs, whatever macOS's swipe setting.                                                                                                                                          |
@@ -184,6 +186,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-size`                   | smallest | Grid size across clients: `smallest`, `largest`, `latest`, or a fixed `COLSxROWS` (`80x25`). Every size but `smallest` scales each client's grid to fit; a fixed one also keeps its cols/rows when a sidebar opens. |
 | `@tmuxy-css-<variable>`         | —        | One CSS variable, see above.                                                                                                                                                                                        |
 | `@tmuxy-icon-<process>`         | —        | The icon a pane running `<process>` wears: one or two ASCII characters (`'$'`, `'>_'`) or an SVG in `icons/` (`claude.svg`), drawn in the text's colour. Claude Code, Antigravity and Codex have their own.         |
+| `@tmuxy-tree-row`               | —        | What a pane's row in the sidebar tree shows, by line: `process ports id / cwd branch / title / fields`. Also `field:<key>`; a word it does not know keeps the default.                                              |
 
 ## Your own `~/.tmux.conf`
 

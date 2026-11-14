@@ -18,6 +18,8 @@ pub struct WindowState {
     /// `@tmuxy-sidebar-hidden` — the user closed this sidebar column; its
     /// pane stays alive but no client draws it.
     pub sidebar_hidden: bool,
+    /// `@tmuxy-float-minimized` — the user minimized this float to the queue.
+    pub float_minimized: bool,
     /// Rows the dock's pane is sized to (@tmuxy-sidebar-rows); None = the viewport's.
     pub sidebar_rows: Option<u32>,
     /// Only the active pane's first-level row is expanded (@tmuxy-collapsible).
@@ -52,6 +54,12 @@ pub struct WindowState {
     /// list-windows reports it, so no client is shown it before then
     /// (`to_tmux_state`).
     pub awaiting_list: bool,
+
+    /// A `list-windows` row has described it. A window known only from
+    /// `%window-add` is not yet known to be a tab, a float or a sidebar: the
+    /// re-list behind every add says which, and until it has, the window is
+    /// neither set up nor sized as any of them.
+    pub listed: bool,
 }
 
 impl WindowState {
@@ -69,6 +77,7 @@ impl WindowState {
             window_type: None,
             sidebar_cols: None,
             sidebar_hidden: false,
+            float_minimized: false,
             sidebar_rows: None,
             collapsible: false,
             float_parent: None,
@@ -80,6 +89,7 @@ impl WindowState {
             active_pane_id: None,
             zoomed: false,
             awaiting_list: false,
+            listed: false,
         }
     }
 
@@ -107,6 +117,7 @@ impl WindowState {
             float_drawer: self.float_drawer.clone(),
             float_bg: self.float_bg.clone(),
             float_noheader: self.float_noheader,
+            float_minimized: self.float_minimized,
             sidebar_cols: self.sidebar_cols,
             sidebar_hidden: self.sidebar_hidden,
             collapsible: self.collapsible,
@@ -222,21 +233,39 @@ impl StateAggregator {
     }
 
     /// Windows split by how the client-size pass sizes them: `(viewport,
-    /// sidebars)`. Tabs and floats take the whole viewport; each sidebar
-    /// takes its own column, so it comes with that width.
-    pub fn window_ids_by_sizing(&self) -> (Vec<WindowId>, Vec<SidebarSizing>) {
+    /// sidebars, floats)`. A tab takes the whole viewport; each sidebar takes
+    /// its own column, so it comes with that width; a float takes the grid
+    /// its size tags name, the one the UI draws it at, and one that names no
+    /// size is sized like a tab. A window no `list-windows` row has
+    /// described yet is in none of them: sized as a tab on `%window-add`, a
+    /// new float was the whole viewport's size until its tags were read, and
+    /// a program started in it could read that size.
+    pub fn window_ids_by_sizing(&self) -> (Vec<WindowId>, Vec<SidebarSizing>, Vec<FloatSizing>) {
         let mut viewport = Vec::new();
         let mut sidebars = Vec::new();
-        for w in self.windows.values() {
-            let cols = w
+        let mut floats = Vec::new();
+        for w in self.windows.values().filter(|w| w.listed) {
+            let sidebar_cols = w
                 .window_type
                 .and_then(|t| crate::constants::sidebar_dock::cols(t, w.sidebar_cols));
-            match cols {
-                Some(cols) => sidebars.push((w.id.clone(), cols, w.sidebar_rows)),
-                None => viewport.push(w.id.clone()),
+            if let Some(cols) = sidebar_cols {
+                sidebars.push((w.id.clone(), cols, w.sidebar_rows));
+                continue;
+            }
+            let grid = match w.window_type {
+                Some(WindowType::Float) => crate::constants::float_grid::size(
+                    w.float_width,
+                    w.float_height,
+                    w.float_drawer.as_deref(),
+                ),
+                _ => (None, None),
+            };
+            match grid {
+                (None, None) => viewport.push(w.id.clone()),
+                (cols, rows) => floats.push((w.id.clone(), cols, rows)),
             }
         }
-        (viewport, sidebars)
+        (viewport, sidebars, floats)
     }
 
     /// The grid tmux REPORTS for a window: one past the furthest pane edge,
@@ -278,12 +307,13 @@ impl StateAggregator {
     }
 
     /// Sets up every window of the attached session, once per window and
-    /// again only when what it is changes (a window first seen untagged that
-    /// turns out to be a sidebar).
+    /// again only when what it is changes: a window known only from
+    /// `%window-add` that `list-windows` then describes, or one listed
+    /// untagged that turns out to be a sidebar or a float.
     pub fn window_setup_commands(&mut self) -> Vec<String> {
         let mut cmds = Vec::new();
         for (id, window) in &self.windows {
-            let now = WindowSetup::of(window.window_type);
+            let now = WindowSetup::of(window);
             let before = self.window_setup.insert(id.clone(), now);
             cmds.extend(window_setup(id, before, now));
         }
@@ -314,20 +344,29 @@ impl StateAggregator {
 /// What a window is set up as (`window_setup`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WindowSetup {
+    /// Seen (`%window-add`) and not yet described by `list-windows`: it is
+    /// told to stop sizing itself, and given no border row either way. The
+    /// add says nothing of what the window is, and a float given a tab's
+    /// row and a tab's size for that beat had its program told both.
+    Unlisted,
     /// A tab: its pane headers are drawn on tmux's border row.
     Tab,
     /// A docked sidebar column: headerless.
     Sidebar,
-    /// A float, which keeps whatever border it was made with.
-    Other,
+    /// A float: the UI draws its header above the pane, so its window has
+    /// no border row either.
+    Float,
 }
 
 impl WindowSetup {
-    fn of(window_type: Option<WindowType>) -> Self {
-        match window_type {
+    fn of(window: &WindowState) -> Self {
+        if !window.listed {
+            return WindowSetup::Unlisted;
+        }
+        match window.window_type {
             None | Some(WindowType::Tab) => WindowSetup::Tab,
-            Some(kind) if kind.is_sidebar() => WindowSetup::Sidebar,
-            Some(_) => WindowSetup::Other,
+            Some(WindowType::SidebarLeft | WindowType::SidebarRight) => WindowSetup::Sidebar,
+            Some(WindowType::Float) => WindowSetup::Float,
         }
     }
 }
@@ -361,6 +400,7 @@ fn window_setup(id: &WindowId, before: Option<WindowSetup>, now: WindowSetup) ->
         return cmds;
     }
     match now {
+        WindowSetup::Unlisted => {}
         // A tab's topmost pane sits at y=1, leaving the border row that
         // PaneLayout draws the pane header into; blank, so nothing of tmux's
         // own shows through.
@@ -375,7 +415,13 @@ fn window_setup(id: &WindowId, before: Option<WindowSetup>, now: WindowSetup) ->
         WindowSetup::Sidebar => {
             cmds.push(format!("set-option -w -t {id} pane-border-status off"));
         }
-        WindowSetup::Other => {}
+        // A float's window is sized to the float (`size_windows`), and its
+        // pane is that whole window: the float is drawn that many rows tall,
+        // header apart. Listed untagged first, as a sidebar can be, it would
+        // keep a tab's border row and its pane come out a row short.
+        WindowSetup::Float => {
+            cmds.push(format!("set-option -w -t {id} pane-border-status off"));
+        }
     }
     cmds
 }

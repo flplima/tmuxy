@@ -172,7 +172,7 @@ pub(super) fn pane_delta(prev: &crate::TmuxPane, curr: &crate::TmuxPane) -> crat
     changed_fields!(delta, prev, curr;
         window_id, cursor_x, cursor_y, width, height, x, y, active, command, title,
         border_title, group_pos, group_id, in_mode, copy_cursor_x, copy_cursor_y,
-        alternate_on, mouse_any_flag, marked, history_size, pane_state, pane_ask,
+        alternate_on, mouse_any_flag, marked, history_size, pane_state, pane_status, pane_ask,
         pane_widget, pane_restore, selection_present, selection_start_x,
         selection_start_y, images, cursor_shape, cursor_hidden,
     );
@@ -186,7 +186,7 @@ pub(super) fn window_delta(
     let mut delta = crate::WindowDelta::default();
     changed_fields!(delta, prev, curr;
         index, name, active, window_type, float_parent, float_width, float_height,
-        float_drawer, float_bg, float_noheader, sidebar_cols, sidebar_hidden,
+        float_drawer, float_bg, float_noheader, float_minimized, sidebar_cols, sidebar_hidden,
         collapsible, zoomed, active_pane_id, pane_tree,
     );
     delta

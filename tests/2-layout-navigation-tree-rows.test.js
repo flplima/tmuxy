@@ -135,6 +135,16 @@ describeE2E('Scenario 6h: the tree’s rows', {}, (ctx) => {
         probe.remove();
         return out;
       });
+    // The pointer is wherever an earlier step left it, which can be on this
+    // very row: away from the tree first, or "resting" is the hover ink.
+    const away = await page.evaluate(() => [window.innerWidth - 4, window.innerHeight - 4]);
+    await page.mouse.move(away[0], away[1]);
+    await waitForCondition(
+      page,
+      async () => page.evaluate(() => !document.querySelector('.sidebar-tree-pane:hover')),
+      5000,
+      'no tree row under the pointer',
+    );
     const resting = await inkOf();
     expect(resting.ink).not.toBe(resting.primary);
     await page.mouse.move(before.rows[0].x, before.rows[0].y);

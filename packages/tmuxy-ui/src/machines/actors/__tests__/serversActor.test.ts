@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { nextPollDelay, parseSessions } from '../serversActor';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createActor, type AnyActorRef } from 'xstate';
+import { createServersActor, nextPollDelay, parseSessions } from '../serversActor';
+import { fakeTransport } from '../../../test/transport';
 import { createInitialContext } from '../../app/context';
 import { selectTreeVisible } from '../../selectors/panesAndSidebars';
 import type { AppMachineContext } from '../../types/context';
@@ -8,6 +10,22 @@ import type { AppMachineContext } from '../../types/context';
 const row = (...fields: string[]) => fields.join('\t');
 
 describe('parseSessions', () => {
+  it('reads the fields set on each pane, leaving out those past their time', () => {
+    const b64 = (value: unknown) => btoa(JSON.stringify(value));
+    const windows = row('work', '@0', '0', 'shell', 'tab');
+    const panes = [
+      row('work', '@0', '%0', 'zsh', '1', '', '/src', '', b64({ ci: { v: 'passing' } })),
+      row('work', '@0', '%1', 'zsh', '0', '', '/src', '', b64({ old: { v: 'x', until: 50 } })),
+      row('work', '@0', '%2', 'zsh', '0', '', '/src', ''),
+    ].join('\n');
+    const [session] = parseSessions(windows, panes, 100);
+    expect(session.panes.map((p) => [p.id, p.fields])).toEqual([
+      ['%0', [{ key: 'ci', value: 'passing' }]],
+      ['%1', []],
+      ['%2', []],
+    ]);
+  });
+
   it('groups windows and panes under their sessions, index-ordered', () => {
     const windows = [
       row('work', '@1', '1', 'editor', 'tab'),
@@ -119,5 +137,33 @@ describe('the poll’s gate and cadence', () => {
   it('looks again soon until a listing comes back, then at the steady cadence', () => {
     expect(nextPollDelay(false)).toBeLessThan(nextPollDelay(true));
     expect(nextPollDelay(false)).toBeLessThanOrEqual(250);
+  });
+});
+
+describe('the poll', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('asks nothing from a hidden tab, and asks again once the tab is looked at', async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    const transport = fakeTransport({ enumeratesSessions: true, answersQueries: true });
+    transport.setNextResult({ kind: 'ok', value: '' });
+    const parent = { send: () => {} } as unknown as AnyActorRef;
+    const treeVisible = { get: () => true, subscribe: () => () => {} };
+    const actor = createActor(createServersActor(transport.runtime), {
+      input: { parent, treeVisible },
+    }).start();
+
+    // A minute in the background, the tree open the whole time.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(transport.invocations).toEqual([]);
+
+    hidden.mockReturnValue(false);
+    await vi.advanceTimersByTimeAsync(nextPollDelay(false));
+    expect(transport.invocations.map((call) => call.cmd)).toContain('query_tmux');
+    actor.stop();
   });
 });

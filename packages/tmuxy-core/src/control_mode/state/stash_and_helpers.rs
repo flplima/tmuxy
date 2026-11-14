@@ -70,6 +70,7 @@ fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
         cursor_shape: 0,
         cursor_hidden: false,
         pane_state: None,
+        pane_status: None,
         pane_ask: None,
         pane_widget: None,
         pane_restore: None,

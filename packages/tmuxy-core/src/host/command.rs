@@ -95,6 +95,9 @@ pub enum ClientCommand {
     /// paths from the client: on the web that would let anyone reaching the
     /// server probe the filesystem.
     ListGitWorktrees,
+    /// The TCP ports each pane's programs listen on. Takes nothing from the
+    /// client: the panes and their processes come from tmux.
+    ListPanePorts,
     ListSnapshots,
     /// Rebuild a session from its latest snapshot. Refused when the session
     /// is already running.
@@ -102,6 +105,11 @@ pub enum ClientCommand {
         session: String,
     },
     GetTraceSettings,
+    /// The last `last` actions of the trace, redacted for sharing: what the
+    /// Debug menu's Copy Trace previews and copies.
+    GetTraceShare {
+        last: u32,
+    },
     SetTraceEnabled {
         enabled: bool,
     },
@@ -357,6 +365,10 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             let tx = runtime.channel().await?;
             to_json(requests::git_worktrees(&tx).await?, "worktrees")
         }
+        ClientCommand::ListPanePorts => {
+            let tx = runtime.channel().await?;
+            to_json(requests::pane_ports(&tx).await?, "ports")
+        }
         ClientCommand::ListSnapshots => to_json(requests::list_snapshots().await?, "snapshots"),
         ClientCommand::RestoreSession { session } => {
             let tx = runtime.channel().await?;
@@ -364,6 +376,10 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             Ok(Value::Null)
         }
         ClientCommand::GetTraceSettings => to_json(requests::trace_settings(), "trace settings"),
+        ClientCommand::GetTraceShare { last } => to_json(
+            requests::trace_share(last).map_err(crate::CommandError::unavailable)?,
+            "trace share",
+        ),
         // The state in force: `false` when the kill switch refuses, and the
         // client renders the answer, never its request.
         ClientCommand::SetTraceEnabled { enabled } => {

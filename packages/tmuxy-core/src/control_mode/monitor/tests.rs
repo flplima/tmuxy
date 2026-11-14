@@ -214,8 +214,8 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         },
         marked(&markers, LIST_BEGIN_MARKER, TmuxList::Panes.name()),
         response(
-            "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
-             %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,",
+            "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,,\n\
+             %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,,",
         ),
         marked(&markers, LIST_END_MARKER, ""),
         marked(&markers, LIST_BEGIN_MARKER, TmuxList::Windows.name()),
@@ -425,30 +425,67 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
 /// the latest client — it applies ours and then puts its own back — and the
 /// options are per WINDOW, so they are set on each window as it is first
 /// seen, in the step's own effects, ahead of the client-size pass.
+///
+/// M13: it is sized once `list-windows` has said what it is, not on the
+/// `%window-add` that announced it: sized as a tab for that beat, a new
+/// float was the viewport's size just as its program started.
 #[tokio::test]
 async fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
     let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let (_tx, rx) = mpsc::channel(1);
     let link = Scripted {
-        events: [ControlModeEvent::WindowAdd {
-            window_id: "@3".parse().unwrap(),
-        }]
-        .into(),
+        events: Default::default(),
         sent: std::sync::Arc::clone(&log),
     };
     let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+    let markers = monitor.core.aggregator().markers().clone();
+    let listed = |kind: &str| {
+        response(
+            &RowBuilder::<WindowColumn>::new()
+                .set(WindowColumn::WindowId, "@3")
+                .set(WindowColumn::Index, 1)
+                .set(WindowColumn::Active, 0)
+                .set(WindowColumn::WindowType, kind)
+                .set(WindowColumn::Zoomed, 0)
+                .set(WindowColumn::Name, "shell")
+                .build(),
+        )
+    };
+    monitor.connection.events.extend([
+        ControlModeEvent::WindowAdd {
+            window_id: "@3".parse().unwrap(),
+        },
+        marked(&markers, LIST_BEGIN_MARKER, TmuxList::Windows.name()),
+        listed("tab"),
+        marked(&markers, LIST_END_MARKER, ""),
+    ]);
     monitor.core.set_client_size(41, 29);
     let emitter = Recording(std::sync::Arc::clone(&log));
     let mut rs = RunState::new(&monitor.config, Instant::now());
-    assert!(step(&mut monitor, &emitter, &mut rs).await);
 
-    let log = log.lock().unwrap().clone();
-    let at = |wanted: &str| {
-        log.iter()
-            .position(|c| c == wanted)
-            .unwrap_or_else(|| panic!("{wanted:?} was not sent: {log:?}"))
-    };
-    let resize = at("resizew -t @3 -x 41 -y 29");
-    assert!(at("set-option -w -t @3 window-size manual") < resize);
-    assert!(at("set-option -w -t @3 aggressive-resize off") < resize);
+    // The add alone: told to stop sizing itself, and not sized yet.
+    assert!(step(&mut monitor, &emitter, &mut rs).await);
+    let sent = || log.lock().unwrap().clone();
+    let at = |log: &[String], wanted: &str| log.iter().position(|c| c == wanted);
+    let on_add = sent();
+    assert!(at(&on_add, "set-option -w -t @3 window-size manual").is_some());
+    assert!(
+        !on_add.iter().any(|c| c.starts_with("resizew -t @3")),
+        "a window nothing has described yet was sized: {on_add:?}"
+    );
+    assert!(
+        !on_add.iter().any(|c| c.contains("pane-border-status")),
+        "a window nothing has described yet was given a border row: {on_add:?}"
+    );
+
+    // Listed as a tab: now it is sized, after the options that let tmux keep the size.
+    for _ in 0..3 {
+        assert!(step(&mut monitor, &emitter, &mut rs).await);
+    }
+    let log = sent();
+    let resize = at(&log, "resizew -t @3 -x 41 -y 29")
+        .unwrap_or_else(|| panic!("the listed window was not sized: {log:?}"));
+    assert!(at(&log, "set-option -w -t @3 window-size manual").unwrap() < resize);
+    assert!(at(&log, "set-option -w -t @3 aggressive-resize off").unwrap() < resize);
+    assert!(at(&log, "set-option -w -t @3 pane-border-status top").is_some());
 }

@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 30;
+const COMMANDS: usize = 32;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -52,6 +52,8 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::OpenLink { .. } => 27,
         C::OpenText { .. } => 28,
         C::Greeting => 29,
+        C::GetTraceShare { .. } => 30,
+        C::ListPanePorts => 31,
     }
 }
 
@@ -103,6 +105,7 @@ fn every_request() -> Vec<ClientCommand> {
         C::SetSendAsk { enabled: false },
         C::SetTransparency { enabled: true },
         C::ListGitWorktrees,
+        C::ListPanePorts,
         C::ListSnapshots,
         C::RestoreSession { session: s("work") },
         C::GetTraceSettings,
@@ -142,6 +145,7 @@ fn every_request() -> Vec<ClientCommand> {
             column: 5,
         },
         C::Greeting,
+        C::GetTraceShare { last: 20 },
     ]
 }
 
@@ -187,7 +191,7 @@ fn every_command_request_matches_its_fixture() {
 /// reads it with.
 #[test]
 fn every_command_answer_matches_its_fixture() {
-    use crate::host::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings};
+    use crate::host::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings, TraceShare};
     let null = || vec![serde_json::Value::Null];
     let json = |v: &dyn erased::Json| vec![v.to_json()];
     let server = crate::servers::Server {
@@ -260,7 +264,15 @@ fn every_command_answer_matches_its_fixture() {
                     bare: false,
                     locked: false,
                     prunable: false,
+                    changes: None,
                 }],
+            }]),
+        ),
+        (
+            "list_pane_ports",
+            json(&vec![crate::ports::PanePorts {
+                pane_id: "%2".to_string(),
+                ports: vec![5173, 8123],
             }]),
         ),
         (
@@ -284,6 +296,14 @@ fn every_command_answer_matches_its_fixture() {
         ("set_trace_level", vec!["labeled".into()]),
         ("record_trace", null()),
         ("open_trace_file", null()),
+        (
+            "get_trace_share",
+            json(&TraceShare {
+                text: "{\"layer\":\"tmux\",\"op\":\"Split\",\"session\":\"session-1\"}\n"
+                    .to_string(),
+                lines: 1,
+            }),
+        ),
         ("open_url", null()),
         (
             "list_servers",

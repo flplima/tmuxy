@@ -54,8 +54,8 @@ fn attach(parser: &mut Parser, agg: &mut StateAggregator) {
         pane_list(
             agg,
             2,
-            "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n\
-             %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
+            "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n\
+             %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n",
         ),
         marked_list(agg, TmuxList::Windows, 5, &format!("{window}\n")),
         "%window-pane-changed @0 %0\n\
@@ -132,8 +132,8 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
     let in_copy_mode = pane_list(
         &agg,
         6,
-        "%0,0,0,0,40,24,0,0,1,zsh,,1,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n\
-         %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
+        "%0,0,0,0,40,24,0,0,1,zsh,,1,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n\
+         %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n",
     );
     feed(&mut parser, &mut agg, &in_copy_mode);
     let event = parser.parse_line("%paste-buffer-changed buffer0").unwrap();
