@@ -6,6 +6,7 @@ import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
 import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
+import type { PendingClose } from '../../domain/closeGuard';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
 import type {
@@ -190,6 +191,8 @@ export interface AppMachineContext {
    * pane the caller does not own asks the user there first.
    */
   sendAsk: boolean;
+  /** Whether closing a busy pane or tab asks first (`@tmuxy-confirm-close`). */
+  confirmClose: boolean;
   /** Whether tmuxy.conf lets the server push notifications (`@tmuxy-notify`). */
   notifyAllowed: boolean;
   /** Whether this device gets them (infra/pushNotifications.ts). */
@@ -287,6 +290,8 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
+  /** The close of a busy pane or tab the user is being asked about, if any. */
+  pendingClose: PendingClose | null;
   /** The command palette, while it is open: everything, or only the places to go. */
   palette: PaletteMode | null;
   /**

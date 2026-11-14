@@ -59,6 +59,9 @@ plugins -> stamp
 preview -> constants
 preview -> control_mode
 preview -> mime
+profiles -> constants
+profiles -> paths
+profiles -> private_files
 run_shell -> argv
 run_shell -> paths
 run_shell -> private_files
@@ -73,6 +76,7 @@ session -> constants
 session -> error
 session -> paths
 session -> private_files
+session -> profiles
 session -> stamp
 session -> tmux_command
 session_snapshot -> argv

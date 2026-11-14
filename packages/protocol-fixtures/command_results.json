@@ -198,6 +198,7 @@
         "activeTextOpacity": 1.0,
         "animations": true,
         "blur": true,
+        "confirmClose": true,
         "cursorBlink": true,
         "gesturePinchOverview": true,
         "gesturePinchZoom": true,

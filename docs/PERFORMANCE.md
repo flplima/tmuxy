@@ -131,6 +131,23 @@ HTTP/1.1, six connections to a host with one of them the stream: past about
 five commands per round trip they wait in the browser. HTTP/2, which a TLS
 reverse proxy gives, has no such limit.
 
+### A pane nobody looks at
+
+`npm run perf:hidden-bytes -- --url … [--seconds N] [--out FILE]`, against a
+throwaway server only, like the interactions below,
+(`packages/tmuxy-ui/scripts/measure-hidden-bytes.mjs`) measures what the event
+stream (`GET /events`) carries to a browser while one pane redraws an agent's
+spinner at ~2 KB/s: with no spinner, with the spinner in a tab the browser does
+not show, and with its tab shown. The bytes are the ones Chrome received on the
+stream's connection (CDP), so what the link carries. `perf:compare` reads the
+report and holds what a hidden spinner adds per byte it prints to a budget
+(`scripts/lib/compare-bytes.mjs`).
+
+Measured: the stream idles at ~30 B/s; a hidden spinner adds ~15–16 KB/s, about
+8 bytes per byte it printed, the same as a visible one. A hidden pane's every
+frame is sent in full: one agent left spinning in a background tab is ~55 MB an
+hour on the link.
+
 ## Axis C — whole-interaction latency (the CI regression gate)
 
 `packages/tmuxy-ui/scripts/measure-interactions.mjs` drives the handful of

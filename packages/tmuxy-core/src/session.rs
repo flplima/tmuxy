@@ -486,4 +486,6 @@ mod tests_keymap;
 #[cfg(test)]
 mod tests_layout;
 #[cfg(test)]
+mod tests_own_socket;
+#[cfg(test)]
 mod tests_state;
