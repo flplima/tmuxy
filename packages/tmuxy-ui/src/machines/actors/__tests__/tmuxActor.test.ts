@@ -234,7 +234,10 @@ describe('tmuxActor — the shell prompts', () => {
   it('says the copy failed when the clipboard refused it, not that it copied', async () => {
     const notice = await copyLastOutput(() => Promise.reject(new Error('NotAllowedError')));
 
-    expect(notice).toMatchObject({ kind: 'error', text: 'Clipboard write failed' });
+    expect(notice).toMatchObject({
+      kind: 'error',
+      text: 'Pane %1 could not copy 7 chars: the browser wants a key or a click first',
+    });
   });
 
   it('a shell that marks no output copies nothing and says why', async () => {
@@ -250,6 +253,43 @@ describe('tmuxActor — the shell prompts', () => {
       'No command output to copy: this shell marks none',
     );
     expect((globalThis as { __tmuxyLastClipboard?: unknown }).__tmuxyLastClipboard).toBeUndefined();
+    actor.stop();
+  });
+});
+
+describe('tmuxActor — switching session', () => {
+  it('says when a switch opened a new stream, so its state can be asked for', async () => {
+    const switched: string[] = [];
+    const { runtime } = fakeTransport({
+      switchSession: async (name) => {
+        switched.push(name);
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'SWITCH_SESSION', sessionName: 'play' });
+
+    await waitFor(() => events.some((e) => e.type === 'TMUX_SESSION_SWITCHED'));
+    expect(switched).toEqual(['play']);
+    actor.stop();
+  });
+
+  // The desktop moves its one client with switch-client and does not wait for
+  // it: a fetch then could answer with the session it was leaving.
+  it('says nothing when the one client moved instead, as on the desktop', async () => {
+    const ran: string[] = [];
+    const { runtime } = fakeTransport({
+      send: async (call) => {
+        if (call.cmd === 'run_tmux_command') ran.push(call.args.command);
+        return null;
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'SWITCH_SESSION', sessionName: 'play' });
+
+    await waitFor(() => ran.length > 0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ran[0]).toContain('switch-client');
+    expect(events.some((e) => e.type === 'TMUX_SESSION_SWITCHED')).toBe(false);
     actor.stop();
   });
 });

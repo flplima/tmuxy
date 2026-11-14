@@ -116,6 +116,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | --- | --- | --- |
 | [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (iTerm2, Kitty, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
 | [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) | Why every glyph must land on tmux's cell grid, and how widths are kept in agreement | Fonts, wide characters, anything that measures a cell |
+| [RICH-RENDERING-TESTING.md](RICH-RENDERING-TESTING.md) | How to try each rich-rendering protocol by hand, and the tests that cover them | Testing images, links or OSC sequences |
 
 ## Conventions
 

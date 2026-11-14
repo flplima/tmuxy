@@ -13,8 +13,8 @@ import { parseThemeMode, type TraceLevel } from '../../domain/wireSettings';
 import type { PlainCall } from '../../domain/backendCalls';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
 import { openExternalUrl } from '../../infra/openUrl';
-import { writeClipboard } from '../../infra/clipboard';
-import { lastOutputNotice, type PromptDirection } from '../../domain/promptMarks';
+import type { PromptDirection } from '../../domain/promptMarks';
+import { copyLastOutput } from './copyLastOutput';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(
@@ -326,21 +326,10 @@ export function createTmuxActor(runtime: AppRuntime) {
         run(
           withTransport((t) => t.call('get_last_command_output', { paneId: event.paneId })),
           {
-            // The copy is said once the clipboard took it: a browser can
-            // refuse a write that comes this long after the click.
-            onSuccess: ({ text }) => {
-              if (!text) {
-                parent.send({ type: 'NOTIFY', kind: 'info', text: lastOutputNotice(text) });
-                return;
-              }
-              void writeClipboard(text, event.paneId).then((copied) =>
-                parent.send(
-                  copied
-                    ? { type: 'NOTIFY', kind: 'info', text: lastOutputNotice(text) }
-                    : { type: 'NOTIFY', kind: 'error', text: 'Clipboard write failed' },
-                ),
-              );
-            },
+            onSuccess: ({ text }) =>
+              void copyLastOutput(text, event.paneId).then((notice) =>
+                parent.send({ type: 'NOTIFY', ...notice }),
+              ),
             logPrefix: 'get_last_command_output',
           },
         );
@@ -475,6 +464,11 @@ export function createTmuxActor(runtime: AppRuntime) {
         run(
           withTransport((t) => t.switchSession(event.sessionName)),
           {
+            // A new stream starts with no state; the desktop's one client
+            // is reported by its monitor wherever it lands.
+            onSuccess: (newStream) => {
+              if (newStream) parent.send({ type: 'TMUX_SESSION_SWITCHED' });
+            },
             logPrefix: `switch-session ${event.sessionName}`,
           },
         );

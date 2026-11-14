@@ -11,6 +11,7 @@ import type { KeyContext } from '../../selectors/keyboard';
 import { focusGuiWindow, newGuiWindow } from '../../../infra/guiWindows';
 import { isTauri } from '../../../infra/platform';
 import { isReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
+import { hasNativeSelection } from '../../../infra/dom/nativeSelection';
 import { isModifierOnlyKey, windowShortcut } from './keyFormatting';
 
 /**
@@ -106,8 +107,6 @@ export function handleModalOrCopyKeyDown(
     }
   }
 
-  const nativeSelection = () => window.getSelection()?.toString() ?? '';
-
   if (!replayed && scrollbackPane && windowShortcut(event) && event.code === 'KeyA') {
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
@@ -140,7 +139,7 @@ export function handleModalOrCopyKeyDown(
       if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
         setPendingCopyText(extractSelectedText(activeCopyState));
       }
-    } else if (event.metaKey && nativeSelection()) {
+    } else if (event.metaKey && hasNativeSelection()) {
       event.preventDefault();
       document.execCommand('copy');
       return true;

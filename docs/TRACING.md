@@ -255,6 +255,13 @@ production pays nothing.
   while nobody acted is left out, so a few actions come to tens of lines. With
   `--check` or `--export`, it narrows what those read instead. What a line
   holds depends on the trace level, so share a slice taken at `shape`.
+- **Replaying a report:** `tests/helpers/trace-replay.js` turns a trace's
+  `store` lines (one per op the app ran: its name, pane, window, direction)
+  into the CLI commands that do the same, with the trace's ids mapped to live
+  ones by first appearance, and runs them in an E2E session. An op a trace
+  cannot rebuild (a resize's size, typed keys) is reported as skipped.
+  `tests/28-trace-replay.test.js` shows the shape; point a scratch test at a
+  user's redacted slice to reproduce their bug.
 
 ## Where the code lives
 
