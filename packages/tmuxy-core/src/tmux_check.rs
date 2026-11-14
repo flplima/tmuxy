@@ -65,16 +65,7 @@ impl fmt::Display for TmuxCheckError {
 
 impl std::error::Error for TmuxCheckError {}
 
-/// The `(major, minor)` a `tmux -V` line reports: `tmux 3.5a` → `(3, 5)`,
-/// `tmux next-3.6` → `(3, 6)`. `None` for a build that names no number
-/// (`tmux master`, `tmux openbsd-7.4`).
-pub fn parse_version(output: &str) -> Option<(u32, u32)> {
-    let version = output.trim().strip_prefix("tmux ")?;
-    let version = version.strip_prefix("next-").unwrap_or(version);
-    let (major, rest) = version.split_once('.')?;
-    let minor: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    Some((major.parse().ok()?, minor.parse().ok()?))
-}
+pub use crate::tmux_compat::parse_version;
 
 /// A build that reports no number is given the benefit of the doubt.
 fn judge(binary: &str, output: &str) -> Result<String, TmuxCheckError> {

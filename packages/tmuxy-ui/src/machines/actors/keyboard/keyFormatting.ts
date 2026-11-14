@@ -145,6 +145,21 @@ export function windowShortcut(event: KeyboardEvent): boolean {
 }
 
 /**
+ * The command palette's chord: Ctrl+Shift+P, or Cmd+Shift+P. Read from the
+ * key, not its position, so it is the P of the user's own layout.
+ */
+export function isPaletteChord(
+  event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>,
+): boolean {
+  return (
+    event.shiftKey &&
+    !event.altKey &&
+    event.ctrlKey !== event.metaKey &&
+    event.key.toLowerCase() === 'p'
+  );
+}
+
+/**
  * A key that only changes what the NEXT key means.
  */
 export function isModifierOnlyKey(key: string): boolean {

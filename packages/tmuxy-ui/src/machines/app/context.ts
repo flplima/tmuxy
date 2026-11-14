@@ -27,7 +27,8 @@ export type StateName =
   | 'uiPrefs'
   | 'gestures'
   | 'ask'
-  | 'plugins';
+  | 'plugins'
+  | 'palette';
 
 /**
  * Maps every AppMachineContext field to the state slice that owns it.
@@ -120,6 +121,9 @@ export const FIELD_OWNERS = {
   keysViewOpen: 'commandUi',
   pendingClose: 'commandUi',
   renamingPaneId: 'commandUi',
+
+  palette: 'palette',
+  pendingGoTo: 'palette',
 
   notifications: 'notifications',
 
@@ -245,6 +249,8 @@ export function createInitialContext(): AppMachineContext {
     keyTable: null,
     keysViewOpen: false,
     pendingClose: null,
+    palette: null,
+    pendingGoTo: null,
     renamingPaneId: null,
     baseFontSize: loadFontSizePref(),
   };

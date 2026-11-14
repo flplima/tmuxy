@@ -8,7 +8,13 @@
 import type { KeyBinding, KeyBindings } from './wire';
 import { toTmuxCommand, type TmuxOp } from './commands';
 import { boundAction, parseCommandToOp, runShellScript } from './store/parseCommand';
-import { CLIENT_CHORDS, CLIENT_KEYS, splitTableSwitch, type ClientKey } from './keyTables';
+import {
+  CLIENT_CHORDS,
+  CLIENT_KEYS,
+  clientKeyFor,
+  splitTableSwitch,
+  type ClientKey,
+} from './keyTables';
 import { PLUGIN_KEY_MARKER } from './tmuxyConstants.gen';
 
 /** `text`, followed by the key that does it when one is bound: `Zoom (ctrl+a z)`. */
@@ -124,8 +130,18 @@ export function clientKeyHint(
   const chord = CLIENT_CHORDS[clientKey];
   if (chord || !keybindings) return chord;
   for (const [table, keys] of Object.entries(CLIENT_KEYS)) {
+    const bindings = tables(keybindings).find(([name]) => name === table)?.[1] ?? [];
     for (const [key, bound] of Object.entries(keys)) {
       if (bound !== clientKey) continue;
+      // A key the user or a plugin bound is theirs, not the client's.
+      if (
+        clientKeyFor(
+          table,
+          key,
+          bindings.some((b) => b.key === key),
+        ) !== clientKey
+      )
+        continue;
       const label = tableKeyLabel(keybindings, table, key);
       if (label) return label;
     }

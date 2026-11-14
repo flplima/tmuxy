@@ -43,6 +43,7 @@ import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/terminal/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
+import { CommandPalette } from './components/palette/CommandPalette';
 import { KeyRow } from './components/phone/KeyRow';
 import {
   useCursorInView,
@@ -271,6 +272,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           home indicator (standalone.css says why). */}
       {phone && <div className="edge-band edge-band-top" aria-hidden="true" />}
       {phone && <div className="edge-band edge-band-bottom" aria-hidden="true" />}
+      {showLayout && <CommandPalette />}
       <Snackbar />
       <SmoothCursor />
       {latencyTracker.isEnabled() && <PerfHud />}
