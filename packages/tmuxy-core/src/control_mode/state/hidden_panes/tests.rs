@@ -105,6 +105,34 @@ fn a_held_pane_goes_at_once_when_its_tab_is_shown() {
     assert_eq!(carried(update), [("%1".into(), "frame 2".into())]);
 }
 
+/// A client that joins while a pane is held is handed it as last sent, the
+/// copy the stream's next delta is computed from: a line that changes and
+/// changes back meanwhile is never left on it, which no delta would correct.
+#[test]
+fn a_client_joining_while_a_pane_is_held_gets_it_as_last_sent() {
+    let t0 = Instant::now();
+    let mut agg = two_tabs(t0);
+    print(&mut agg, "%1", "\rframe 1");
+    agg.to_state_update_at(t0 + 10 * MS);
+    print(&mut agg, "%1", "\rframe 2");
+    assert_eq!(carried(agg.to_state_update_at(t0 + 20 * MS)), []);
+
+    let joined = agg.to_client_state();
+    let first_line = |state: &crate::TmuxState, id: &str| {
+        let pane = state.panes.iter().find(|p| p.tmux_id == pid(id)).unwrap();
+        let line: String = pane.content[0].iter().map(|c| c.char.clone()).collect();
+        line.trim_end().to_string()
+    };
+    assert_eq!(first_line(&joined, "%1"), "frame 1", "as last sent");
+    assert_eq!(first_line(&joined, "%0"), "", "a pane not held as it is");
+
+    // Back to the frame last sent: the stream has nothing to send, and the
+    // client that joined already shows it.
+    print(&mut agg, "%1", "\rframe 1");
+    assert_eq!(carried(agg.to_state_update_at(t0 + 2000 * MS)), []);
+    assert_eq!(first_line(&agg.to_client_state(), "%1"), "frame 1");
+}
+
 /// What is not drawn inside the pane (its state, a question it asks) is
 /// never held: a tab's badge says at once that its agent needs the user.
 #[test]

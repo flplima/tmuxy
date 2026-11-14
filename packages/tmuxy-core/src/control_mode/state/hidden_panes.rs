@@ -14,9 +14,10 @@
 //!
 //! A pane held back keeps its last sent copy in `prev_state`, so the delta
 //! that finally carries it holds every change since: nothing is lost, only
-//! frames in between are skipped.
+//! frames in between are skipped. A client that joins meanwhile is handed
+//! that copy too (`to_client_state`): the delta is computed from it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use super::Instant;
@@ -25,10 +26,12 @@ use crate::{PaneDelta, PaneId, TmuxState};
 /// How often a hidden pane's screen is sent while it keeps changing.
 pub const HIDDEN_PANE_EVERY: Duration = Duration::from_secs(1);
 
-/// When each hidden pane's screen was last sent, and when one held back is due.
+/// When each hidden pane's screen was last sent, which panes the last update
+/// held back, and when the first of them is due.
 #[derive(Debug, Default)]
 pub(crate) struct HiddenPanes {
     sent: HashMap<PaneId, Instant>,
+    held: HashSet<PaneId>,
     due: Option<Instant>,
 }
 
@@ -86,6 +89,7 @@ impl HiddenPanes {
             Some(&last) if now < last + HIDDEN_PANE_EVERY => {
                 let at = last + HIDDEN_PANE_EVERY;
                 self.due = Some(self.due.map_or(at, |due| due.min(at)));
+                self.held.insert(pane.clone());
                 false
             }
             _ => {
@@ -99,6 +103,7 @@ impl HiddenPanes {
     /// due, before [`Self::send_now`] is asked about the next one.
     pub(crate) fn start_update(&mut self, panes: &[crate::TmuxPane]) {
         self.due = None;
+        self.held.clear();
         self.sent
             .retain(|id, _| panes.iter().any(|pane| &pane.tmux_id == id));
     }
@@ -106,6 +111,18 @@ impl HiddenPanes {
     /// When a held-back pane is due, for the monitor to send it then.
     pub(crate) fn due(&self) -> Option<Instant> {
         self.due
+    }
+
+    /// Put each pane the last update held back into `state` as `last_sent`
+    /// has it: what the clients were last sent of it.
+    pub(crate) fn restore_held(&self, state: &mut TmuxState, last_sent: &TmuxState) {
+        for id in &self.held {
+            let old = last_sent.panes.iter().find(|pane| &pane.tmux_id == id);
+            let slot = state.panes.iter_mut().find(|pane| &pane.tmux_id == id);
+            if let (Some(old), Some(slot)) = (old, slot) {
+                *slot = old.clone();
+            }
+        }
     }
 }
 

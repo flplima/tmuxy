@@ -15,6 +15,19 @@ impl StateAggregator {
         self.hidden_panes.due()
     }
 
+    /// The state a client joining now is handed (`GetState`): the
+    /// aggregator's, with a pane held back by [`hidden_panes`] as the stream
+    /// last sent it, since the stream's next delta is computed from that copy.
+    /// Handed the newer screen, the client would keep any line of it that
+    /// changed back before the delta went, which that delta does not carry.
+    pub fn to_client_state(&mut self) -> crate::TmuxState {
+        let mut state = self.to_tmux_state();
+        if let Some(prev) = &self.prev_state {
+            self.hidden_panes.restore_held(&mut state, prev);
+        }
+        state
+    }
+
     /// [`Self::to_state_update`] at `now`, the clock hidden panes are held by.
     pub fn to_state_update_at(&mut self, now: Instant) -> Option<crate::StateUpdate> {
         let mut current = self.to_tmux_state();
@@ -33,7 +46,6 @@ impl StateAggregator {
             Some(prev) => prev,
         };
         self.hidden_panes.start_update(&current.panes);
-        let mut held: Vec<PaneId> = Vec::new();
 
         let mut delta = crate::TmuxDelta::default();
 
@@ -90,8 +102,6 @@ impl StateAggregator {
                     let hidden = hidden_panes::is_hidden(&current, curr_pane);
                     if self.hidden_panes.send_now(id, hidden, &pane_delta, now) {
                         pane_deltas.insert((*id).clone(), Some(pane_delta));
-                    } else {
-                        held.push((*id).clone());
                     }
                 }
             }
@@ -162,13 +172,7 @@ impl StateAggregator {
             // A held pane stays as the client last had it, so the delta that
             // carries it holds everything since.
             let mut sent = current;
-            for id in &held {
-                let old = prev.panes.iter().find(|pane| &pane.tmux_id == id);
-                let slot = sent.panes.iter_mut().find(|pane| &pane.tmux_id == id);
-                if let (Some(old), Some(slot)) = (old, slot) {
-                    *slot = old.clone();
-                }
-            }
+            self.hidden_panes.restore_held(&mut sent, &prev);
             self.prev_state = Some(sent);
             Some(crate::StateUpdate::Delta { delta })
         }
