@@ -213,6 +213,11 @@ impl SessionConnections {
         self.idle_guard_gen += 1;
     }
 
+    /// The other half of [`Self::register`].
+    pub fn unregister(&mut self, conn_id: u64) {
+        self.connections.retain(|&id| id != conn_id);
+    }
+
     pub fn monitored(&self) -> bool {
         self.monitor_handle
             .as_ref()
@@ -234,6 +239,10 @@ pub const MAX_LIVE_STREAMS: u64 = 32;
 pub struct AppState {
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
     pub next_conn_id: AtomicU64,
+    /// Each stream's gate, by connection id, which runs the commands its
+    /// client numbered in that order (S7 in `docs/INVARIANTS.md`). Kept for
+    /// `GATE_GRACE` after the stream closes.
+    pub command_gates: std::sync::Mutex<HashMap<u64, Arc<crate::sse::CommandGate>>>,
     pub join_set: Mutex<JoinSet<()>>,
     pub shutdown: CancellationToken,
 
@@ -272,6 +281,7 @@ impl Default for AppState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
+            command_gates: std::sync::Mutex::default(),
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
             live_streams: AtomicU64::new(0),
@@ -340,6 +350,27 @@ impl AppState {
                 "No monitor connection available",
             )),
         }
+    }
+
+    fn gates(&self) -> std::sync::MutexGuard<'_, HashMap<u64, Arc<crate::sse::CommandGate>>> {
+        // A map of handles, valid whatever panicked holding it.
+        self.command_gates
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A stream opened under `conn_id`: its numbered commands are ordered
+    /// from now on.
+    pub fn open_command_gate(&self, conn_id: u64) {
+        self.gates().insert(conn_id, Arc::default());
+    }
+
+    pub fn command_gate(&self, conn_id: u64) -> Option<Arc<crate::sse::CommandGate>> {
+        self.gates().get(&conn_id).cloned()
+    }
+
+    pub fn close_command_gate(&self, conn_id: u64) {
+        self.gates().remove(&conn_id);
     }
 
     /// Into the `JoinSet` shutdown drains. A long-running task selects on
