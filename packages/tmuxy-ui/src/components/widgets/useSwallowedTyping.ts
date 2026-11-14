@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useBindingOwnsKey } from '../../machines/appHooks';
+import { isRealFormControl } from '../../machines/actors/keyboard/keyFormatting';
 
 /**
  * A plain key typed at a widget is nobody's: the pane runs no program that
@@ -17,6 +18,8 @@ export function useSwallowedTyping(active: boolean) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!activeRef.current || e.ctrlKey || e.altKey || e.metaKey) return;
+      // A text box of the widget's own (a comment) takes its keys.
+      if (isRealFormControl(e.target)) return;
       if (bindingOwnsKey(e.key)) return;
       e.stopPropagation();
     };

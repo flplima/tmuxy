@@ -2,7 +2,13 @@ import { realId, type PaneId } from './ids';
 import { isPluginName } from './plugins';
 // PASTE_BUFFER: named, so a paste never replaces the buffer the user last
 // yanked, and dropped again once pasted.
-import { CLI_PATH, PASTE_BUFFER, SCRIPT_EFFECT_TAGS, SCRIPTS_DIR } from './tmuxyConstants.gen';
+import {
+  AGENT_TAKES_INPUT,
+  CLI_PATH,
+  PASTE_BUFFER,
+  SCRIPT_EFFECT_TAGS,
+  SCRIPTS_DIR,
+} from './tmuxyConstants.gen';
 
 const LITERAL_CHUNK_SIZE = 500;
 
@@ -183,17 +189,46 @@ export function tmuxDoubleQuoted(text: string): string {
  * paste from the outer terminal would under native tmux.
  */
 export function pastedText(to: string, text: string): string {
+  const commands = staged(PASTE_BUFFER, text);
+  if (commands.length === 0) return '';
+  commands.push(pasteBufferInto(to));
+  return commands.join('\n');
+}
+
+/** `text` put in tmux buffer `buffer`, control characters dropped, in chunks. */
+function staged(buffer: string, text: string): string[] {
   const chars = Array.from(withoutControls(text).replace(/\r\n/g, '\n'));
   const commands: string[] = [];
   for (let i = 0; i < chars.length; i += LITERAL_CHUNK_SIZE) {
     const chunk = chars.slice(i, i + LITERAL_CHUNK_SIZE).join('');
     const append = i === 0 ? '' : '-a ';
-    commands.push(`set-buffer ${append}-b ${PASTE_BUFFER} ${tmuxDoubleQuoted(chunk)}`);
+    commands.push(`set-buffer ${append}-b ${buffer} ${tmuxDoubleQuoted(chunk)}`);
   }
+  return commands;
+}
+
+/**
+ * A diff review typed to the agent in pane `to`: staged, then pasted and
+ * entered only if tmux, in the same command list, finds an agent there that
+ * waits for nothing (`AGENT_TAKES_INPUT`). So a dialog the client has not
+ * seen yet, or a shell left where the agent was, gets no keys: the staged
+ * review is dropped and a message says so. The paste goes to that pane
+ * alone, even in a synchronized window.
+ */
+export function reviewInto(to: PaneId, text: string, id: string): string {
+  // A buffer of its own, apart from a paste's and from another review's.
+  const buffer = `tmuxy-review-${id.replace(/[^a-z0-9]/gi, '')}`;
+  const commands = staged(buffer, text);
   if (commands.length === 0) return '';
-  commands.push(pasteBufferInto(to));
+  const send = `paste-buffer -p -d -b ${buffer} -t ${to} ; send-keys -t ${to} Enter`;
+  const refuse = `delete-buffer -b ${buffer} ; display-message ${tmuxDoubleQuoted(REVIEW_REFUSED)}`;
+  commands.push(`if-shell -F -t ${to} '${AGENT_TAKES_INPUT}' { ${send} } { ${refuse} }`);
   return commands.join('\n');
 }
+
+/** What tmux says when it refuses a review (no `%` or `#`: the message is expanded). */
+export const REVIEW_REFUSED =
+  'Review not sent: the agent is waiting for an answer, or is gone. Restore brings your comments back.';
 
 /**
  * The staged paste delivered to `to`, or to every synchronized pane of its

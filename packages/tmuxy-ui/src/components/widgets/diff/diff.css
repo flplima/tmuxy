@@ -215,3 +215,104 @@
 .diff-widget.is-phone .diff-no {
   width: 4ch;
 }
+
+/* Comments: a "+" in each line's gutter starts one, and it shows under its
+   line. The review bar sits at the foot once there is one. */
+.diff-comment-add {
+  flex: none;
+  width: 2ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dimmed);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.diff-line:hover .diff-comment-add,
+.diff-comment-add:focus-visible,
+.diff-widget.is-phone .diff-comment-add {
+  opacity: 1;
+}
+
+.diff-comment,
+.diff-comment-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1ch;
+  align-items: flex-start;
+  margin: 2px 1ch 4px 9ch;
+  padding: 4px 1ch;
+  border-left: 2px solid var(--theme-accent);
+  background-color: var(--bg-medium);
+  white-space: normal;
+}
+
+.diff-comment-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-comment-editor textarea {
+  flex: 1 1 100%;
+  min-height: 3lh;
+  background-color: var(--term-background);
+  color: var(--text-primary);
+  font: inherit;
+  border: 1px solid var(--border-medium);
+}
+
+.diff-comment button,
+.diff-comment-actions button,
+.diff-review-bar button,
+.diff-review-bar select {
+  padding: 2px 1ch;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.diff-comment-actions {
+  display: flex;
+  gap: 1ch;
+}
+
+.diff-review-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 1ch;
+  align-items: center;
+  padding: 4px 1ch;
+  border-top: 1px solid var(--border-medium);
+}
+
+.diff-review-target {
+  display: flex;
+  gap: 1ch;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.diff-review-bar .diff-review-send {
+  margin-left: auto;
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+.diff-widget.is-phone .diff-comment,
+.diff-widget.is-phone .diff-comment-editor {
+  margin-left: 1ch;
+}
+
+.diff-widget.is-phone .diff-review-bar button,
+.diff-widget.is-phone .diff-review-bar select,
+.diff-widget.is-phone .diff-comment-actions button {
+  min-height: 36px;
+}

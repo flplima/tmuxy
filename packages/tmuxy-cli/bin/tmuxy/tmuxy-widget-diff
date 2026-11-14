@@ -1,16 +1,17 @@
 #!/bin/bash
 # Show the changes of a git checkout in a tmuxy `diff` widget pane
 #
-# Usage: tmuxy widget diff [folder]
+# Usage: tmuxy widget diff [--to PANE] [folder]
 #
-#   folder   a folder inside a git checkout; the current one without it
+#   --to PANE  the pane a review is sent to (a pane id, %N); else an agent beside it
+#   folder     a folder inside a git checkout; the current one without it
 #
 # The UI reads the changes through tmuxy, in the scope it is switched to:
 # unstaged, staged, or the branch against its base. Which checkout it may
 # read is decided here, out of band: the checkout's top folder is a pane
 # option, written through `run-shell` before the widget marker and cleared
 # on the way out, so nothing the pane prints and nothing a client asks can
-# point the diff at another folder (see docs/SECURITY-CONTENT.md). The UI
+# point the diff at another folder (see docs/SECURITY-WIDGETS.md). The UI
 # reads again while the pane is on screen; nothing is printed under the
 # marker but the checkout's name.
 
@@ -20,13 +21,27 @@ set -euo pipefail
 source "${0%/*}/_lib"
 
 usage() {
-  sed -n '4,6p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '4,7p' "$0" | sed 's/^# \{0,1\}//'
 }
 
-case "${1:-}" in
-  --help|-h) usage; exit 0 ;;
-  --) shift ;;
-  -*) _die_usage "Unknown option: $1" usage ;;
+TO=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help|-h) usage; exit 0 ;;
+    --to)
+      [ $# -ge 2 ] || _die_usage "--to needs a pane id" usage
+      TO="$2"; shift 2 ;;
+    --) shift; break ;;
+    -*) _die_usage "Unknown option: $1" usage ;;
+    *) break ;;
+  esac
+done
+case "$TO" in
+  ''|%[0-9]|%[0-9]*[0-9]) ;;
+  *) _die_usage "--to takes a pane id like %3" usage ;;
+esac
+case "$TO" in
+  %*[!0-9]*) _die_usage "--to takes a pane id like %3" usage ;;
 esac
 if [ $# -gt 1 ]; then
   _die_usage "one folder at most" usage
@@ -58,6 +73,7 @@ _run_safe "set-option -p -t $PANE $OPT_PANE_DIFF $(shquote "$ROOT")"
 NAME="$(basename "$ROOT")"
 hold() {
   echo "$NAME"
+  [ -z "$TO" ] || echo "to:$TO"
   while :; do sleep 3600; done
 }
 

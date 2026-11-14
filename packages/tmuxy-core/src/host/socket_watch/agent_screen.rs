@@ -24,6 +24,25 @@ pub use crate::agent_dialog::{is_agent, shows_dialog, AGENT_COMMANDS};
 use crate::argv::run_shell_word;
 use crate::constants::tmux_options;
 
+/// A tmux format, `1` while text may be typed into the pane for its agent:
+/// one of [`AGENT_COMMANDS`] runs there (Claude Code under its version
+/// number too), it is not waiting for an answer, and no `pane send` question
+/// is up. Evaluated by tmux in the same command list as the keys it guards
+/// (the diff review's send), so a shell, or a dialog the client has not seen
+/// yet, gets nothing.
+pub fn agent_takes_input_format() -> String {
+    use crate::constants::tmux_options::{ASK, PANE_STATE};
+    let command = "#{pane_current_command}";
+    let agent = AGENT_COMMANDS
+        .iter()
+        .map(|name| format!("#{{==:{command},{name}}}"))
+        .chain([format!("#{{m:[0-9]*.[0-9]*,{command}}}")])
+        .reduce(|either, next| format!("#{{||:{either},{next}}}"))
+        .unwrap_or_default();
+    let needs_input = crate::PaneStateName::NeedsInput.as_str();
+    format!("#{{&&:{agent},#{{&&:#{{!=:#{{{PANE_STATE}}},{needs_input}}},#{{==:#{{{ASK}}},}}}}}}")
+}
+
 /// The panes whose `needs-input` a dialog on screen backs: the ones the
 /// screen may take it off again once the dialog is gone.
 #[derive(Default)]
