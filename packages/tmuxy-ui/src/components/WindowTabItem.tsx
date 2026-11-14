@@ -1,3 +1,4 @@
+import { TabJumpHint } from './JumpHint';
 import { siblingShift, type useReorderDrag } from './useReorderDrag';
 import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
@@ -113,6 +114,7 @@ export function WindowTabItem({
           return (
             <>
               <TabMark icon={icon} state={tabStates.get(window.id) ?? 'idle'} />
+              <TabJumpHint position={visualIndex} />
               <span className="tab-name-label">{label}</span>
             </>
           );

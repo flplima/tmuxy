@@ -48,17 +48,44 @@ export type ClientKey =
   | 'tab-overview'
   | 'keys-view'
   | 'tab-left'
-  | 'tab-right';
+  | 'tab-right'
+  | 'command-palette'
+  | 'go-to';
 
 export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
-  prefix: { s: 'left-sidebar', S: 'right-sidebar', w: 'tab-overview', '?': 'keys-view' },
+  prefix: {
+    s: 'left-sidebar',
+    S: 'right-sidebar',
+    w: 'tab-overview',
+    '?': 'keys-view',
+    P: 'command-palette',
+    g: 'go-to',
+  },
   tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
 };
 
 /**
- * The chords the keyboard actor answers before any table (its ctrl+digit
- * branch): ctrl+0 opens the Tab Overview, and ctrl+1-9 picks a tab by its
- * position in the strip (`TAB_POSITION_CHORDS`).
+ * Client keys on keys tmux binds nothing to by default. A binding found on
+ * one is the user's own or a plugin's, and it wins: the client answers the
+ * key only while the table has none.
  */
-export const CLIENT_CHORDS: Partial<Record<ClientKey, string>> = { 'tab-overview': 'ctrl+0' };
+const YIELDING_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set(['command-palette', 'go-to']);
+
+/** The client key `key` of `table` runs; `bound` says the table has a binding on it. */
+export function clientKeyFor(table: string, key: string, bound: boolean): ClientKey | undefined {
+  const clientKey = CLIENT_KEYS[table]?.[key];
+  if (clientKey && bound && YIELDING_CLIENT_KEYS.has(clientKey)) return undefined;
+  return clientKey;
+}
+
+/**
+ * The chords the keyboard actor answers before any table: ctrl+0 opens the
+ * Tab Overview, ctrl+1-9 picks a tab by its position in the strip
+ * (`TAB_POSITION_CHORDS`), and ctrl+shift+p (cmd+shift+p too) opens the
+ * command palette.
+ */
+export const CLIENT_CHORDS: Partial<Record<ClientKey, string>> = {
+  'tab-overview': 'ctrl+0',
+  'command-palette': 'ctrl+shift+p',
+};
 export const TAB_POSITION_CHORDS = 'ctrl+1-9';
