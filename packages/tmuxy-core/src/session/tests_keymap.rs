@@ -69,6 +69,7 @@ fn the_shipped_chain_says_where_each_of_its_keys_comes_from() {
         tab.source,
         Source {
             layer: Layer::Defaults,
+            plugin: None,
             file: Some(s.defaults()),
             line: Some(defaults_line("bind t switch-client -T tab")),
         }
@@ -129,6 +130,7 @@ fn the_users_lines_win_and_what_they_replace_is_remembered() {
     let map = keymap(&s.layout);
     let mine = |line| Source {
         layer: Layer::UserConf,
+        plugin: None,
         file: Some(conf.clone()),
         line: Some(line),
     };
@@ -244,4 +246,36 @@ fn a_servers_own_bindings_are_added_as_tmuxs() {
     map.only_table("tab");
     assert!(map.bindings.iter().all(|binding| binding.table == "tab"));
     assert!(!map.bindings.is_empty());
+}
+
+/// A plugin's key is bound only where nothing else is: a file of the chain
+/// always wins, then the plugin that asked first. Listed under its plugin,
+/// not as tmux's, once the server lists it too.
+#[test]
+fn a_plugin_key_is_bound_only_where_nothing_else_is() {
+    let s = Scratch::new("plugin");
+    s.write(&s.layout.user_conf(), "bind M-u display-message mine\n");
+    let mut map = keymap(&s.layout);
+    let manifest = s.layout.config.join("tmuxy-plugin.toml");
+    let asks = |plugin: &str, key: &str| Binding {
+        table: "prefix".to_string(),
+        key: key.to_string(),
+        command: format!("plugin action {plugin}:open"),
+        repeat: false,
+        source: Source::plugin(plugin, &manifest),
+    };
+
+    assert_eq!(map.add_plugin_key(asks("user", "M-o")), None);
+    let taken = map.add_plugin_key(asks("user", "M-u")).unwrap();
+    assert_eq!(taken.layer, Layer::UserConf);
+    assert_eq!(taken.line, Some(1));
+    let second = map.add_plugin_key(asks("other", "M-o")).unwrap();
+    assert_eq!(second.to_string(), "plugin user");
+
+    map.add_unattributed([Binding {
+        source: Source::tmux(),
+        ..asks("user", "M-o")
+    }]);
+    assert_eq!(bound(&map, "prefix", "M-o").source.layer, Layer::Plugin);
+    assert_eq!(bound(&map, "prefix", "M-u").source.layer, Layer::UserConf);
 }
