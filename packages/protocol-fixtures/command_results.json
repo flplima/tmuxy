@@ -5,6 +5,24 @@
   "connect_server": [
     null
   ],
+  "create_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
+  "delete_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
   "detach_client": [
     null
   ],
@@ -352,6 +370,15 @@
       }
     ]
   ],
+  "list_profiles": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
   "list_servers": [
     {
       "currentId": "localhost",
@@ -426,6 +453,15 @@
   "record_trace": [
     null
   ],
+  "rename_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
   "restore_session": [
     null
   ],
@@ -458,5 +494,14 @@
   ],
   "stage_preview": [
     null
+  ],
+  "use_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
   ]
 }

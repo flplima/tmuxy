@@ -14,6 +14,7 @@ import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
 import { paneMenuSpec } from './paneMenu';
 import { tabMenuSpec } from './tabMenu';
 import { pluginsSubmenu } from './pluginMenu';
+import { profilesSubmenu } from './profilesMenu';
 import {
   command,
   commandHint,
@@ -116,6 +117,8 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec 
     },
     separator,
     { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
+    // The demo's backend keeps no profiles.
+    !env.isDemo && profilesSubmenu(ctx.profiles),
     separator,
     {
       kind: 'item',

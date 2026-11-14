@@ -169,6 +169,20 @@ export const uiPrefsActions = {
     enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
   }),
 
+  // --- Terminal profiles (docs/PROFILES.md) --------------------------------
+  // The backend switches the session and repaints it through the theme
+  // settings it pushes; the menu renders the profiles it answers with.
+
+  uiPrefs_profileCall: act(({ event, enqueue }) => {
+    if (event.type !== 'PROFILE_CALL') return;
+    enqueue(sendTo('tmux', { type: 'PROFILE_CALL' as const, call: event.call }));
+  }),
+
+  uiPrefs_acceptProfiles: assignCtx(({ event }) => {
+    if (event.type !== 'PROFILES_RECEIVED') return {};
+    return { profiles: event.profiles };
+  }),
+
   // --- Local action tracing (docs/TRACING.md) -----------------------------
   // Each mutation asks the backend and then re-reads it, rather than assuming
   // the request took: a kill switch can refuse an enable, and the level is

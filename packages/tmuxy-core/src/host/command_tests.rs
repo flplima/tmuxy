@@ -1,4 +1,5 @@
 use super::*;
+use crate::host::ClientId;
 use serde_json::json;
 
 fn parse(v: serde_json::Value) -> ClientCommand {

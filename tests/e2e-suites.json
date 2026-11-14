@@ -72,7 +72,7 @@
     },
     {
       "name": "personalization-plugins",
-      "path": "tests/1[678]-(personalization|plugin)"
+      "path": "tests/(1[678]-(personalization|plugin)|29-profiles)"
     },
     {
       "name": "services",

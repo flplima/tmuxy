@@ -21,9 +21,22 @@ Sessions are matched by name: a renamed session loses its profile, and a new ses
 
 When the app attaches to a session with a profile, after the config chain and the remembered choices, it sets the profile's values on that session only (`set-option -t <session>`), over the global ones, and tags the session with `@tmuxy-profile`. Other sessions keep the global settings. An option the user's `tmuxy.conf` pins stays pinned, as it does for the menus. A profile that is missing or does not parse is logged and skipped, and the session keeps the global settings.
 
+## The View menu
+
+View > Profiles lists every profile, the session's checked, the Default Profile first. Picking one moves the session to it at once: the server unsets what the last profile set on the session, sets the new one's values, remembers the choice, and sends every client of the session the theme settings again, which tmux resolves from the session's own options first. The page repaints with no reload, and other sessions keep theirs.
+
+| Item | What it does |
+| --- | --- |
+| New Profile... | Makes an empty profile (one that changes nothing) and moves the session to it |
+| Duplicate Profile... | Copies the session's profile under a new name and moves the session to the copy |
+| Rename Profile... | Renames the file, and every session that used it follows |
+| Delete Profile... | Deletes the file after a confirmation; sessions that used it go back to the Default Profile |
+
+Rename and Delete are greyed out on the Default Profile. A name is checked in the dialog as it is typed (empty, padded or taken), and the server checks it again. The client calls are `list_profiles`, `use_profile`, `create_profile`, `rename_profile` and `delete_profile` (`tmuxy-core/src/host/profiles.rs`), and each answers the profiles and the session's. The desktop's native menu bar is built from the same spec (`components/menus/specs/profilesMenu.ts`), so it has the same submenu.
+
 ## Tests
 
-`profiles_tests.rs`, in scratch directories only:
+`profiles_tests.rs` and `profilesMenu.test.ts`, in scratch directories only:
 
 - the Default Profile adds no command and leaves the state file as it was;
 - a session's profile sets its values on that session only, and leaves pinned options alone;
@@ -31,3 +44,6 @@ When the app attaches to a session with a profile, after the config chain and th
 - profiles are created, copied, renamed and deleted, and the default one cannot be;
 - names and the file schema are checked, and a theme or mode no theme could have is refused;
 - a profile setting any security key, `sendAsk` off among them, is refused, and no profile field reaches the send-ask option.
+- a switch unsets the last profile's options first, and the session map is written whole;
+- the submenu checks the session's profile and greys out Rename and Delete on the default;
+- `tests/29-profiles.test.js` drives View > Profiles in a browser: pick, duplicate, rename (a taken name refused in the dialog), delete and new, with the page repainted live and the files and the session map checked at each step.

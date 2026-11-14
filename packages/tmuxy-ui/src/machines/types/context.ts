@@ -5,7 +5,7 @@ import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxPane, TmuxWindow, PaneGroup } from '../../domain/client';
 import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
-import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
+import type { ProfilesInfo, ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { TmuxOp } from '../../domain/commands';
 import type { PendingClose } from '../../domain/closeGuard';
@@ -271,6 +271,8 @@ export interface AppMachineContext {
   /** Current theme mode: a palette, or `auto` for the operating system's */
   themeMode: ThemeMode;
   availableThemes: ThemeInfo[];
+  /** The terminal profiles and this session's, as the backend last answered; null until then. */
+  profiles: ProfilesInfo | null;
   /**
    * Local action tracing as the backend last reported it, or null before the
    * Debug menu has asked. Never assumed from the client side: an enable can be

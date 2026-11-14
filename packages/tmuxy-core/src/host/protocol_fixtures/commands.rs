@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 36;
+const COMMANDS: usize = 41;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -58,7 +58,23 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::GetLastCommandOutput { .. } => 33,
         C::OwnTmuxOffer => 34,
         C::CloseOwnTmuxOffer => 35,
+        C::ListProfiles => 36,
+        C::UseProfile { .. } => 37,
+        C::CreateProfile { .. } => 38,
+        C::RenameProfile { .. } => 39,
+        C::DeleteProfile { .. } => 40,
     }
+}
+
+fn profiles() -> Vec<serde_json::Value> {
+    vec![serde_json::to_value(crate::profiles::ProfilesInfo {
+        active: "Reading".to_string(),
+        names: vec![
+            crate::profiles::DEFAULT_PROFILE.to_string(),
+            "Reading".to_string(),
+        ],
+    })
+    .unwrap()]
 }
 
 fn pane() -> PaneId {
@@ -105,6 +121,17 @@ fn every_request() -> Vec<ClientCommand> {
         },
         C::SetThemeMode { mode: s("light") },
         C::GetThemesList,
+        C::ListProfiles,
+        C::UseProfile { name: s("Reading") },
+        C::CreateProfile {
+            name: s("Reading copy"),
+            from: Some(s("Reading")),
+        },
+        C::RenameProfile {
+            from: s("Reading copy"),
+            to: s("Night"),
+        },
+        C::DeleteProfile { name: s("Night") },
         C::SetCursorBlink { enabled: true },
         C::SetSendAsk { enabled: false },
         C::SetTransparency { enabled: true },
@@ -257,6 +284,11 @@ fn every_command_answer_matches_its_fixture() {
                 modes: vec!["dark", "light"],
             }]),
         ),
+        ("list_profiles", profiles()),
+        ("use_profile", profiles()),
+        ("create_profile", profiles()),
+        ("rename_profile", profiles()),
+        ("delete_profile", profiles()),
         ("set_cursor_blink", null()),
         ("set_send_ask", null()),
         ("set_transparency", null()),
