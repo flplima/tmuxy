@@ -63,6 +63,8 @@ impl<W> MonitorCore<W> {
         // Flow control (tmux 3.2+): tmux pauses a pane whose output this
         // client is 5+ seconds behind on, rather than buffering without bound.
         commands.push("refresh-client -f pause-after=5".to_string());
+        // The server's own version, before anything that depends on it.
+        commands.push(self.aggregator.markers().version_read_command());
         commands.extend(self.aggregator.markers().window_relist_commands());
         // Title changes have no notification of their own; this asks tmux to
         // send one. Nor does a theme change.

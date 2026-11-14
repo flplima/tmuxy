@@ -198,9 +198,9 @@ async function typeInTerminal(page, text, { target } = {}) {
   // every device, so its being the active element is the signal that a
   // keystroke will land in a pane.
   await waitForKeyboardFocus(page);
-  // Per-character typing with delay — the HttpAdapter batches literal
-  // characters into a single send-keys -l command and serializes HTTP
-  // requests, preventing transposition.
+  // Per-character typing with delay — the transport batches literal
+  // characters into a single send-keys -l command and the server runs the
+  // numbered POSTs in order, preventing transposition.
   for (const char of text) {
     await page.keyboard.type(char);
     await delay(30);

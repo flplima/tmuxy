@@ -115,6 +115,12 @@ pub mod tmux_options {
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
 
+    /// Pane-scoped: what the pane's program reported behind its state with
+    /// OSC 7501, as a report body (`state=blocked:kind=permission:msg=…`,
+    /// free text base64). Written by the host that read the report
+    /// (`control_mode/program_status.rs`), beside [`PANE_STATE`].
+    pub const PANE_STATUS: &str = "@tmuxy-pane-status";
+
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the
     /// shell scripts' `_contract`).
