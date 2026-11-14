@@ -34,6 +34,13 @@ interface ItemBase {
   keyHint?: string;
   /** A native accelerator (`CmdOrCtrl+T`); the in-app renderer shows `keyHint`. */
   accelerator?: string;
+  /**
+   * It ends something that does not come back (a pane's program, a tab, the
+   * app's run) and asks nothing first. In a menu that is fine: a click is
+   * aimed. A surface that can run an item without one (the command palette,
+   * whose Enter runs whatever row is highlighted) asks before it does.
+   */
+  destructive?: boolean;
   /** Extra `data-*` attributes on the in-app item, for tests. */
   data?: Record<string, string>;
   className?: string;

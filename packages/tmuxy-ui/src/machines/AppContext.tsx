@@ -15,6 +15,7 @@ import { tracer } from '../infra/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createLinkModifierActor } from './actors/linkModifierActor';
+import { createJumpHintsActor } from './actors/jumpHintsActor';
 import { createGestureActor } from './gestures/gestureActor';
 import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
@@ -53,6 +54,7 @@ export function AppProvider({
         tmuxStoreActor: createTmuxStoreActor(store, runtime),
         keyboardActor: createKeyboardActor(),
         linkModifierActor: createLinkModifierActor(),
+        jumpHintsActor: createJumpHintsActor(),
         // Trackpad gestures are the desktop app's (docs/DESKTOP.md): the web
         // build keeps the machine's no-op actor and the browser its own
         // wheel, pinch-zoom and history swipe.
