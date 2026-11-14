@@ -24,6 +24,10 @@ pub(super) struct Places {
     pub(super) cwd: PathBuf,
     pub(super) claude_dir: PathBuf,
     pub(super) codex_home: PathBuf,
+    /// `$XDG_CONFIG_HOME`, else `~/.config`: where OpenCode and Crush keep theirs.
+    pub(super) config_home: PathBuf,
+    /// `$CRUSH_SKILLS_DIR`, else Crush's own under `config_home`.
+    pub(super) crush_skills: PathBuf,
     pub(super) path: Option<OsString>,
 }
 
@@ -37,17 +41,21 @@ impl Places {
                 .map(PathBuf::from)
                 .unwrap_or(default)
         };
+        let config_home = env_dir("XDG_CONFIG_HOME", home.join(".config"));
         Ok(Places {
             claude_dir: env_dir("CLAUDE_CONFIG_DIR", home.join(".claude")),
             codex_home: env_dir("CODEX_HOME", home.join(".codex")),
+            crush_skills: env_dir("CRUSH_SKILLS_DIR", config_home.join("crush/skills")),
+            config_home,
             path: std::env::var_os("PATH"),
             home,
             cwd,
         })
     }
 
-    pub(super) fn hooks_file(&self, agent: Agent, scope: Scope) -> PathBuf {
-        match (agent, scope) {
+    /// Where an agent's hooks are kept; none for an agent whose hooks are code.
+    pub(super) fn hooks_file(&self, agent: Agent, scope: Scope) -> Option<PathBuf> {
+        Some(match (agent, scope) {
             (Agent::Claude, Scope::Home) => self.claude_dir.join("settings.json"),
             // A hook names a path on this machine, so it is personal: the
             // project's local settings, not the shared ones.
@@ -56,18 +64,26 @@ impl Places {
             (Agent::Codex, Scope::Project) => self.cwd.join(".codex/hooks.json"),
             (Agent::Agy, Scope::Home) => self.home.join(".gemini/config/hooks.json"),
             (Agent::Agy, Scope::Project) => self.cwd.join(".agents/hooks.json"),
-        }
+            (Agent::Opencode | Agent::Pi | Agent::Crush, _) => return None,
+        })
     }
 
-    pub(super) fn skill_dir(&self, agent: Agent, scope: Scope) -> PathBuf {
+    /// Where an agent reads the tmuxy skill from; none where it reads no
+    /// project skills tmuxy knows of.
+    pub(super) fn skill_dir(&self, agent: Agent, scope: Scope) -> Option<PathBuf> {
         let root = match (agent, scope) {
             (Agent::Claude, Scope::Home) => self.claude_dir.join("skills"),
             (Agent::Claude, Scope::Project) => self.cwd.join(".claude/skills"),
             (Agent::Codex, Scope::Home) => self.home.join(".agents/skills"),
             (Agent::Agy, Scope::Home) => self.home.join(".gemini/config/skills"),
             (Agent::Codex | Agent::Agy, Scope::Project) => self.cwd.join(".agents/skills"),
+            (Agent::Opencode, Scope::Home) => self.config_home.join("opencode/skills"),
+            (Agent::Opencode, Scope::Project) => self.cwd.join(".opencode/skills"),
+            (Agent::Pi, Scope::Home) => self.home.join(".pi/agent/skills"),
+            (Agent::Crush, Scope::Home) => self.crush_skills.clone(),
+            (Agent::Pi | Agent::Crush, Scope::Project) => return None,
         };
-        root.join("tmuxy")
+        Some(root.join("tmuxy"))
     }
 
     /// Installed on this machine: its binary is on PATH, or it has left its
@@ -77,6 +93,9 @@ impl Places {
             Agent::Claude => ("claude", self.claude_dir.clone()),
             Agent::Codex => ("codex", self.codex_home.clone()),
             Agent::Agy => ("agy", self.home.join(".gemini/antigravity-cli")),
+            Agent::Opencode => ("opencode", self.config_home.join("opencode")),
+            Agent::Pi => ("pi", self.home.join(".pi/agent")),
+            Agent::Crush => ("crush", self.config_home.join("crush")),
         };
         dir.is_dir()
             || self
@@ -393,6 +412,9 @@ pub(super) enum ItemState {
     Foreign,
     /// The file could not be read: why.
     Unreadable(String),
+    /// The agent has no such thing tmuxy can install: hooks that are code, a
+    /// project skill folder tmuxy does not know of.
+    Unsupported,
 }
 
 impl ItemState {
@@ -403,6 +425,7 @@ impl ItemState {
             ItemState::Missing => "missing",
             ItemState::Foreign => "foreign",
             ItemState::Unreadable(_) => "unreadable",
+            ItemState::Unsupported => "unsupported",
         }
     }
 

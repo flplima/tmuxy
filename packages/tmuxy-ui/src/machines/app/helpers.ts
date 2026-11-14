@@ -203,6 +203,7 @@ export function buildFloatPanesFromWindows(
     const drawer = (window.floatDrawer as DrawerDirection | null) ?? undefined;
     const backdrop = (window.floatBg as FloatBackdrop | null) ?? undefined;
     const hideHeader = window.floatNoheader || undefined;
+    const minimized = window.floatMinimized || undefined;
     // @tmuxy-float-width/height (in cells) are the float's REQUESTED size —
     // authoritative when present, and the grid the backend sizes the float's
     // window to (tmuxy-core `constants::float_grid`), so the pane a program runs in is
@@ -223,6 +224,7 @@ export function buildFloatPanesFromWindows(
         drawer,
         backdrop,
         hideHeader,
+        minimized,
       };
     } else {
       // Default dimensions: requested size, else the pane's actual size. Cap
@@ -246,6 +248,7 @@ export function buildFloatPanesFromWindows(
         drawer,
         backdrop,
         hideHeader,
+        minimized,
       };
     }
   }

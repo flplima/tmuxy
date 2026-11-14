@@ -168,6 +168,11 @@ export const TmuxWindow = Schema.mutable(
     floatBg: withDefault('float_bg', Schema.NullOr(Schema.String), () => null),
     floatNoheader: withDefault('float_noheader', Schema.Boolean, () => false),
     /**
+     * The user minimized this float to the queue at the bottom of its tab
+     * (`@tmuxy-float-minimized`); its pane keeps running. Absent is false.
+     */
+    floatMinimized: optionalFrom('float_minimized', Schema.Boolean),
+    /**
      * The window's own active pane, from the server. `pane.active` is a
      * session-wide flag (only the current window's active pane carries it), so
      * this is how a tab switch knows which pane of a background tab to land on.
