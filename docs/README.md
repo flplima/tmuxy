@@ -68,6 +68,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | --- | --- | --- |
 | [TMUX.md](TMUX.md) | Control mode architecture, command routing rules (which commands must use control mode vs. safe as subprocesses), `new-window` crash workaround, flow control | Any work involving tmux commands, pane/window operations, or shell scripts |
 | [TMUX-TAGS.md](TMUX-TAGS.md) | The `@tmuxy-*` window/pane tag schema and the pane-group model built on it (floats, groups, the stash session, window filtering) | Floats, pane groups, anything that reads or writes a tag |
+| [TMUX-TAGS-GROUPS.md](TMUX-TAGS-GROUPS.md) | Pane groups on the tags: `@tmuxy-group-id` and `@tmuxy-group-pos`, the `__tmuxy_stash` session, and `tmuxy_core::groups` | Pane groups, their order, the stash session |
 | [SUB-AGENTS.md](SUB-AGENTS.md) | Agents that start and wait on other agents in panes: `agent spawn` and `agent wait` | An orchestrator, `@tmuxy-spawned-by`, `@tmuxy-agent` |
 | [SCREEN-RULES.md](SCREEN-RULES.md) | A state for agents without hooks, from their screens, and why it never overwrites a declared one | Agents with no hooks (Gemini CLI, Aider…), the socket watch |
 | [AGENT-SETUP.md](AGENT-SETUP.md) | `tmuxy agent install`: what goes where for each agent, and what `status` says of it | Adding an agent, changing the hooks or the skill, `tmuxy agent status` |
@@ -76,6 +77,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [PROFILES.md](PROFILES.md) | Named sets of the menus' settings, one per tmux session, and the Default Profile that changes nothing | Profiles; settings that differ by session |
 | [WORKTREES.md](WORKTREES.md) | Git worktrees: removing one without losing work, and how tmuxy runs git in a repository it did not make | `tmuxy worktree`, anything that runs git in a pane's checkout |
 | [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) | Version-specific tmux behaviour tmuxy depends on or works around, 3.2 to HEAD | A bug that shows on one tmux version |
+| [PROMPT-MARKS.md](PROMPT-MARKS.md) | The shell's prompts (OSC 133): how their rows are read from tmux, the marks and the jump in the scrollback, Copy Last Output, the result a long command leaves on its pane | Working on prompt marks, the jump between prompts, or what a finished command shows |
 | [ACTIVITY.md](ACTIVITY.md) | The activity inbox: every pane that declared a state, across sessions, by urgency, and the jump to the one that needs you | Working on the inbox, cross-session attention, or `prefix A` / `U` |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
 
@@ -124,6 +126,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | --- | --- | --- |
 | [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (iTerm2, Kitty, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
 | [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) | Why every glyph must land on tmux's cell grid, and how widths are kept in agreement | Fonts, wide characters, anything that measures a cell |
+| [RICH-RENDERING-TESTING.md](RICH-RENDERING-TESTING.md) | How to try each rich-rendering protocol by hand, and the tests that cover them | Testing images, links or OSC sequences |
 
 ## Conventions
 
