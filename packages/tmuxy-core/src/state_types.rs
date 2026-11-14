@@ -214,6 +214,10 @@ pub struct TmuxWindow {
     /// True if the float hides its header chrome (from @tmuxy-float-noheader).
     #[serde(default, skip_serializing_if = "is_false")]
     pub float_noheader: bool,
+    /// True while the user has minimized this float to the queue at the
+    /// bottom of its tab (from @tmuxy-float-minimized). Its pane keeps running.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub float_minimized: bool,
     /// A sidebar column's width in terminal columns when the user has dragged it
     /// off its default (from @tmuxy-sidebar-cols). The client draws the column
     /// at this many cells, so it must match what the backend sized the pane to.

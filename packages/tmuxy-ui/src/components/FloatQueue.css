@@ -1,0 +1,59 @@
+/* The tab's minimized floats (FloatQueue.tsx): pills along its bottom edge,
+   over the panes, leaving the rest of the edge clickable. */
+.float-queue {
+  position: absolute;
+  left: 50%;
+  bottom: var(--spacing-lg);
+  z-index: 20;
+  display: flex;
+  gap: var(--spacing-md);
+  max-width: 90%;
+  overflow-x: auto;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.float-queue-pill {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 32ch;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-medium);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-small-font-size);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+  pointer-events: auto;
+}
+
+.float-queue-restore,
+.float-queue-close {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.float-queue-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.float-queue-close {
+  opacity: 0.6;
+}
+
+.float-queue-restore:hover,
+.float-queue-close:hover {
+  background: var(--bg-highlight);
+  opacity: 1;
+}
