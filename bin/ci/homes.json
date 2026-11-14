@@ -151,7 +151,8 @@
         "packages/tmuxy-cli/bin/tmuxy/_options",
         "packages/tmuxy-core/src/constants.rs",
         "packages/tmuxy-core/src/host/socket_watch.rs",
-        "packages/tmuxy-ui/src/domain/commands.ts"
+        "packages/tmuxy-ui/src/domain/commands.ts",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts"
       ]
     },
     {
@@ -174,7 +175,8 @@
         "packages/tmuxy-cli/bin/tmuxy/_options",
         "packages/tmuxy-core/src/constants.rs",
         "packages/tmuxy-core/src/host/socket_watch.rs",
-        "packages/tmuxy-server/src/mcp/tmux.rs"
+        "packages/tmuxy-server/src/mcp/tmux.rs",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts"
       ]
     },
     {
@@ -368,13 +370,14 @@
       "allow": [
         "packages/tmuxy-core/src/cli_contract.rs",
         "packages/tmuxy-core/src/control_mode/connection/spawn.rs",
+        "packages/tmuxy-core/src/host/socket_watch/agent_rules/program.rs",
         "packages/tmuxy-core/src/plugins/fetch.rs",
         "packages/tmuxy-core/src/plugins/gc.rs",
         "packages/tmuxy-core/src/plugins/index.rs",
         "packages/tmuxy-core/src/plugins/invoke.rs",
+        "packages/tmuxy-core/src/safe_git.rs",
         "packages/tmuxy-core/src/session.rs",
         "packages/tmuxy-core/src/session_snapshot/autosave.rs",
-        "packages/tmuxy-core/src/worktrees.rs",
         "packages/tmuxy-server/src/dev.rs",
         "packages/tmuxy-server/src/server/lifecycle.rs",
         "packages/tmuxy-server/src/server/listener.rs",
@@ -382,6 +385,7 @@
         "packages/tmuxy-tauri-app/src/desktop.rs",
         "packages/tmuxy-tauri-app/src/windows/attach.rs",
         "packages/tmuxy-tauri-app/src/windows/ssh_link.rs",
+        "packages/tmuxy-verbs/src/agents/session.rs",
         "packages/tmuxy-verbs/src/connect_cli.rs",
         "packages/tmuxy-verbs/src/send_cli/wait.rs"
       ]

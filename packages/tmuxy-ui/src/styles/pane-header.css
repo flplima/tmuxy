@@ -37,6 +37,7 @@
 /* The ⋮ and ✕ are chrome: the same quiet tone on every header, active or not. */
 .pane-header .pane-header-menu,
 .pane-header .pane-header-close,
+.pane-header .pane-header-minimize,
 .pane-header .pane-tab-controls .pane-header-menu,
 .pane-header .pane-tab-controls .pane-header-close {
   color: var(--pane-header-text-inactive);
@@ -242,7 +243,8 @@
   color: #fff;
 }
 
-.pane-header-close {
+.pane-header-close,
+.pane-header-minimize {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -265,7 +267,8 @@
   z-index: var(--z-pane-chrome);
 }
 
-.pane-header-close:hover {
+.pane-header-close:hover,
+.pane-header-minimize:hover {
   background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
   opacity: 1;
 }

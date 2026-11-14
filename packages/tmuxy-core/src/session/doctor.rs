@@ -47,7 +47,7 @@ impl std::fmt::Display for DeadSource {
 /// `None` when it works the rest out at run time (another `$VARIABLE`, a
 /// glob, a `~user`, a relative path against a cwd this process does not
 /// know) — never reported, since a guess there would be a false alarm.
-fn resolve_target(word: &str, home: &Path) -> Option<(String, PathBuf)> {
+pub(super) fn resolve_target(word: &str, home: &Path) -> Option<(String, PathBuf)> {
     let written = match tmux_command::unquote(word) {
         Some(literal) => literal,
         None if word.starts_with('~') => format!("~{}", tmux_command::unquote(&word[1..])?),

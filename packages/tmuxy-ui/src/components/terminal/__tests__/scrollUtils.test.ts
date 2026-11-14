@@ -165,6 +165,21 @@ describe('sendScrollLines', () => {
     expect(cmd).toBe('send-keys -t %1 -H 1b 5b 3c 36 35 3b 31 3b 31 4d');
   });
 
+  it('sends a wheel flick over a mouse-tracking pane as one command, a report a row', () => {
+    const { events, send } = captureSends();
+    sendScrollLines({
+      send,
+      paneId: pid('%1'),
+      lines: 3,
+      alternateOn: false,
+      mouseAnyFlag: true,
+      cellX: 0,
+      cellY: 0,
+    });
+    const down = '1b 5b 3c 36 35 3b 31 3b 31 4d';
+    expect(events.map(wire)).toEqual([`send-keys -t %1 -H ${down} ${down} ${down}`]);
+  });
+
   it('prefers SGR mouse events when BOTH alternate-screen and mouse tracking are active', () => {
     // Neovim with `mouse=a` enables alternate screen AND mouse tracking.
     // It expects raw mouse wheel events, not Up/Down arrows (those would
@@ -179,11 +194,7 @@ describe('sendScrollLines', () => {
       cellX: 0,
       cellY: 0,
     });
-    expect(events).toHaveLength(2);
-    for (const ev of events) {
-      const cmd = wire(ev);
-      expect(cmd).not.toMatch(/send-keys -t \S+ (Up|Down)/);
-      expect(cmd).toBe('send-keys -t %1 -H 1b 5b 3c 36 34 3b 31 3b 31 4d');
-    }
+    const up = '1b 5b 3c 36 34 3b 31 3b 31 4d';
+    expect(events.map(wire)).toEqual([`send-keys -t %1 -H ${up} ${up}`]);
   });
 });
