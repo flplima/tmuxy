@@ -193,6 +193,8 @@ export type AppMachineEvent =
   | { type: 'TAB_OVERVIEW_MOVE'; delta: number }
   | { type: 'TAB_OVERVIEW_ACTIVATE'; index?: number }
   | { type: 'SELECT_TAB_BY_POSITION'; position: number }
+  /** ctrl+alt+1…9: the Nth pane of the tab in front, in reading order (`domain/jumpHints.ts`). */
+  | { type: 'SELECT_PANE_BY_POSITION'; position: number }
   | { type: 'REORDER_TAB'; windowId: WindowId; toIndex: number }
   | { type: 'MOVE_ACTIVE_TAB'; by: -1 | 1 }
   | { type: 'CLOSE_TAB'; windowId: WindowId }

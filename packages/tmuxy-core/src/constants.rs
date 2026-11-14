@@ -259,6 +259,8 @@ pub mod preview_lines {
 pub const DEFAULT_SERVER_PORT: u16 = 9000;
 pub const DEV_VITE_PORT: u16 = 9001;
 
+pub mod float_grid;
+
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).
 ///
