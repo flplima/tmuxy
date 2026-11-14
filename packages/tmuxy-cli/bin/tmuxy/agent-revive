@@ -1,0 +1,29 @@
+#!/bin/bash
+# The pane menu's "Revive Agent Session": `tmuxy agent revive`, run by tmux
+# through run-shell. `--mark <pane>` runs revive's own check and leaves its
+# answer on the pane (@tmuxy-revivable: `ok`, or unset), for the menu to read
+# with a query; `<pane>` revives it. The checks and the command are the
+# binary's, so the menu can never do what the CLI refuses.
+set -euo pipefail
+# shellcheck source=_lib
+source "${0%/*}/_lib"
+find_server_cmd || { echo "tmuxy: no server binary to revive with"; exit 1; }
+if [ "${1:-}" = --mark ]; then
+  pane="${2:?pane id required}"
+  [[ "$pane" =~ ^%[0-9]+$ ]] || exit 1
+  # Most panes never ran an agent: no recorded session, no binary to start.
+  session="$(_tmux display-message -p -t "$pane" '#{@tmuxy-agent-session}' 2>/dev/null || true)"
+  if [ -n "$session" ] &&
+    [ "$("${SERVER_CMD[@]}" agent revive --check "$pane" 2>/dev/null)" = ok ]; then
+    _tmux set-option -p -t "$pane" @tmuxy-revivable ok
+  else
+    _tmux set-option -pu -t "$pane" @tmuxy-revivable 2>/dev/null || true
+  fi
+  exit 0
+fi
+pane="${1:-}"
+[[ "$pane" =~ ^%[0-9]+$ ]] || { echo "tmuxy: revive takes a pane id"; exit 1; }
+# The menu's hint is spent once acted on; revive checks again either way.
+_tmux set-option -pu -t "$pane" @tmuxy-revivable 2>/dev/null || true
+# Its answer goes to tmux, which shows a failure; stderr there is the same.
+exec "${SERVER_CMD[@]}" agent revive "$pane" 2>&1

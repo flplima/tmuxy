@@ -166,6 +166,11 @@ pub mod tmux_options {
     /// its hooks; `tmuxy agent revive` resumes it. Never a command line.
     pub const AGENT_SESSION: &str = "@tmuxy-agent-session";
 
+    /// Pane-scoped: `ok` when `tmuxy agent revive --check` last said the pane
+    /// can be revived, written by the `agent-revive --mark` script for the
+    /// pane menu to read. A display hint only: revive checks again when run.
+    pub const REVIVABLE: &str = "@tmuxy-revivable";
+
     /// Pane-scoped: the state the screen rules last wrote on a pane whose
     /// agent has no hooks (`host::socket_watch::agent_rules`). They change
     /// [`PANE_STATE`] only while it still equals this, so a state anything

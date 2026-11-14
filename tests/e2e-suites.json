@@ -80,7 +80,7 @@
     },
     {
       "name": "agents",
-      "path": "tests/2[124]-(agent-states|agent-spawn|process-icons|worktrees)\\.test\\.js"
+      "path": "tests/2[1245]-(agent-states|agent-spawn|process-icons|agent-lifecycle|worktrees)\\.test\\.js"
     },
     {
       "name": "session-snapshot",

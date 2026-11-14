@@ -35,6 +35,18 @@ export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/** Where the `agent-revive --mark` check leaves its answer on a pane. */
+const REVIVABLE_OPTION = '@tmuxy-revivable';
+
+/**
+ * The read that follows a `CheckRevive` op: the answer revive's check left
+ * on the pane, `ok` or nothing. A query only reads, so the check itself runs
+ * as an op first; tmux answers a client's commands in order.
+ */
+export function reviveCheckQuery(paneId: string): string {
+  return `show-options -pqv -t ${paneId} ${REVIVABLE_OPTION}`;
+}
+
 /**
  * What the backend must know of a script run: `settle` for a script that takes
  * several tmux steps (the clients see only where it lands), `relist-windows`
