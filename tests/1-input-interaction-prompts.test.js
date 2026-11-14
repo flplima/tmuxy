@@ -137,6 +137,10 @@ describeE2E("Scenario: the shell's prompts in the scrollback", {}, (ctx) => {
         return;
       }
 
+      // The copy is written a round trip after the click, which a headless
+      // browser refuses without the permission a user's browser has: the
+      // notice says what the clipboard did, so it needs one that takes it.
+      await page.context().grantPermissions(['clipboard-write']);
       await clickMenuItem(page, ['Pane', 'Copy Last Output']);
       await waitForCondition(
         page,
