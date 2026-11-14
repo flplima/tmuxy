@@ -84,6 +84,7 @@ function tmuxRunAsOperator(command, env = tmuxEnv()) {
  * the routing of (`tmuxy plugin install`, say).
  *
  * @param {string[]} args - The CLI's arguments
+ * @param {Record<string, string>} [extraEnv] - More environment for it
  * @returns {string} What it printed
  */
 function tmuxyCli(args, extraEnv = {}) {
@@ -104,14 +105,15 @@ function tmuxyCli(args, extraEnv = {}) {
  * while it does. Resolves to its exit code and output, whatever the code.
  *
  * @param {string[]} args - The CLI's arguments
+ * @param {Record<string, string>} [extraEnv] - More environment for it
  * @returns {Promise<{code: number, stdout: string, stderr: string}>}
  */
-function tmuxyCliAsync(args) {
+function tmuxyCliAsync(args, extraEnv = {}) {
   return new Promise((resolve) => {
     execFile(
       TMUXY_CLI,
       args,
-      { cwd: WORKSPACE_ROOT, encoding: 'utf-8', timeout: 60000, env: cliEnv() },
+      { cwd: WORKSPACE_ROOT, encoding: 'utf-8', timeout: 60000, env: { ...cliEnv(), ...extraEnv } },
       (error, stdout, stderr) => resolve({ code: error ? (error.code ?? 1) : 0, stdout, stderr }),
     );
   });
