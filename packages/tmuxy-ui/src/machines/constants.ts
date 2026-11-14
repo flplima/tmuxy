@@ -13,8 +13,6 @@ export const DEFAULT_COLS = 80;
 
 export const DEFAULT_ROWS = 24;
 
-export const DEFAULT_SESSION_NAME = 'tmuxy';
-
 /**
  * How long a dropped channel stays silent before the user is told: a brief
  * drop that reconnects inside this window (a Wi-Fi roam, a sleep/wake) is

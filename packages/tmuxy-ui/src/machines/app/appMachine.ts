@@ -123,7 +123,8 @@ export const appMachine = setup({
 }).createMachine({
   id: 'app',
   initial: 'connecting',
-  context: createInitialContext(),
+  // Made per actor: the prefs and the page's session are read when the app starts.
+  context: () => createInitialContext(),
   entry: [({ context }) => applyFontSize(context.baseFontSize)],
   invoke: [
     {

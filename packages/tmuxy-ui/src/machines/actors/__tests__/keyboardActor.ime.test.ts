@@ -473,9 +473,9 @@ describe('keyboardActor — desktop IME', () => {
     pasteText('붙여넣기');
 
     expect(sendCommands(handle.events)).toEqual([
-      "send-keys -t tmuxy -l -- 'x'",
-      'send-keys -t tmuxy Tab',
-      "send-keys -t tmuxy -l -- '한'",
+      "send-keys -t '=tmuxy:' -l -- 'x'",
+      "send-keys -t '=tmuxy:' Tab",
+      "send-keys -t '=tmuxy:' -l -- '한'",
       'set-buffer -b tmuxy-paste "\\353\\266\\231\\354\\227\\254\\353\\204\\243\\352\\270\\260"\n' +
         pasteBufferInto('tmuxy'),
     ]);
@@ -505,7 +505,7 @@ describe('keyboardActor — desktop IME', () => {
     expect(sendCommands(handle.events)).toEqual([
       'new-window',
       'display-message root',
-      'send-keys -t tmuxy C-a',
+      "send-keys -t '=tmuxy:' C-a",
     ]);
     expect(sendCommands(handle.events).join('\n')).not.toContain(placeholder);
   });

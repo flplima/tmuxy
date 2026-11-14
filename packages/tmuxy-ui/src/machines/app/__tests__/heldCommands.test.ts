@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { recorder, startApp } from '../../../test/app';
-import { TmuxOp } from '../../../domain/commands';
+import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
+import { createKeyboardActor } from '../../actors/keyboardActor';
 import { HELD_MAX_AGE_MS, MAX_HELD_COMMANDS } from '../actions/connection';
 
 const typed = (text: string) => ({
@@ -29,6 +30,32 @@ describe('keys typed while the page first connects', () => {
     actor.send(typed('c'));
     expect(sentTexts(store)).toEqual(['a', 'b', 'c']);
     expect(actor.getSnapshot().context.heldCommands).toEqual([]);
+  });
+
+  /**
+   * No pane is known yet, so a key names the session the page attaches to:
+   * that one alone, never a session named by a prefix or the default one
+   * (where a reloaded page's command ran in another session, unseen).
+   */
+  it('go to the session this page attaches to, and only to it', () => {
+    window.history.replaceState(null, '', '/?session=tmuxy_test_7');
+    const store = recorder();
+    const actor = startApp({
+      connected: false,
+      actors: { tmuxStoreActor: store.logic, keyboardActor: createKeyboardActor() },
+    });
+    for (const key of ['l', 's', 'Enter']) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    }
+    actor.send({ type: 'TMUX_CONNECTED' });
+    actor.stop();
+    window.history.replaceState(null, '', '/');
+
+    expect(store.ops().map(toTmuxCommand)).toEqual([
+      "send-keys -t '=tmuxy_test_7:' -l -- 'l'",
+      "send-keys -t '=tmuxy_test_7:' -l -- 's'",
+      "send-keys -t '=tmuxy_test_7:' Enter",
+    ]);
   });
 
   it('are all dropped once more than the bound were typed: a tail is never sent', () => {

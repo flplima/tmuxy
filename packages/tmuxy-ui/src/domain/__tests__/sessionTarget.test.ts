@@ -18,7 +18,7 @@ describe('a session name keys fall back to', () => {
   ])('is one quoted target in a %s', (_, op) => {
     for (const line of toTmuxCommand(op).split('\n')) {
       if (line.startsWith('set-buffer')) continue;
-      expect(line).toContain("-t 'my work; kill-server'");
+      expect(line).toContain("-t '=my work; kill-server:'");
     }
   });
 });

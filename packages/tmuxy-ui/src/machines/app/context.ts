@@ -1,13 +1,8 @@
 import { pushSupported } from '../../infra/pushNotifications';
 import type { AppMachineContext } from '../types/context';
-import {
-  DEFAULT_SESSION_NAME,
-  DEFAULT_COLS,
-  DEFAULT_ROWS,
-  DEFAULT_CHAR_WIDTH,
-  DEFAULT_CHAR_HEIGHT,
-} from '../constants';
+import { DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { loadFontSizePref, loadPhoneSplitPref, loadThemePref } from '../../infra/prefs';
+import { getSessionFromUrl } from '../../infra/transport/endpoint';
 import { DEFAULT_SIZE_POLICY } from '../../domain/gridFit';
 import { appearancePrefs } from './appearance';
 
@@ -174,7 +169,9 @@ export function createInitialContext(): AppMachineContext {
     error: null,
     fatalError: null,
     log: [],
-    sessionName: DEFAULT_SESSION_NAME,
+    // The session this page attaches to, from its first frame: a key typed
+    // before the session's state arrives is sent there (`heldCommands`).
+    sessionName: getSessionFromUrl(),
     activeWindowId: null,
     activePaneId: null,
     panes: [],
