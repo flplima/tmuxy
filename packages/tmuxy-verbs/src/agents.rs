@@ -15,6 +15,7 @@ use crate::cli_json::{self, Answer, EXIT_FAILED};
 use serde_json::Value;
 
 mod config;
+mod wait;
 pub(crate) use config::SKILL;
 use config::*;
 
@@ -237,6 +238,9 @@ enum AgentVerb {
         #[arg(long)]
         project: bool,
     },
+    /// Wait for agents in panes to reach a state (`@tmuxy-pane-state`): idle,
+    /// needs-input, error or done; by default any of them, in the first pane.
+    Wait(wait::WaitArgs),
     /// The pane state an agent event means (backs `tmuxy agent hook`). Reads
     /// the event's JSON on stdin.
     #[command(hide = true)]
@@ -260,6 +264,9 @@ pub fn run(args: AgentArgs) {
         return;
     }
     let answer = Answer::new(args.json);
+    if let AgentVerb::Wait(wait) = args.verb {
+        return wait::run(&answer, wait);
+    }
     let places = match Places::from_env() {
         Ok(places) => places,
         Err(e) => answer.exit(EXIT_FAILED, &e),
@@ -279,7 +286,7 @@ pub fn run(args: AgentArgs) {
             fields.push(("agents", Value::Array(agents).to_string()));
             Ok(())
         }
-        AgentVerb::State { .. } => Ok(()),
+        AgentVerb::State { .. } | AgentVerb::Wait(_) => Ok(()),
     };
     // What was done before a failure is still said.
     if !answer.is_json() {

@@ -78,7 +78,7 @@ cmd_agent() {
   local verb="${1:-}"
   [ $# -gt 0 ] && shift
   case "$verb" in
-    install|uninstall|status)
+    install|uninstall|status|wait)
       find_server_cmd || exit "$EXIT_FAILED"
       # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
       exec "${SERVER_CMD[@]}" agent "$verb" ${server_json[@]+"${server_json[@]}"} "$@"
@@ -86,6 +86,7 @@ cmd_agent() {
     ""|--help|-h)
       cat <<EOF
 Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy]...
+       tmuxy agent wait <pane>... [--until <states>] [--all] [--now] [--for 10m]
 
 Show what a coding agent is doing on its tree row: working, waiting for you,
 done, failed. Its lifecycle hooks report to tmuxy; the tmuxy skill is
@@ -94,6 +95,7 @@ installed alongside, so the agent knows the CLI.
   install     Add the hooks and the skill (default: every agent found)
   uninstall   Remove them, leaving everything else as it was
   status      What is installed, per agent
+  wait        Wait for agents in panes to stop: idle, needs input, error, done
 
 Options:
   --hooks-only | --skill-only
