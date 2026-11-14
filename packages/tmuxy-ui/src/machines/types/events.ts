@@ -1,7 +1,14 @@
 import type { PushState } from '../../infra/pushNotifications';
 import type { ServerState, KeyBindings, Appearance, ProcessIcons } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
-import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../domain/wireSettings';
+import type {
+  ProfilesInfo,
+  ThemeInfo,
+  ThemeMode,
+  TraceLevel,
+  TraceSettings,
+} from '../../domain/wireSettings';
+import type { ProfileCall } from '../../domain/backendCalls';
 import type { TabStripGeometry } from '../drag/tabStripDrop';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { PromptDirection } from '../../domain/promptMarks';
@@ -387,6 +394,9 @@ export type AppMachineEvent =
       pinned?: readonly string[];
     }
   | { type: 'THEMES_LIST_RECEIVED'; themes: ThemeInfo[] }
+  /** A profile command (View > Profiles); the answer arrives as PROFILES_RECEIVED. */
+  | { type: 'PROFILE_CALL'; call: ProfileCall }
+  | { type: 'PROFILES_RECEIVED'; profiles: ProfilesInfo }
   | { type: 'CSS_CHANGED' }
   | { type: 'GESTURE_PINCH'; scale: number; paneId: PaneId | null }
   | { type: 'GESTURE_PINCH_END' }

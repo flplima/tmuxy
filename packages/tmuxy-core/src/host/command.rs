@@ -8,17 +8,17 @@
 //! What a host cannot do it answers `unavailable`, so the client can tell
 //! "not here" from "it failed".
 
-use std::future::Future;
-
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::host_ctx::{not_here, HostCtx};
 use super::plugins;
+use super::profiles::{self, ProfileCall};
 use super::requests::{self, to_json};
-use super::{ClientId, HostEvent, SessionRuntime};
+use super::{HostEvent, SessionRuntime};
 use crate::command_router::Route;
 use crate::constants::{OPENABLE_URL_SCHEMES, URL_FORBIDDEN_CHARS};
-use crate::session::{ConnectTarget, ManagedOption};
+use crate::session::ManagedOption;
 use crate::{CommandError, PaneId};
 
 #[derive(Debug, Deserialize)]
@@ -93,6 +93,27 @@ pub enum ClientCommand {
         mode: String,
     },
     GetThemesList,
+    /// The profiles, and the one the caller's session uses
+    /// (`crate::profiles`). Every profile command answers the same.
+    ListProfiles,
+    /// Move the caller's session to a profile, live.
+    UseProfile {
+        name: String,
+    },
+    /// A new profile, a copy of `from` (the default: one that changes
+    /// nothing), which the caller's session then uses.
+    CreateProfile {
+        name: String,
+        #[serde(default)]
+        from: Option<String>,
+    },
+    RenameProfile {
+        from: String,
+        to: String,
+    },
+    DeleteProfile {
+        name: String,
+    },
     SetCursorBlink {
         enabled: bool,
     },
@@ -216,48 +237,6 @@ impl ClientCommand {
     }
 }
 
-/// What a command needs of the host that received it.
-pub trait HostCtx: Sync {
-    fn runtime(&self) -> &SessionRuntime;
-
-    /// The client asking, when the host can vouch for it: the web only for a
-    /// connection id whose stream is open, since a size kept for an id no
-    /// stream owns would pin the session's size for every real client.
-    fn client(&self) -> Option<ClientId>;
-
-    /// Whether this host can point itself at another tmux server (the web
-    /// server serves only the socket it was started on).
-    fn switches_servers(&self) -> bool {
-        false
-    }
-
-    /// Reconnect to `target` (only called when [`Self::switches_servers`]).
-    fn connect(
-        &self,
-        _target: ConnectTarget,
-    ) -> impl Future<Output = Result<(), CommandError>> + Send {
-        async { Err(not_here("connecting to another server")) }
-    }
-
-    /// Detach this client, leaving the tmux server and every session running.
-    fn detach(&self) -> impl Future<Output = Result<(), CommandError>> + Send {
-        async { Err(not_here("detaching")) }
-    }
-
-    /// Hand a checked link to the system browser.
-    fn open_url(&self, _url: &str) -> Result<(), CommandError> {
-        Err(not_here("opening a link"))
-    }
-
-    fn open_path(&self, _path: &std::path::Path) -> Result<(), CommandError> {
-        Err(not_here("opening a file"))
-    }
-}
-
-fn not_here(what: &str) -> CommandError {
-    CommandError::unavailable(format!("{what} is not available here"))
-}
-
 /// Whether a link a pane printed may be handed to the browser: one of
 /// [`OPENABLE_URL_SCHEMES`], with no control, whitespace or
 /// [`URL_FORBIDDEN_CHARS`] character.
@@ -378,6 +357,17 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             Ok(Value::Null)
         }
         ClientCommand::GetThemesList => to_json(crate::theme::get_themes_list(), "themes"),
+        ClientCommand::ListProfiles => profiles::run(runtime, ProfileCall::List).await,
+        ClientCommand::UseProfile { name } => profiles::run(runtime, ProfileCall::Use(name)).await,
+        ClientCommand::CreateProfile { name, from } => {
+            profiles::run(runtime, ProfileCall::Create { name, from }).await
+        }
+        ClientCommand::RenameProfile { from, to } => {
+            profiles::run(runtime, ProfileCall::Rename { from, to }).await
+        }
+        ClientCommand::DeleteProfile { name } => {
+            profiles::run(runtime, ProfileCall::Delete(name)).await
+        }
         ClientCommand::SetCursorBlink { enabled } => {
             set_flag(runtime, ManagedOption::CursorBlink, enabled).await
         }

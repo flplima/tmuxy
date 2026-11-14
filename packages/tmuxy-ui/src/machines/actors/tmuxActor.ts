@@ -11,7 +11,8 @@ import { TmuxTransport } from '../../infra/transport/TmuxTransport';
 import { withTransport } from './withTransport';
 import { TransportEvent } from '../../infra/transport/events';
 import { parseThemeMode, type TraceLevel } from '../../domain/wireSettings';
-import type { PlainCall } from '../../domain/backendCalls';
+import type { PlainCall, ProfileCall } from '../../domain/backendCalls';
+import { profileCall } from './profileCall';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
 import {
   openPluginLink,
@@ -51,6 +52,7 @@ export type TmuxActorEvent =
   | { type: 'SET_TRACE_LEVEL'; level: TraceLevel }
   | { type: 'OPEN_TRACE_FILE' }
   | { type: 'FETCH_THEMES_LIST' }
+  | { type: 'PROFILE_CALL'; call: ProfileCall }
   | { type: 'SWITCH_SESSION'; sessionName: string }
   | { type: 'RESTORE_SESSION'; sessionName: string }
   /** Take the launch notice's offer: switch to the user's own tmux server. */
@@ -431,6 +433,17 @@ export function createTmuxActor(runtime: AppRuntime) {
             onSuccess: (themes) => parent.send({ type: 'THEMES_LIST_RECEIVED', themes }),
             logPrefix: 'get_themes_list',
             silentFail: true,
+          },
+        );
+      } else if (event.type === 'PROFILE_CALL') {
+        // The list is read on connect, where a backend without profiles (the
+        // demo's) must not raise an error; a change the user asked for does.
+        run(
+          withTransport((t) => profileCall(t, event.call)),
+          {
+            onSuccess: (profiles) => parent.send({ type: 'PROFILES_RECEIVED', profiles }),
+            logPrefix: event.call.cmd,
+            silentFail: event.call.cmd === 'list_profiles',
           },
         );
       } else if (event.type === 'RECONNECT_NOW') {

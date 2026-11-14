@@ -14,8 +14,10 @@
 mod bindings;
 pub mod command;
 mod event;
+mod host_ctx;
 mod plugins;
 pub mod prepare;
+mod profiles;
 mod prompt_marks;
 mod requests;
 mod runtime;
@@ -31,8 +33,9 @@ pub(crate) use bindings::parse_bindings;
 pub use bindings::{
     ConfigChange, ImageStore, KeyBinding, KeyBindings, MAX_PANE_IMAGE_BYTES, SOURCE_ENTRY_CONF,
 };
-pub use command::{handle, ClientCommand, HostCtx};
+pub use command::{handle, ClientCommand};
 pub use event::{ConnectionInfo, EventData, HostEvent};
+pub use host_ctx::HostCtx;
 pub use plugins::PluginToken;
 pub use prompt_marks::{last_command_output, prompt_marks, LastOutput, PromptMarks};
 pub use requests::{run_with_output, ScrollbackCells, SnapshotInfo, TraceSettings, TraceShare};

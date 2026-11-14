@@ -38,6 +38,7 @@ host -> paths
 host -> plugins
 host -> ports
 host -> preview
+host -> profiles
 host -> servers
 host -> session
 host -> session_snapshot

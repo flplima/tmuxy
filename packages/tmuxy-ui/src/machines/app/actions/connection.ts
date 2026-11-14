@@ -9,6 +9,7 @@ import {
 } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import { invokeEvent } from '../../actors/tmuxActor';
+import { profileRequest } from '../../../domain/backendCalls';
 import { memorableSessionName } from '../../../domain/sessionNames';
 import { isTauri } from '../../../infra/platform';
 import type { PanePorts } from '../../../domain/servers';
@@ -16,6 +17,12 @@ import type { PanePorts } from '../../../domain/servers';
 function fetchThemes(enqueue: EnqueueAction): void {
   enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
   enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
+  enqueue(
+    sendTo('tmux', {
+      type: 'PROFILE_CALL' as const,
+      call: profileRequest('list_profiles', {}),
+    }),
+  );
 }
 
 /**
