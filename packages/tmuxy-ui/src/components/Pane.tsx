@@ -3,6 +3,7 @@ import { usePane } from '../machines/appHooks';
 import { LogProfiler } from './renderLog';
 import { paneWidgetOf } from './widgets/registry';
 import { WidgetPane } from './WidgetPane';
+import { PaneJumpHint } from './JumpHint';
 import { TerminalPane } from './terminal/TerminalPane';
 import type { PaneId } from '../domain/ids';
 
@@ -26,12 +27,14 @@ export const Pane = memo(function Pane({ paneId }: PaneProps) {
     return (
       <LogProfiler id={`Pane:${paneId}`}>
         <WidgetPane paneId={paneId} widget={widget} />
+        <PaneJumpHint paneId={paneId} />
       </LogProfiler>
     );
   }
   return (
     <LogProfiler id={`Pane:${paneId}`}>
       <TerminalPane paneId={paneId} />
+      <PaneJumpHint paneId={paneId} />
     </LogProfiler>
   );
 });
