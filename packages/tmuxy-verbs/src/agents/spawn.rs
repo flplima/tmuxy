@@ -164,6 +164,17 @@ pub fn wrapper(dir: &Path, argv: &[String]) -> String {
     )
 }
 
+/// `word` as one argument of a tmux command list: tmux reads an argument
+/// that ends in `;` as the end of its command, and drops the `;`, so a
+/// label `fix-a;` would be stored as `fix-a`, a name another pane may have.
+/// A trailing `;` is written `\;`, which tmux reads back as `;`.
+pub(super) fn tmux_word(word: &str) -> String {
+    match word.strip_suffix(';') {
+        Some(head) => format!("{head}\\;"),
+        None => word.to_string(),
+    }
+}
+
 /// The tmux command list that places the pane and prints its id.
 pub fn place_argv(
     place: Place,
@@ -196,7 +207,7 @@ pub fn place_argv(
     argv.extend(split.into_iter().map(String::from));
     let cwd = cwd.map_or_else(
         || "#{pane_current_path}".to_string(),
-        |dir| format_literal(&dir.to_string_lossy()),
+        |dir| tmux_word(&format_literal(&dir.to_string_lossy())),
     );
     argv.extend(["-t", caller, "-c", &cwd, "-P", "-F", "#{pane_id}"].map(String::from));
     argv.push(format!("sh {}", shell_word(&script.to_string_lossy())));
@@ -219,7 +230,7 @@ pub fn tag_argv(pane: &str, caller: &str, agent: &str, label: Option<&str>) -> V
         "-t",
         pane,
         tmux_options::AGENT,
-        agent,
+        &tmux_word(agent),
     ]
     .map(String::from)
     .to_vec();
@@ -232,13 +243,13 @@ pub fn tag_argv(pane: &str, caller: &str, agent: &str, label: Option<&str>) -> V
                 "-t",
                 pane,
                 tmux_options::PANE_LABEL,
-                label,
+                &tmux_word(label),
                 ";",
                 "select-pane",
                 "-t",
                 pane,
                 "-T",
-                &format_literal(label),
+                &tmux_word(&format_literal(label)),
             ]
             .map(String::from),
         );
