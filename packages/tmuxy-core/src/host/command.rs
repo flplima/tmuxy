@@ -121,6 +121,13 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                 "preview",
             )
         }
+        ClientCommand::ReadDiff { pane_id, scope } => {
+            let tx = runtime.channel().await?;
+            to_json(
+                crate::diff_review::read_diff(&tx, &pane_id, scope).await?,
+                "diff",
+            )
+        }
         ClientCommand::StagePreview { pane_id, html } => {
             let tx = runtime.channel().await?;
             crate::preview::stage_page(&tx, runtime.preview_pages(), pane_id, html).await?;

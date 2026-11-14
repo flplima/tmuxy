@@ -438,6 +438,55 @@
   "query_tmux": [
     "%0 bash\n"
   ],
+  "read_diff": [
+    {
+      "base": "main",
+      "branch": "feature",
+      "files": [
+        {
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -1,2 +1,2 @@",
+              "lines": [
+                {
+                  "kind": "context",
+                  "new": 1,
+                  "old": 1,
+                  "text": "fn main() {"
+                },
+                {
+                  "kind": "removed",
+                  "old": 2,
+                  "text": "}"
+                },
+                {
+                  "kind": "added",
+                  "new": 2,
+                  "text": "} // end"
+                },
+                {
+                  "kind": "note",
+                  "text": "No newline at end of file"
+                }
+              ]
+            }
+          ],
+          "modeChange": "100644 → 100755",
+          "oldPath": "src/old.rs",
+          "path": "src/new.rs",
+          "status": "renamed"
+        }
+      ],
+      "name": "app",
+      "scope": "branch",
+      "truncated": false,
+      "untracked": [
+        "notes.txt"
+      ],
+      "untrackedMore": 0
+    }
+  ],
   "read_preview": [
     {
       "kind": "markdown",

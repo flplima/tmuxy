@@ -1,9 +1,10 @@
 /**
  * Throwaway git repositories for tests that need one, never one of the
- * developer's own, made with none of their git config, in the temp dir
- * (`throwawayRepo`). Shelling out lives here and not in the test file
- * because `*.test.js` may not use `child_process` (the user-path rule,
- * enforced by ESLint).
+ * developer's own, made with none of their git config: in the temp dir
+ * (`throwawayRepo`), or in a folder the test gives (`gitRepo`, for what
+ * reads a checkout: the `diff` widget). Shelling out lives here and not in
+ * the test file because `*.test.js` may not use `child_process` (the
+ * user-path rule, enforced by ESLint).
  */
 
 const fs = require('fs');
@@ -45,6 +46,12 @@ function git(dir, ...args) {
   ).trim();
 }
 
+/** A new repository on `main` in `dir`, and git bound to it. */
+function gitRepo(dir) {
+  git(dir, 'init', '-q');
+  return { git: (...args) => git(dir, ...args) };
+}
+
 /**
  * A repository named `name` with one commit, in a fresh directory of its
  * own under the temp dir; `remove` takes the directory and all in it away.
@@ -60,4 +67,4 @@ function throwawayRepo(name = 'app') {
   return { root, repo, remove: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-module.exports = { git, throwawayRepo };
+module.exports = { git, gitRepo, throwawayRepo };

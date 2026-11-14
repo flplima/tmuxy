@@ -1,0 +1,217 @@
+/* The `diff` widget. Lines keep their own spacing and scroll sideways inside
+   their file rather than wrap: a diff's columns are its meaning. */
+
+.diff-widget {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--term-background);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+}
+
+.diff-bar {
+  display: flex;
+  flex: none;
+  gap: 1ch;
+  align-items: center;
+  padding: 4px 1ch;
+  border-bottom: 1px solid var(--border-medium);
+}
+
+.diff-scopes {
+  display: flex;
+  gap: 2px;
+}
+
+.diff-bar button {
+  padding: 2px 1ch;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.diff-bar .diff-scope[aria-selected='true'] {
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+.diff-summary {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-bar .diff-refresh {
+  margin-left: auto;
+}
+
+.diff-files {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.diff-compared,
+.diff-message,
+.diff-note,
+.diff-error {
+  padding: 4px 1ch;
+  color: var(--text-muted);
+}
+
+.diff-error {
+  color: var(--error-color);
+}
+
+.diff-file {
+  border-bottom: 1px solid var(--border-medium);
+}
+
+.diff-file-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 1ch;
+  align-items: center;
+  width: 100%;
+  padding: 4px 1ch;
+  border: 0;
+  background-color: var(--bg-medium);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diff-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-status {
+  flex: none;
+  color: var(--theme-accent);
+  font-weight: 700;
+}
+
+.diff-counts {
+  display: flex;
+  flex: none;
+  gap: 1ch;
+}
+
+.diff-added {
+  color: var(--term-green);
+}
+
+.diff-removed {
+  color: var(--term-red);
+}
+
+.diff-file-body {
+  overflow-x: auto;
+}
+
+.diff-hunk-header {
+  padding: 0 1ch;
+  color: var(--text-dimmed);
+  white-space: pre;
+}
+
+.diff-line {
+  display: flex;
+  min-width: max-content;
+  white-space: pre;
+}
+
+.diff-line.is-added {
+  background-color: color-mix(in srgb, var(--term-green) 14%, transparent);
+}
+
+.diff-line.is-removed {
+  background-color: color-mix(in srgb, var(--term-red) 14%, transparent);
+}
+
+.diff-line.is-note {
+  color: var(--text-muted);
+}
+
+.diff-no {
+  flex: none;
+  width: 5ch;
+  padding-right: 1ch;
+  color: var(--text-dimmed);
+  text-align: right;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.diff-sign {
+  flex: none;
+  width: 2ch;
+  color: var(--text-muted);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The text is the one part worth selecting and copying. */
+.diff-text {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.diff-untracked {
+  padding: 4px 0;
+}
+
+.diff-untracked-title {
+  padding: 0 1ch;
+  color: var(--text-muted);
+}
+
+.diff-untracked-name {
+  padding: 0 1ch 0 3ch;
+  white-space: pre;
+}
+
+/* On a phone: one number column (the new file's, the old one's for a removed
+   line), room for a thumb on the scope tabs, and the summary under them. */
+.diff-widget.is-phone .diff-bar {
+  flex-wrap: wrap;
+}
+
+.diff-widget.is-phone .diff-bar button {
+  min-height: 36px;
+  padding: 4px 1.5ch;
+}
+
+.diff-widget.is-phone .diff-summary {
+  order: 3;
+  width: 100%;
+}
+
+.diff-widget.is-phone .diff-no-old {
+  display: none;
+}
+
+.diff-widget.is-phone .diff-line.is-removed .diff-no-old {
+  display: inline;
+}
+
+.diff-widget.is-phone .diff-line.is-removed .diff-no-new {
+  display: none;
+}
+
+.diff-widget.is-phone .diff-no {
+  width: 4ch;
+}

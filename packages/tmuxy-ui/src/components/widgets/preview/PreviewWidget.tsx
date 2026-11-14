@@ -5,41 +5,17 @@
  * failed read.
  */
 
-import { useEffect, useRef } from 'react';
 import { HtmlPreview } from './HtmlPreview';
 import { MarkdownPreview } from './MarkdownPreview';
 import { usePreviewSource } from './previewSource';
 import { usePreviewTheme } from './previewTheme';
 import { useKeyedRequest } from './useKeyedRequest';
+import { useSwallowedTyping } from '../useSwallowedTyping';
 import type { WidgetProps } from '../registry';
 import { parsePreviewLines } from '../../../domain/preview';
 import './preview.css';
-import { useAppSelector, useBindingOwnsKey } from '../../../machines/appHooks';
+import { useAppSelector } from '../../../machines/appHooks';
 import { selectPaneHoldsKeyboard } from '../../../machines/selectors/keyboard';
-
-/**
- * A plain key typed at the preview is nobody's: the pane runs no program that
- * reads it, and sent there it would echo under the widget marker. So a key with
- * no modifier stops here, unless a binding owns it (the `-` of `prefix -`); a
- * chord goes on to the app (the prefix, Ctrl+hjkl, and Ctrl+C, which
- * `WidgetPane` turns into the widget's exit). The document's capture phase runs
- * after every window capture listener (the pager's among them) and before the
- * keyboard actor's, which listens on the window as the event bubbles back.
- */
-function useSwallowedTyping(active: boolean) {
-  const activeRef = useRef(active);
-  activeRef.current = active;
-  const bindingOwnsKey = useBindingOwnsKey();
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!activeRef.current || e.ctrlKey || e.altKey || e.metaKey) return;
-      if (bindingOwnsKey(e.key)) return;
-      e.stopPropagation();
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [bindingOwnsKey]);
-}
 
 export function PreviewWidget({ paneId, lines }: WidgetProps) {
   const { rev, themed } = parsePreviewLines(lines);

@@ -40,7 +40,7 @@
  *   `image-set(…)` or a backslash escape that could spell one.
  * - **References**: a link (`<a>`) keeps `http(s):` and `#` targets, an
  *   `<image>` `data:image/…` (plus `http(s):` when the preview was opened with
- *   `--net`, docs/SECURITY-CONTENT.md), and anything else a same-document `#…`.
+ *   `--net`, docs/SECURITY-WIDGETS.md), and anything else a same-document `#…`.
  *
  * Returns null when the string does not parse as SVG at all, which the caller
  * shows as a render error rather than an empty box.
