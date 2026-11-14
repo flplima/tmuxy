@@ -259,6 +259,13 @@ production pays nothing.
   placeholders (`session-1`, `path-2`), ids, operations, timing and every number stay (a port or a process id among them)
   (`trace/share.rs` in tmuxy-core). The app's **Debug ▸ Copy Trace…** shows
   the last 20 actions redacted the same way, in full, before it copies them.
+- **Replaying a report:** `tests/helpers/trace-replay.js` turns a trace's
+  `store` lines (one per op the app ran: its name, pane, window, direction)
+  into the CLI commands that do the same, with the trace's ids mapped to live
+  ones by first appearance, and runs them in an E2E session. An op a trace
+  cannot rebuild (a resize's size, typed keys) is reported as skipped.
+  `tests/28-trace-replay.test.js` shows the shape; point a scratch test at a
+  user's redacted slice to reproduce their bug.
 
 ## Where the code lives
 

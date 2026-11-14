@@ -46,10 +46,8 @@ impl<W> MonitorCore<W> {
             self.aggregator.arm_settling(now);
             debug!("settling armed for a multi-step script");
         }
-        let relists = self
-            .aggregator
-            .markers()
-            .relist_commands(crate::tmux_compat::relists_after(&list));
+        let unannounced = crate::tmux_compat::relists_after(&list, self.aggregator.caps());
+        let relists = self.aggregator.markers().relist_commands(unannounced);
         let relists = self.relists_behind(relists, now);
 
         let id = self.fresh_reply_id();
