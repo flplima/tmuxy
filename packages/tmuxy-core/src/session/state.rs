@@ -36,6 +36,11 @@ pub struct ManagedState {
     /// into the config chain, so it has to be known before that chain is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_tmux_conf: Option<bool>,
+    /// The profile each session uses, by session name (`crate::profiles`).
+    /// A session not listed uses the Default Profile; nothing is written
+    /// here until a profile is picked.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub session_profiles: std::collections::BTreeMap<String, String>,
 }
 
 /// An option the menus can change: one [`ManagedState`] remembers and the
@@ -247,6 +252,38 @@ pub fn managed_state_commands(state: &ManagedState, pinned: &[&str]) -> Vec<Stri
             ))
         })
         .collect()
+}
+
+/// The commands that put `session`'s profile on it, given the remembered
+/// `state` and the profiles in `dir`: none for a session on the Default
+/// Profile, or one whose profile cannot be read (it is logged, and the
+/// session keeps the global settings).
+pub fn profile_commands(
+    state: &ManagedState,
+    session: &str,
+    dir: &std::path::Path,
+    pinned: &[&str],
+) -> Vec<String> {
+    let Some(name) = state.session_profiles.get(session) else {
+        return Vec::new();
+    };
+    match crate::profiles::load(dir, name) {
+        Ok(profile) => crate::profiles::session_commands(session, name, &profile, pinned),
+        Err(e) => {
+            warn!(session, profile = %name, error = %e, "the session's profile is not applied");
+            Vec::new()
+        }
+    }
+}
+
+/// [`profile_commands`] for what is on disk now.
+pub fn current_profile_commands(session: &str) -> Vec<String> {
+    profile_commands(
+        &read_managed_state(),
+        session,
+        &crate::profiles::profiles_dir(&Layout::current()),
+        &pinned_options(),
+    )
 }
 
 /// [`managed_state_commands`] for what is on disk now: the state file, less
