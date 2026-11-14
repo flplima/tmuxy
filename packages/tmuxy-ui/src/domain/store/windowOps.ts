@@ -251,6 +251,12 @@ export function reconcileRenameWindow(
   return { _tag: 'pending' };
 }
 
+/** The window flags a tag sets, by tag: the ones the client predicts. */
+const FLAG_OF: Partial<Record<WindowTag, 'sidebarHidden' | 'floatMinimized'>> = {
+  'sidebar-hidden': 'sidebarHidden',
+  'float-minimized': 'floatMinimized',
+};
+
 /**
  * A sidebar column shut or shown (`@tmuxy-sidebar-hidden`), or a float
  * minimized or brought back (`@tmuxy-float-minimized`), is the client's
@@ -262,12 +268,6 @@ export function reconcileRenameWindow(
  * The other tags this client writes size panes the server re-tiles, and
  * have no flag on the model to predict.
  */
-/** The window flags a tag sets, by tag: the ones the client predicts. */
-const FLAG_OF: Partial<Record<WindowTag, 'sidebarHidden' | 'floatMinimized'>> = {
-  'sidebar-hidden': 'sidebarHidden',
-  'float-minimized': 'floatMinimized',
-};
-
 export function predictWindowTag(
   op: TmuxOpOf<'SetWindowTag'>,
   snapshot: TmuxSnapshot,
