@@ -142,11 +142,20 @@ pub mod tmux_options {
     /// by `tmuxy pane report`. The report counts only while this is set.
     pub const REPORT_AT: &str = "@tmuxy-report-at";
 
+    /// Pane-scoped: the agent session the pane runs, `<agent>:<uuid>`, from
+    /// its hooks; `tmuxy agent revive` resumes it. Never a command line.
+    pub const AGENT_SESSION: &str = "@tmuxy-agent-session";
+
     /// Pane-scoped: the state the screen rules last wrote on a pane whose
     /// agent has no hooks (`host::socket_watch::agent_rules`). They change
     /// [`PANE_STATE`] only while it still equals this, so a state anything
     /// else declared is never overwritten.
     pub const RULES_STATE: &str = "@tmuxy-rules-state";
+
+    /// Pane-scoped: why the screen rules wrote [`RULES_STATE`], as a token
+    /// (`dialog`, `changed`, `still`, `user:<file>:<rule>`) that `tmuxy pane
+    /// state explain` turns into words.
+    pub const RULES_WHY: &str = "@tmuxy-rules-why";
 
     /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
     /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys

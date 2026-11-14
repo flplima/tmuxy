@@ -76,6 +76,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [PROFILES.md](PROFILES.md) | Named sets of the menus' settings, one per tmux session, and the Default Profile that changes nothing | Profiles; settings that differ by session |
 | [WORKTREES.md](WORKTREES.md) | Git worktrees: removing one without losing work, and how tmuxy runs git in a repository it did not make | `tmuxy worktree`, anything that runs git in a pane's checkout |
 | [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) | Version-specific tmux behaviour tmuxy depends on or works around, 3.2 to HEAD | A bug that shows on one tmux version |
+| [ACTIVITY.md](ACTIVITY.md) | The activity inbox: every pane that declared a state, across sessions, by urgency, and the jump to the one that needs you | Working on the inbox, cross-session attention, or `prefix A` / `U` |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
 
 ### Extending

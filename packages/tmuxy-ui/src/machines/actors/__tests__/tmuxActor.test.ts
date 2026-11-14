@@ -181,6 +181,55 @@ describe('tmuxActor — cancellable scrollback', () => {
   });
 });
 
+describe('tmuxActor — the activity inbox', () => {
+  it('FETCH_ACTIVITY lists every session’s panes and answers with the rows, most urgent first', async () => {
+    const asked: string[] = [];
+    const listing = [
+      'work\t@1\t0\t%1\tworking\t\tcargo\t\t\tmain',
+      'play\t@5\t0\t%7\tneeds-input\t\tclaude\t\t\tmain',
+    ].join('\n');
+    const { runtime } = fakeTransport({
+      answersQueries: true,
+      send: async (call) => {
+        if (call.cmd !== 'query_tmux') return null;
+        asked.push(call.args.command);
+        return listing;
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'FETCH_ACTIVITY', go: 'most-urgent' });
+
+    await waitFor(() => events.some((e) => e.type === 'ACTIVITY_LOADED'));
+    const loaded = events.find((e) => e.type === 'ACTIVITY_LOADED')!;
+    expect((loaded.rows as { paneId: string }[]).map((r) => r.paneId)).toEqual(['%7', '%1']);
+    expect(loaded.go).toBe('most-urgent');
+    expect(asked[0].startsWith('list-panes -a ')).toBe(true);
+    actor.stop();
+  });
+
+  it('GO_TO_PANE puts the pane in front in its session, then moves the client there', async () => {
+    const ran: string[] = [];
+    const { runtime } = fakeTransport({
+      send: async (call) => {
+        if (call.cmd === 'run_tmux_command') ran.push(call.args.command);
+        return null;
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor
+      .getSnapshot()
+      .children.tmux!.send({ type: 'GO_TO_PANE', paneId: '%7', windowId: '@5', session: 'play' });
+
+    await waitFor(() => events.some((e) => e.type === 'SWITCH_SESSION'));
+    expect(ran).toEqual(['select-window -t @5', 'select-pane -t %7']);
+    expect(events.find((e) => e.type === 'SWITCH_SESSION')).toEqual({
+      type: 'SWITCH_SESSION',
+      sessionName: 'play',
+    });
+    actor.stop();
+  });
+});
+
 describe('tmuxActor — the client size report', () => {
   const report = { type: 'SET_CLIENT_SIZE', cols: 120, rows: 30 } as const;
   const unreported = (events: Array<{ type: string }>) =>

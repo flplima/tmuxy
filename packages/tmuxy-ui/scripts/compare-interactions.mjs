@@ -152,10 +152,11 @@ for (const item of report.interactions) {
     }
   }
 
-  // Keys typed during an attach that never arrived (`lib/attach.mjs`).
+  // Keys typed during an attach that never arrived (`lib/attach.mjs`): the
+  // page holds them until it connects, so one lost is a regression.
   if (item.load?.lostKeys > 0) {
-    if (verdict === '✅') verdict = '⚠️';
-    warnings.push(
+    verdict = '❌';
+    failures.push(
       `${item.name}: ${item.load.lostKeys} of ${item.load.typedKeys} keys typed during the attach never arrived`,
     );
   }

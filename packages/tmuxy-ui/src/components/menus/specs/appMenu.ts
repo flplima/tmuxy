@@ -117,6 +117,23 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec 
     separator,
     { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
     separator,
+    {
+      kind: 'item',
+      id: 'view-activity',
+      label: 'Activity',
+      icon: 'tabs',
+      keyHint: commandHint(ctx.keybindings, 'view-activity'),
+      action: command('view-activity'),
+    },
+    {
+      kind: 'item',
+      id: 'view-activity-most-urgent',
+      label: 'Go to the Pane That Needs You',
+      icon: 'next',
+      keyHint: commandHint(ctx.keybindings, 'view-activity-most-urgent'),
+      action: command('view-activity-most-urgent'),
+    },
+    separator,
     ...LAYOUTS.map((l): AppMenuNode => {
       const layout = TmuxOp.SelectLayout({ layout: l.layout });
       return {

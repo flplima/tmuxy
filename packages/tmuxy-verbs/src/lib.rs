@@ -26,6 +26,8 @@ mod send_cli;
 #[cfg(feature = "native")]
 mod session_cli;
 #[cfg(feature = "native")]
+mod state_cli;
+#[cfg(feature = "native")]
 mod trace_view;
 #[cfg(feature = "native")]
 mod worktree_cli;
@@ -98,6 +100,11 @@ pub enum Verb {
     /// a target.
     #[command(hide = true)]
     Report(report_cli::ReportArgs),
+    /// Where a pane's state came from, and what reads its screen. Backs
+    /// `tmuxy pane state explain`, which resolves the pane.
+    #[cfg(feature = "native")]
+    #[command(hide = true)]
+    StateExplain(state_cli::StateExplainArgs),
     /// A `capture-pane -e` screen, on stdin, as HTML. Backs
     /// `tmuxy pane capture --format html`.
     #[command(hide = true)]
@@ -136,6 +143,8 @@ pub async fn run(verb: Verb) {
         Verb::Run(args) => run_cli::run(args),
         Verb::NewTab(args) => run_cli::tab_create(args),
         Verb::Report(args) => report_cli::run(args),
+        #[cfg(feature = "native")]
+        Verb::StateExplain(args) => state_cli::run(args),
         Verb::CaptureHtml => capture_cli::html(),
         #[cfg(not(feature = "native"))]
         Verb::NotHere(argv) => not_here(&argv),

@@ -151,7 +151,8 @@
         "packages/tmuxy-cli/bin/tmuxy/_options",
         "packages/tmuxy-core/src/constants.rs",
         "packages/tmuxy-core/src/host/socket_watch.rs",
-        "packages/tmuxy-ui/src/domain/commands.ts"
+        "packages/tmuxy-ui/src/domain/commands.ts",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts"
       ]
     },
     {
@@ -174,7 +175,8 @@
         "packages/tmuxy-cli/bin/tmuxy/_options",
         "packages/tmuxy-core/src/constants.rs",
         "packages/tmuxy-core/src/host/socket_watch.rs",
-        "packages/tmuxy-server/src/mcp/tmux.rs"
+        "packages/tmuxy-server/src/mcp/tmux.rs",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts"
       ]
     },
     {
@@ -383,6 +385,7 @@
         "packages/tmuxy-tauri-app/src/desktop.rs",
         "packages/tmuxy-tauri-app/src/windows/attach.rs",
         "packages/tmuxy-tauri-app/src/windows/ssh_link.rs",
+        "packages/tmuxy-verbs/src/agents/session.rs",
         "packages/tmuxy-verbs/src/connect_cli.rs"
       ]
     }

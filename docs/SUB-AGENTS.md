@@ -48,6 +48,21 @@ Ready is any state, `needs-input` included: an agent that opens on a trust or lo
 
 An agent that never gets a state (no hooks installed, no screen rule for it) always waits out `--for`; spawn it instead.
 
+## Revive
+
+The hooks of Claude Code and Codex record the session a pane runs: on a session's start and on each prompt, `@tmuxy-agent-session` becomes `<agent>:<session id>`, from the event's own JSON (`session.rs`). `tmuxy agent revive <pane>` resumes it in place once the agent has exited: it respawns the pane with `claude --resume <id>` (or `codex resume <id>`), and a shell after it, in the pane's directory.
+
+| Rule | Why |
+| --- | --- |
+| only the agent's kind and the id are kept, never a command line | any process of the same user can write a pane option; a command revive ran as written would be one anyone could plant |
+| the id must be a UUID, checked when recorded and again when read | an event's JSON is input like any other: `; rm`, `#(…)` or a newline never reach an option or a command |
+| the command comes from revive's own table of agents | the recorded kind only picks an entry |
+| a live pane is revived only when it is a shell with no child process at all; anything else is refused, naming what runs | revive respawns the pane, which kills its process and every job under it, a stopped editor included |
+| a live pane on a server reached over SSH is refused | its process ids are the other host's, so its jobs cannot be listed here |
+| the record is taken off when the session ends normally (`SessionEnd`) | revive is for an agent that was killed or crashed; a pane reused for something else must not resume an old conversation |
+
+A shell that keeps a helper process at its prompt (a prompt theme's status daemon) always has a child, so revive refuses there; quit the shell or close the pane, and revive the dead pane. Nothing reads an agent's files: the id is the one the hook was handed. The record is a claim like any pane option: a process of the same user could plant another valid id and pick which of its own conversations a revive resumes.
+
 ## Wait
 
 `tmuxy agent wait <pane>...` waits for panes, by id or label, to change to a state: `idle`, `needs-input`, `error`, `done` or `exited`; by default any but working. The first pane that gets there ends the wait, or every one with `--all`. A pane that goes away ends it with exit 3, unless `exited` was asked for. `--for` gives up with exit 1.
@@ -67,4 +82,4 @@ It reads `@tmuxy-pane-state` every 250 ms for the first 10 s, then every second 
 
 ## Tests
 
-`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` (the wait) and `tests/21-agent-spawn.test.js` (the spawn) run them through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running. A spawned child writes its report from inside its pane; the orchestrator reads it as text and JSON and gets it from `agent wait --json`, while a write from outside the pane, or one with `-t`, is refused.
+`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` (the wait) and `tests/21-agent-spawn.test.js` (the spawn) run them through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent revive` resumes a session a hook event recorded, in a fake `claude` on a PATH set for the test server only, and refuses while it runs, and a hostile session id is never recorded. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running. A spawned child writes its report from inside its pane; the orchestrator reads it as text and JSON and gets it from `agent wait --json`, while a write from outside the pane, or one with `-t`, is refused.

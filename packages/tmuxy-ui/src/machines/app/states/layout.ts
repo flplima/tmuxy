@@ -17,6 +17,7 @@ export const layoutState = {
     KEY_PRESS: { actions: 'layout_forwardKeyToDragResize' },
     RESIZE_STATE_UPDATE: { actions: 'layout_applyResizeState' },
     RESIZE_COMPLETED: { actions: 'layout_resizeCompleted' },
+    RESIZE_ANSWERED: { actions: 'layout_forwardResizeAnswer' },
     DRAG_STATE_UPDATE: { actions: 'layout_dragStateUpdate' },
   },
 } as const;

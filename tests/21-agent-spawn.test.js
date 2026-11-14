@@ -2,6 +2,7 @@
  * Sub-agents in panes: an orchestrator spawns an agent into its own tab
  * (`tmuxy agent spawn`), as an agent or a script would, through the CLI
  * against a real tmux; `tmuxy agent start` waits for it to be ready, and
+ * `tmuxy agent revive` resumes an agent's recorded session in its pane;
  * the agent reports back with `tmuxy pane report`.
  * Waiting on their states is in 21-agent-states.
  */
@@ -15,7 +16,7 @@ const {
   waitForPaneCount,
   waitForCondition,
 } = require('./helpers');
-const { tmuxyCli, tmuxyCliAsync, TMUXY_CLI } = require('./helpers/cli');
+const { tmuxyCli, tmuxyCliAsync, TMUXY_CLI, agentHookEvent } = require('./helpers/cli');
 
 /**
  * `tmuxy agent spawn` puts an agent in the caller's own tab with its task.
@@ -208,6 +209,113 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
           // Already gone.
         }
       }
+    }
+  }, 120000);
+
+  /**
+   * A hook records the session on the pane; `agent revive` resumes it in
+   * place. The "claude" is a fake on a PATH set for this test server only,
+   * and the test proves the fake ran: no real agent is started or resumed.
+   */
+  test('agent revive resumes the recorded session in the pane, and a hostile session id is never recorded', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    const caller = await page.evaluate(() => window.app?.view().activePaneId);
+    const id = '0b5c2f4e-9d3a-4c1b-8e7f-2a6d9c0e1f34';
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-e2e-revive-'));
+    const marker = path.join(scratch, 'resumed-with');
+    const fake = path.join(scratch, 'bin');
+    fs.mkdirSync(fake);
+    fs.writeFileSync(
+      path.join(fake, 'claude'),
+      `#!/bin/bash\nprintf '%s\\n' "$@" > '${marker}'\necho "fake claude resumed $2"\nexec -a claude sleep 600\n`,
+    );
+    fs.chmodSync(path.join(fake, 'claude'), 0o755);
+    const pathBefore = tmuxyCli(['run', 'show-environment', '-g', 'PATH'])
+      .trim()
+      .replace(/^PATH=/, '');
+    let child = null;
+    const extra = [];
+    try {
+      expect(pathBefore).toContain('/');
+      ctx.session.runAsOperator(`set-environment -g PATH '${fake}:${pathBefore}'`);
+      child = JSON.parse(
+        tmuxyCli(['agent', 'spawn', '--json', '--agent', 'cmd', '--', 'bash', '--norc', '-i'], {
+          TMUX_PANE: caller,
+        }),
+      ).paneId;
+      // The hook, as an agent's runs it: the event's JSON on stdin.
+      const hook = (sessionId) =>
+        agentHookEvent('claude', 'SessionStart', { session_id: sessionId }, child);
+      const recorded = () =>
+        tmuxyCli(['run', 'display-message', '-p', '-t', child, '#{@tmuxy-agent-session}']).trim();
+      hook(id);
+      expect(recorded()).toBe(`claude:${id}`);
+      for (const hostile of [
+        `${id}; touch ${scratch}/owned`,
+        `#(touch ${scratch}/owned)`,
+        `${id}\nx`,
+      ]) {
+        hook(hostile);
+        expect(recorded()).toBe(`claude:${id}`);
+      }
+      expect(fs.existsSync(path.join(scratch, 'owned'))).toBe(false);
+
+      expect(JSON.parse(tmuxyCli(['agent', 'revive', child, '--json']))).toMatchObject({
+        ok: true,
+        paneId: child,
+        agent: 'claude',
+        session: id,
+      });
+      await waitForCondition(
+        page,
+        () => fs.existsSync(marker) && fs.readFileSync(marker, 'utf-8'),
+        15000,
+        'the fake claude to be resumed',
+      );
+      expect(fs.readFileSync(marker, 'utf-8').trim().split('\n')).toEqual(['--resume', id]);
+
+      // While it runs, revive refuses: it is for a pane whose agent exited.
+      const again = await tmuxyCliAsync(['agent', 'revive', child]);
+      expect(again.code).toBe(1);
+      expect(again.stderr).toContain('revive would kill them');
+
+      // A shell holding a stopped job is refused too: respawning it would
+      // kill the job (a suspended editor, unsaved).
+      const holder = JSON.parse(
+        tmuxyCli(
+          ['agent', 'spawn', '--json', '--agent', 'cmd', '--', 'bash', '-c'].concat([
+            'sleep 600 & kill -STOP $!; exec bash --norc -i',
+          ]),
+          { TMUX_PANE: caller },
+        ),
+      ).paneId;
+      extra.push(holder);
+      agentHookEvent('claude', 'SessionStart', { session_id: id }, holder);
+      const stopped = await tmuxyCliAsync(['agent', 'revive', holder]);
+      expect(stopped.code).toBe(1);
+      // The job is named as the system lists it: `sleep`, or `bash` when it
+      // was stopped before it became sleep.
+      expect(stopped.stderr).toMatch(
+        new RegExp(`${holder}'s shell still has jobs \\((sleep|bash)\\): revive would kill them`),
+      );
+
+      // A session that ends normally is taken off the pane.
+      agentHookEvent('claude', 'SessionEnd', {}, holder);
+      expect(
+        tmuxyCli(['run', 'display-message', '-p', '-t', holder, '#{@tmuxy-agent-session}']).trim(),
+      ).toBe('');
+    } finally {
+      if (pathBefore) ctx.session.runAsOperator(`set-environment -g PATH '${pathBefore}'`);
+      for (const pane of [child, ...extra].filter(Boolean)) {
+        try {
+          tmuxyCli(['pane', 'kill', pane]);
+        } catch {
+          // Already gone.
+        }
+      }
+      fs.rmSync(scratch, { recursive: true, force: true });
     }
   }, 120000);
 
