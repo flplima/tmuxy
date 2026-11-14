@@ -101,6 +101,20 @@ _tmux_read() {
   return "$status"
 }
 
+# `$2` (a format) as pane `$1` itself answers it, on stdout. tmux's
+# display-message does not fail for a gone target: it answers for no pane,
+# or for its default one when a client is attached. So the answer carries the
+# pane's id, and a pane id answered as anything else fails with
+# $EXIT_TARGET. A target that is no pane id (`main:0.1`) is read as given.
+_pane_read() {
+  local said
+  said="$(_tmux_read display-message -p -t "$1" "#{pane_id}"$'\t'"$2")" || return $?
+  if [[ "$1" == %* ]] && [ "${said%%$'\t'*}" != "$1" ]; then
+    return "$EXIT_TARGET"
+  fi
+  printf '%s\n' "${said#*$'\t'}"
+}
+
 # After a `_tmux_read` run inside `$(…)` with its stderr dropped: a "no
 # server" there has answered already under --json (the JSON fd is the real
 # stdout) and exited only the subshell, so the caller would answer a second
@@ -181,7 +195,7 @@ verified_own_pane() {
   local claimed="${1:-}" pane_pid verdict
   [ -n "$claimed" ] || return 0
   [[ "$claimed" =~ ^%[0-9]+$ ]] || return 0
-  pane_pid="$(_tmux display-message -p -t "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
+  pane_pid="$(_pane_read "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
   [[ "$pane_pid" =~ ^[0-9]+$ ]] || return 0
   if [[ "$(_parent_of "$$")" =~ ^[1-9][0-9]*$ ]]; then
     local p="$$" i=0 ppid

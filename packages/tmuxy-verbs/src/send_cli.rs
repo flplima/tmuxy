@@ -155,18 +155,9 @@ async fn caller_name<T: ask::Tmux>(
     process: Option<&str>,
 ) -> String {
     let from_pane = match pane {
-        Some(pane) => ask::Tmux::read(
-            tmux,
-            vec![
-                "display-message".into(),
-                "-p".into(),
-                "-t".into(),
-                pane.to_string(),
-                "#{pane_current_command}".into(),
-            ],
-        )
-        .await
-        .unwrap_or_default(),
+        Some(pane) => ask::pane_read(tmux, pane, "#{pane_current_command}")
+            .await
+            .unwrap_or_default(),
         None => String::new(),
     };
     let name = [from_pane.trim(), process.unwrap_or_default().trim()]
