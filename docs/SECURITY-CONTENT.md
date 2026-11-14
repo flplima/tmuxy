@@ -78,6 +78,8 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
    - _Vector:_ A pane prints lines shaped like tmux's own block guards (`%end …`, `%begin …`), its notifications (`%exit`, `%window-close @1`), or tmuxy's marker lines, and a `capture-pane` — the initial sync, a resize, copy mode, a client's query — carries them to the aggregator inside a response block, where read as framing they would close a block early or end the connection.
    - _Policy:_ A block's body is everything up to the `%end`/`%error` that repeats its `%begin`'s guard (`control_mode/parser/block.rs`). Every marker line carries a 128-bit token the aggregator draws from the OS random source when it is made (`Markers`, via `random.rs`; per page load in wasm); it travels only on the control-mode connection and never into a pane's output. tmux does keep the commands a client ran, the token in them, in its message log (`show-messages`), readable only through the tmux socket, and a program with the socket can already run any tmux command, so imitating a marker gains it nothing; the token is a secret from what a pane prints, not from a local process. The block after a read's BEGIN marker (a capture, a list, a buffer or client read) is that read's output by position, whatever it says. A13 in [INVARIANTS.md](INVARIANTS.md). The in-browser guest's own tracker (`infra/transport/drivers/guest/controlMode.ts`) keeps fixed marker words: its tmux runs in a VM inside the user's own tab.
 
+7. **Forged Pane Status (OSC 7501)**: see [RICH-RENDERING.md](RICH-RENDERING.md#program-status-osc-7501).
+
 ### What Fuzz Tests Must Guarantee
 
 Automated fuzzing over terminal parsers and sequence handlers must verify:

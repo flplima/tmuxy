@@ -99,6 +99,7 @@ theme -> paths
 theme -> plugins
 theme -> session
 tmux_check -> session
+tmux_check -> tmux_compat
 tmux_compat -> tmux_command
 trace -> paths
 trace -> private_files

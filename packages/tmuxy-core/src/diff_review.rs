@@ -180,7 +180,8 @@ pub fn read_in(dir: &Path, scope: Scope) -> Result<DiffRead, CommandError> {
                 "diff-index".to_string(),
                 "--cached".to_string(),
                 "-M".to_string(),
-                head.clone().unwrap_or_else(|| git::EMPTY_TREE.to_string()),
+                head.clone()
+                    .unwrap_or_else(|| git::empty_tree(&root).to_string()),
             ],
             None,
         ),

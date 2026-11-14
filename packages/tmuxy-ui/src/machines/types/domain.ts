@@ -24,6 +24,17 @@ export type KeyboardOwner =
   | { readonly kind: 'panes' }
   | { readonly kind: 'float' | SidebarSide; readonly paneId: PaneId };
 
+/**
+ * A tab or pane of another session the client is on its way to: it switched
+ * sessions at `at` (ms), and picks the place when the session's state names it.
+ */
+export interface PendingGoTo {
+  readonly sessionName: string;
+  readonly windowId: WindowId;
+  readonly paneId: PaneId | null;
+  readonly at: number;
+}
+
 /** One sidebar column's state on this client. */
 export interface SidebarState {
   /**
@@ -70,6 +81,8 @@ export interface FloatPaneState {
   /** Backdrop style (default: dim) */
   backdrop?: FloatBackdrop;
   hideHeader?: boolean;
+  /** Minimized to the queue at the bottom of its tab (`@tmuxy-float-minimized`): not drawn. */
+  minimized?: boolean;
 }
 
 export interface DragState {

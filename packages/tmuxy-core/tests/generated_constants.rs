@@ -412,6 +412,7 @@ fn shell_tmux_names(out: &mut String) {
     for (name, value) in [
         ("WINDOW_TYPE", o::WINDOW_TYPE),
         ("SIDEBAR_HIDDEN", o::SIDEBAR_HIDDEN),
+        ("FLOAT_MINIMIZED", o::FLOAT_MINIMIZED),
         ("COLLAPSIBLE", o::COLLAPSIBLE),
         ("FOCUS_REQUEST", o::FOCUS_REQUEST),
         ("GROUP_ID", o::GROUP_ID),

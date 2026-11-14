@@ -70,7 +70,12 @@ fn settings_reach_git_whole_through_the_environment() {
         })
         .collect();
     let n = SETTINGS.len();
-    assert_eq!(env["GIT_CONFIG_COUNT"], Some((n + 1).to_string()));
+    // The caller's setting, then the attribute source, after the fixed ones.
+    assert_eq!(env["GIT_CONFIG_COUNT"], Some((n + 2).to_string()));
+    assert_eq!(
+        env[&format!("GIT_CONFIG_KEY_{}", n + 1)],
+        Some("attr.tree".into())
+    );
     assert_eq!(
         env[&format!("GIT_CONFIG_KEY_{n}")],
         Some("filter.x=y.clean".into())
@@ -85,7 +90,8 @@ fn settings_reach_git_whole_through_the_environment() {
     ] {
         assert_eq!(env[name], None, "{name}");
     }
-    assert_eq!(env["GIT_ATTR_SOURCE"], Some(EMPTY_TREE.into()));
+    // Outside any repository: SHA-1's empty tree.
+    assert_eq!(env["GIT_ATTR_SOURCE"], Some(EMPTY_TREE_SHA1.into()));
     assert!(!git.get_args().any(|arg| arg == "-c"));
 }
 
@@ -95,10 +101,31 @@ fn settings_reach_git_whole_through_the_environment() {
 /// nothing.
 #[test]
 fn nothing_a_repository_or_its_config_names_runs() {
-    let dir: PathBuf = std::env::temp_dir().join(format!("tmuxy-safe-git-{}", std::process::id()));
+    trap_repository("sha1");
+}
+
+/// The same in a SHA-256 repository, whose empty tree is another: named
+/// with SHA-1's, every command that reads attributes would fail there.
+#[test]
+fn nothing_runs_in_a_sha256_repository_either() {
+    trap_repository("sha256");
+}
+
+fn trap_repository(format: &str) {
+    let dir: PathBuf =
+        std::env::temp_dir().join(format!("tmuxy-safe-git-{format}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    setup(&dir, &["init", "-q", "-b", "main"]);
+    setup(
+        &dir,
+        &[
+            "init",
+            "-q",
+            "-b",
+            "main",
+            &format!("--object-format={format}"),
+        ],
+    );
     for (file, text) in [
         ("notes.txt", "one\n"),
         ("lfs.bin", "a\n"),
@@ -240,6 +267,12 @@ fn nothing_a_repository_or_its_config_names_runs() {
         let out = said(&dir, &global, args);
         assert!(out.success, "git {args:?} failed");
     }
+    let expected_tree = if format == "sha256" {
+        EMPTY_TREE_SHA256
+    } else {
+        EMPTY_TREE_SHA1
+    };
+    assert_eq!(empty_tree(&dir), expected_tree);
     let shortstat = String::from_utf8(said(&dir, &global, &stat).stdout).unwrap();
     assert!(shortstat.contains("4 files changed"), "{shortstat}");
     assert!(!dir.join(".git/index.lock").exists());
