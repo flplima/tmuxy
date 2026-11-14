@@ -43,6 +43,32 @@ fn setting_one_choice_keeps_the_others_and_the_file_valid() {
     }
 }
 
+/// The launch notice about the user's own tmux is answered once: the answer
+/// is kept beside the menus' choices and takes none of them with it.
+#[test]
+fn the_answer_to_the_own_tmux_notice_is_remembered() {
+    let root = std::env::temp_dir().join(format!("tmuxy-state-asked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = Layout {
+        config: root.join("config"),
+        data: root.join("data"),
+        state: root.join("state"),
+        home: root.join("home"),
+    };
+    assert_eq!(read_managed_state_in(&layout).own_tmux_asked, None);
+    std::fs::create_dir_all(&layout.state).unwrap();
+    std::fs::write(layout.state_file(), r#"{"theme":"nord"}"#).unwrap();
+    let asked = ManagedState {
+        own_tmux_asked: Some(true),
+        ..Default::default()
+    };
+    write_managed_state_in(&layout, asked).unwrap();
+    let state = read_managed_state_in(&layout);
+    assert_eq!(state.own_tmux_asked, Some(true));
+    assert_eq!(state.theme.as_deref(), Some("nord"));
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 /// The CLI the app mirrors into the data dir says this build's version; the
 /// checkout's copy holds only the placeholder (`tmuxy-cli` reads the tree's
 /// package.json for it).

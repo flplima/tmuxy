@@ -7,6 +7,7 @@
 
 import { Schema } from 'effect';
 import type { PaneId, WindowId } from './ids';
+import type { PaneField } from './paneMeta';
 
 export interface SessionTreeWindow {
   id: WindowId;
@@ -23,6 +24,8 @@ export interface SessionTreePane {
   /** Working directory tmux reports for the pane (`#{pane_current_path}`). */
   cwd: string;
   active: boolean;
+  /** The fields shown on its row (`tmuxy pane meta`), as the poll found them. */
+  fields: PaneField[];
 }
 
 /**
@@ -40,6 +43,9 @@ export const GitWorktree = Schema.Struct({
   bare: Schema.Boolean,
   locked: Schema.Boolean,
   prunable: Schema.Boolean,
+  /** Lines changed against HEAD. Only for a checkout a pane sits in, and
+   *  only where git could say (`tmuxy-core/src/worktrees/changes.rs`). */
+  changes: Schema.optional(Schema.Struct({ added: Schema.Number, removed: Schema.Number })),
 });
 export type GitWorktree = Schema.Schema.Type<typeof GitWorktree>;
 
@@ -51,6 +57,14 @@ export const GitRepository = Schema.Struct({
   worktrees: Schema.Array(GitWorktree),
 });
 export type GitRepository = Schema.Schema.Type<typeof GitRepository>;
+
+/** The TCP ports one pane's programs listen on, lowest first
+ *  (`list_pane_ports`, `tmuxy-core/src/ports.rs`). */
+export const PanePorts = Schema.Struct({
+  paneId: Schema.String,
+  ports: Schema.Array(Schema.Number),
+});
+export type PanePorts = Schema.Schema.Type<typeof PanePorts>;
 
 /**
  * SSH details for a remote tmux server — the wire shape of
@@ -116,6 +130,33 @@ export const ServerList = Schema.Struct({
   currentId: Schema.NullOr(Schema.String),
 });
 export type ServerList = Schema.Schema.Type<typeof ServerList>;
+
+/**
+ * What a launch tells a tmux user who finds none of their sessions here
+ * (`own_tmux_offer`, `tmuxy-core/src/servers.rs`): their own tmux server, the
+ * one a bare `tmux` talks to, has `sessions` of them. tmuxy runs on a socket
+ * of its own, so they are not shown until the app is pointed there.
+ */
+export const OwnTmuxOffer = Schema.Struct({
+  /** The server a switch connects to, as the picker names it. */
+  serverId: Schema.String,
+  sessions: Schema.Number,
+  /** The session a switch opens; absent when none has a name tmuxy can attach to. */
+  session: Schema.optional(Schema.String),
+  /** Whether this host can switch there itself (the desktop); the web says how to start there. */
+  canSwitch: Schema.Boolean,
+});
+export type OwnTmuxOffer = Schema.Schema.Type<typeof OwnTmuxOffer>;
+
+/**
+ * The launch notice on screen: the offer (`ask`), the switch on its way to
+ * the host (`switching`), then, once the host took it, how to make it stick
+ * (`switched`).
+ */
+export interface OwnTmuxNotice {
+  offer: OwnTmuxOffer;
+  stage: 'ask' | 'switching' | 'switched';
+}
 
 /**
  * Empty on the single-session in-browser sandboxes (demo, v86), which render

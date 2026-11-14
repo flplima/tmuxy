@@ -15,8 +15,11 @@ use std::process::Command;
 use serde::Serialize;
 use thiserror::Error;
 
+mod changes;
 pub mod create;
 pub mod guard;
+
+pub use changes::GitChanges;
 
 /// Hard limit for one discovery request. tmux provides one path per pane, so
 /// this is comfortably above normal use while bounding filesystem/Git work.
@@ -84,6 +87,10 @@ pub struct GitWorktree {
     pub bare: bool,
     pub locked: bool,
     pub prunable: bool,
+    /// Lines changed against `HEAD`, for a checkout a pane sits in. Absent
+    /// for the others, and where git could not say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changes: Option<GitChanges>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -105,10 +112,11 @@ pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<Git
     }
 
     let candidates = canonical_input_directories(paths);
+    let counted_by = std::time::Instant::now() + changes::PASS_LIMIT;
     let mut seen_common_dirs = HashSet::new();
     let mut repositories = Vec::new();
 
-    for search_path in candidates {
+    for search_path in candidates.clone() {
         let common_dir = match git_common_dir(&search_path) {
             Ok(Some(dir)) => dir,
             Ok(None) => continue,
@@ -121,7 +129,10 @@ pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<Git
             continue;
         }
         match discover_repository(&search_path, &common_dir) {
-            Ok(repository) => repositories.push(repository),
+            Ok(mut repository) => {
+                count_changes(&mut repository, &candidates, counted_by);
+                repositories.push(repository);
+            }
             Err(error) => tracing::warn!(%error, "skipping repository in worktree discovery"),
         }
     }
@@ -133,6 +144,33 @@ pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<Git
             .then_with(|| a.id.cmp(&b.id))
     });
     Ok(repositories)
+}
+
+/// Count the changes of each checkout a pane sits in: the innermost one
+/// around a pane's directory, so a pane in a nested worktree does not have
+/// the checkout around it diffed as well. All of them by `counted_by`: a
+/// checkout reached after it shows no numbers.
+fn count_changes(
+    repository: &mut GitRepository,
+    pane_dirs: &[PathBuf],
+    counted_by: std::time::Instant,
+) {
+    let mut occupied = HashSet::new();
+    for dir in pane_dirs {
+        let innermost = repository
+            .worktrees
+            .iter()
+            .enumerate()
+            .filter(|(_, worktree)| !worktree.bare && dir.starts_with(&worktree.path))
+            .max_by_key(|(_, worktree)| worktree.path.len());
+        if let Some((index, _)) = innermost {
+            occupied.insert(index);
+        }
+    }
+    for index in occupied {
+        let worktree = &mut repository.worktrees[index];
+        worktree.changes = changes::of(Path::new(&worktree.path), counted_by);
+    }
 }
 
 fn canonical_input_directories(paths: Vec<String>) -> Vec<PathBuf> {
@@ -245,6 +283,7 @@ fn discover_repository(
             bare: parsed.bare,
             locked: parsed.locked,
             prunable: parsed.prunable,
+            changes: None,
         });
     }
     if worktrees.is_empty() {

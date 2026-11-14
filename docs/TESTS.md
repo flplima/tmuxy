@@ -123,7 +123,7 @@ See [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md) for this section: Storybook Tests.
 npm run lint                               # ESLint: tests/ and tmuxy-ui
 npm test                                   # Vitest once: the UI, and the scripts' own tests
 cargo test --workspace                     # Rust (needs tmux on PATH)
-npm run test:cli                           # CLI suite, hermetic
+npm run test:cli                           # CLI suite, hermetic: a mock tmux on a socket of its own
 
 npm run test:e2e                           # Web E2E + snapshots; starts its own server if needed
 npx jest tests/2-layout-navigation.test.js # One E2E file
@@ -131,6 +131,8 @@ npx jest tests/2-layout-navigation.test.js # One E2E file
 npm run storybook -w tmuxy-ui              # Storybook dev server (required for probes)
 npm run test-storybook -w tmuxy-ui         # Probe all non-v86 stories
 npm run test-storybook:v86 -w tmuxy-ui     # Probe v86 stories (shared engine)
+
+bin/fuzz 10                                # Parser fuzzing, 10 min, capped to 2 cores and 4G (cargo test runs 48 cases per target)
 
 npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvfb, WebKitWebDriver: `webkitgtk-webdriver`, `webkit2gtk-driver` before Ubuntu 26.04)
 
@@ -141,6 +143,24 @@ npm run perf:compare -- --report tests/perf/interaction-report.json
 # Requests and bytes per user action, against budgets (needs a running server)
 npm run perf:requests -- --url http://localhost:9000
 ```
+
+### No suite touches a tmux server someone works in
+
+The suites kill panes, windows and whole servers, and they are usually started from a pane of the tmuxy being developed. The CLI suite is kept off that session by construction. The E2E and desktop suites are kept off it by the socket they are given and a list of the ones they refuse, so a server someone started under another name is still theirs to name:
+
+| Suite | Its tmux | What stops it reaching another |
+| --- | --- | --- |
+| CLI (`tests/cli/`) | A mock, never a real one | A socket name and a tmux socket directory (`TMUX_TMPDIR`) made for the run and handed to every CLI under test. No child process starts unless its environment is sealed to them: no inherited `$TMUX`, no `TMUX_BIN`, the mock first on `PATH`, never the socket names people work in (`tmuxy`, `tmuxy-dev`, `default`, `tmuxy-test`). A socket found in the run's directory afterwards fails the run. `tests/cli/helpers/seal.js`, `tests/cli/setup/` |
+| Web E2E, desktop | A real tmux on `tmuxy-test` | Every child is given the socket with `$TMUX` and `$TMUX_PANE` removed, and a `TMUX_SOCKET` that is `tmuxy`, `tmuxy-dev` or `default` (by name, or by its path in tmux's own socket directory) or the one the shell runs in is refused (`tests/helpers/tmux-socket.js`, `tests/helpers/live-socket-guard.js`) |
+| Rust | A scratch server per test binary, on a socket named after its pid | `tmuxy-core/tests/common/scratch.rs`. The server drops an inherited `TMUX_SOCKET` from its own environment, which its hooks would otherwise follow to another server |
+
+To run any of them by hand from inside tmux, and a script that is none of these, give the run a tmux socket directory of its own and nothing of the shell's: `TMUX_TMPDIR` set to a short private directory (a socket's path has about a hundred characters), with `TMUX`, `TMUX_PANE`, `TMUX_BIN` and `TMUX_SOCKET` unset. No socket name then resolves to a server someone works in.
+
+A new helper that starts a child process in `tests/cli/` takes its environment from `scriptEnv()` or `sealedEnv()` (`tests/cli/helpers/env.js`); anything else throws before the child runs. `tests/cli/harness-seal.test.js` holds each refusal.
+
+### Fuzzing the parsers
+
+`packages/tmuxy-core/tests/fuzz_parsers.rs` throws random, hostile input at the parsers that read what tmux writes and what a pane's program prints: the control-mode framing, the octal escapes of pane output, terminal sequences and OSC strings through the state aggregator, and image sequences. Each target states a property (no panic, nothing grows without bound, pane output never passes for tmux's framing, every pane keeps its size and its cursor), not one input. `cargo test` runs a few dozen cases each; `bin/fuzz` and the nightly fuzz workflow run tens of thousands under a time, memory and core cap. A failure is shrunk and saved to `fuzz_parsers.proptest-regressions`, which replays it first on every later run: commit it with the fix.
 
 ## Known Gaps
 

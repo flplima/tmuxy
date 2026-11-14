@@ -174,10 +174,12 @@ the focused pane 10,000 lines of history and reloads the page, timing from
 navigation start `attach-paint`, the focused pane showing its prompt, and
 `attach-interactive`, the first key echoed, typing a fresh token every 100 ms
 from the moment the app exists. The tokens that never show are reported as
-`lostKeys`, and `perf:compare` warns about them: a key typed during an attach
-should arrive late, never be dropped. Measured on a loaded dev machine: ~470–510
-ms to paint (~11× a keystroke), ~690–775 ms to the first echo (~17×), and about
-a third of the keys typed meanwhile lost. `--only attach` runs that alone.
+`lostKeys`, and `perf:compare` fails on any: a key typed during an attach
+arrives late, never not at all (the app holds what is typed before its first
+connection and sends it, in order, the moment it lands; `heldCommands`).
+Measured on a loaded dev machine: ~400–630 ms to paint (~11× a keystroke),
+~580–900 ms to the first echo (~17×). Before keys were held, about a fifth of
+those typed meanwhile were lost. `--only attach` runs that alone.
 
 **Two targets, one suite.** The same interactions are measured against the web
 app and against the desktop app, because they reach the same Rust core over

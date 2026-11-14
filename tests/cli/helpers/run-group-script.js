@@ -12,6 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { scriptEnv, withScratchDir } = require('./env');
+const { MOCK_TMUX, seal } = require('./seal');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SCRIPTS_DIR = path.join(REPO_ROOT, 'packages/tmuxy-cli/bin/tmuxy');
@@ -62,9 +63,19 @@ function runGroupScriptInBareTree(verb, args) {
       '#!/bin/bash\necho "dev build $*"\n',
       { mode: 0o755 },
     );
+    // Nothing of tmuxy's on PATH, and the mock as its only tmux: the
+    // system's own is in /usr/bin on most machines.
+    const bin = path.join(repo, 'only-tmux');
+    fs.mkdirSync(bin);
+    fs.symlinkSync(MOCK_TMUX, path.join(bin, 'tmux'));
     const result = spawnSync('bash', [path.join(scripts, 'pane-group'), verb, ...args], {
       encoding: 'utf8',
-      env: { PATH: '/usr/bin:/bin', HOME: repo, XDG_CONFIG_HOME: path.join(repo, 'cfg') },
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`,
+        HOME: repo,
+        XDG_CONFIG_HOME: path.join(repo, 'cfg'),
+        ...seal(),
+      },
     });
     return { stdout: result.stdout.trim(), stderr: result.stderr, exitCode: result.status };
   } finally {

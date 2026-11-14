@@ -18,6 +18,10 @@
  * which reads the pane paths from tmux itself: nothing about the filesystem is
  * sent from here). The tree matches cwds to worktrees client-side
  * (`components/gitContext.ts`).
+ *
+ * It also asks the host, once per page and when the app has connected, whether
+ * the user's own tmux server holds sessions this app is not showing
+ * (`own_tmux_offer`): the launch notice (`components/OwnTmuxNotice`).
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
@@ -29,10 +33,16 @@ import type { SessionTreeNode, SessionTreePane } from '../../domain/servers';
 import {
   APP_PANE_TITLE,
   CHROME_WINDOW_TYPES,
+  PANE_META_OPTION,
   STASH_SESSION,
+  TREE_ROW_OPTION,
 } from '../../domain/tmuxyConstants.gen';
+import { paneFields } from '../../domain/paneMeta';
 
-export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
+export type ServersActorEvent =
+  | { type: 'REFRESH_SESSIONS' }
+  /** The app connected: ask the host, once, about the user's own tmux server. */
+  | { type: 'LOOK_FOR_OWN_TMUX' };
 
 export interface ServersActorInput {
   parent: AnyActorRef;
@@ -60,7 +70,7 @@ const HIDDEN_WINDOW_TYPES = new Set<string>(CHROME_WINDOW_TYPES);
 // One `list-windows -a` / `list-panes -a` row, tab-joined. `#{@tmuxy-window-type}`
 // is empty for foreign (e.g. vanilla-tmux) windows — those are kept as tabs.
 const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{window_index}${SEP}#{window_name}${SEP}#{@tmuxy-window-type}`;
-const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}${SEP}#{pane_current_path}${SEP}#{@tmuxy-group-id}`;
+const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}${SEP}#{pane_current_path}${SEP}#{@tmuxy-group-id}${SEP}#{${PANE_META_OPTION}}`;
 
 export const LIST_WINDOWS_COMMAND = `list-windows -a -F '${WINDOWS_FORMAT}'`;
 export const LIST_PANES_COMMAND = `list-panes -a -F '${PANES_FORMAT}'`;
@@ -74,7 +84,11 @@ export const LIST_PANES_COMMAND = `list-panes -a -F '${PANES_FORMAT}'`;
  * with the tab its group is shown in — it is that tab's pane, out of view — so
  * its cwd and branch reach the tree like any other.
  */
-export function parseSessions(windowsOut: string, panesOut: string): SessionTreeNode[] {
+export function parseSessions(
+  windowsOut: string,
+  panesOut: string,
+  nowSeconds = Date.now() / 1000,
+): SessionTreeNode[] {
   const bySession = new Map<string, SessionTreeNode>();
   const ensure = (name: string): SessionTreeNode => {
     let node = bySession.get(name);
@@ -105,7 +119,7 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
   const parked: Array<{ group: string; pane: SessionTreePane }> = [];
   for (const line of panesOut.split('\n')) {
     if (!line) continue;
-    const [session, windowId, paneId, command, active, title, cwd, group] = line.split(SEP);
+    const [session, windowId, paneId, command, active, title, cwd, group, meta] = line.split(SEP);
     if (!session || !isWindowId(windowId) || !isPaneId(paneId)) continue;
     const pane: SessionTreePane = {
       id: paneId,
@@ -114,6 +128,7 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
       title: title ?? '',
       cwd: cwd ?? '',
       active: active === '1',
+      fields: paneFields(meta ?? '', nowSeconds),
     };
     if (session === STASH_SESSION) {
       if (group) parked.push({ group, pane: { ...pane, active: false } });
@@ -194,6 +209,31 @@ export function createServersActor(runtime: AppRuntime) {
         );
       });
 
+    // The ports the panes' programs listen on, on every tick: a server comes
+    // up in seconds, and finding them reads the process table, not git. A
+    // failure leaves the last answer in place.
+    const listPorts = (): Effect.Effect<void, never, TmuxTransport> =>
+      TmuxTransport.pipe(Effect.flatMap((t) => t.call('list_pane_ports', {}))).pipe(
+        Effect.flatMap((panePorts) =>
+          Effect.sync(() => parent.send({ type: 'PANE_PORTS_UPDATED', panePorts })),
+        ),
+        Effect.ignore,
+      );
+
+    // The user's row template, read with the sessions: a `tmuxy config
+    // reload` after editing it shows within a poll.
+    const readRowTemplate = (): Effect.Effect<void, never, TmuxTransport> =>
+      TmuxTransport.pipe(
+        Effect.flatMap((t) => t.query(`show-options -gqv ${TREE_ROW_OPTION}`)),
+      ).pipe(
+        Effect.flatMap((text) =>
+          Effect.sync(() =>
+            parent.send({ type: 'TREE_ROW_TEMPLATE_UPDATED', treeRowTemplate: text.trim() }),
+          ),
+        ),
+        Effect.ignore,
+      );
+
     // One poll tick, answering whether the sessions were listed. Interrupting
     // the poll fiber between a query and its parent.send drops the stale send.
     const tick = (force = false): Effect.Effect<boolean, never, TmuxTransport> =>
@@ -224,11 +264,36 @@ export function createServersActor(runtime: AppRuntime) {
           Effect.orElseSucceed(() => false),
         );
 
-        return Effect.all([listSessions, listServers(), listSnapshots(), discover(force)], {
-          concurrency: 'unbounded',
-        }).pipe(
+        return Effect.all(
+          [
+            listSessions,
+            listServers(),
+            listSnapshots(),
+            discover(force),
+            listPorts(),
+            readRowTemplate(),
+          ],
+          { concurrency: 'unbounded' },
+        ).pipe(
           Effect.map(([listed]) => listed),
           Effect.orElseSucceed(() => false),
+        );
+      });
+
+    // Asked until the host has answered once: a later connect of the same
+    // page (a reconnect, a switch of server) must not bring the notice back.
+    let ownTmuxAnswered = false;
+    const lookForOwnTmux = (): Effect.Effect<void, never, TmuxTransport> =>
+      Effect.suspend(() => {
+        if (ownTmuxAnswered) return Effect.void;
+        return TmuxTransport.pipe(Effect.flatMap((t) => t.call('own_tmux_offer', {}))).pipe(
+          Effect.flatMap((offer) =>
+            Effect.sync(() => {
+              ownTmuxAnswered = true;
+              parent.send({ type: 'OWN_TMUX_OFFERED', offer });
+            }),
+          ),
+          Effect.ignore,
         );
       });
 
@@ -241,6 +306,7 @@ export function createServersActor(runtime: AppRuntime) {
     const pollFiber = runtime.runFork(whileEnumerable(poll));
     receive((event) => {
       if (event.type === 'REFRESH_SESSIONS') runtime.runFork(whileEnumerable(tick(true)));
+      if (event.type === 'LOOK_FOR_OWN_TMUX') runtime.runFork(whileEnumerable(lookForOwnTmux()));
     });
     // The tree coming on screen shows what is there now, not the last poll's.
     const unsubscribe = treeVisible.subscribe((visible) => {

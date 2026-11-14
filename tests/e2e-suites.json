@@ -21,7 +21,7 @@
     },
     {
       "name": "layout-tree",
-      "path": "tests/2-layout-navigation-(dock|float-scope|group-drag|peek|tree|tree-drag|tree-rows)\\.test\\.js"
+      "path": "tests/2-layout-navigation-(dock|float-scope|group-drag|peek|tree|tree-drag|tree-fields|tree-ports|tree-rows|tree-template)\\.test\\.js"
     },
     {
       "name": "rendering-text",
@@ -33,7 +33,7 @@
     },
     {
       "name": "session",
-      "path": "tests/(snapshots/|4-session-connectivity)"
+      "path": "tests/(snapshots/|4-session-connectivity|4-attach-input)"
     },
     {
       "name": "stress",
@@ -72,7 +72,7 @@
     },
     {
       "name": "personalization-plugins",
-      "path": "tests/1[678]-(personalization|plugin)"
+      "path": "tests/(1[678]-(personalization|plugin)|29-profiles)"
     },
     {
       "name": "services",

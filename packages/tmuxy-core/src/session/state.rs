@@ -36,6 +36,16 @@ pub struct ManagedState {
     /// into the config chain, so it has to be known before that chain is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_tmux_conf: Option<bool>,
+    /// Whether the user has answered the offer to switch to their own tmux
+    /// server ([`crate::servers::own_tmux_offer`]), which only a host that
+    /// can switch makes. No host shows the launch notice again after.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_tmux_asked: Option<bool>,
+    /// Whether a host that cannot switch (the web server) has told the user
+    /// where their sessions are. It does not tell again; a host that can
+    /// switch still makes its offer once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_tmux_told: Option<bool>,
     /// The profile each session uses, by session name (`crate::profiles`).
     /// A session not listed uses the Default Profile; nothing is written
     /// here until a profile is picked.
@@ -276,6 +286,48 @@ pub fn profile_commands(
     }
 }
 
+/// The profile `session` uses, by the remembered map: the default one when
+/// it has none.
+pub fn session_profile(session: &str) -> String {
+    read_managed_state()
+        .session_profiles
+        .get(session)
+        .cloned()
+        .unwrap_or_else(|| crate::profiles::DEFAULT_PROFILE.to_string())
+}
+
+/// Change which session uses which profile, and write it down. The map is
+/// written whole, so an entry dropped here is gone from the file, and the
+/// key itself when the map ends empty.
+pub fn edit_session_profiles(
+    edit: impl FnOnce(&mut std::collections::BTreeMap<String, String>),
+) -> std::io::Result<()> {
+    edit_session_profiles_in(&Layout::current(), edit)
+}
+
+pub(crate) fn edit_session_profiles_in(
+    layout: &Layout,
+    edit: impl FnOnce(&mut std::collections::BTreeMap<String, String>),
+) -> std::io::Result<()> {
+    let _writing = WRITING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    std::fs::create_dir_all(&layout.state)?;
+    let mut object = read_object(layout)?;
+    let mut map = read_strict(layout)?.session_profiles;
+    edit(&mut map);
+    // Only this key is rewritten; every other stays as the file has it.
+    if map.is_empty() {
+        object.remove(SESSION_PROFILES_KEY);
+    } else {
+        object.insert(SESSION_PROFILES_KEY.to_string(), serde_json::to_value(map)?);
+    }
+    write_object(layout, object).map(drop)
+}
+
+/// The state file's key for [`ManagedState::session_profiles`].
+const SESSION_PROFILES_KEY: &str = "session_profiles";
+
 /// [`profile_commands`] for what is on disk now.
 pub fn current_profile_commands(session: &str) -> Vec<String> {
     profile_commands(
@@ -298,7 +350,7 @@ pub fn read_managed_state() -> ManagedState {
     read_managed_state_in(&Layout::current())
 }
 
-pub(super) fn read_managed_state_in(layout: &Layout) -> ManagedState {
+pub(crate) fn read_managed_state_in(layout: &Layout) -> ManagedState {
     read_strict(layout).unwrap_or_else(|e| {
         warn!(path = ?layout.state_file(), error = %e, "could not read the managed state file, using defaults");
         ManagedState::default()
@@ -308,11 +360,42 @@ pub(super) fn read_managed_state_in(layout: &Layout) -> ManagedState {
 /// The state file as it is: empty when there is none, an error when it does
 /// not parse, so a write never replaces a file it could not read.
 fn read_strict(layout: &Layout) -> std::io::Result<ManagedState> {
-    match std::fs::read_to_string(layout.state_file()) {
-        Ok(text) => serde_json::from_str(&text).map_err(std::io::Error::other),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ManagedState::default()),
-        Err(e) => Err(e),
+    serde_json::from_value(serde_json::Value::Object(read_object(layout)?))
+        .map_err(std::io::Error::other)
+}
+
+/// The state file as a JSON object, every key kept, those this build does
+/// not know included: what a write merges into, so it never drops a choice a
+/// newer build wrote.
+fn read_object(layout: &Layout) -> std::io::Result<serde_json::Map<String, serde_json::Value>> {
+    let text = match std::fs::read_to_string(layout.state_file()) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
+        Err(e) => return Err(e),
+    };
+    match serde_json::from_str(&text).map_err(std::io::Error::other)? {
+        serde_json::Value::Object(object) => {
+            // Read as the state too, so a file this build cannot read is refused.
+            serde_json::from_value::<ManagedState>(serde_json::Value::Object(object.clone()))
+                .map_err(std::io::Error::other)?;
+            Ok(object)
+        }
+        _ => Err(std::io::Error::other("the state file is not a JSON object")),
     }
+}
+
+/// Held across every read-modify-write of the state file, so two writers in
+/// this process never lose one another's change.
+static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn write_object(
+    layout: &Layout,
+    object: serde_json::Map<String, serde_json::Value>,
+) -> std::io::Result<PathBuf> {
+    let path = layout.state_file();
+    let body = serde_json::to_string_pretty(&serde_json::Value::Object(object))?;
+    crate::private_files::replace(&path, format!("{body}\n"))?;
+    Ok(path)
 }
 
 /// Update the JSON state file: every field `changes` sets is written, every
@@ -322,21 +405,19 @@ pub fn write_managed_state(changes: ManagedState) -> std::io::Result<PathBuf> {
     write_managed_state_in(&Layout::current(), changes)
 }
 
-pub(super) fn write_managed_state_in(
+pub(crate) fn write_managed_state_in(
     layout: &Layout,
     changes: ManagedState,
 ) -> std::io::Result<PathBuf> {
+    let _writing = WRITING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     std::fs::create_dir_all(&layout.state)?;
-    let path = layout.state_file();
-    let mut merged = serde_json::to_value(read_strict(layout)?)?;
+    let mut object = read_object(layout)?;
     // Unset fields are not serialized, so the change's object holds exactly
     // the fields it sets.
-    if let (Some(state), serde_json::Value::Object(set)) =
-        (merged.as_object_mut(), serde_json::to_value(changes)?)
-    {
-        state.extend(set);
+    if let serde_json::Value::Object(set) = serde_json::to_value(changes)? {
+        object.extend(set);
     }
-    let body = serde_json::to_string_pretty(&merged)?;
-    crate::private_files::replace(&path, format!("{body}\n"))?;
-    Ok(path)
+    write_object(layout, object)
 }
