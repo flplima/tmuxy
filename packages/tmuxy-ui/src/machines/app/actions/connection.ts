@@ -9,12 +9,20 @@ import {
 } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import { invokeEvent } from '../../actors/tmuxActor';
+import { profileRequest } from '../../../domain/backendCalls';
 import { memorableSessionName } from '../../../domain/sessionNames';
 import { isTauri } from '../../../infra/platform';
+import type { PanePorts } from '../../../domain/servers';
 
 function fetchThemes(enqueue: EnqueueAction): void {
   enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
   enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
+  enqueue(
+    sendTo('tmux', {
+      type: 'PROFILE_CALL' as const,
+      call: profileRequest('list_profiles', {}),
+    }),
+  );
 }
 
 /**
@@ -82,6 +90,18 @@ export const connectionActions = {
     event.type === 'GIT_REPOSITORIES_UPDATED' ? { repositories: event.repositories } : {},
   ),
 
+  // The poll answers every few seconds and almost always the same: the old
+  // list is kept then, so nothing that reads it draws again.
+  connection_panePortsUpdated: assignCtx(({ context, event }) =>
+    event.type === 'PANE_PORTS_UPDATED' && !samePanePorts(context.panePorts, event.panePorts)
+      ? { panePorts: event.panePorts }
+      : {},
+  ),
+
+  connection_treeRowTemplateUpdated: assignCtx(({ event }) =>
+    event.type === 'TREE_ROW_TEMPLATE_UPDATED' ? { treeRowTemplate: event.treeRowTemplate } : {},
+  ),
+
   connection_serversUpdated: assignCtx(({ event }) =>
     event.type === 'SERVERS_UPDATED'
       ? { servers: event.servers, currentServerId: event.currentServerId }
@@ -111,6 +131,7 @@ export const connectionActions = {
     if (event.type !== 'CONNECTION_INFO') return;
     enqueue(assign({ serverHostname: event.hostname }));
     enqueue(sendTo('tmuxStore', { type: 'SET_DEFAULT_SHELL' as const, shell: event.defaultShell }));
+    enqueue(sendTo('servers', { type: 'LOOK_FOR_OWN_TMUX' as const }));
     enqueue(() => {
       if (typeof document !== 'undefined' && !isTauri() && event.hostname) {
         document.title = `tmuxy on ${event.hostname}`;
@@ -137,6 +158,54 @@ export const connectionActions = {
         }),
       ),
     );
+  }),
+
+  // A notice already on screen stays as it is: the host answers every window
+  // and tab that asks, and an answer must not undo a click.
+  connection_ownTmuxOffered: assignCtx(({ context, event }) =>
+    event.type === 'OWN_TMUX_OFFERED' && event.offer && !context.ownTmuxNotice
+      ? { ownTmuxNotice: { offer: event.offer, stage: 'ask' as const } }
+      : {},
+  ),
+
+  // Declining closes the offer on the host. Taking it asks the host to
+  // switch, the way the session menu's "my tmux" does; what the notice says
+  // next waits for the host's word (connection_ownTmuxOfferTaken).
+  connection_answerOwnTmuxOffer: act(({ context, event, enqueue }) => {
+    if (event.type !== 'ANSWER_OWN_TMUX_OFFER') return;
+    const notice = context.ownTmuxNotice;
+    if (!notice || notice.stage === 'switching') return;
+    const { offer } = notice;
+    if (event.answer === 'use' && offer.canSwitch && notice.stage === 'ask') {
+      enqueue(assign({ ownTmuxNotice: { offer, stage: 'switching' as const } }));
+      enqueue(
+        sendTo('tmux', {
+          type: 'TAKE_OWN_TMUX_OFFER' as const,
+          serverId: offer.serverId,
+          session: offer.session,
+        }),
+      );
+      return;
+    }
+    if (notice.stage === 'ask') {
+      enqueue(sendTo('tmux', invokeEvent({ cmd: 'close_own_tmux_offer', args: {} })));
+    }
+    enqueue(assign({ ownTmuxNotice: null }));
+  }),
+
+  // Taken: the host label names that server at once, as after a switch from
+  // the session menu, and the notice says how to start there. Refused (that
+  // server has gone since): the offer is open again, and the error the host
+  // gave is in the corner beside it.
+  connection_ownTmuxOfferTaken: assignCtx(({ context, event }) => {
+    const notice = context.ownTmuxNotice;
+    if (event.type !== 'OWN_TMUX_OFFER_TAKEN' || notice?.stage !== 'switching') return {};
+    return event.taken
+      ? {
+          currentServerId: notice.offer.serverId,
+          ownTmuxNotice: { ...notice, stage: 'switched' as const },
+        }
+      : { ownTmuxNotice: { ...notice, stage: 'ask' as const } };
   }),
 
   connection_reconnectNow: act(({ enqueue }) => {
@@ -302,3 +371,15 @@ export const connectionActions = {
     event.type === 'TMUX_ERROR' ? { error: event.error } : {},
   ),
 };
+
+function samePanePorts(a: readonly PanePorts[], b: readonly PanePorts[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (entry, i) =>
+        entry.paneId === b[i].paneId &&
+        entry.ports.length === b[i].ports.length &&
+        entry.ports.every((port, j) => port === b[i].ports[j]),
+    )
+  );
+}

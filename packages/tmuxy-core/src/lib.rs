@@ -1,3 +1,4 @@
+pub mod agent_dialog;
 pub mod argv;
 #[cfg(feature = "cli")]
 pub mod ask;
@@ -23,10 +24,14 @@ pub mod list_keys;
 #[cfg(feature = "native")]
 pub mod logging;
 pub mod mime;
+pub mod pane_meta;
 #[cfg(feature = "cli")]
 pub mod paths;
+pub mod permissions;
 #[cfg(feature = "native")]
 pub mod plugins;
+#[cfg(feature = "native")]
+pub mod ports;
 #[cfg(feature = "native")]
 pub mod preview;
 #[cfg(feature = "cli")]

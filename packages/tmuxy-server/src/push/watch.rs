@@ -2,12 +2,10 @@
 //! than a session's monitor: the device a notification is for is the one
 //! that is not watching, so no monitor would see it.
 
-use std::collections::HashMap;
-use tmuxy_core::host::socket_watch::PaneRow;
+use std::collections::{HashMap, HashSet};
+use tmuxy_core::host::socket_watch::{PaneRow, ResultFrom};
 
 use tmuxy_core::PaneStateName;
-
-const NOTIFY_STATES: [PaneStateName; 2] = [PaneStateName::NeedsInput, PaneStateName::Error];
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,8 +25,16 @@ impl Notice {
         } else {
             tmuxy_core::program::program_name(&row.command).to_string()
         };
-        let title = match row.state.as_str() {
-            "error" => format!("{name} stopped with an error"),
+        let title = match PaneStateName::parse(&row.state) {
+            Some(PaneStateName::Error) => format!("{name} stopped with an error"),
+            // After a shell's command the pane's program is the shell again,
+            // and it is not the shell that finished.
+            Some(PaneStateName::Unread)
+                if row.label.is_empty() && row.result() == Some(ResultFrom::Shell) =>
+            {
+                "A command finished".to_string()
+            }
+            Some(PaneStateName::Unread) => format!("{name} finished"),
             _ => format!("{name} needs you"),
         };
         let place = [host, row.session.as_str(), row.window.as_str()]
@@ -71,26 +77,44 @@ pub(crate) struct Watch {
     /// `None` until the first read: what is already in a state when the
     /// server starts watching is not news.
     states: Option<HashMap<String, String>>,
+    /// Panes that had a result at the last read for the first time.
+    unseen: HashSet<String>,
 }
 
 impl Watch {
     /// The panes that entered a notifying state since the last read, as
     /// notices — none while `@tmuxy-notify` is off.
+    ///
+    /// `needs-input` and `error` are news at once. An `unread` is news when
+    /// it is a result, something a program or the shell reported as done
+    /// ([`PaneRow::result`]), and once it has waited a read: a client that
+    /// has the pane in front takes the mark off as soon as it shows, and
+    /// what was seen there is not worth a notification.
     pub(crate) fn update(&mut self, rows: &[PaneRow], host: &str) -> Vec<Notice> {
         let now: HashMap<String, String> = rows
             .iter()
             .map(|row| (row.pane_id.clone(), row.state.clone()))
             .collect();
         let previous = self.states.replace(now);
+        let mut waited = std::mem::take(&mut self.unseen);
         let Some(previous) = previous else {
             return Vec::new();
         };
         rows.iter()
             .filter(|row| row.notify != "off")
             .filter(|row| {
-                PaneStateName::parse(&row.state).is_some_and(|s| NOTIFY_STATES.contains(&s))
+                let entered = previous.get(&row.pane_id) != Some(&row.state);
+                match PaneStateName::parse(&row.state) {
+                    Some(PaneStateName::NeedsInput | PaneStateName::Error) => entered,
+                    Some(PaneStateName::Unread) if row.result().is_none() => false,
+                    Some(PaneStateName::Unread) if entered => {
+                        self.unseen.insert(row.pane_id.clone());
+                        false
+                    }
+                    Some(PaneStateName::Unread) => waited.remove(&row.pane_id),
+                    _ => false,
+                }
             })
-            .filter(|row| previous.get(&row.pane_id) != Some(&row.state))
             .map(|row| Notice::for_row(row, host))
             .collect()
     }

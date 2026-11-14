@@ -202,15 +202,21 @@ pub struct Spot {
 }
 
 impl Spot {
-    /// The pane's tab, session and height; the session's current pane's when
-    /// `pane` is `None`.
+    /// The pane's id, tab, session and height; the session's current pane's
+    /// when `pane` is `None`. Check [`Spot::answered_by`] before trusting it.
     pub fn pane_read(pane: Option<&str>) -> Vec<String> {
         let mut argv: Vec<String> = vec!["display-message".into(), "-p".into()];
         if let Some(pane) = pane {
             argv.extend(["-t".into(), pane.into()]);
         }
-        argv.push("#{window_id} #{session_id} #{window_height}".into());
+        argv.push("#{pane_id} #{window_id} #{session_id} #{window_height}".into());
         argv
+    }
+
+    /// Whether [`Spot::pane_read`]'s answer is `pane`'s own: tmux answers a
+    /// closed pane's read for its default pane, or for none.
+    pub fn answered_by(pane_out: &str, pane: &str) -> bool {
+        pane_out.split_whitespace().next() == Some(pane)
     }
 
     /// The window indices of the session [`Spot::pane_read`] printed.
@@ -241,7 +247,7 @@ impl Spot {
     }
 
     fn facts(pane_out: &str) -> (&str, &str, &str) {
-        let mut word = pane_out.split_whitespace();
+        let mut word = pane_out.split_whitespace().skip(1);
         let mut next = || word.next().unwrap_or_default();
         (next(), next(), next())
     }
@@ -363,13 +369,17 @@ mod tests {
     fn a_spot_is_keyed_by_the_session_id_the_pane_read_printed() {
         assert_eq!(
             Spot::pane_read(Some("%3")).join(" "),
-            "display-message -p -t %3 #{window_id} #{session_id} #{window_height}"
+            "display-message -p -t %3 #{pane_id} #{window_id} #{session_id} #{window_height}"
         );
         assert_eq!(
             Spot::pane_read(None).join(" "),
-            "display-message -p #{window_id} #{session_id} #{window_height}"
+            "display-message -p #{pane_id} #{window_id} #{session_id} #{window_height}"
         );
-        let printed = "@2 $1 40\n";
+        let printed = "%3 @2 $1 40\n";
+        assert!(Spot::answered_by(printed, "%3"));
+        // A closed pane's read, answered for another pane or for none.
+        assert!(!Spot::answered_by("%0 @1 $0 24\n", "%3"));
+        assert!(!Spot::answered_by("   \n", "%3"));
         assert_eq!(
             Spot::windows_read(printed).join(" "),
             "list-windows -t $1 -F #{window_index}"

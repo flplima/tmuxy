@@ -12,6 +12,7 @@ import { ComboboxInput } from './ComboboxInput';
 import { MenuIcon } from './menus/MenuIcons';
 import { dataAttributes } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
+import { useActiveOptionInView } from './useActiveOptionInView';
 import './SessionPicker.css';
 
 export type SwitcherItem = Extract<AppMenuNode, { kind: 'item' }>;
@@ -53,11 +54,7 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => inputRef.current?.focus({ preventScroll: true }), []);
-  useEffect(() => {
-    listRef.current
-      ?.querySelector<HTMLElement>('[aria-selected="true"]')
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [active?.id]);
+  useActiveOptionInView(listRef, active?.id);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const step = (by: number) => {

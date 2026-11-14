@@ -357,6 +357,8 @@ fn managed_state_commands_set_only_the_chosen_options() {
         send_ask: Some(false),
         transparency: Some(false),
         use_tmux_conf: Some(true),
+        own_tmux_asked: Some(true),
+        own_tmux_told: Some(true),
         ..ManagedState::default()
     };
     assert_eq!(
