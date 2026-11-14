@@ -24,6 +24,7 @@
  * number never includes driver round-trip cost.
  */
 import { execSync } from 'node:child_process';
+import { BUSY_PANES, closeWindow, newWindowId, startBusyPanes } from './busy-panes.mjs';
 
 /** A sample slower than this is a timeout, not a datapoint. */
 export const SAMPLE_TIMEOUT_MS = 5000;
@@ -202,6 +203,7 @@ export function summarize(result) {
   }
   return {
     name: result.name,
+    ...(result.load ? { load: result.load } : {}),
     samples: sorted.length,
     timeouts: result.timeouts,
     p50: round1(pct(sorted, 0.5)),
@@ -404,7 +406,41 @@ export async function runInteractions(adapter, { samples }) {
     }),
   );
 
+  results.push(await measureKeyEchoBusy(adapter, prefix, samples));
   return results;
+}
+
+/**
+ * `key-echo` again, in a tab of its own where the focused pane shares the
+ * screen with {@link BUSY_PANES} panes redrawing a spinner: what a keystroke
+ * costs while other panes are loud. The tab goes when it is measured.
+ */
+async function measureKeyEchoBusy(adapter, prefix, samples) {
+  const windowId = await newWindowId(adapter, () => prefixKey(adapter, prefix, 'c'));
+  await adapter.wait(800);
+  let busy = null;
+  let result = null;
+  let closed = false;
+  try {
+    busy = await startBusyPanes(adapter, { windowId, count: BUSY_PANES });
+    await adapter.wait(1500);
+    await adapter.clickActivePane();
+    await adapter.press('Control+u');
+    await adapter.wait(500);
+    result = await measure(adapter, {
+      name: 'key-echo-busy',
+      samples,
+      probe: 'charCount',
+      probeArg: (i) => LETTERS[i % 26],
+      act: (i) => adapter.press(LETTERS[i % 26]),
+    });
+  } finally {
+    busy?.stop();
+    // The tab this run made, by its id, however the run ended.
+    closed = await closeWindow(adapter, windowId);
+  }
+  if (!closed) throw new Error(`the busy tab ${windowId} could not be closed`);
+  return { ...result, load: busy.stop() };
 }
 
 /**

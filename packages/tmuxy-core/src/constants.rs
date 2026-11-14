@@ -126,6 +126,14 @@ pub mod tmux_options {
     /// shell scripts' `_contract`).
     pub const PANE_LABEL: &str = "@tmuxy-label";
 
+    /// Pane-scoped: the pane `tmuxy agent spawn` was run from, on the pane
+    /// it made.
+    pub const SPAWNED_BY: &str = "@tmuxy-spawned-by";
+
+    /// Pane-scoped: the agent `tmuxy agent spawn` started in the pane
+    /// (`claude`, `codex`, `gemini`, or a `cmd`'s program).
+    pub const AGENT: &str = "@tmuxy-agent";
+
     /// Pane-scoped: the state the screen rules last wrote on a pane whose
     /// agent has no hooks (`host::socket_watch::agent_rules`). They change
     /// [`PANE_STATE`] only while it still equals this, so a state anything
@@ -255,6 +263,8 @@ pub mod preview_lines {
 /// them by `tests/dev_ports.rs`.
 pub const DEFAULT_SERVER_PORT: u16 = 9000;
 pub const DEV_VITE_PORT: u16 = 9001;
+
+pub mod float_grid;
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).

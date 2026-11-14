@@ -42,16 +42,35 @@ pub(super) fn needs_resize(
     }
 }
 
+/// A float's window size: the side its tags name, held to the viewport (a
+/// float wider than the screen is drawn clipped, and a program in it should
+/// still fit what can be seen), and the viewport's own on a side they leave
+/// open. Never less than a cell.
+pub(super) fn float_size(
+    (float_cols, float_rows): (Option<u32>, Option<u32>),
+    (cols, rows): (u32, u32),
+) -> (u32, u32) {
+    let side = |own: Option<u32>, viewport: u32| own.map_or(viewport, |n| n.min(viewport)).max(1);
+    (side(float_cols, cols), side(float_rows, rows))
+}
+
 impl<W> MonitorCore<W> {
     /// A sidebar is sized to its own column ([`sidebar_dock`]): docked beside
     /// the pane grid, a full-width shell would wrap at the viewport's columns
     /// while the UI draws it 40 cells wide.
     ///
     /// [`sidebar_dock`]: crate::constants::sidebar_dock
+    ///
+    /// A float is sized to the grid its tags name
+    /// ([`crate::constants::float_grid::size`]), never past the viewport: the UI draws it
+    /// that many cells wide and tall over the tab, so a pane left at the
+    /// viewport's size had a full-screen program draw most of itself outside
+    /// the float's box.
     pub(super) fn size_windows(&mut self) -> Option<Action<W>> {
         let (cols, rows) = self.client_size?;
-        let (viewport_windows, sidebar_windows) = self.aggregator.window_ids_by_sizing();
-        if viewport_windows.is_empty() && sidebar_windows.is_empty() {
+        let (viewport_windows, sidebar_windows, float_windows) =
+            self.aggregator.window_ids_by_sizing();
+        if viewport_windows.is_empty() && sidebar_windows.is_empty() && float_windows.is_empty() {
             return None;
         }
         // A sidebar runs the full height of the app body in its own column
@@ -66,6 +85,13 @@ impl<W> MonitorCore<W> {
                     .into_iter()
                     .map(|(wid, sidebar_cols, sidebar_rows)| {
                         (wid, (sidebar_cols, sidebar_rows.unwrap_or(rows).max(1)))
+                    }),
+            )
+            .chain(
+                float_windows
+                    .into_iter()
+                    .map(|(wid, float_cols, float_rows)| {
+                        (wid, float_size((float_cols, float_rows), (cols, rows)))
                     }),
             )
             .collect();
