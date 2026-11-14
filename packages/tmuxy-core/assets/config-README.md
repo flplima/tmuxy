@@ -186,6 +186,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-size`                   | smallest | Grid size across clients: `smallest`, `largest`, `latest`, or a fixed `COLSxROWS` (`80x25`). Every size but `smallest` scales each client's grid to fit; a fixed one also keeps its cols/rows when a sidebar opens. |
 | `@tmuxy-css-<variable>`         | —        | One CSS variable, see above.                                                                                                                                                                                        |
 | `@tmuxy-icon-<process>`         | —        | The icon a pane running `<process>` wears: one or two ASCII characters (`'$'`, `'>_'`) or an SVG in `icons/` (`claude.svg`), drawn in the text's colour. Claude Code, Antigravity and Codex have their own.         |
+| `@tmuxy-tree-row`               | —        | What a pane's row in the sidebar tree shows, by line: `process ports id / cwd branch / title / fields`. Also `field:<key>`; a word it does not know keeps the default.                                              |
 
 ## Your own `~/.tmux.conf`
 

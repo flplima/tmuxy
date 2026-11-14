@@ -31,6 +31,7 @@ import {
   CHROME_WINDOW_TYPES,
   PANE_META_OPTION,
   STASH_SESSION,
+  TREE_ROW_OPTION,
 } from '../../domain/tmuxyConstants.gen';
 import { paneFields } from '../../domain/paneMeta';
 
@@ -212,6 +213,20 @@ export function createServersActor(runtime: AppRuntime) {
         Effect.ignore,
       );
 
+    // The user's row template, read with the sessions: a `tmuxy config
+    // reload` after editing it shows within a poll.
+    const readRowTemplate = (): Effect.Effect<void, never, TmuxTransport> =>
+      TmuxTransport.pipe(
+        Effect.flatMap((t) => t.query(`show-options -gqv ${TREE_ROW_OPTION}`)),
+      ).pipe(
+        Effect.flatMap((text) =>
+          Effect.sync(() =>
+            parent.send({ type: 'TREE_ROW_TEMPLATE_UPDATED', treeRowTemplate: text.trim() }),
+          ),
+        ),
+        Effect.ignore,
+      );
+
     // One poll tick, answering whether the sessions were listed. Interrupting
     // the poll fiber between a query and its parent.send drops the stale send.
     const tick = (force = false): Effect.Effect<boolean, never, TmuxTransport> =>
@@ -243,7 +258,14 @@ export function createServersActor(runtime: AppRuntime) {
         );
 
         return Effect.all(
-          [listSessions, listServers(), listSnapshots(), discover(force), listPorts()],
+          [
+            listSessions,
+            listServers(),
+            listSnapshots(),
+            discover(force),
+            listPorts(),
+            readRowTemplate(),
+          ],
           { concurrency: 'unbounded' },
         ).pipe(
           Effect.map(([listed]) => listed),

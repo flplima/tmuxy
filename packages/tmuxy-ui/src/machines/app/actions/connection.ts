@@ -91,6 +91,10 @@ export const connectionActions = {
       : {},
   ),
 
+  connection_treeRowTemplateUpdated: assignCtx(({ event }) =>
+    event.type === 'TREE_ROW_TEMPLATE_UPDATED' ? { treeRowTemplate: event.treeRowTemplate } : {},
+  ),
+
   connection_serversUpdated: assignCtx(({ event }) =>
     event.type === 'SERVERS_UPDATED'
       ? { servers: event.servers, currentServerId: event.currentServerId }

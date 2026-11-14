@@ -101,8 +101,11 @@ fn typescript() -> String {
     let _ = writeln!(
         out,
         "\n/** The option a pane's custom fields are kept in (`tmux_options::PANE_META`). */\n\
-         export const PANE_META_OPTION = {};",
-        quoted(tmuxy_core::constants::tmux_options::PANE_META)
+         export const PANE_META_OPTION = {};\n\n\
+         /** The user's option for what a tree row shows (`tmux_options::TREE_ROW`). */\n\
+         export const TREE_ROW_OPTION = {};",
+        quoted(tmuxy_core::constants::tmux_options::PANE_META),
+        quoted(tmuxy_core::constants::tmux_options::TREE_ROW)
     );
     let _ = writeln!(
         out,
