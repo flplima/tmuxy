@@ -45,12 +45,19 @@ const UPDATE = has('--update-baseline');
  */
 const RATIO_BUDGETS = {
   'key-echo': 1.5, // the reference, compared against itself
+  // The last key of 30 typed 60 ms apart. Keys that queue behind one another
+  // put it a round trip further back per key: over a 150 ms link, with each
+  // POST waiting for the answer to the one before it, this measured 15×.
+  'key-burst': 3, // measured ~1×, on the bare link and over 150 ms
   // 3× leaves room for noise while still failing loudly if navigation ever
   // loses its optimistic prediction again — un-predicted, it measured 12×.
   'pane-nav-keyboard': 3, // measured ~0.3×
   'pane-zoom-toggle': 5, // measured ~2.4×
   'pane-split': 5, // measured ~2.0×
   'tab-switch': 4, // measured ~0.1× — the optimistic prediction paints at once
+  // The keystroke with 23 panes beside it each redrawing a spinner at ~2 KB/s:
+  // measured 1.1–1.8× on a loaded dev machine, p95 nearer 2×.
+  'key-echo-busy': 3,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */

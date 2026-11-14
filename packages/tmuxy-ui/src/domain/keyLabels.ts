@@ -129,13 +129,19 @@ export function clientKeyHint(
 ): string | undefined {
   const chord = CLIENT_CHORDS[clientKey];
   if (chord || !keybindings) return chord;
-  const boundIn = new Map(tables(keybindings));
   for (const [table, keys] of Object.entries(CLIENT_KEYS)) {
+    const bindings = tables(keybindings).find(([name]) => name === table)?.[1] ?? [];
     for (const [key, bound] of Object.entries(keys)) {
       if (bound !== clientKey) continue;
-      // A key the user's own binding took is not the client's to hint.
-      const taken = (k: string) => Boolean(boundIn.get(table)?.some((b) => b.key === k));
-      if (clientKeyFor(table, key, taken) !== clientKey) continue;
+      // A key the user or a plugin bound is theirs, not the client's.
+      if (
+        clientKeyFor(
+          table,
+          key,
+          bindings.some((b) => b.key === key),
+        ) !== clientKey
+      )
+        continue;
       const label = tableKeyLabel(keybindings, table, key);
       if (label) return label;
     }

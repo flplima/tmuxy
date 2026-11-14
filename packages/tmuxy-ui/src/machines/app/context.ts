@@ -28,7 +28,8 @@ export type StateName =
   | 'gestures'
   | 'ask'
   | 'plugins'
-  | 'activity';
+  | 'activity'
+  | 'palette';
 
 /**
  * Maps every AppMachineContext field to the state slice that owns it.
@@ -123,6 +124,8 @@ export const FIELD_OWNERS = {
 
   activityOpen: 'activity',
   activityRows: 'activity',
+  palette: 'palette',
+  pendingGoTo: 'palette',
 
   notifications: 'notifications',
 
@@ -248,6 +251,8 @@ export function createInitialContext(): AppMachineContext {
     keysViewOpen: false,
     activityOpen: false,
     activityRows: [],
+    palette: null,
+    pendingGoTo: null,
     renamingPaneId: null,
     baseFontSize: loadFontSizePref(),
   };

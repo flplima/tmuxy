@@ -22,6 +22,7 @@ export type MenuLocal =
   | { verb: 'rename' }
   | { verb: 'confirm-kill-session' }
   | { verb: 'copy-app-state' }
+  | { verb: 'copy-bug-report' }
   | { verb: 'copy-trace-path' }
   | { verb: 'quit' }
   | { verb: 'window-refresh' }
@@ -77,6 +78,11 @@ export const MENU_COMMANDS = {
     run: sendEvent({ type: 'TOGGLE_STACKED_PANES' }),
     keyOp: TmuxOp.RawCommand({ command: script('stack', 'toggle', '#{window_id}') }),
   },
+  palette: {
+    run: sendEvent({ type: 'TOGGLE_PALETTE', mode: 'all' }),
+    clientKey: 'command-palette',
+  },
+  'palette-go-to': { run: sendEvent({ type: 'TOGGLE_PALETTE', mode: 'go' }), clientKey: 'go-to' },
   'restart-app': { run: () => restartApp() },
   'session-new': { run: sendEvent({ type: 'NEW_SESSION' }) },
   // DETACH_CLIENT, not a raw `detach-client`: the backend must know the detach

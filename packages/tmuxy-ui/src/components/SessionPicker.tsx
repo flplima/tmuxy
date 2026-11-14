@@ -4,14 +4,14 @@
  * of the focus (`aria-activedescendant`).
  */
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useAppSelector } from '../machines/appHooks';
 import { sessionSwitcherSpec } from './menus/specs/sessionSwitcher';
 import type { AppMenuNode } from './menus/specs/actions';
+import { ComboboxInput } from './ComboboxInput';
 import { MenuIcon } from './menus/MenuIcons';
 import { dataAttributes } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
-import { FilterBox } from './FilterBox';
 import { useActiveOptionInView } from './useActiveOptionInView';
 import './SessionPicker.css';
 
@@ -51,7 +51,9 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
   const listId = `${baseId}-list`;
   const optionId = (item: SwitcherItem) => `${baseId}-${item.id}`;
 
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => inputRef.current?.focus({ preventScroll: true }), []);
   useActiveOptionInView(listRef, active?.id);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -84,13 +86,15 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
 
   return (
     <div className="session-picker">
-      <FilterBox
+      <ComboboxInput
+        inputRef={inputRef}
         className="session-picker-filter"
         label="Filter sessions"
         listId={listId}
-        activeOptionId={active ? optionId(active) : undefined}
+        activeId={active ? optionId(active) : undefined}
+        placeholder="Filter sessions…"
         value={query}
-        onChange={(value) => {
+        onValue={(value) => {
           setQuery(value);
           setActiveId(null);
         }}

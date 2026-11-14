@@ -20,6 +20,8 @@ import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
 import { pluginsState } from './states/plugins';
 import { pluginsActions } from './actions/plugins';
+import { paletteGlobalEvents } from './states/palette';
+import { paletteActions } from './actions/palette';
 import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
 import { notificationsState } from './states/notifications';
@@ -57,6 +59,7 @@ import type { KeyboardActorInput } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
+import type { JumpHintsActorEvent } from '../actors/jumpHintsActor';
 import type { GestureActorEvent, GestureActorInput } from '../gestures/gestureActor';
 import type { ServersActorEvent, ServersActorInput } from '../actors/serversActor';
 import { keyboardGlobalEvents } from './states/keyboard';
@@ -85,6 +88,7 @@ export const appMachine = setup({
     keyboardActor: fromCallback<EventObject, KeyboardActorInput>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
+    jumpHintsActor: fromCallback<JumpHintsActorEvent>(() => () => {}),
     gestureActor: fromCallback<GestureActorEvent, GestureActorInput>(() => () => {}),
     serversActor: fromCallback<ServersActorEvent, ServersActorInput>(() => () => {}),
     dragMachine,
@@ -93,6 +97,7 @@ export const appMachine = setup({
   actions: {
     ...uiPrefsActions,
     ...pluginsActions,
+    ...paletteActions,
     ...commandUiActions,
     ...notificationsActions,
     ...copyModeActions,
@@ -148,6 +153,10 @@ export const appMachine = setup({
       src: 'linkModifierActor',
     },
     {
+      id: 'jumpHints',
+      src: 'jumpHintsActor',
+    },
+    {
       id: 'gestures',
       src: 'gestureActor',
       input: ({ self }) => ({
@@ -179,6 +188,7 @@ export const appMachine = setup({
     ...layoutGlobalEvents,
     ...sidebarsGlobalEvents,
     ...tabOverviewGlobalEvents,
+    ...paletteGlobalEvents,
     ...phoneGlobalEvents,
     ...gesturesGlobalEvents,
     ...connectionGlobalEvents,
@@ -211,7 +221,7 @@ export const appMachine = setup({
         ...commandEntry,
         TMUX_STATE_UPDATE: relayState,
         TMUX_MODEL_UPDATE: {
-          actions: 'layout_modelUpdate',
+          actions: ['layout_modelUpdate', 'palette_land'],
         },
         TMUX_ERROR: {
           actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),

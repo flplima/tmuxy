@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { FilterBox } from './FilterBox';
+import { ComboboxInput } from './ComboboxInput';
 import { useActiveOptionInView } from './useActiveOptionInView';
 import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { activityPlace, filterActivity, type ActivityRow } from '../domain/activity';
@@ -51,6 +51,15 @@ function Row({ id, row, selected, onHighlight, onGo }: RowProps) {
   );
 }
 
+/** What the list says when it has no row to show. */
+function Empty({ total, query }: { total: number; query: string }) {
+  return (
+    <div className="activity-inbox-empty" role="presentation">
+      {total === 0 ? 'No pane has said anything about itself' : `No pane matches “${query.trim()}”`}
+    </div>
+  );
+}
+
 function List({ rows }: { rows: readonly ActivityRow[] }) {
   const send = useAppSend();
   const [query, setQuery] = useState('');
@@ -68,7 +77,9 @@ function List({ rows }: { rows: readonly ActivityRow[] }) {
   const listId = `${baseId}-list`;
   const optionId = (row: ActivityRow) => `${baseId}-${row.paneId.slice(1)}`;
 
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => inputRef.current?.focus({ preventScroll: true }), []);
   useActiveOptionInView(listRef, active?.paneId);
 
   const go = (row: ActivityRow) => send({ type: 'ACTIVITY_GO', row });
@@ -100,14 +111,16 @@ function List({ rows }: { rows: readonly ActivityRow[] }) {
 
   return (
     <div className="activity-inbox-panel">
-      <FilterBox
+      <ComboboxInput
+        inputRef={inputRef}
         className="activity-inbox-filter"
         label="Filter panes"
-        value={query}
-        onChange={filter}
-        onKeyDown={onKeyDown}
         listId={listId}
-        activeOptionId={active ? optionId(active) : undefined}
+        activeId={active ? optionId(active) : undefined}
+        placeholder="Filter panes…"
+        value={query}
+        onValue={filter}
+        onKeyDown={onKeyDown}
       />
       <div
         ref={listRef}
@@ -126,13 +139,7 @@ function List({ rows }: { rows: readonly ActivityRow[] }) {
             onGo={() => go(row)}
           />
         ))}
-        {shown.length === 0 && (
-          <div className="activity-inbox-empty" role="presentation">
-            {rows.length === 0
-              ? 'No pane has said anything about itself'
-              : `No pane matches “${query.trim()}”`}
-          </div>
-        )}
+        {shown.length === 0 && <Empty total={rows.length} query={query} />}
       </div>
     </div>
   );

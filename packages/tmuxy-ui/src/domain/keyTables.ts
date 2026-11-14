@@ -50,7 +50,9 @@ export type ClientKey =
   | 'activity'
   | 'activity-most-urgent'
   | 'tab-left'
-  | 'tab-right';
+  | 'tab-right'
+  | 'command-palette'
+  | 'go-to';
 
 export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
   prefix: {
@@ -60,35 +62,39 @@ export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
     '?': 'keys-view',
     A: 'activity',
     U: 'activity-most-urgent',
+    P: 'command-palette',
+    g: 'go-to',
   },
   tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
 };
 
 /**
- * Client keys that came after users had the key to themselves: a binding the
- * user's own config gives the key wins over them, so a long-standing
- * `bind A …` keeps working. The older client keys are tmuxy's own defaults.
+ * Client keys on keys tmux binds nothing to by default. A binding found on
+ * one is the user's own or a plugin's, and it wins: the client answers the
+ * key only while the table has none.
  */
-const YIELDING_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set(['activity', 'activity-most-urgent']);
+const YIELDING_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set([
+  'activity',
+  'activity-most-urgent',
+  'command-palette',
+  'go-to',
+]);
 
-/**
- * The client key `key` is in `table`, unless it is one that yields and tmux
- * has a binding for the key there (`bound`).
- */
-export function clientKeyFor(
-  table: string,
-  key: string,
-  bound: (key: string) => boolean,
-): ClientKey | undefined {
+/** The client key `key` of `table` runs; `bound` says the table has a binding on it. */
+export function clientKeyFor(table: string, key: string, bound: boolean): ClientKey | undefined {
   const clientKey = CLIENT_KEYS[table]?.[key];
-  if (clientKey && YIELDING_CLIENT_KEYS.has(clientKey) && bound(key)) return undefined;
+  if (clientKey && bound && YIELDING_CLIENT_KEYS.has(clientKey)) return undefined;
   return clientKey;
 }
 
 /**
- * The chords the keyboard actor answers before any table (its ctrl+digit
- * branch): ctrl+0 opens the Tab Overview, and ctrl+1-9 picks a tab by its
- * position in the strip (`TAB_POSITION_CHORDS`).
+ * The chords the keyboard actor answers before any table: ctrl+0 opens the
+ * Tab Overview, ctrl+1-9 picks a tab by its position in the strip
+ * (`TAB_POSITION_CHORDS`), and ctrl+shift+p (cmd+shift+p too) opens the
+ * command palette.
  */
-export const CLIENT_CHORDS: Partial<Record<ClientKey, string>> = { 'tab-overview': 'ctrl+0' };
+export const CLIENT_CHORDS: Partial<Record<ClientKey, string>> = {
+  'tab-overview': 'ctrl+0',
+  'command-palette': 'ctrl+shift+p',
+};
 export const TAB_POSITION_CHORDS = 'ctrl+1-9';
