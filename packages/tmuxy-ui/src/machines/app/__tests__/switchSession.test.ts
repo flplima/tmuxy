@@ -62,6 +62,26 @@ describe('SWITCH_SESSION', () => {
   });
 });
 
+describe('TMUX_SESSION_SWITCHED', () => {
+  // A session left less than the monitor's grace period ago still has its
+  // monitor, which broadcasts nothing when the client comes back: the panes
+  // cleared for the switch stayed cleared until something in tmux changed.
+  it('asks the session switched to for its state, at the viewport', () => {
+    const { actor, sent } = recordingApp();
+    actor.send({ type: 'TMUX_CONNECTED' });
+    actor.send({ type: 'SET_TARGET_SIZE', cols: 100, rows: 30 });
+    actor.send(oneTab(100, 30));
+
+    actor.send({ type: 'SWITCH_SESSION', sessionName: 'other' });
+    expect(actor.getSnapshot().context.panes).toEqual([]);
+    sent.length = 0;
+
+    actor.send({ type: 'TMUX_SESSION_SWITCHED' });
+    expect(initialFetches(sent)).toEqual([{ type: 'FETCH_INITIAL_STATE', cols: 100, rows: 30 }]);
+    actor.stop();
+  });
+});
+
 describe('TMUX_CONNECTED', () => {
   it('fetches the initial state once, at the default 80×24', () => {
     const { actor, sent } = recordingApp();
