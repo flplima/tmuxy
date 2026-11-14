@@ -25,8 +25,11 @@
 //! name more agents and give states for text on screen; a matching one
 //! comes ahead of the signs above.
 
+pub mod explain;
 pub mod program;
 pub mod user;
+
+pub use explain::Why;
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -76,9 +79,10 @@ fn hash(screen: &str) -> u64 {
 
 /// The state the screen says, given what it was doing: `None` while it has
 /// not settled into a sign yet (first sight, or still for too short a time).
-pub fn judge(track: &mut Option<Track>, screen: &str) -> Option<PaneStateName> {
+pub fn judge(track: &mut Option<Track>, screen: &str) -> Option<(PaneStateName, Why)> {
     let now = hash(screen);
-    let dialog = super::agent_screen::shows_dialog(screen).then_some(PaneStateName::NeedsInput);
+    let dialog = super::agent_screen::shows_dialog(screen)
+        .then_some((PaneStateName::NeedsInput, Why::Dialog));
     let Some(seen) = track else {
         // First sight: nothing to compare with yet.
         *track = Some(Track {
@@ -97,8 +101,8 @@ pub fn judge(track: &mut Option<Track>, screen: &str) -> Option<PaneStateName> {
         return dialog;
     }
     match seen.still {
-        0 => Some(PaneStateName::Working),
-        n if n >= STILL_PASSES => Some(PaneStateName::Idle),
+        0 => Some((PaneStateName::Working, Why::Changed)),
+        n if n >= STILL_PASSES => Some((PaneStateName::Idle, Why::Still)),
         _ => None,
     }
 }
@@ -106,7 +110,8 @@ pub fn judge(track: &mut Option<Track>, screen: &str) -> Option<PaneStateName> {
 /// What the rules do to a pane: write a state, take theirs off, or nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
-    Set(&'static str),
+    /// The state, and why ([`Why::token`]).
+    Set(&'static str, String),
     Clear,
 }
 
@@ -116,15 +121,15 @@ pub enum Change {
 pub fn decide(
     current: &str,
     ours: &str,
-    wanted: Option<PaneStateName>,
+    wanted: Option<(PaneStateName, Why)>,
     asking: bool,
 ) -> Option<Change> {
     let theirs = !current.is_empty() && current != ours;
     if theirs || asking {
         return None;
     }
-    let wanted = wanted?.as_str();
-    (wanted != current).then_some(Change::Set(wanted))
+    let (wanted, why) = wanted?;
+    (wanted.as_str() != current).then(|| Change::Set(wanted.as_str(), why.token()))
 }
 
 /// The panes the rules read, and what each screen has been doing.
@@ -174,14 +179,21 @@ pub fn guarded_command(pane: &str, read: &str, change: &Change) -> Option<Vec<St
     if !read.is_empty() && PaneStateName::parse(read).is_none() {
         return None;
     }
-    let both = |verb: &str, value: &str| {
-        [tmux_options::PANE_STATE, tmux_options::RULES_STATE]
-            .map(|option| format!("{verb} -t {pane} {option}{value}"))
-            .join(" ; ")
-    };
     let commands = match change {
-        Change::Set(state) => both("set-option -p", &format!(" {state}")),
-        Change::Clear => both("set-option -pu", ""),
+        Change::Set(state, why) => [
+            (tmux_options::PANE_STATE, *state),
+            (tmux_options::RULES_STATE, *state),
+            (tmux_options::RULES_WHY, why.as_str()),
+        ]
+        .map(|(option, value)| format!("set-option -p -t {pane} {option} {value}"))
+        .join(" ; "),
+        Change::Clear => [
+            tmux_options::PANE_STATE,
+            tmux_options::RULES_STATE,
+            tmux_options::RULES_WHY,
+        ]
+        .map(|option| format!("set-option -pu -t {pane} {option}"))
+        .join(" ; "),
     };
     let still = format!("#{{==:#{{{}}},{read}}}", tmux_options::PANE_STATE);
     Some(
@@ -247,7 +259,7 @@ impl Rules {
             let wanted = self
                 .user
                 .matching(&program, &screen)
-                .map(|rule| rule.state)
+                .map(|rule| (rule.state, rule.why.clone()))
                 .or(signs);
             let mine = if row.state.is_empty() {
                 String::new()

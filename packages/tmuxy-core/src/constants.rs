@@ -148,6 +148,11 @@ pub mod tmux_options {
     /// else declared is never overwritten.
     pub const RULES_STATE: &str = "@tmuxy-rules-state";
 
+    /// Pane-scoped: why the screen rules wrote [`RULES_STATE`], as a token
+    /// (`dialog`, `changed`, `still`, `user:<file>:<rule>`) that `tmuxy pane
+    /// state explain` turns into words.
+    pub const RULES_WHY: &str = "@tmuxy-rules-why";
+
     /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
     /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys
     /// are meant for. The value is base64 of a JSON object
