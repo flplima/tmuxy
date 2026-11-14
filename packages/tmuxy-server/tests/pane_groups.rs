@@ -177,11 +177,14 @@ fn a_group_lives_its_whole_life_through_the_group_verb() {
     // A member that exits by itself goes through the same close, by its hook,
     // which promotes p2 before it dissolves the group: wait for the end of it.
     // Down to one member: no group any more.
+    // The dissolve unsets the group id, then remain-on-exit, one tmux call
+    // each: the wait is for the last of them, not the first.
     s.tmux(&["respawn-pane", "-k", "-t", &p1, "true"]);
     s.eventually("the hook to promote p2 and dissolve the group", || {
-        s.visible() == p2 && s.option(&p2, "@tmuxy-group-id").is_empty()
+        s.visible() == p2
+            && s.option(&p2, "@tmuxy-group-id").is_empty()
+            && s.option(&p2, "remain-on-exit").is_empty()
     });
-    assert_eq!(s.option(&p2, "remain-on-exit"), "");
 }
 
 #[test]
