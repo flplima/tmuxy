@@ -209,6 +209,16 @@ impl<W> MonitorCore<W> {
         if let Some(change) = self.aggregator.tick(now) {
             actions.push(Action::Emit(change));
         }
+        if self
+            .aggregator
+            .status_deadline()
+            .is_some_and(|at| now >= at)
+        {
+            let held = self.aggregator.held_status_commands(now);
+            if !held.is_empty() {
+                actions.push(Action::Send(held));
+            }
+        }
         if self.metadata_sync_at.is_some_and(|at| now >= at) {
             self.metadata_sync_at = None;
             let relist = self.aggregator.markers().window_relist_commands().to_vec();
@@ -244,6 +254,7 @@ impl<W> MonitorCore<W> {
             Some(self.next_sync_at),
             self.metadata_sync_at,
             self.aggregator.settling_deadline(),
+            self.aggregator.status_deadline(),
             reply_deadline,
         ]
         .into_iter()
