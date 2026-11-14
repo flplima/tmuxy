@@ -267,7 +267,7 @@ pub fn respawn_argv(pane: &str, path: &str, script: &std::path::Path) -> Vec<Str
 
 #[derive(clap::Args, Debug)]
 pub struct ReviveArgs {
-    /// The pane, by id or label: the shell resolves a label first.
+    /// The pane, by id or label.
     pane: String,
     /// Only say whether it can be revived: `ok`, or why not with exit 1.
     /// What the pane menu asks before it offers the item.
@@ -294,7 +294,8 @@ fn pane_children(pid: Option<u32>) -> Option<Vec<String>> {
 }
 
 pub fn revive(answer: &Answer, args: ReviveArgs) {
-    let pane = args.pane;
+    let pane =
+        super::wait::resolve_one(&args.pane).unwrap_or_else(|(code, e)| answer.exit(code, &e));
     let Some(now) = read_pane(&pane) else {
         answer.exit(EXIT_TARGET, &format!("no pane {pane}"))
     };

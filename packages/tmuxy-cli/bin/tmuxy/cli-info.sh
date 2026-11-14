@@ -78,7 +78,7 @@ cmd_agent() {
   local verb="${1:-}"
   [ $# -gt 0 ] && shift
   case "$verb" in
-    install|uninstall|status|wait|spawn|start|revive)
+    install|uninstall|status|wait|spawn|start|revive|fork)
       find_server_cmd || exit "$EXIT_FAILED"
       # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
       exec "${SERVER_CMD[@]}" agent "$verb" ${server_json[@]+"${server_json[@]}"} "$@"
@@ -91,6 +91,7 @@ Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy|opencode|pi|crus
                          [--place stack|split] [--permission-mode M] [-- cmd...]
        tmuxy agent start <label> [spawn's options] [--for 60s]
        tmuxy agent revive <pane>
+       tmuxy agent fork <pane> [--branch B]
 
 Show what a coding agent is doing on its tree row: working, waiting for you,
 done, failed. Its lifecycle hooks report to tmuxy; the tmuxy skill is

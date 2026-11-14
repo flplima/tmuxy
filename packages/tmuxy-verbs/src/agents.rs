@@ -15,6 +15,8 @@ use crate::cli_json::{self, Answer, EXIT_FAILED};
 use serde_json::Value;
 
 mod config;
+#[cfg(feature = "native")]
+mod fork;
 mod session;
 mod spawn;
 mod start;
@@ -274,6 +276,10 @@ enum AgentVerb {
     /// Bring an exited agent back into the same conversation, in its pane:
     /// the session its hooks recorded, resumed by a command tmuxy builds.
     Revive(session::ReviveArgs),
+    /// Carry a pane's agent conversation on in a new worktree and tab, as a
+    /// fork that leaves the original as it is (Claude Code).
+    #[cfg(feature = "native")]
+    Fork(fork::ForkArgs),
     /// The pane state an agent event means (backs `tmuxy agent hook`). Reads
     /// the event's JSON on stdin.
     #[command(hide = true)]
@@ -305,6 +311,8 @@ pub fn run(args: AgentArgs) {
         AgentVerb::Spawn(spawn) => return spawn::run(&answer, *spawn),
         AgentVerb::Start(start) => return start::run(&answer, *start),
         AgentVerb::Revive(revive) => return session::revive(&answer, revive),
+        #[cfg(feature = "native")]
+        AgentVerb::Fork(fork) => return fork::run(&answer, fork),
         verb => verb,
     };
     let places = match Places::from_env() {
@@ -331,6 +339,8 @@ pub fn run(args: AgentArgs) {
         | AgentVerb::Spawn(_)
         | AgentVerb::Start(_)
         | AgentVerb::Revive(_) => Ok(()),
+        #[cfg(feature = "native")]
+        AgentVerb::Fork(_) => Ok(()),
     };
     // What was done before a failure is still said.
     if !answer.is_json() {
