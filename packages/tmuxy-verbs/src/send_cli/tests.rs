@@ -37,6 +37,9 @@ struct Fake {
     replaced_after_typing: bool,
     /// The agent is working before anything is sent.
     working_before: bool,
+    /// What the inbox bridge reads: the switch, the recorded inbox and the
+    /// program in front, tab-separated.
+    inbox: String,
     log: Mutex<Vec<String>>,
 }
 
@@ -54,6 +57,7 @@ impl ask::Tmux for Fake {
                 "#{pane_current_command}" => self.caller_program.clone(),
                 "#{pane_pid}" if self.elsewhere => "0".into(),
                 "#{pane_pid}" => std::process::id().to_string(),
+                f if f.starts_with("#{@tmuxy-send-inbox}") => self.inbox.clone(),
                 "#{@tmuxy-ask}" => String::new(),
                 "#{@tmuxy-pane-state}" if !self.typed().is_empty() => {
                     let mut script = self.after_typing.lock().unwrap();
@@ -174,6 +178,7 @@ fn args(caller_pane: Option<&str>) -> SendArgs {
         stall_after: 1,
         wait_for: "30s".into(),
         queue: false,
+        inbox: false,
         keys: vec!["make".into(), "Enter".into()],
     }
 }
@@ -448,4 +453,5 @@ async fn a_wait_is_refused_into_a_working_agent_and_a_failed_wait_is_exit_5() {
     assert_eq!(code, EXIT_SENT);
 }
 
+mod inbox;
 mod rules_file;

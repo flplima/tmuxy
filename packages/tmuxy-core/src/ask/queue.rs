@@ -66,7 +66,7 @@ fn pid_of(id: &str) -> Option<u32> {
 /// When process `pid` started, in a form only compared for equality: the
 /// kernel's start time in ticks where `/proc` has it, else what `ps` says.
 /// `None` when there is no such process.
-fn started(pid: u32) -> Option<String> {
+pub fn started(pid: u32) -> Option<String> {
     if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
         // Field 22; the fields after the command's closing parenthesis
         // start at field 3.

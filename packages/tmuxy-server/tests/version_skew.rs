@@ -251,10 +251,18 @@ fn tags_written_by_the_shell() -> BTreeSet<String> {
 
 #[test]
 fn every_tag_the_cli_writes_is_one_the_core_reads() {
-    // The Rust side's vocabulary, read from the same place the code reads it.
-    let constants =
-        std::fs::read_to_string(repo_root().join("packages/tmuxy-core/src/constants.rs"))
-            .expect("constants.rs readable");
+    // The Rust side's vocabulary, read from the same place the code reads it:
+    // constants.rs and the modules under constants/ (the option names are in
+    // constants/tmux_options.rs).
+    let root = repo_root().join("packages/tmuxy-core/src");
+    let mut constants =
+        std::fs::read_to_string(root.join("constants.rs")).expect("constants.rs readable");
+    for entry in std::fs::read_dir(root.join("constants")).expect("constants/ readable") {
+        let path = entry.expect("readable dir entry").path();
+        if path.extension().is_some_and(|e| e == "rs") {
+            constants.push_str(&std::fs::read_to_string(&path).expect("constants file readable"));
+        }
+    }
 
     let unknown: Vec<String> = tags_written_by_the_shell()
         .into_iter()
@@ -267,7 +275,7 @@ fn every_tag_the_cli_writes_is_one_the_core_reads() {
          These two halves ship separately, so a rename on one side is silent: the \
          CLI sets an option nobody reads, the core falls back to a default, and the \
          feature stops working with every test still green. Add the constant to \
-         packages/tmuxy-core/src/constants.rs, or fix the spelling in bin/.",
+         packages/tmuxy-core/src/constants/tmux_options.rs, or fix the spelling in bin/.",
         unknown.len(),
         unknown.join(", "),
     );

@@ -89,6 +89,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [PLUGIN-API.md](PLUGIN-API.md) | The plugin API — the one surface that only grows (a change needs `api = 2`) | Changing anything a plugin can call |
 | [MCP.md](MCP.md) | The `/mcp` endpoint (`tmuxy mcp`) and its tools | An agent driving a session |
 | [PERMISSIONS.md](PERMISSIONS.md) | `permissions.json`: rules that refuse a send into another pane, or have it asked | Changing what an agent may type into another pane |
+| [AGENT-INBOX.md](AGENT-INBOX.md) | A spike, off by default: `pane send --inbox` posts to a Claude Code session's inbox socket instead of typing | Sending to agents without keystrokes; the bridge's open questions |
 
 ### Security & Constraints
 
