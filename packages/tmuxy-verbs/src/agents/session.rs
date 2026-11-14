@@ -203,6 +203,7 @@ pub fn children(pid: u32) -> Option<Vec<String>> {
 /// A `/proc/<pid>/stat` line's command name and parent: the name is in
 /// parentheses and may hold spaces or `)`, so the fields after the last `)`
 /// are read from there.
+#[cfg(any(target_os = "linux", test))]
 pub fn parent_of(stat: &str) -> Option<(String, u32)> {
     let open = stat.find('(')?;
     let close = stat.rfind(')')?;
