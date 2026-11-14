@@ -5,7 +5,7 @@ A good report is one we can reproduce. This page says what to put in it, how to 
 ## What to include
 
 1. **What you did, what you expected, what happened.** Steps, in order, from a fresh start if you can.
-2. **The versions:**
+2. **The versions and your setup.** The quickest way: the **Debug** menu's `Copy Bug Report Snippet` puts them on the clipboard as Markdown (tmuxy's and tmux's versions, web or desktop, the OS, the theme and the menu's switches, how many tabs and panes), and nothing else: no names, commands, paths or hosts. Read it, then paste it. Without the app at hand:
    - `tmuxy --version`
    - `tmux -V`. This one matters most: tmux 3.2 and later are supported, and each version has control-mode bugs of its own that tmuxy works around ([TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md)).
    - Your OS, and for the web app your browser.
@@ -14,39 +14,23 @@ A good report is one we can reproduce. This page says what to put in it, how to 
 
 ## Taking a trace
 
-<!-- TO UPDATE when the Debug menu's "Copy Bug Report Snippet" (menu id
-debug-copy-report) and "Copy Trace…" land on main. The snippet is Markdown with
-`### Environment` (tmuxy version and web or desktop, tmux version, OS) and
-`### Settings` (theme and mode, cursor blink, ask before sending keys,
-transparency, traces and level, tab and pane counts), and nothing else: no
-names, commands, paths or hosts. Then: step 2 above says to paste the snippet
-(and to read it first, as its notice asks); the issue template gets an optional
-"Bug report snippet" field beside the version fields; steps 3 and 4 and the
-manual check below give way to the redacted trace: Debug ▸ "Copy Trace…"
-(id trace-copy-share) opens a "Copy Trace" dialog with the last 20 actions
-redacted (session names, paths, error text, command arguments and marker
-labels become placeholders such as session-1 and path-2; ids, operations and
-timing stay), a full preview, and a "Copy N lines" button. The CLI twin is
-`tmuxy trace --last 20 --redact > tmuxy-trace-slice.ndjson` (also with
---window and --export). It redacts at any trace level, so the "take it at
-Shape" advice goes. Until then, this section is what works on main. -->
-
 Tracing is off by default. Nothing is sent anywhere: the trace is a file on the machine that runs tmuxy ([TELEMETRY.md](TELEMETRY.md)).
 
-1. **Turn it on, at the `Shape` level.** In the app: the **Debug** menu, `Enable Traces`, then `Shape`. For `tmuxy server`: start it with `--trace`, and `TMUXY_TRACE_LEVEL=shape` (the default).
+1. **Turn it on.** In the app: the **Debug** menu, `Enable Traces`. For `tmuxy server`: start it with `--trace`.
 2. **Reproduce the problem.** Right after it happens, mark the moment:
 
    ```
    tmuxy trace --mark "the pane froze here"
    ```
 
-3. **Take a slice**, not the whole file. The last few actions are usually enough:
+3. **Take a redacted slice**, not the whole file. In the app: the **Debug** menu's `Copy Trace…` shows the last 20 actions, redacted, in full, and its `Copy` button copies exactly what it shows. From a terminal:
 
    ```
-   tmuxy trace --last 20 > tmuxy-trace-slice.ndjson
+   tmuxy trace --last 20 --redact > tmuxy-trace-slice.ndjson
    ```
 
-4. **Check the slice** (below), then attach `tmuxy-trace-slice.ndjson` to the issue.
+   Redaction applies whatever level the trace was taken at. Session names, paths, error text, command arguments and marker labels become placeholders numbered by first appearance (`session-1`, `path-2`), the same value always the same placeholder; ids, operations, timing and numbers stay.
+4. **Read it** (below), then paste it or attach the file to the issue.
 
 The file itself is `trace.ndjson` in tmuxy's state directory: `~/.local/state/tmuxy` on Linux, `~/Library/Application Support/tmuxy` on macOS, or wherever `TMUXY_STATE_DIR` points. The Debug menu's `Copy trace.ndjson Path` gives it to you. With the web app, the file is on the machine running the server, not the one running the browser.
 
@@ -71,26 +55,18 @@ The other levels are for your own debugging, not for a public issue:
 - `Labeled` writes names, folders and error text in the clear.
 - `Full` writes whole command lines, cut at the first one that carries keystrokes.
 
-The level applies to the lines written while it is on, so a trace file can hold lines from an earlier, more detailed level. Take the slice after reproducing at `Shape`, never from an old file.
+The level applies to the lines written while it is on, so a trace file can hold lines from an earlier, more detailed level. A redacted slice replaces those names whatever the level; an unredacted one does not, so never share one taken from a `Labeled` or `Full` trace.
 
-## Checking a slice before you share it
+## Reading a slice before you share it
 
-A slice is plain text, one JSON object per line. Read it before attaching it:
-
-```
-jq -c '{t: .ts_wall, layer, name, op, session}' tmuxy-trace-slice.ndjson | head -40
-```
-
-Then look for anything of yours by name. Every line here should print nothing:
+A slice is plain text, one JSON object per line, and redaction is a rule, not a reviewer: read what you are about to share. Then look for anything of yours by name. Every line here should print nothing:
 
 ```
 grep -i -e "$USER" -e "$(hostname)" tmuxy-trace-slice.ndjson
 grep -i -e "my-project" -e "my-company" tmuxy-trace-slice.ndjson
 ```
 
-Put your own project, client or folder names in the second line. And check the level tracing is at: `trace.json`, beside the trace, says `"level": "shape"`.
-
-If any of them prints something, do not attach the slice: delete it, switch the Debug menu to `Shape`, reproduce, and take a new one. If you are unsure, describe the problem without a trace. We will ask for what we need.
+Put your own project, client or folder names in the second line. If either prints something, do not attach the slice, and tell us in the issue what got through: that is a bug in the redaction. If you are unsure, describe the problem without a trace. We will ask for what we need.
 
 To stop tracing afterwards: the Debug menu's switch, or `DO_NOT_TRACK=1` / `TMUXY_NO_TRACE=1`, which force it off everywhere.
 

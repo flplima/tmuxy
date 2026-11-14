@@ -27,6 +27,14 @@ body:
         3. See error
     validations:
       required: true
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Bug report snippet
+      description: "Optional: the Debug menu's `Copy Bug Report Snippet`, read and pasted here. It holds the versions and settings below, and no names, commands, paths or hosts."
+      render: markdown
+    validations:
+      required: false
   - type: input
     id: tmux-version
     attributes:
@@ -84,7 +92,7 @@ body:
     attributes:
       label: Trace slice
       description: |
-        Optional, and the fastest way to see what tmuxy did. Taken at the `Shape` level with `tmuxy trace --last 20 > tmuxy-trace-slice.ndjson`, and checked as [Reporting an issue](https://github.com/flplima/tmuxy/blob/main/docs/REPORTING-ISSUES.md) says. Drag the file here.
+        Optional, and the fastest way to see what tmuxy did. Redacted, from the Debug menu's `Copy Trace…` or `tmuxy trace --last 20 --redact > tmuxy-trace-slice.ndjson`, and read as [Reporting an issue](https://github.com/flplima/tmuxy/blob/main/docs/REPORTING-ISSUES.md) says. Paste it, or drag the file here.
     validations:
       required: false
   - type: checkboxes
@@ -92,7 +100,7 @@ body:
     attributes:
       label: Before attaching a trace
       options:
-        - label: I took it at the `Shape` level and read it, and it holds nothing I would not post publicly.
+        - label: It is redacted, I read it, and it holds nothing I would not post publicly.
           required: false
   - type: textarea
     id: additional-context
