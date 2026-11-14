@@ -81,7 +81,7 @@ The app builds the chain itself (`entry_conf` in `tmuxy-core/src/session/config.
 | 4 | `tmuxy.conf` | config | user | written on the first run only, never again |
 | 5 | `tmuxy.essentials.conf` again | data | app | every launch |
 
-`tmuxy config use-tmux-conf on` fills in step 3. The order is the whole design: the user's configs come after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.conf` comes after `~/.tmux.conf`, so the tmuxy-specific file has the last word on taste; and `tmuxy.essentials.conf` is sourced **again** on top, so the settings tmuxy cannot work without are restored whatever any config did to them. The essentials also come first because every binding in the defaults (and in a user's file) resolves through their command-aliases, which must exist before anything binds to them.
+`tmuxy keymap` (`tmuxy-core/src/session/keymap.rs`) reads these files in this order and says which line binds each key. `tmuxy config use-tmux-conf on` fills in step 3. The order is the whole design: the user's configs come after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.conf` comes after `~/.tmux.conf`, so the tmuxy-specific file has the last word on taste; and `tmuxy.essentials.conf` is sourced **again** on top, so the settings tmuxy cannot work without are restored whatever any config did to them. The essentials also come first because every binding in the defaults (and in a user's file) resolves through their command-aliases, which must exist before anything binds to them.
 
 The entry file is rebuilt right before every use — the `-f` of a new server, the `source-file` of every connect, reload and Reload Config — from the `use-tmux-conf` choice and the user's file, so it never goes stale. Being built from this machine's state and this process's config dir, it lives in the state dir: two tmuxy processes with their own dirs (a test server beside the app) never rewrite each other's. Reload Config sends `source-file $TMUXY_ENTRY_CONF`, which a tmuxy process swaps for its own path.
 
@@ -167,8 +167,12 @@ whichever table they belong to: `prefix s` / `S` (open a sidebar over the
 panes; the same key again while it is open docks it, and again frees it — the
 prefix stays armed for that one key, tmux's repeat, and any other key goes on
 as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
-`prefix ?` (the keys view), and TAB's `<` / `>` (move the tab along the strip,
+`prefix ?` (the keys view), `prefix A` / `U` (the activity inbox and the jump to the pane that needs you, [ACTIVITY.md](ACTIVITY.md)), and TAB's `<` / `>` (move the tab along the strip,
 which skips the windows floats and sidebars occupy where a relative
-`swap-window` would not). The status line names the mode in force and shows a
+`swap-window` would not). `prefix P` (the command palette, also
+`ctrl+shift+p`) and `prefix g` (the palette on sessions, tabs and panes alone)
+are client keys too, but on keys tmux binds nothing to: a binding the config or
+a plugin puts on `P` or `g` runs instead, and the palette keeps its chord and
+its View menu items. The status line names the mode in force and shows a
 handful of its keys, each line fitting 80 columns
 (`tmuxy-ui/src/components/statusLineHints.ts`).

@@ -1,7 +1,7 @@
 {
   "duplicatedLines": {
-    "typescript": 220,
-    "rust": 139,
+    "typescript": 188,
+    "rust": 120,
     "shell": 0
   },
   "complexity": {

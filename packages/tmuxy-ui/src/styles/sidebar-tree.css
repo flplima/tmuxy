@@ -53,6 +53,7 @@
 }
 
 .sidebar-tree-tab {
+  position: relative;
   box-sizing: content-box;
   padding-block: var(--tree-tab-pad-y);
 }

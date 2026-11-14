@@ -14,6 +14,13 @@ export const PREVIEW_LINES = {
   rev: '__REV__:',
 } as const;
 
+/** The pane options of a pane's state, its program's words and its label (`tmux_options`). */
+export const PANE_OPTIONS = {
+  state: '@tmuxy-pane-state',
+  status: '@tmuxy-pane-status',
+  label: '@tmuxy-label',
+} as const;
+
 /** The session parked pane-group members live in (`STASH_SESSION`). */
 export const STASH_SESSION = '__tmuxy_stash';
 
@@ -67,6 +74,7 @@ export const DEFAULT_APPEARANCE = {
   activeTextOpacity: 1,
   animations: true,
   blur: true,
+  confirmClose: true,
   cursorBlink: true,
   gesturePinchOverview: true,
   gesturePinchZoom: true,

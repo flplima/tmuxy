@@ -42,6 +42,7 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.cursorShape === next.cursorShape &&
     prev.cursorHidden === next.cursorHidden &&
     (prev.paneState ?? null) === (next.paneState ?? null) &&
+    (prev.paneStatus ?? null) === (next.paneStatus ?? null) &&
     (prev.paneAsk ?? null) === (next.paneAsk ?? null) &&
     (prev.paneWidget ?? null) === (next.paneWidget ?? null) &&
     prev.windowId === next.windowId &&
@@ -64,6 +65,7 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     prev.floatDrawer === next.floatDrawer &&
     prev.floatBg === next.floatBg &&
     prev.floatNoheader === next.floatNoheader &&
+    Boolean(prev.floatMinimized) === Boolean(next.floatMinimized) &&
     (prev.sidebarCols ?? null) === (next.sidebarCols ?? null) &&
     Boolean(prev.sidebarHidden) === Boolean(next.sidebarHidden) &&
     Boolean(prev.collapsible) === Boolean(next.collapsible) &&

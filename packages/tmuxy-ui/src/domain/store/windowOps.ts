@@ -1,6 +1,6 @@
 import { type TmuxSnapshot, type Patch, type ReconcileVerdict, lingerVerdict } from './types';
 import type { TmuxPane, TmuxWindow } from '../client';
-import type { TmuxOpOf } from '../commands';
+import type { TmuxOpOf, WindowTag } from '../commands';
 import {
   isPlaceholderId,
   placeholderPaneId as newPlaceholderPaneId,
@@ -251,8 +251,15 @@ export function reconcileRenameWindow(
   return { _tag: 'pending' };
 }
 
+/** The window flags a tag sets, by tag: the ones the client predicts. */
+const FLAG_OF: Partial<Record<WindowTag, 'sidebarHidden' | 'floatMinimized'>> = {
+  'sidebar-hidden': 'sidebarHidden',
+  'float-minimized': 'floatMinimized',
+};
+
 /**
- * A sidebar column shut or shown (`@tmuxy-sidebar-hidden`) is the client's
+ * A sidebar column shut or shown (`@tmuxy-sidebar-hidden`), or a float
+ * minimized or brought back (`@tmuxy-float-minimized`), is the client's
  * own say until tmux has had time to answer it. The echo of an earlier
  * write of this client's, or a state tmux computed before the write, can
  * arrive after it (a dock, then a shut, then the dock's late echo): read as
@@ -265,17 +272,18 @@ export function predictWindowTag(
   op: TmuxOpOf<'SetWindowTag'>,
   snapshot: TmuxSnapshot,
 ): PredictResult | null {
-  if (op.tag !== 'sidebar-hidden' || isPlaceholderId(op.windowId)) return null;
+  const flag = FLAG_OF[op.tag];
+  if (!flag || isPlaceholderId(op.windowId)) return null;
   const window = snapshot.windows.find((w) => w.id === op.windowId);
   if (!window) return null;
   const hidden = op.value !== null;
   const patch: Patch = (s) => ({
     ...s,
-    windows: s.windows.map((w) => (w.id === op.windowId ? { ...w, sidebarHidden: hidden } : w)),
+    windows: s.windows.map((w) => (w.id === op.windowId ? { ...w, [flag]: hidden } : w)),
   });
   return {
     patch,
-    meta: { windowId: op.windowId, hidden, wasHidden: Boolean(window.sidebarHidden) },
+    meta: { windowId: op.windowId, flag, hidden, wasHidden: Boolean(window[flag]) },
   };
 }
 
@@ -290,7 +298,7 @@ export function reconcileWindowTag(
   return lingerVerdict(
     meta.hidden as boolean,
     meta.wasHidden as boolean,
-    Boolean(window.sidebarHidden),
+    Boolean(window[meta.flag as 'sidebarHidden' | 'floatMinimized']),
     ageMs,
   );
 }
