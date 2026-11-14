@@ -10,7 +10,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         let commands = self.core.attach_commands(
             (INITIAL_PTY_COLS, INITIAL_PTY_ROWS),
             super::super::monitor_core::AttachConfig {
-                config: attach_config(),
+                config: attach_config(&self.config.session),
                 host: attach_host(),
             },
         );
@@ -67,13 +67,15 @@ impl<C: ControlLink> TmuxMonitor<C> {
 /// the choices made through the UI (theme, mode, cursor blink): tmux forgets
 /// them when its server exits, tmuxy.state.json does not. After the config,
 /// and only for what the user's tmuxy.conf leaves unset — an option it sets
-/// is pinned, and config beats menu state.
-fn attach_config() -> Vec<String> {
+/// is pinned, and config beats menu state. Then the session's own profile,
+/// if it has one other than the default (`crate::profiles`).
+fn attach_config(session: &str) -> Vec<String> {
     let mut commands: Vec<String> = crate::session::get_config_path()
         .map(|path| format!("source-file {}", crate::tmux_quote(&path.to_string_lossy())))
         .into_iter()
         .collect();
     commands.extend(crate::session::current_managed_state_commands());
+    commands.extend(crate::session::current_profile_commands(session));
     commands
 }
 

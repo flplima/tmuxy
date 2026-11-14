@@ -206,6 +206,11 @@ pub mod tmux_options {
     /// chrome and the pane surfaces opaque and clears the blur, leaving the
     /// opacity and blur options as they are for when it goes back on.
     pub const TRANSPARENCY: &str = "@tmuxy-transparency";
+
+    /// Session-scoped: the terminal profile the session uses
+    /// (`crate::profiles`), set with the profile's own values over the
+    /// global ones. Unset: the Default Profile, which changes nothing.
+    pub const PROFILE: &str = "@tmuxy-profile";
     /// `on`/`off`: the UI's layout animations (pane morphs, swaps, resizes,
     /// float keyframes). Off draws every change in place.
     pub const ANIMATIONS: &str = "@tmuxy-animations";
@@ -223,6 +228,9 @@ pub mod tmux_options {
     /// program in front is one of them skips that question — an agent's
     /// prompt, which other agents may type into. Read where `SEND_ALLOW` is.
     pub const SEND_ALLOW_INTO: &str = "@tmuxy-send-allow-into";
+    /// `on`/`off`: whether closing a pane or tab asks first while a pane in
+    /// it says it is `working` or `needs-input` (`@tmuxy-pane-state`).
+    pub const CONFIRM_CLOSE: &str = "@tmuxy-confirm-close";
     /// `on`/`off`: whether a pane entering `needs-input` or `error` sends a
     /// web push notification to the devices that turned them on
     /// (`tmuxy-server/src/push.rs`).
@@ -269,51 +277,7 @@ pub const DEV_VITE_PORT: u16 = 9001;
 
 pub mod float_grid;
 
-/// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
-/// `SidebarRight`).
-///
-/// A sidebar window gets its own fixed width, not the viewport's; its rows are
-/// the viewport's, since both columns run the full height of the app body with
-/// no header of their own.
-///
-/// The frontend draws each column at exactly these widths (generated into
-/// `tmuxyConstants.gen.ts` as `SIDEBAR_DOCK`), so the rendered terminal and
-/// the tmux pane agree on where lines wrap.
-pub mod sidebar_dock {
-    use crate::WindowType;
-
-    /// Width of the left column (the tree widget), in terminal columns.
-    pub const LEFT_COLS: u32 = 30;
-
-    /// Width of the right column (the pinned terminal), in terminal columns.
-    pub const RIGHT_COLS: u32 = 35;
-
-    /// Narrowest and widest a column may be dragged to. The floor keeps a tree
-    /// row or shell prompt legible; the ceiling stops a drag from squeezing the
-    /// pane grid down to nothing.
-    pub const MIN_COLS: u32 = 16;
-    pub const MAX_COLS: u32 = 120;
-
-    /// Column width for a sidebar window, `None` for any other type (sized to
-    /// the viewport). `user_cols` is the window's `@tmuxy-sidebar-cols`.
-    pub fn cols(window_type: WindowType, user_cols: Option<u32>) -> Option<u32> {
-        let default = match window_type {
-            WindowType::SidebarLeft => LEFT_COLS,
-            WindowType::SidebarRight => RIGHT_COLS,
-            _ => return None,
-        };
-        Some(user_cols.map_or(default, |c| c.clamp(MIN_COLS, MAX_COLS)))
-    }
-
-    /// The tmux size for a sidebar window, given the client's viewport rows.
-    pub fn size(
-        window_type: WindowType,
-        user_cols: Option<u32>,
-        client_rows: u32,
-    ) -> Option<(u32, u32)> {
-        cols(window_type, user_cols).map(|c| (c, client_rows.max(1)))
-    }
-}
+pub mod sidebar_dock;
 
 /// The tmux session tmuxy parks HIDDEN pane-group members in, created lazily
 /// by the pane-group shell helpers and never attached or listed. Keeping them
@@ -323,32 +287,7 @@ pub const STASH_SESSION: &str = "__tmuxy_stash";
 
 pub mod tmux_formats;
 
-/// Control-mode event prefixes as `tmux -CC` writes them on its stdout.
-pub mod control_events {
-    pub const BEGIN: &str = "%begin ";
-    pub const END: &str = "%end ";
-    pub const ERROR: &str = "%error ";
-    pub const OUTPUT: &str = "%output ";
-    pub const EXTENDED_OUTPUT: &str = "%extended-output ";
-    pub const LAYOUT_CHANGE: &str = "%layout-change ";
-    pub const WINDOW_ADD: &str = "%window-add ";
-    pub const WINDOW_CLOSE: &str = "%window-close ";
-    pub const UNLINKED_WINDOW_ADD: &str = "%unlinked-window-add ";
-    pub const UNLINKED_WINDOW_CLOSE: &str = "%unlinked-window-close ";
-    pub const WINDOW_RENAMED: &str = "%window-renamed ";
-    pub const WINDOW_PANE_CHANGED: &str = "%window-pane-changed ";
-    pub const PANE_MODE_CHANGED: &str = "%pane-mode-changed ";
-    pub const SESSION_CHANGED: &str = "%session-changed ";
-    pub const SESSION_RENAMED: &str = "%session-renamed ";
-    pub const SESSIONS_CHANGED: &str = "%sessions-changed";
-    pub const SESSION_WINDOW_CHANGED: &str = "%session-window-changed ";
-    pub const PASTE_BUFFER_CHANGED: &str = "%paste-buffer-changed ";
-    pub const SUBSCRIPTION_CHANGED: &str = "%subscription-changed ";
-    pub const PAUSE: &str = "%pause ";
-    pub const CONTINUE: &str = "%continue ";
-    pub const MESSAGE: &str = "%message ";
-    pub const EXIT: &str = "%exit";
-}
+pub mod control_events;
 
 /// Rows of emulator-side scrollback kept per pane.
 ///
