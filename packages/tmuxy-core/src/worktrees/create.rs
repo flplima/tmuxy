@@ -192,6 +192,7 @@ fn copy_file(from: &Path, to: &Path, name: &str) -> bool {
 
 /// Bring `from`'s uncommitted changes to tracked files into `to`, a new
 /// worktree on the same commit; with `untracked`, its untracked files too.
+/// `from` may be any directory of that worktree: the whole worktree is carried.
 ///
 /// Each changed file's content is copied as it is now, and a deleted one is
 /// deleted: on the same commit that is the same state, and no `git apply`
@@ -200,6 +201,10 @@ fn copy_file(from: &Path, to: &Path, name: &str) -> bool {
 /// symlink, a path that would leave it) is left behind and listed in
 /// `skipped`. Nothing in `from` changes.
 pub fn carry(from: &Path, to: &Path, untracked: bool) -> Result<Carried, GuardError> {
+    // The pane may sit in a subdirectory: git names the changes from the top
+    // of the worktree, and `ls-files` from where it runs, so both run there.
+    let top = read(from, "rev-parse", &["rev-parse", "--show-toplevel"])?;
+    let from = Path::new(top.trim_end_matches('\n'));
     let mut carried = Carried::default();
     // diff-index compares by file stat and hashes nothing, so no clean
     // filter the repository names (in .gitattributes or .git/info/attributes)

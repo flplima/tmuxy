@@ -332,3 +332,28 @@ fn a_file_under_a_linked_directory_is_left_behind() {
     assert!(!outside.join("new.rs").exists());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A pane is often in a subdirectory: the whole worktree's work is carried,
+/// each file to its own place, not only what is under that directory.
+#[test]
+fn a_copy_from_a_subdirectory_carries_the_whole_worktree() {
+    let (root, repo) = repository("carry-sub");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("README"), "hello, edited\n").unwrap();
+    std::fs::write(repo.join("notes.txt"), "draft\n").unwrap();
+    std::fs::write(repo.join("src/new.rs"), "fn main() {}\n").unwrap();
+    let fork = create(&repo, "fork-s", Some(&head(&repo).unwrap())).unwrap();
+    let fork_path = PathBuf::from(&fork.path);
+    let mut carried = carry(&repo.join("src"), &fork_path, true).unwrap();
+    carried.untracked.sort();
+    assert_eq!(carried.changed, ["README"]);
+    assert_eq!(carried.untracked, ["notes.txt", "src/new.rs"]);
+    assert!(carried.skipped.is_empty(), "{:?}", carried.skipped);
+    assert_eq!(
+        std::fs::read_to_string(fork_path.join("README")).unwrap(),
+        "hello, edited\n"
+    );
+    assert!(fork_path.join("src/new.rs").is_file());
+    assert!(!fork_path.join("new.rs").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
