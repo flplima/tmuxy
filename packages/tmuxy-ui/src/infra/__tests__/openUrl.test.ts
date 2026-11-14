@@ -18,7 +18,7 @@ describe('safeHref', () => {
   it('carries no href for a scheme a pane must not hand the browser', () => {
     for (const url of [
       'javascript:alert(1)',
-      'file:///Users/felipe/.ssh/id_ed25519',
+      'file:///Users/tester/.ssh/id_ed25519',
       'data:text/html,<script>alert(1)</script>',
       'blob:https://example.com/abc',
       'vscode://file/etc/passwd',

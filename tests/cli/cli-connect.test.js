@@ -16,8 +16,8 @@ describe('tmuxy connect', () => {
     [['connect'], 'session-connect'],
     [['session', 'connect'], 'session-connect'],
     [
-      ['session', 'connect', 'felipe@prod', '--socket', 'work', '--json'],
-      'session-connect --json felipe@prod --socket work',
+      ['session', 'connect', 'tester@prod', '--socket', 'work', '--json'],
+      'session-connect --json tester@prod --socket work',
     ],
     [['session', 'connect', '--help'], 'session-connect --help'],
   ])('%j reaches the verb as written', (args, verb) => {

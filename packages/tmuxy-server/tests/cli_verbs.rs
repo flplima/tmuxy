@@ -225,10 +225,10 @@ fn published(s: &Server) -> String {
 fn session_connect_checks_the_host_stage_by_stage_then_saves_and_requests_it() {
     let s = Server::start("connect");
     s.tmux(&["new-session", "-d", "-s", "__tmuxy_stash"]);
-    let out = session_connect(&s, &["ssh felipe@prod", "--socket", &s.socket], &[]);
+    let out = session_connect(&s, &["ssh tester@prod", "--socket", &s.socket], &[]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let lines: Vec<String> = stdout(&out).lines().map(String::from).collect();
-    assert_eq!(lines[0], "✓ ssh felipe@prod");
+    assert_eq!(lines[0], "✓ ssh tester@prod");
     assert!(
         lines[1].starts_with("✓ tmux ")
             && lines[1].ends_with(&format!(" on the socket {}", s.socket))
@@ -237,9 +237,9 @@ fn session_connect_checks_the_host_stage_by_stage_then_saves_and_requests_it() {
     // The listing reached the remote shell quoted: its format is no comment.
     let request = published(&s);
     assert!(request.contains(r#""session":"work""#), "{request}");
-    assert!(request.contains(r#""ssh":"felipe@prod""#), "{request}");
+    assert!(request.contains(r#""ssh":"tester@prod""#), "{request}");
     let saved = std::fs::read_to_string(s.home.join("state/servers.json")).unwrap();
-    assert!(saved.contains("felipe@prod"), "{saved}");
+    assert!(saved.contains("tester@prod"), "{saved}");
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn a_stage_that_fails_prints_what_failed_and_requests_nothing() {
     // A listing that fails for any reason but "no server yet" stops the flow.
     let listing = session_connect(
         &s,
-        &["felipe@prod", "--json"],
+        &["tester@prod", "--json"],
         &[("FAKE_SSH_LIST_FAIL", "open terminal failed: not a terminal")],
     );
     assert_eq!(listing.status.code(), Some(1));
@@ -280,8 +280,8 @@ fn a_destination_or_name_that_is_not_one_is_a_bad_command_line() {
         &["host;id"],
         &["a b"],
         &["localhost", "--socket", "../escape"],
-        &["felipe@prod", "--socket", "sock;id"],
-        &["felipe@prod", "--session", "x;y"],
+        &["tester@prod", "--socket", "sock;id"],
+        &["tester@prod", "--session", "x;y"],
     ] {
         let out = session_connect(&s, args, &[]);
         assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));

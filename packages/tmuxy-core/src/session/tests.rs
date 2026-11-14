@@ -500,7 +500,7 @@ fn only_a_global_session_option_set_when_the_file_is_read_pins() {
 /// a `-oProxyCommand=…` as a local command.
 #[test]
 fn an_ssh_destination_is_a_user_and_host_and_nothing_else() {
-    for ok in ["host", "felipe@prod", "10.0.0.2", "me@my-box.local", "::1"] {
+    for ok in ["host", "tester@prod", "10.0.0.2", "me@my-box.local", "::1"] {
         assert!(is_ssh_destination(ok), "{ok}");
     }
     for bad in [
@@ -522,8 +522,8 @@ fn an_ssh_destination_is_a_user_and_host_and_nothing_else() {
 #[test]
 fn a_destinations_port_is_split_off_and_an_ipv6_address_is_left_whole() {
     assert_eq!(
-        split_ssh_port("felipe@prod:2222"),
-        ("felipe@prod", Some(2222))
+        split_ssh_port("tester@prod:2222"),
+        ("tester@prod", Some(2222))
     );
     assert_eq!(split_ssh_port("host"), ("host", None));
     assert_eq!(split_ssh_port("::1"), ("::1", None));

@@ -262,18 +262,18 @@ fn rows_reporting(states: &[(&str, &str, &str)], notify: &str) -> Vec<PaneRow> {
 fn a_pane_coming_to_need_the_user_is_one_notice() {
     let mut watch = Watch::default();
     assert!(watch
-        .update(&rows(&[("%1", "needs-input"), ("%2", "")], "on"), "ab350m")
+        .update(&rows(&[("%1", "needs-input"), ("%2", "")], "on"), "devbox")
         .is_empty());
 
     let notices = watch.update(
         &rows(&[("%1", "needs-input"), ("%2", "error")], "on"),
-        "ab350m",
+        "devbox",
     );
     assert_eq!(
         notices,
         vec![Notice {
             title: "claude stopped with an error".into(),
-            body: "ab350m · work · main (%2)".into(),
+            body: "devbox · work · main (%2)".into(),
             tag: "tmuxy-%2-error".into(),
             url: "/?session=work".into(),
             pane_id: "%2".into(),
@@ -410,7 +410,7 @@ async fn a_notice_is_delivered_encrypted_and_a_gone_device_is_forgotten() {
 
     let notice = Notice {
         title: "claude needs you".into(),
-        body: "ab350m · tmuxy · main (%3)".into(),
+        body: "devbox · tmuxy · main (%3)".into(),
         tag: "tmuxy-%3-needs-input".into(),
         url: "/?session=tmuxy".into(),
         pane_id: "%3".into(),

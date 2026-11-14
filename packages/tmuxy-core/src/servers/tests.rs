@@ -57,13 +57,13 @@ fn localhost_is_local_with_no_ssh() {
 fn ssh_tail_orders_options_port_then_destination() {
     let cfg = SshConfig {
         host: "box".to_string(),
-        user: Some("felipe".to_string()),
+        user: Some("tester".to_string()),
         port: Some(2222),
         options: Some("-i ~/.ssh/id_ed25519".to_string()),
     };
     assert_eq!(
         cfg.argv_tail(),
-        vec!["-i", "~/.ssh/id_ed25519", "-p", "2222", "felipe@box"]
+        vec!["-i", "~/.ssh/id_ed25519", "-p", "2222", "tester@box"]
     );
 }
 
@@ -82,11 +82,11 @@ fn ssh_tail_bare_host_when_no_user_or_port() {
 fn ssh_server_connect_env_carries_the_tail() {
     let server = Server {
         id: "ssh-box".to_string(),
-        label: "felipe@box".to_string(),
+        label: "tester@box".to_string(),
         kind: ServerKind::Ssh,
         ssh: Some(SshConfig {
             host: "box".to_string(),
-            user: Some("felipe".to_string()),
+            user: Some("tester".to_string()),
             port: None,
             options: None,
         }),
@@ -99,7 +99,7 @@ fn ssh_server_connect_env_carries_the_tail() {
     };
     let (socket, ssh) = server.connect_env();
     assert_eq!(socket, "tmuxy");
-    assert_eq!(ssh.as_deref(), Some("felipe@box"));
+    assert_eq!(ssh.as_deref(), Some("tester@box"));
 }
 
 #[test]
