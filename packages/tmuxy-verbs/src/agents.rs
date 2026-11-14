@@ -15,6 +15,9 @@ use crate::cli_json::{self, Answer, EXIT_FAILED};
 use serde_json::Value;
 
 mod config;
+#[cfg(feature = "native")]
+mod fork;
+mod session;
 mod spawn;
 mod start;
 mod wait;
@@ -23,6 +26,8 @@ use config::*;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_status;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agent {
@@ -32,9 +37,22 @@ pub enum Agent {
     Codex,
     /// Google Antigravity CLI
     Agy,
+    /// OpenCode: the skill only (its hooks are JavaScript plugins)
+    Opencode,
+    /// Pi: the skill only (its hooks are TypeScript extensions)
+    Pi,
+    /// Crush: the skill only
+    Crush,
 }
 
-const ALL: [Agent; 3] = [Agent::Claude, Agent::Codex, Agent::Agy];
+const ALL: [Agent; 6] = [
+    Agent::Claude,
+    Agent::Codex,
+    Agent::Agy,
+    Agent::Opencode,
+    Agent::Pi,
+    Agent::Crush,
+];
 
 impl Agent {
     fn name(self) -> &'static str {
@@ -42,14 +60,19 @@ impl Agent {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
             Agent::Agy => "agy",
+            Agent::Opencode => "opencode",
+            Agent::Pi => "pi",
+            Agent::Crush => "crush",
         }
     }
 
+    /// The events tmuxy hooks; none for an agent whose hooks are code.
     fn hooks(self) -> &'static [Hook] {
         match self {
             Agent::Claude => CLAUDE_HOOKS,
             Agent::Codex => CODEX_HOOKS,
             Agent::Agy => AGY_HOOKS,
+            Agent::Opencode | Agent::Pi | Agent::Crush => &[],
         }
     }
 
@@ -195,7 +218,8 @@ pub struct AgentArgs {
 
 #[derive(clap::Args, Debug)]
 struct Which {
-    /// The agents; default: every one installed on this machine.
+    /// The agents; default: every one installed on this machine. OpenCode, Pi
+    /// and Crush take the skill only.
     #[arg(value_enum)]
     agents: Vec<Agent>,
     /// Only the hooks.
@@ -233,7 +257,7 @@ enum AgentVerb {
         which: Which,
     },
     /// Each agent's hooks and skill against what an install writes now:
-    /// current, outdated, missing, foreign or unreadable.
+    /// current, outdated, missing, foreign, unreadable or unsupported.
     Status {
         #[arg(value_enum)]
         agents: Vec<Agent>,
@@ -249,6 +273,13 @@ enum AgentVerb {
     /// Spawn an agent by name and return once it is ready: once its pane
     /// has a state, from its hooks, the screen rules or the program itself.
     Start(Box<start::StartArgs>),
+    /// Bring an exited agent back into the same conversation, in its pane:
+    /// the session its hooks recorded, resumed by a command tmuxy builds.
+    Revive(session::ReviveArgs),
+    /// Carry a pane's agent conversation on in a new worktree and tab, as a
+    /// fork that leaves the original as it is (Claude Code).
+    #[cfg(feature = "native")]
+    Fork(fork::ForkArgs),
     /// The pane state an agent event means (backs `tmuxy agent hook`). Reads
     /// the event's JSON on stdin.
     #[command(hide = true)]
@@ -269,6 +300,9 @@ pub fn run(args: AgentArgs) {
         if let Some(state) = state(*agent, event, &payload) {
             println!("{state}");
         }
+        if let Some(pane) = tmuxy_core::run_shell::caller_pane() {
+            session::record(&pane, *agent, event, &payload);
+        }
         return;
     }
     let answer = Answer::new(args.json);
@@ -276,6 +310,9 @@ pub fn run(args: AgentArgs) {
         AgentVerb::Wait(wait) => return wait::run(&answer, wait),
         AgentVerb::Spawn(spawn) => return spawn::run(&answer, *spawn),
         AgentVerb::Start(start) => return start::run(&answer, *start),
+        AgentVerb::Revive(revive) => return session::revive(&answer, revive),
+        #[cfg(feature = "native")]
+        AgentVerb::Fork(fork) => return fork::run(&answer, fork),
         verb => verb,
     };
     let places = match Places::from_env() {
@@ -300,7 +337,10 @@ pub fn run(args: AgentArgs) {
         AgentVerb::State { .. }
         | AgentVerb::Wait(_)
         | AgentVerb::Spawn(_)
-        | AgentVerb::Start(_) => Ok(()),
+        | AgentVerb::Start(_)
+        | AgentVerb::Revive(_) => Ok(()),
+        #[cfg(feature = "native")]
+        AgentVerb::Fork(_) => Ok(()),
     };
     // What was done before a failure is still said.
     if !answer.is_json() {
@@ -329,7 +369,10 @@ fn chosen(places: &Places, agents: &[Agent]) -> Result<Vec<Agent>, String> {
     }
     let found: Vec<Agent> = ALL.into_iter().filter(|a| places.detected(*a)).collect();
     if found.is_empty() {
-        return Err("no agent found on this machine; name one (claude, codex, agy)".into());
+        return Err(
+            "no agent found on this machine; name one (claude, codex, agy, opencode, pi, crush)"
+                .into(),
+        );
     }
     Ok(found)
 }
@@ -343,41 +386,72 @@ fn install(
 ) -> Result<(), String> {
     let scope = scope(which.project);
     for agent in chosen(places, &which.agents)? {
-        let name = agent.name();
         if !which.skill_only {
-            let path = places.hooks_file(agent, scope);
-            let mut doc = read_doc(&path)?;
-            let before = hooks_state(&doc, agent);
-            remove_hooks(&mut doc, agent);
-            add_hooks(&mut doc, agent, tmuxy)?;
-            let what = if which.dry_run {
-                would(&before, hooks_state(&doc, agent) == before)
-            } else if write_doc(&path, &doc)? {
-                "installed"
-            } else {
-                "up to date"
-            };
-            let _ = writeln!(out, "{name:<7} hooks  {}  {what}", places.show(&path));
-            if agent == Agent::Codex && !which.dry_run {
-                let _ = writeln!(
-                    out,
-                    "        Codex runs new hooks once you approve them: /hooks in Codex."
-                );
-            }
+            install_hooks(out, places, which, agent, scope, tmuxy)?;
         }
         if !which.hooks_only {
-            let dir = places.skill_dir(agent, scope);
-            let what = if which.dry_run {
-                match skill_item(&dir) {
-                    ItemState::Foreign if !force => "would be left alone: not written by tmuxy",
-                    item => would(&item, false),
-                }
-            } else {
-                write_skill(&dir, force)?
-            };
-            let _ = writeln!(out, "{name:<7} skill  {}  {what}", places.show(&dir));
+            install_skill(out, places, which, force, agent, scope)?;
         }
     }
+    Ok(())
+}
+
+fn install_hooks(
+    out: &mut String,
+    places: &Places,
+    which: &Which,
+    agent: Agent,
+    scope: Scope,
+    tmuxy: &str,
+) -> Result<(), String> {
+    let name = agent.name();
+    let Some(path) = places.hooks_file(agent, scope) else {
+        let _ = writeln!(out, "{name:<8} hooks  {}", ItemState::Unsupported.said());
+        return Ok(());
+    };
+    let mut doc = read_doc(&path)?;
+    let before = hooks_state(&doc, agent);
+    remove_hooks(&mut doc, agent);
+    add_hooks(&mut doc, agent, tmuxy)?;
+    let what = if which.dry_run {
+        would(&before, hooks_state(&doc, agent) == before)
+    } else if write_doc(&path, &doc)? {
+        "installed"
+    } else {
+        "up to date"
+    };
+    let _ = writeln!(out, "{name:<8} hooks  {}  {what}", places.show(&path));
+    if agent == Agent::Codex && !which.dry_run {
+        let _ = writeln!(
+            out,
+            "         Codex runs new hooks once you approve them: /hooks in Codex."
+        );
+    }
+    Ok(())
+}
+
+fn install_skill(
+    out: &mut String,
+    places: &Places,
+    which: &Which,
+    force: bool,
+    agent: Agent,
+    scope: Scope,
+) -> Result<(), String> {
+    let name = agent.name();
+    let Some(dir) = places.skill_dir(agent, scope) else {
+        let _ = writeln!(out, "{name:<8} skill  {}", ItemState::Unsupported.said());
+        return Ok(());
+    };
+    let what = if which.dry_run {
+        match skill_item(&dir) {
+            ItemState::Foreign if !force => "would be left alone: not written by tmuxy",
+            item => would(&item, false),
+        }
+    } else {
+        write_skill(&dir, force)?
+    };
+    let _ = writeln!(out, "{name:<8} skill  {}  {what}", places.show(&dir));
     Ok(())
 }
 
@@ -401,31 +475,39 @@ fn uninstall(out: &mut String, places: &Places, which: &Which) -> Result<(), Str
     };
     for agent in agents {
         let name = agent.name();
-        if !which.skill_only {
-            let path = places.hooks_file(agent, scope);
+        let said = |done: &str| {
+            if which.dry_run {
+                format!("would be {done}")
+            } else {
+                done.to_string()
+            }
+        };
+        if let Some(path) = places
+            .hooks_file(agent, scope)
+            .filter(|_| !which.skill_only)
+        {
             let mut doc = read_doc(&path)?;
             if remove_hooks(&mut doc, agent) {
                 if !which.dry_run {
                     write_doc(&path, &doc)?;
                 }
-                let what = if which.dry_run {
-                    "would be removed"
-                } else {
-                    "removed"
-                };
-                let _ = writeln!(out, "{name:<7} hooks  {}  {what}", places.show(&path));
+                let _ = writeln!(
+                    out,
+                    "{name:<8} hooks  {}  {}",
+                    places.show(&path),
+                    said("removed")
+                );
             }
         }
-        if !which.hooks_only {
-            let dir = places.skill_dir(agent, scope);
+        if let Some(dir) = places.skill_dir(agent, scope).filter(|_| !which.hooks_only) {
             let ours = matches!(skill_state(&dir), SkillState::Ours(_));
             if ours && (which.dry_run || remove_skill(&dir)?) {
-                let what = if which.dry_run {
-                    "would be removed"
-                } else {
-                    "removed"
-                };
-                let _ = writeln!(out, "{name:<7} skill  {}  {what}", places.show(&dir));
+                let _ = writeln!(
+                    out,
+                    "{name:<8} skill  {}  {}",
+                    places.show(&dir),
+                    said("removed")
+                );
             }
         }
     }
@@ -445,18 +527,21 @@ struct AgentStatus {
 impl AgentStatus {
     fn read(places: &Places, agent: Agent, scope: Scope) -> Self {
         let path = places.hooks_file(agent, scope);
-        let hooks = match read_doc(&path) {
-            Err(e) => ItemState::Unreadable(e),
-            Ok(doc) => hooks_state(&doc, agent),
+        let hooks = match path.as_deref().map(read_doc) {
+            None => ItemState::Unsupported,
+            Some(Err(e)) => ItemState::Unreadable(e),
+            Some(Ok(doc)) => hooks_state(&doc, agent),
         };
         let dir = places.skill_dir(agent, scope);
+        let show =
+            |path: Option<&std::path::Path>| path.map(|p| places.show(p)).unwrap_or_default();
         AgentStatus {
             agent,
             found: places.detected(agent),
-            hooks_path: places.show(&path),
+            hooks_path: show(path.as_deref()),
             hooks,
-            skill_path: places.show(&dir),
-            skill: skill_item(&dir),
+            skill_path: show(dir.as_deref()),
+            skill: dir.as_deref().map_or(ItemState::Unsupported, skill_item),
         }
     }
 
@@ -465,6 +550,11 @@ impl AgentStatus {
             let why = match state {
                 ItemState::Outdated(why) | ItemState::Unreadable(why) => Value::from(why.as_str()),
                 _ => Value::Null,
+            };
+            let path = if path.is_empty() {
+                Value::Null
+            } else {
+                Value::from(path)
             };
             serde_json::json!({ "path": path, "state": state.word(), "why": why })
         };
@@ -478,8 +568,8 @@ impl AgentStatus {
 }
 
 /// Each agent's hooks and skill against what an install writes today:
-/// current, outdated, missing, foreign (a skill tmuxy did not write) or
-/// unreadable.
+/// current, outdated, missing, foreign (a skill tmuxy did not write),
+/// unreadable, or unsupported (no such thing for that agent, or not there).
 fn status(out: &mut String, places: &Places, agents: &[Agent], scope: Scope) -> Vec<AgentStatus> {
     let agents = if agents.is_empty() {
         ALL.to_vec()
@@ -493,8 +583,17 @@ fn status(out: &mut String, places: &Places, agents: &[Agent], scope: Scope) -> 
     for item in &read {
         let found = if item.found { "found" } else { "not found" };
         let _ = writeln!(out, "{}  ({found})", item.agent.name());
-        let _ = writeln!(out, "  hooks  {}  {}", item.hooks_path, item.hooks.said());
-        let _ = writeln!(out, "  skill  {}  {}", item.skill_path, item.skill.said());
+        for (what, path, state) in [
+            ("hooks", &item.hooks_path, &item.hooks),
+            ("skill", &item.skill_path, &item.skill),
+        ] {
+            let path = if path.is_empty() {
+                String::new()
+            } else {
+                format!("{path}  ")
+            };
+            let _ = writeln!(out, "  {what}  {path}{}", state.said());
+        }
     }
     read
 }

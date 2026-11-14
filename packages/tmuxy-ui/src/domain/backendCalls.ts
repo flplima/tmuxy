@@ -1,7 +1,7 @@
 /**
  * Every command a client sends a backend, by the name it travels under: the
  * `{ cmd, args }` the web POSTs to `/commands` and the desktop hands its one
- * `dispatch` IPC command (`ClientCommand` in `tmuxy-core/src/host/command.rs`).
+ * `dispatch` IPC command (`ClientCommand` in `tmuxy-core/src/host/command/wire.rs`).
  *
  * The protocol fixture test holds this table to the Rust enum: every request
  * in `packages/protocol-fixtures/command_requests.json` and every answer in
@@ -12,9 +12,16 @@ import { Schema } from 'effect';
 import { PaneId } from './ids';
 import { DiffRead, DiffScope } from './diff';
 import { PreviewDocument, PreviewResource } from './preview';
-import { GitRepository, RestorableSession, ServerList } from './servers';
-import { type CommandFailure, ScrollbackCells, ServerState, ThemeSettings } from './wire';
-import { ThemeInfo, TraceLevel, TraceSettings, TraceShare } from './wireSettings';
+import { GitRepository, OwnTmuxOffer, PanePorts, RestorableSession, ServerList } from './servers';
+import {
+  type CommandFailure,
+  LastOutput,
+  PromptMarks,
+  ScrollbackCells,
+  ServerState,
+  ThemeSettings,
+} from './wire';
+import { ProfilesInfo, ThemeInfo, TraceLevel, TraceSettings, TraceShare } from './wireSettings';
 
 interface Command<A, AI, R, RI> {
   readonly args: Schema.Schema<A, AI>;
@@ -53,6 +60,8 @@ export const BACKEND_COMMANDS = {
     Schema.Struct({ paneId: PaneId, start: Schema.Number, end: Schema.Number }),
     ScrollbackCells,
   ),
+  get_prompt_marks: command(Schema.Struct({ paneId: PaneId }), PromptMarks),
+  get_last_command_output: command(Schema.Struct({ paneId: PaneId }), LastOutput),
   /** The pane's document, or (`path` given) a resource it links. */
   read_preview: command(
     Schema.Struct({ paneId: PaneId, path: optional(Schema.String) }),
@@ -65,10 +74,22 @@ export const BACKEND_COMMANDS = {
   set_theme: command(Schema.Struct({ name: Schema.String, mode: optional(Schema.String) }), Done),
   set_theme_mode: command(Schema.Struct({ mode: Schema.String }), Done),
   get_themes_list: command(NoArgs, Schema.Array(ThemeInfo)),
+  /** The profiles and the one this session uses; every profile command answers the same. */
+  list_profiles: command(NoArgs, ProfilesInfo),
+  /** Move this session to a profile, live. */
+  use_profile: command(Schema.Struct({ name: Schema.String }), ProfilesInfo),
+  /** A new profile, a copy of `from` (the default when absent), which this session then uses. */
+  create_profile: command(
+    Schema.Struct({ name: Schema.String, from: optional(Schema.String) }),
+    ProfilesInfo,
+  ),
+  rename_profile: command(Schema.Struct({ from: Schema.String, to: Schema.String }), ProfilesInfo),
+  delete_profile: command(Schema.Struct({ name: Schema.String }), ProfilesInfo),
   set_cursor_blink: command(Flag, Done),
   set_send_ask: command(Flag, Done),
   set_transparency: command(Flag, Done),
   list_git_worktrees: command(NoArgs, Schema.Array(GitRepository)),
+  list_pane_ports: command(NoArgs, Schema.Array(PanePorts)),
   list_snapshots: command(NoArgs, Schema.Array(RestorableSession)),
   restore_session: command(Schema.Struct({ session: Schema.String }), Done),
   get_trace_settings: command(NoArgs, TraceSettings),
@@ -92,6 +113,9 @@ export const BACKEND_COMMANDS = {
     Done,
   ),
   detach_client: command(NoArgs, Done),
+  /** The launch notice about the user's own tmux server, or null for none. */
+  own_tmux_offer: command(NoArgs, Schema.NullOr(OwnTmuxOffer)),
+  close_own_tmux_offer: command(NoArgs, Done),
   prepare_plugin_action: command(
     Schema.Struct({
       plugin: Schema.String,
@@ -142,6 +166,25 @@ export type LaneCommand =
 export type PlainCommand = Exclude<CommandName, LaneCommand>;
 
 export type PlainCall = Extract<BackendCall, { readonly cmd: PlainCommand }>;
+
+/** The View menu's profile commands, each answered with the profiles (`ProfilesInfo`). */
+export type ProfileCall = Extract<
+  BackendCall,
+  {
+    readonly cmd:
+      | 'list_profiles'
+      | 'use_profile'
+      | 'create_profile'
+      | 'rename_profile'
+      | 'delete_profile';
+  }
+>;
+
+/** A profile command, typed as one: `backendCall` widens to any call. */
+export const profileRequest = <K extends ProfileCall['cmd']>(
+  cmd: K,
+  args: CommandArgs<K>,
+): ProfileCall => ({ cmd, args }) as ProfileCall;
 
 /**
  * What a backend that does not run `cmd` answers: null where null is an

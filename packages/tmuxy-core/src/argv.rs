@@ -61,10 +61,25 @@ pub fn shell_line<S: AsRef<str>>(argv: &[S]) -> String {
 /// Text that tmux expands as a format before using it (`run-shell`'s
 /// command, inside shell quotes too, and `display-message`'s message), with
 /// every `#` doubled so it reads back as itself: a `#(…)` would otherwise run
-/// and a `#{…}` be replaced with whatever tmux knows by that name. The one
-/// place the rule is spelled.
+/// and a `#{…}` be replaced with whatever tmux knows by that name. All but
+/// a run of `#` just before a `[`: tmux leaves a style (`#[…]`), however
+/// many `#` it opens with, as it is, so a doubled one came back doubled
+/// (`#[` typed as `##[`). The one place the rule is spelled.
 pub fn format_literal(text: &str) -> String {
-    text.replace('#', "##")
+    let mut out = String::with_capacity(text.len() + 8);
+    let mut hashes = 0;
+    for c in text.chars() {
+        if c == '#' {
+            hashes += 1;
+            continue;
+        }
+        let copies = if c == '[' { hashes } else { hashes * 2 };
+        out.extend(std::iter::repeat_n('#', copies));
+        hashes = 0;
+        out.push(c);
+    }
+    out.extend(std::iter::repeat_n('#', hashes * 2));
+    out
 }
 
 /// One word of a shell line that `run-shell` runs: [`shell_word`] as a
@@ -83,6 +98,24 @@ pub fn run_shell_line<S: AsRef<str>>(argv: &[S]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What tmux's format expansion turns back into the text: every `#`
+    /// doubled, but a run just before `[`, which tmux keeps as it is.
+    #[test]
+    fn a_format_literal_reads_back_as_the_text_it_was() {
+        for (text, literal) in [
+            ("#{pane_id}", "##{pane_id}"),
+            ("#(id)", "##(id)"),
+            ("#[fg=red]", "#[fg=red]"),
+            ("##[x", "##[x"),
+            ("a#b#[c", "a##b#[c"),
+            ("ends #", "ends ##"),
+            ("###", "######"),
+            ("no hash", "no hash"),
+        ] {
+            assert_eq!(format_literal(text), literal, "{text}");
+        }
+    }
 
     #[test]
     fn a_tmux_word_quotes_what_tmux_would_otherwise_split_or_expand() {

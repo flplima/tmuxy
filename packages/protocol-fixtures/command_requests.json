@@ -74,6 +74,35 @@
     "cmd": "get_themes_list"
   },
   {
+    "cmd": "list_profiles"
+  },
+  {
+    "args": {
+      "name": "Reading"
+    },
+    "cmd": "use_profile"
+  },
+  {
+    "args": {
+      "from": "Reading",
+      "name": "Reading copy"
+    },
+    "cmd": "create_profile"
+  },
+  {
+    "args": {
+      "from": "Reading copy",
+      "to": "Night"
+    },
+    "cmd": "rename_profile"
+  },
+  {
+    "args": {
+      "name": "Night"
+    },
+    "cmd": "delete_profile"
+  },
+  {
     "args": {
       "enabled": true
     },
@@ -93,6 +122,9 @@
   },
   {
     "cmd": "list_git_worktrees"
+  },
+  {
+    "cmd": "list_pane_ports"
   },
   {
     "cmd": "list_snapshots"
@@ -183,5 +215,23 @@
       "last": 20
     },
     "cmd": "get_trace_share"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_prompt_marks"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_last_command_output"
+  },
+  {
+    "cmd": "own_tmux_offer"
+  },
+  {
+    "cmd": "close_own_tmux_offer"
   }
 ]

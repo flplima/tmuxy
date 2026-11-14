@@ -41,6 +41,18 @@ export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/** Where the `agent-revive --mark` check leaves its answer on a pane. */
+const REVIVABLE_OPTION = '@tmuxy-revivable';
+
+/**
+ * The read that follows a `CheckRevive` op: the answer revive's check left
+ * on the pane, `ok` or nothing. A query only reads, so the check itself runs
+ * as an op first; tmux answers a client's commands in order.
+ */
+export function reviveCheckQuery(paneId: string): string {
+  return `show-options -pqv -t ${paneId} ${REVIVABLE_OPTION}`;
+}
+
 /**
  * What the backend must know of a script run: `settle` for a script that takes
  * several tmux steps (the clients see only where it lands), `relist-windows`
@@ -57,6 +69,14 @@ export function scriptWith(
   ...args: Array<string | number>
 ): string {
   return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+}
+
+/**
+ * A read of every pane of every session on the server, one line per pane in
+ * `format` (a query, not an op: it changes nothing).
+ */
+export function listEveryPane(format: string): string {
+  return `list-panes -a -F '${format}'`;
 }
 
 /** A shell command line as one `run-shell` argument; run-shell expands `#` first. */

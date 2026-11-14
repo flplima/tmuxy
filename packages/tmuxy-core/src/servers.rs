@@ -17,9 +17,10 @@ use crate::session::{DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
 
 pub mod connect;
 pub mod discovery;
+pub use crate::session::tmux_socket_dirs;
 pub use discovery::{
-    enrich_and_scan_sockets, is_ephemeral_test_socket, now_unix_secs, parse_session_list,
-    query_local_socket_sessions, tmux_socket_dirs, touch_server, RemoteSessionInfo,
+    enrich_and_scan_sockets, is_ephemeral_test_socket, local_socket_session_names, now_unix_secs,
+    parse_session_list, query_local_socket_sessions, touch_server, RemoteSessionInfo,
     ServerReachability, LIST_SESSIONS, LIST_SESSIONS_FORMAT,
 };
 
@@ -217,6 +218,105 @@ fn with_users_own_tmux(mut servers: Vec<Server>) -> Vec<Server> {
         extra: serde_json::Map::new(),
     });
     servers
+}
+
+/// What a launch tells a tmux user who finds none of their sessions here:
+/// their own server has `sessions` of them, and `session` is the one a switch
+/// would open.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnTmuxOffer {
+    /// The picker's id for that server ([`MY_TMUX_ID`]): what a switch connects to.
+    pub server_id: &'static str,
+    pub sessions: usize,
+    /// The first session whose name tmuxy can attach to
+    /// ([`crate::session::SessionName`]); without one a switch opens tmuxy's
+    /// own session on that server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// Whether this host can switch to that server itself
+    /// (`HostCtx::switches_servers`); one that cannot says how to start there.
+    pub can_switch: bool,
+}
+
+/// Where tmuxy stands when it wonders whether to make the [`OwnTmuxOffer`].
+pub struct OwnTmuxAsk<'a> {
+    /// The user has answered the offer to switch before (`own_tmux_asked`).
+    pub asked: bool,
+    /// A host that cannot switch has shown the notice before (`own_tmux_told`).
+    pub told: bool,
+    pub socket: &'a str,
+    pub over_ssh: bool,
+    pub can_switch: bool,
+}
+
+/// The offer, for a tmuxy that is on its own socket on this machine and has
+/// not asked before. A socket somebody chose (`TMUX_SOCKET`, a server from the
+/// picker, a remote host) is an answer already. A host that cannot switch
+/// only tells, and having told does not stand for the answer to an offer the
+/// desktop app has yet to make: the two share one state file on a machine
+/// that runs both. `sessions` is only looked at when everything else says
+/// ask.
+pub fn own_tmux_offer_for(
+    ask: &OwnTmuxAsk<'_>,
+    sessions: impl FnOnce() -> Option<Vec<String>>,
+) -> Option<OwnTmuxOffer> {
+    let answered = ask.asked || (ask.told && !ask.can_switch);
+    if answered || ask.over_ssh || ask.socket != DEFAULT_TMUX_SOCKET {
+        return None;
+    }
+    // A session with tmuxy's own name is one an earlier tmuxy made there
+    // (it was once pointed at that socket): not work the user would miss.
+    let names: Vec<String> = sessions()?
+        .into_iter()
+        .filter(|name| name != crate::DEFAULT_SESSION_NAME)
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    Some(OwnTmuxOffer {
+        server_id: MY_TMUX_ID,
+        sessions: names.len(),
+        session: names
+            .iter()
+            .find(|name| crate::session::is_safe_session_name(name))
+            .cloned(),
+        can_switch: ask.can_switch,
+    })
+}
+
+/// [`own_tmux_offer_for`] this process, with the detection the picker's
+/// "my tmux" entry uses.
+pub fn own_tmux_offer(can_switch: bool) -> Option<OwnTmuxOffer> {
+    let state = crate::session::read_managed_state();
+    own_tmux_offer_for(
+        &OwnTmuxAsk {
+            asked: state.own_tmux_asked == Some(true),
+            told: state.own_tmux_told == Some(true),
+            socket: &crate::session::tmux_socket(),
+            over_ssh: crate::session::ssh_target().is_some(),
+            can_switch,
+        },
+        || local_socket_session_names(USERS_OWN_SOCKET),
+    )
+}
+
+/// What closing the launch notice remembers: the answer to the offer on a
+/// host that made one (`can_switch`), else only that the user was told.
+pub fn own_tmux_answer(can_switch: bool) -> crate::session::ManagedState {
+    let mut state = crate::session::ManagedState::default();
+    if can_switch {
+        state.own_tmux_asked = Some(true);
+    } else {
+        state.own_tmux_told = Some(true);
+    }
+    state
+}
+
+/// Remember that the launch notice was closed on this host, so it is not
+/// shown there again.
+pub fn close_own_tmux_offer(can_switch: bool) -> std::io::Result<PathBuf> {
+    crate::session::write_managed_state(own_tmux_answer(can_switch))
 }
 
 /// Saved servers with `localhost` at the front, plus any live local sockets

@@ -23,6 +23,7 @@
  *                                 [--summary FILE] [--update-baseline]
  */
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { compareHiddenBytes } from './lib/compare-bytes.mjs';
 import { dirname } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -58,14 +59,21 @@ const RATIO_BUDGETS = {
   // The keystroke with 23 panes beside it each redrawing a spinner at ~2 KB/s:
   // measured 1.1–1.8× on a loaded dev machine, p95 nearer 2×.
   'key-echo-busy': 3,
-  // Navigation start to the focused pane's prompt, and to the first key
-  // echoed, with 10k lines of scrollback: measured ~12× and ~17×.
-  'attach-paint': 30,
-  'attach-interactive': 40,
+  // Navigation start to the focused pane's text, and to the first key
+  // echoed, with 10k lines of scrollback: measured ~5–8× and ~10–14× since
+  // the entry script is gzipped and cached (it was ~11× and ~17×).
+  'attach-paint': 12,
+  'attach-interactive': 20,
+  // A first wheel scroll over 10k lines of history to the rows in view
+  // loaded: ~2.5× since history comes newest first (it was ~11×).
+  'attach-scroll': 6,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */
 const ABSOLUTE_WARN_RATIO = 1.5;
+
+/** The most the page's entry script may cost the link on a first load: ~292 KB gzipped. */
+const MAX_ENTRY_SCRIPT_BYTES = 400_000;
 
 /**
  * The share of samples that may time out before the interaction fails.
@@ -88,6 +96,14 @@ const report = load(REPORT, 'report');
 if (!report) {
   console.error(`no report at ${REPORT}`);
   process.exit(2);
+}
+// A `perf:hidden-bytes` report has a budget of its own, and no baseline.
+if (report.kind === 'hidden-bytes') {
+  const { lines, failures } = compareHiddenBytes(report);
+  const out = lines.join('\n');
+  console.log(out);
+  if (SUMMARY) appendFileSync(SUMMARY, `${out}\n`);
+  process.exit(failures.length === 0 ? 0 : 1);
 }
 /**
  * Baselines are keyed by platform and target: a macOS laptop says nothing
@@ -143,10 +159,20 @@ for (const item of report.interactions) {
     }
   }
 
-  // Keys typed during an attach that never arrived (`lib/attach.mjs`).
+  // The entry script's bytes on a first load: a lazy feature pulled back
+  // into it, or compression lost, shows here whatever the machine's speed.
+  if (item.load?.entryScriptBytes > MAX_ENTRY_SCRIPT_BYTES) {
+    verdict = '❌';
+    failures.push(
+      `${item.name}: the entry script took ${item.load.entryScriptBytes} bytes on the wire (budget ${MAX_ENTRY_SCRIPT_BYTES})`,
+    );
+  }
+
+  // Keys typed during an attach that never arrived (`lib/attach.mjs`): the
+  // page holds them until it connects, so one lost is a regression.
   if (item.load?.lostKeys > 0) {
-    if (verdict === '✅') verdict = '⚠️';
-    warnings.push(
+    verdict = '❌';
+    failures.push(
       `${item.name}: ${item.load.lostKeys} of ${item.load.typedKeys} keys typed during the attach never arrived`,
     );
   }

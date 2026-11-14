@@ -311,6 +311,8 @@ export const Appearance = Schema.Struct({
   cursorBlink: Schema.Boolean,
   /** Whether a send into another pane asks there first (`@tmuxy-send-ask`). */
   sendAsk: Schema.Boolean,
+  /** Whether closing a busy pane or tab asks first (`@tmuxy-confirm-close`); absent from older servers. */
+  confirmClose: Schema.optional(Schema.Boolean),
   /** Whether a pane needing the user is pushed as a notification (`@tmuxy-notify`); absent from older servers. */
   notify: Schema.optional(Schema.Boolean),
   /** Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`), 1–12. */
@@ -384,6 +386,23 @@ export const ScrollbackCells = Schema.Struct({
   width: Schema.Number,
 });
 export type ScrollbackCells = Schema.Schema.Type<typeof ScrollbackCells>;
+
+/**
+ * A `get_prompt_marks` answer: the rows a pane's shell prompts start on
+ * (OSC 133), ascending, counted from the top of a history of `historySize`.
+ */
+export const PromptMarks = Schema.Struct({
+  historySize: Schema.Number,
+  prompts: Schema.Array(Schema.Number),
+});
+export type PromptMarks = Schema.Schema.Type<typeof PromptMarks>;
+
+/**
+ * A `get_last_command_output` answer: what the newest command printed. Null
+ * when the pane has no output mark, empty when the command printed nothing.
+ */
+export const LastOutput = Schema.Struct({ text: Schema.NullOr(Schema.String) });
+export type LastOutput = Schema.Schema.Type<typeof LastOutput>;
 
 /**
  * Why the backend refused a command: `tmux` — tmux itself rejected it (a

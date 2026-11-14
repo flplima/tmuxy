@@ -19,6 +19,10 @@ cmd_config() {
     reload)
       config_verb reload
       ;;
+    check)
+      shift
+      cmd_config_check "$@"
+      ;;
     use-tmux-conf)
       shift
       cmd_config_use_tmux_conf "$@"
@@ -35,6 +39,15 @@ cmd_config() {
       shift
       cmd_config_doctor "$@"
       ;;
+    permissions)
+      shift
+      # --json goes ahead of the verb: after `--` it would be one of the keys.
+      find_server_cmd || exit "$EXIT_FAILED"
+      if [ "$JSON_OUT" = true ]; then
+        exec "${SERVER_CMD[@]}" config --json permissions "$@"
+      fi
+      exec "${SERVER_CMD[@]}" config permissions "$@"
+      ;;
     ""|--help|-h)
       cat <<'EOF'
 Usage: tmuxy config <setting> [value]
@@ -43,6 +56,15 @@ Settings:
   reload                   Re-apply the config to the running app: the whole
                            chain (defaults, your tmuxy.conf, essentials) is
                            re-sourced and every @tmuxy-* option re-read.
+                           Refused while tmux cannot parse your config: the
+                           running one is kept.
+  check [file] [--json]    What is wrong with your config, with file and line,
+                           found without applying it: a line tmux cannot
+                           parse, an option it does not have, a source-file
+                           whose file is not there. Reads your tmuxy.conf
+                           (and ~/.tmux.conf when it is sourced) and what they
+                           source, or the file you name. Exit 1 when there is
+                           anything.
   use-tmux-conf [on|off]   Source your own ~/.tmux.conf on tmuxy's socket.
                            With no value, prints the current setting.
   init                     Write the starter tmuxy.conf into the config dir.
@@ -54,6 +76,12 @@ Settings:
                            first one): list them and exit 1, or with --fix
                            comment each out in place, keeping a timestamped
                            backup beside the file.
+  permissions [--caller NAME] [--into PROGRAM] [-- KEYS...]
+                           What permissions.json says: with no keys, whether
+                           it reads as rules; with keys, what typing them into
+                           another pane would get (allow, ask, deny or none).
+                           Nothing is sent. Exits 1 for a file that is not
+                           rules and for a send it denies.
 
 Your files live in the config dir (~/.config/tmuxy), which tmuxy never writes
 after the first run, so it is safe to symlink from a dotfiles repo. tmuxy's own
@@ -125,4 +153,26 @@ cmd_config_doctor() {
     esac
   done
   config_verb doctor ${fix[@]+"${fix[@]}"}
+}
+
+cmd_config_check() {
+  local file=()
+  for arg in "$@"; do
+    case "$arg" in
+      --help|-h)
+        echo "Usage: tmuxy config check [file] [--json]"
+        echo "What is wrong with your config, with file and line, found without applying it"
+        echo "(exit 1 if anything): a line tmux cannot parse, an option it does not have, a"
+        echo "source-file whose file is not there. Reads your tmuxy.conf (and ~/.tmux.conf"
+        echo "when it is sourced) and what they source, or the file you name."
+        return 0
+        ;;
+      -*) _die_usage "invalid argument '$arg'" ;;
+      *)
+        [ ${#file[@]} -eq 0 ] || _die_usage "Usage: tmuxy config check [file] [--json]"
+        file=("$arg")
+        ;;
+    esac
+  done
+  config_verb check ${file[@]+"${file[@]}"}
 }

@@ -23,6 +23,7 @@ const {
   navigatePaneKeyboard,
   waitForPaneCount,
   waitForCondition,
+  killPaneKeyboard,
 } = require('./helpers');
 const { tmuxyCli, tmuxyCliAsync, tmuxRunAsOperator } = require('./helpers/cli');
 
@@ -115,6 +116,87 @@ describeE2E(
   },
 );
 
+/** The close confirmation as drawn: null unless it has a box on screen. */
+async function closeQuestion(page) {
+  return page.evaluate(() => {
+    const dialog = document.querySelector('[data-testid="close-confirm"]');
+    const box = dialog?.getBoundingClientRect();
+    if (!dialog || !box || box.width < 100 || box.height < 40) return null;
+    const inView = box.top >= 0 && box.left >= 0 && box.bottom <= innerHeight;
+    return inView ? dialog.textContent : null;
+  });
+}
+
+const paneIds = (page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.pane-layout-item[data-pane-id]')].map(
+      (el) => el.dataset.paneId,
+    ),
+  );
+
+describeE2E('Scenario: closing a pane that says it is working asks first', {}, (ctx) => {
+  test('the close keys on a working pane ask → Escape keeps it → the ✕ asks again → Enter closes it → an idle pane closes at once', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+    await waitForShellPrompt(page);
+    const busy = await page.evaluate(() => window.app?.view().activePaneId);
+
+    tmuxyCli(['pane', 'state', 'working', busy]);
+    await waitForCondition(
+      page,
+      async () => (await headerMark(page, busy)) === 'working',
+      10000,
+      () => seen(page, busy, 'the pane to show it is working'),
+    );
+
+    // The keyboard's close: held, with the question on screen.
+    await killPaneKeyboard(page);
+    await waitForCondition(
+      page,
+      async () => (await closeQuestion(page)) !== null,
+      10000,
+      'the close keys to ask before closing a working pane',
+    );
+    expect(await closeQuestion(page)).toMatch(/still working/);
+    expect(await paneIds(page)).toContain(busy);
+
+    // Escape keeps the pane, and it is still the working one.
+    await page.keyboard.press('Escape');
+    await waitForCondition(
+      page,
+      async () => (await closeQuestion(page)) === null,
+      5000,
+      'Escape to dismiss the question',
+    );
+    expect(await paneIds(page)).toHaveLength(2);
+    expect(await headerMark(page, busy)).toBe('working');
+
+    // The header's ✕ is the same close: it asks too, and Enter says yes.
+    await page.click(`[data-pane-id="${busy}"] .pane-header-close`);
+    await waitForCondition(
+      page,
+      async () => (await closeQuestion(page)) !== null,
+      10000,
+      'the ✕ to ask before closing a working pane',
+    );
+    await page.keyboard.press('Enter');
+    await waitForPaneCount(page, 1);
+    expect(await paneIds(page)).not.toContain(busy);
+    expect(await closeQuestion(page)).toBeNull();
+
+    // A pane that says nothing about itself closes at once, as it always did.
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+    await waitForShellPrompt(page);
+    await killPaneKeyboard(page);
+    await waitForPaneCount(page, 1);
+    expect(await closeQuestion(page)).toBeNull();
+  }, 120000);
+});
+
 /**
  * An orchestrator waits on its agents' states, not their screens: a
  * collapsed row in a stack is one line tall, and its screen says nothing.
@@ -159,7 +241,7 @@ describeE2E("Scenario: an orchestrator waits on its agents' states", {}, (ctx) =
       expect(answered.code).toBe(0);
       expect(JSON.parse(answered.stdout)).toEqual({
         ok: true,
-        panes: [{ paneId: first, label: 'child-a', state: 'needs-input' }],
+        panes: [{ paneId: first, label: 'child-a', state: 'needs-input', report: null }],
       });
 
       const all = tmuxyCliAsync([
@@ -315,6 +397,79 @@ describeE2E(
         expect(tty).toMatch(/^\/dev\//);
         await print('7501;state=done', ` > ${tty}`);
         await shows(first, 'unread', 'a finished program to leave its result on the other pane');
+
+        await navigatePaneKeyboard(page, 'next');
+        await waitForCondition(
+          page,
+          async () => (await page.evaluate(() => window.app?.view().activePaneId)) === first,
+          10000,
+          'the first pane to come in front',
+        );
+        await shows(first, null, 'the result to be taken as seen once its pane is in front');
+      } finally {
+        tmuxyCli(['pane', 'state', 'clear', paneId]);
+        tmuxyCli(['pane', 'state', 'clear', first]);
+      }
+    }, 120000);
+  },
+);
+
+/**
+ * A shell with OSC 133 integration says when a command starts (`C`) and
+ * ends (`D`, with the exit status). One that ran for a while leaves a
+ * result on its pane, the way a program's own `done` does. The "shell" is
+ * the other pane's `printf` onto this pane's terminal, with a `sleep`
+ * between the two marks.
+ */
+describeE2E(
+  'Scenario: a shell command that ran for a while marks its pane when it ends',
+  {},
+  (ctx) => {
+    test('a long command ending in a pane that is not in front leaves a result there, cleared when the pane is looked at', async () => {
+      const { page } = ctx;
+      await ctx.setupPage();
+      await waitForShellPrompt(page);
+      const first = await page.evaluate(() => window.app?.view().activePaneId);
+      await splitPaneKeyboard(page, 'horizontal');
+      await waitForPaneCount(page, 2);
+      await waitForShellPrompt(page);
+      const paneId = await page.evaluate(() => window.app?.view().activePaneId);
+      expect(paneId).not.toBe(first);
+
+      const shows = (pane, mark, waitingFor, timeout = 10000) =>
+        waitForCondition(
+          page,
+          async () => (await headerMark(page, pane)) === mark,
+          timeout,
+          () => seen(page, pane, waitingFor),
+        );
+
+      try {
+        const tty = ctx.session.runCommand(`display-message -p -t ${first} '#{pane_tty}'`).trim();
+        expect(tty).toMatch(/^\/dev\//);
+        const mark = (body) => `printf '\\033]133;${body}\\033\\\\' > ${tty}`;
+        // Eleven seconds: a command has to run for ten to be worth a mark.
+        await typeInTerminal(page, `${mark('C')}; sleep 11; ${mark('D;0')}`, {
+          target: `[data-pane-id="${paneId}"] [role="log"]`,
+        });
+        await pressEnter(page);
+
+        await shows(first, 'unread', "the command's end to leave a result on its pane", 30000);
+        // Pointing at the mark says how it ended.
+        await page.hover(`[data-pane-tab="${first}"] .pane-state-mark`);
+        const tooltip = () =>
+          page.evaluate(() => {
+            const tip = document.querySelector('[data-testid="tooltip"]');
+            const box = tip?.getBoundingClientRect();
+            return box && box.width > 0 ? tip.textContent : null;
+          });
+        await waitForCondition(
+          page,
+          async () => /^New output: Finished in 1\d s$/.test((await tooltip()) ?? ''),
+          10000,
+          async () =>
+            `the tooltip to say how long it ran; it says ${JSON.stringify(await tooltip())}`,
+        );
 
         await navigatePaneKeyboard(page, 'next');
         await waitForCondition(
