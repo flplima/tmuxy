@@ -1,7 +1,7 @@
 /**
  * Every command a client sends a backend, by the name it travels under: the
  * `{ cmd, args }` the web POSTs to `/commands` and the desktop hands its one
- * `dispatch` IPC command (`ClientCommand` in `tmuxy-core/src/host/command.rs`).
+ * `dispatch` IPC command (`ClientCommand` in `tmuxy-core/src/host/command/wire.rs`).
  *
  * The protocol fixture test holds this table to the Rust enum: every request
  * in `packages/protocol-fixtures/command_requests.json` and every answer in

@@ -34,6 +34,10 @@ View > Profiles lists every profile, the session's checked, the Default Profile 
 
 Rename and Delete are greyed out on the Default Profile. A name is checked in the dialog as it is typed (empty, padded or taken), and the server checks it again. The client calls are `list_profiles`, `use_profile`, `create_profile`, `rename_profile` and `delete_profile` (`tmuxy-core/src/host/profiles.rs`), and each answers the profiles and the session's. The desktop's native menu bar is built from the same spec (`components/menus/specs/profilesMenu.ts`), so it has the same submenu.
 
+## Changes are saved to the profile
+
+In a session on a named profile, a change made from the menus (a theme, its mode, the blinking cursor, transparency) is saved into the profile's file and set on that session only, then painted at once (`into_profile` in `tmuxy-core/src/host/profiles.rs`). The global choices in `tmuxy.state.json`, and every other session, stay as they were. On the Default Profile a change is the global one it always was. Asking before a send is never saved into a profile: it stays global whichever profile the session uses. An option `tmuxy.conf` pins is refused as it is on the Default Profile, and a value no theme could have is never saved. Two tabs changing the same profile at once both keep their change. Another session on the same profile is painted with the change when it next attaches, not at once: only the session the change was made in is set live.
+
 ## Tests
 
 `profiles_tests.rs` and `profilesMenu.test.ts`, in scratch directories only:
@@ -47,3 +51,4 @@ Rename and Delete are greyed out on the Default Profile. A name is checked in th
 - a switch unsets the last profile's options first, and the session map is written whole;
 - the submenu checks the session's profile and greys out Rename and Delete on the default;
 - `tests/29-profiles.test.js` drives View > Profiles in a browser: pick, duplicate, rename (a taken name refused in the dialog), delete and new, with the page repainted live and the files and the session map checked at each step.
+- a menu change sets the profile's field, and never send-ask; `tests/29-profiles.test.js` picks a theme and a mode in a profiled session and checks the profile file holds them, the global choices are unchanged and the Default Profile paints as before.

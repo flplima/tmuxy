@@ -301,3 +301,39 @@ fn state_writes_keep_unknown_keys_and_lose_no_concurrent_edit() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A menu change in a profiled session lands in the profile's field; the
+/// send-ask switch, or anything else, is no profile's.
+#[test]
+fn a_menu_change_sets_the_profiles_field_and_never_send_ask() {
+    let mut profile = Profile::default();
+    assert!(set_field(&mut profile, tmux_options::THEME, "dracula"));
+    assert!(set_field(&mut profile, tmux_options::THEME_MODE, "light"));
+    assert!(set_field(&mut profile, tmux_options::CURSOR_BLINK, "off"));
+    assert!(set_field(&mut profile, tmux_options::TRANSPARENCY, "on"));
+    assert_eq!(
+        profile,
+        Profile {
+            theme: Some("dracula".into()),
+            theme_mode: Some("light".into()),
+            cursor_blink: Some(false),
+            transparency: Some(true),
+        }
+    );
+    let before = profile.clone();
+    assert!(!set_field(&mut profile, tmux_options::SEND_ASK, "off"));
+    assert!(!set_field(&mut profile, "@tmuxy-opacity", "0.5"));
+    assert_eq!(profile, before);
+    // And a value no theme could have is not saved.
+    let dir = scratch("save-checked");
+    let bad = Profile {
+        theme: Some("../x".into()),
+        ..Profile::default()
+    };
+    assert!(matches!(
+        save(&dir, "Bad", &bad),
+        Err(ProfileError::Refused(_))
+    ));
+    assert!(!dir.join("Bad.json").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

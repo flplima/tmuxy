@@ -83,12 +83,29 @@ const sessionMap = () => {
   return JSON.parse(fs.readFileSync(file, 'utf8')).session_profiles ?? {};
 };
 
-/** Nord's dark terminal background, read from the theme file the server ships. */
-const nordBackground = () =>
+/** A shipped theme's dark terminal background, read from its file. */
+const themeBackground = (theme) =>
   fs
-    .readFileSync(path.join(DATA_DIR, 'themes', 'nord.css'), 'utf8')
+    .readFileSync(path.join(DATA_DIR, 'themes', `${theme}.css`), 'utf8')
     .match(/--term-background:\s*(#[0-9a-fA-F]+);/)[1]
     .toLowerCase();
+
+/** Wait for the page to paint the terminal background `expected`. */
+const waitForBackground = (page, expected, what) =>
+  waitForCondition(
+    page,
+    async () => (await termBackground(page)).toLowerCase() === expected.toLowerCase(),
+    10000,
+    async () => `${what}; the page shows ${await termBackground(page)}`,
+  );
+
+/** The state file's global menu choices, without the session map. */
+const globalChoices = () => {
+  const file = path.join(STATE_DIR, 'tmuxy.state.json');
+  if (!fs.existsSync(file)) return {};
+  const { session_profiles: _map, ...rest } = JSON.parse(fs.readFileSync(file, 'utf8'));
+  return rest;
+};
 
 describeE2E('Scenario 32: Terminal profiles from the View menu', {}, (ctx) => {
   let stopServer = () => {};
@@ -109,7 +126,7 @@ describeE2E('Scenario 32: Terminal profiles from the View menu', {}, (ctx) => {
     await openSession(page, session, CONFIG_URL);
     await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
     const before = await termBackground(page);
-    const nord = nordBackground();
+    const nord = themeBackground('nord');
     expect(before.toLowerCase()).not.toBe(nord);
 
     // Out of the box: the Default Profile, checked, with nothing to rename
@@ -194,5 +211,48 @@ describeE2E('Scenario 32: Terminal profiles from the View menu', {}, (ctx) => {
     await clickMenuItem(page, ['View', 'Profiles', DEFAULT]);
     await waitForActive(page, DEFAULT);
     expect(sessionMap()).toEqual({});
+  });
+
+  test('in a session on a profile, a menu change is saved to the profile and painted on that session only', async () => {
+    unsetConfigVariable();
+    stopServer = await startConfigServer();
+    fs.mkdirSync(path.join(CONFIG_DIR, 'profiles'), { recursive: true });
+    fs.writeFileSync(profileFile('Night'), JSON.stringify({ theme: 'nord', themeMode: 'dark' }));
+
+    const page = ctx.page;
+    await openSession(page, ctx.session.name, CONFIG_URL);
+    await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
+    const before = await termBackground(page);
+    const globalBefore = globalChoices();
+    await waitForActive(page, DEFAULT);
+    await clickMenuItem(page, ['View', 'Profiles', 'Night']);
+    await waitForBackground(page, themeBackground('nord'), "Night's theme to be painted");
+
+    // A theme picked from the menu is painted at once and saved into Night,
+    // not into the global choices.
+    await clickMenuItem(page, ['View', 'Theme', 'Dracula']);
+    await waitForBackground(page, themeBackground('dracula'), 'the picked theme to be painted');
+    await waitForCondition(
+      page,
+      () => JSON.parse(fs.readFileSync(profileFile('Night'), 'utf8')).theme === 'dracula',
+      10000,
+      () => `Night to hold the picked theme: ${fs.readFileSync(profileFile('Night'), 'utf8')}`,
+    );
+    expect(globalChoices()).toEqual(globalBefore);
+
+    // The mode too.
+    await clickMenuItem(page, ['View', 'Theme', 'Light Mode']);
+    await waitForCondition(
+      page,
+      () => JSON.parse(fs.readFileSync(profileFile('Night'), 'utf8')).themeMode === 'light',
+      10000,
+      () => `Night to hold the light mode: ${fs.readFileSync(profileFile('Night'), 'utf8')}`,
+    );
+    expect(globalChoices()).toEqual(globalBefore);
+
+    // Back on the Default Profile, the global look is untouched.
+    await clickMenuItem(page, ['View', 'Profiles', DEFAULT]);
+    await waitForActive(page, DEFAULT);
+    await waitForBackground(page, before, 'the global theme to be painted again');
   });
 });
