@@ -1,0 +1,287 @@
+name: claude qa and code review
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, ready_for_review, reopened]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  qa-review:
+    name: claude qa + review
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    if: >-
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.draft == false &&
+        (
+          contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.pull_request.author_association) ||
+          github.event.pull_request.user.type == 'Bot'
+        )
+      ) ||
+      (
+        github.actor == 'flplima' &&
+        (
+          (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude qa')) ||
+          (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude qa')) ||
+          (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude qa'))
+        )
+      )
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve PR stack and check out stack top
+        id: stack
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT_PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          git fetch origin "+refs/heads/*:refs/remotes/origin/*" --prune
+
+          root_json="$(gh pr view "$ROOT_PR" --json number,title,headRefName,headRefOid,baseRefName,url,author,isDraft)"
+          open_prs="$(gh pr list --state open --limit 200 --json number,title,headRefName,headRefOid,baseRefName,url,author,isDraft)"
+
+          node - "$ROOT_PR" "$root_json" "$open_prs" <<'EOF'
+          const fs = require('node:fs');
+          const [, , rootNumStr, rootRaw, openRaw] = process.argv;
+          const rootPr = JSON.parse(rootRaw);
+          const openPrs = JSON.parse(openRaw);
+
+          const byNumber = new Map(openPrs.map((p) => [p.number, p]));
+          byNumber.set(rootPr.number, rootPr);
+
+          const visited = new Set([rootPr.number]);
+          const chain = [rootPr];
+
+          // Walk down the stack: p_{i+1}.baseRefName == p_i.headRefName
+          let current = rootPr;
+          while (true) {
+            const children = [...byNumber.values()]
+              .filter((p) => !visited.has(p.number) && p.baseRefName === current.headRefName)
+              .sort((a, b) => Number(a.isDraft) - Number(b.isDraft) || a.number - b.number);
+            if (children.length === 0) break;
+            const next = children[0];
+            visited.add(next.number);
+            chain.push(next);
+            current = next;
+          }
+
+          const bottom = chain[0];
+          const top = chain[chain.length - 1];
+
+          const lines = [
+            '# PR Stack Context',
+            '',
+            `- **Root (triggered) PR:** #${rootPr.number} (${rootPr.title})`,
+            `- **Stack size:** ${chain.length} PR(s)`,
+            `- **Stack base branch:** \`${bottom.baseRefName}\``,
+            `- **Checked-out stack top:** #${top.number} (\`${top.headRefName}\` @ \`${top.headRefOid}\`)`,
+            `- **Combined stack diff:** \`git diff origin/${bottom.baseRefName}...origin/${top.headRefName}\``,
+            '',
+            '## Stacked PRs (bottom to top)',
+            '',
+          ];
+
+          chain.forEach((pr, idx) => {
+            lines.push(
+              `### ${idx + 1}. PR #${pr.number}: ${pr.title}`,
+              `- **URL:** ${pr.url}`,
+              `- **Author:** ${pr.author?.login ?? 'unknown'}${pr.isDraft ? ' (draft)' : ''}`,
+              `- **Branches:** \`${pr.baseRefName}\` <- \`${pr.headRefName}\` (\`${pr.headRefOid}\`)`,
+              `- **Per-PR diff:** \`git diff origin/${pr.baseRefName}...origin/${pr.headRefName}\``,
+              `- **Per-PR files:** \`git diff --name-status origin/${pr.baseRefName}...origin/${pr.headRefName}\``,
+              `- **Per-PR commits:** \`git log --oneline origin/${pr.baseRefName}..origin/${pr.headRefName}\``,
+              '',
+            );
+          });
+
+          fs.writeFileSync('/tmp/pr-stack.md', lines.join('\n'), 'utf8');
+
+          const envLines = [
+            `ROOT_PR=${rootPr.number}`,
+            `TOP_PR=${top.number}`,
+            `TOP_HEAD_REF=${top.headRefName}`,
+            `TOP_HEAD_OID=${top.headRefOid}`,
+            `STACK_BASE_REF=${bottom.baseRefName}`,
+            `STACK_COUNT=${chain.length}`,
+          ];
+          const envText = `${envLines.join('\n')}\n`;
+          fs.writeFileSync('/tmp/pr-stack.env', envText, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, envText, 'utf8');
+          EOF
+
+          cat /tmp/pr-stack.md
+          # shellcheck disable=SC1091
+          source /tmp/pr-stack.env
+          git checkout -B "$TOP_HEAD_REF" "origin/$TOP_HEAD_REF"
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          rust: guest
+
+      - uses: ./.github/actions/install-desktop-test-deps
+
+      - uses: ./.github/actions/install-tmux
+
+      - name: Install agent and desktop QA tools
+        run: |
+          bash bin/install-dev-tools
+          bin/ci/apt-get install -y --no-install-recommends imagemagick xdotool
+
+      - name: Build frontend bundle
+        run: npm run build -w tmuxy-ui
+
+      - name: Build tmuxy-server and link CLI
+        run: |
+          cargo build -p tmuxy-server
+          sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
+          tmuxy --version
+
+      - name: Build Tauri Linux debug binary
+        working-directory: packages/tmuxy-tauri-app
+        run: npx tauri build --debug --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
+
+      - uses: ./.github/actions/start-xvfb
+
+      - name: Boot live QA surfaces (webapp :9000, Storybook :6006, Tauri GUI :99 + tauri-driver :4444)
+        env:
+          DISPLAY: ':99'
+          RUST_LOG: 'info,tmuxy_server::sse=debug'
+        run: |
+          set -euo pipefail
+
+          # 1. tmuxy-server on :9000 with action trace
+          TMUXY_TRACE_LEVEL=labeled ./target/debug/tmuxy-server \
+            --port 9000 \
+            --no-auth \
+            --trace /tmp/tmuxy-qa-trace.ndjson \
+            2>/tmp/tmuxy-server.log &
+          echo "TMUXY_SERVER_PID=$!" >> "$GITHUB_ENV"
+          bin/ci/wait-for-server http://localhost:9000
+
+          # 2. Storybook on :6006
+          mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
+          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
+          echo "STORYBOOK_PID=$!" >> "$GITHUB_ENV"
+          bin/ci/wait-for-server http://localhost:6006/index.json 180000
+
+          # 3. tauri-driver on :4444 + Tauri debug binary on Xvfb :99
+          tauri-driver --port 4444 2>/tmp/tauri-driver.log &
+          echo "TAURI_DRIVER_PID=$!" >> "$GITHUB_ENV"
+          bin/ci/wait-for-server http://localhost:4444/status
+
+          ./target/debug/tmuxy 2>/tmp/tauri-app.log &
+          echo "TAURI_APP_PID=$!" >> "$GITHUB_ENV"
+
+          # 4. Warm up isolated agent-browser sessions for Web and Storybook QA
+          agent-browser --session qa-web open http://localhost:9000
+          agent-browser --session qa-sb open http://localhost:6006
+
+      - name: Run Claude Code QA + Code Review (Opus + Sonnet sub-agents)
+        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1
+        env:
+          DISPLAY: ':99'
+          GH_TOKEN: ${{ github.token }}
+          CLAUDE_CODE_SUBAGENT_MODEL: sonnet
+        with:
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          anthropic_workspace_id: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          anthropic_oidc_audience: https://api.anthropic.com
+          github_token: ${{ github.token }}
+          classify_inline_comments: 'false'
+          trigger_phrase: '@claude qa'
+          allowed_bots: '*'
+          allowed_non_write_users: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
+          restrict_untrusted_prs: 'false'
+          additional_permissions: 'actions: read'
+          settings: |
+            {
+              "env": {
+                "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
+              }
+            }
+          claude_args: >-
+            --model opus
+            --max-turns 30
+            --max-budget-usd 20
+            --allowedTools "Agent,Task,Bash,Read,Edit,Write,Glob,Grep,mcp__github_inline_comment__create_inline_comment,mcp__github_ci__get_ci_status,mcp__github_ci__get_workflow_run_details,mcp__github_ci__download_job_log"
+          prompt: |
+            You are running inside a live QA environment for `flplima/tmuxy`.
+            Read `/tmp/pr-stack.md` first. It lists the triggered PR (`#${{ env.ROOT_PR }}`), the full open PR stack (if stacked), the checked-out stack top (`#${{ env.TOP_PR }}` on `${{ env.TOP_HEAD_REF }}`), and the exact `git diff origin/<base>...origin/<head>` command for each PR in the chain.
+
+            ## 1. Sub-agent Code Review (Sonnet)
+            - Spawn parallel sub-agents via the `Agent`/`Task` tool (configured to run on `sonnet`): one sub-agent per PR listed in `/tmp/pr-stack.md` (and focussed sub-agents by domain if a single PR is large).
+            - Each sub-agent must inspect its PR's diff (`git diff origin/<base>...origin/<head>`) and check compliance with `AGENTS.md`, `docs/INVARIANTS.md`, `docs/TMUX.md`, `docs/STATE-MANAGEMENT.md`, `docs/DATA-FLOW.md`, `docs/TESTS.md`, and `docs/SECURITY.md`.
+            - Flag bugs, race conditions, control-mode hazards, blind waits, DOM-only test assertions without bounding-rect checks, security issues, and invariant violations.
+
+            ## 2. Live End-to-End QA (Opus)
+            All live QA surfaces are already booted from the stack top:
+            - **Webapp (`http://localhost:9000`) + CLI (`/usr/local/bin/tmuxy`)**: drive with `agent-browser --session qa-web` (snapshot, click, type, screenshot, check bounding rects and console errors) and run `tmuxy` CLI commands against the live session. Inspect `/tmp/tmuxy-qa-trace.ndjson` and `/tmp/tmuxy-server.log` (`./target/debug/tmuxy-server trace --check /tmp/tmuxy-qa-trace.ndjson`).
+            - **Storybook (`http://localhost:6006`)**: drive stories touched by the stack with `agent-browser --session qa-sb` (`/tmp/storybook.log`).
+            - **Tauri Linux GUI (`target/debug/tmuxy` on `Xvfb :99`, `tauri-driver` on `http://localhost:4444`)**: capture screenshots with `DISPLAY=:99 import -window root /tmp/tauri-screen.png`, send input with `DISPLAY=:99 xdotool`, or run WebDriver checks against `:4444` (`/tmp/tauri-app.log`, `/tmp/tauri-driver.log`).
+
+            ## 3. Output
+            - Use `mcp__github_inline_comment__create_inline_comment` (or `gh api`) for concrete line-level defects on the PR where the line was introduced.
+            - Post a concise QA + Code Review report on PR `#${{ env.ROOT_PR }}` via `gh pr comment ${{ env.ROOT_PR }}` covering:
+              1. Per-PR code review findings across the stack.
+              2. Live QA verification results (webapp, CLI, Storybook, Tauri GUI, trace health) with concrete observations.
+              3. Verdict (pass, pass with notes, or changes requested).
+
+      - name: Trace health check
+        if: always()
+        run: |
+          if [ -f /tmp/tmuxy-qa-trace.ndjson ] && [ -x ./target/debug/tmuxy-server ]; then
+            ./target/debug/tmuxy-server trace --check --github /tmp/tmuxy-qa-trace.ndjson || true
+          fi
+
+      - name: Upload QA logs and trace on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: claude-qa-review-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            /tmp/pr-stack.md
+            /tmp/tmuxy-qa-trace.ndjson
+            /tmp/tmuxy-server.log
+            /tmp/storybook.log
+            /tmp/tauri-driver.log
+            /tmp/tauri-app.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop background QA services
+        if: always()
+        run: |
+          for pid_var in TAURI_APP_PID TAURI_DRIVER_PID STORYBOOK_PID TMUXY_SERVER_PID XVFB_PID; do
+            pid="${!pid_var:-}"
+            if [ -n "$pid" ]; then
+              kill "$pid" 2>/dev/null || true
+            fi
+          done
+          agent-browser --session qa-web close 2>/dev/null || true
+          agent-browser --session qa-sb close 2>/dev/null || true
