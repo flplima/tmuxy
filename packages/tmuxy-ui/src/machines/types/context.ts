@@ -7,6 +7,7 @@ import type { GridCell } from '../../domain/gridFit';
 import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
+import type { PaletteMode } from '../../domain/palette/entries';
 import type {
   AppNotification,
   BottomView,
@@ -16,6 +17,7 @@ import type {
   GestureState,
   KeyboardOwner,
   LogEntry,
+  PendingGoTo,
   ResizeState,
   SidebarSide,
   SidebarState,
@@ -279,6 +281,13 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
+  /** The command palette, while it is open: everything, or only the places to go. */
+  palette: PaletteMode | null;
+  /**
+   * A place in another session the palette was asked to go to: the session
+   * is switched first, and the tab or pane is picked once its state arrives.
+   */
+  pendingGoTo: PendingGoTo | null;
   /** The pane whose rename field is open in its header, if any. */
   renamingPaneId: PaneId | null;
   /** Base font size for terminal text in pixels */
