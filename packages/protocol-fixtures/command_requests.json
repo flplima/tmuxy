@@ -42,6 +42,13 @@
   },
   {
     "args": {
+      "paneId": "%2",
+      "scope": "branch"
+    },
+    "cmd": "read_diff"
+  },
+  {
+    "args": {
       "html": "<p>hi</p>",
       "paneId": "%2"
     },
