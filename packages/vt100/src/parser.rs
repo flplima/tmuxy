@@ -3,6 +3,9 @@
 pub struct Parser<CB: crate::callbacks::Callbacks = ()> {
     parser: vte::Parser,
     screen: crate::perform::WrappedScreen<CB>,
+    /// The incomplete UTF-8 character the last write ended with, held for
+    /// the next (see [`Parser::process`]).
+    held: Vec<u8>,
 }
 
 impl Parser {
@@ -12,6 +15,7 @@ impl Parser {
     pub fn new(rows: u16, cols: u16, scrollback_len: usize) -> Self {
         Self {
             parser: vte::Parser::new(),
+            held: Vec::new(),
             screen: crate::perform::WrappedScreen::new(
                 rows,
                 cols,
@@ -34,6 +38,7 @@ impl<CB: crate::callbacks::Callbacks> Parser<CB> {
     ) -> Self {
         Self {
             parser: vte::Parser::new(),
+            held: Vec::new(),
             screen: crate::perform::WrappedScreen::new_with_callbacks(
                 rows,
                 cols,
@@ -45,8 +50,22 @@ impl<CB: crate::callbacks::Callbacks> Parser<CB> {
 
     /// Processes the contents of the given byte string, and updates the
     /// in-memory terminal state.
+    ///
+    /// A character split across writes is held back whole: vte decodes one
+    /// on a separate path that, with an invalid byte soon after, dropped
+    /// the valid characters in between (vte 0.15 `advance_partial_utf8`), so
+    /// the screen depended on where the writes happened to end.
     pub fn process(&mut self, bytes: &[u8]) {
-        self.parser.advance(&mut self.screen, bytes);
+        let joined;
+        let bytes = if self.held.is_empty() {
+            bytes
+        } else {
+            joined = [std::mem::take(&mut self.held).as_slice(), bytes].concat();
+            joined.as_slice()
+        };
+        let whole = bytes.len() - incomplete_utf8_tail(bytes);
+        self.parser.advance(&mut self.screen, &bytes[..whole]);
+        self.held = bytes[whole..].to_vec();
     }
 
     /// Returns a reference to a [`Screen`](crate::Screen) object containing
@@ -93,4 +112,23 @@ impl std::io::Write for Parser {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
+}
+
+/// How many bytes at the end of `bytes` start a UTF-8 character that is not
+/// complete yet: a lead byte and fewer continuation bytes than it needs.
+fn incomplete_utf8_tail(bytes: &[u8]) -> usize {
+    for back in 1..=bytes.len().min(3) {
+        let byte = bytes[bytes.len() - back];
+        if byte & 0xC0 == 0x80 {
+            continue;
+        }
+        let needs = match byte {
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xFF => 4,
+            _ => return 0,
+        };
+        return if back < needs { back } else { 0 };
+    }
+    0
 }
