@@ -24,6 +24,7 @@ import { execSync } from 'node:child_process';
 import { remote } from 'webdriverio';
 import { buildReport, runInteractions, waitForReady } from './lib/perf-harness.mjs';
 import { WD_KEYS, toChord } from './lib/wd-keys.mjs';
+import { assertThrowawaySocket } from './lib/throwaway.mjs';
 
 const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -137,6 +138,7 @@ async function main() {
 
   // A socket of its own, so a perf run never disturbs the developer's session.
   const socket = process.env.TMUX_SOCKET || 'tmuxy-perf';
+  assertThrowawaySocket(socket);
   process.env.TMUX_SOCKET = socket;
   process.env.TMUXY_SESSION = SESSION;
   prepareSession(SESSION);
