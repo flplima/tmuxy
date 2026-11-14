@@ -248,6 +248,23 @@ pub fn revive_script(dir: &std::path::Path, argv: &[String]) -> String {
     )
 }
 
+/// The tmux command that respawns `pane` in `path` with the wrapper
+/// `script`. tmux expands formats in a start directory and reads an argument
+/// ending in `;` as the end of its command, so the path goes as text.
+pub fn respawn_argv(pane: &str, path: &str, script: &std::path::Path) -> Vec<String> {
+    [
+        "respawn-pane",
+        "-k",
+        "-t",
+        pane,
+        "-c",
+        &super::spawn::tmux_word(&format_literal(path)),
+        &format!("sh {}", shell_word(&script.to_string_lossy())),
+    ]
+    .map(String::from)
+    .to_vec()
+}
+
 #[derive(clap::Args, Debug)]
 pub struct ReviveArgs {
     /// The pane, by id or label: the shell resolves a label first.
@@ -295,17 +312,7 @@ pub fn revive(answer: &Answer, args: ReviveArgs) {
         let _ = std::fs::remove_dir_all(&dir);
         answer.exit(EXIT_FAILED, &e.to_string());
     }
-    let respawn = [
-        "respawn-pane",
-        "-k",
-        "-t",
-        &pane,
-        "-c",
-        &format_literal(&now.path),
-        &format!("sh {}", shell_word(&script.to_string_lossy())),
-    ]
-    .map(String::from);
-    if let Err(e) = run_shell::tmux(&Layout::current(), &respawn) {
+    if let Err(e) = run_shell::tmux(&Layout::current(), &respawn_argv(&pane, &now.path, &script)) {
         let _ = std::fs::remove_dir_all(&dir);
         crate::run_cli::fail_to_run(answer, e);
     }
