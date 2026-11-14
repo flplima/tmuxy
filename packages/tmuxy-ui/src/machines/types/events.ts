@@ -22,6 +22,7 @@ import type {
 } from './domain';
 import type {
   GitRepository,
+  PanePorts,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
@@ -324,6 +325,7 @@ export type AppMachineEvent =
   | { type: 'RESTORE_SESSION'; sessionName: string }
   | { type: 'SESSION_MENU_OPENED' }
   | { type: 'GIT_REPOSITORIES_UPDATED'; repositories: GitRepository[] }
+  | { type: 'PANE_PORTS_UPDATED'; panePorts: readonly PanePorts[] }
   | {
       type: 'SERVERS_UPDATED';
       servers: TmuxServer[];

@@ -21,7 +21,7 @@
     },
     {
       "name": "layout-tree",
-      "path": "tests/2-layout-navigation-(dock|float-scope|group-drag|peek|tree|tree-drag|tree-rows)\\.test\\.js"
+      "path": "tests/2-layout-navigation-(dock|float-scope|group-drag|peek|tree|tree-drag|tree-ports|tree-rows)\\.test\\.js"
     },
     {
       "name": "rendering-text",
