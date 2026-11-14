@@ -151,6 +151,9 @@ case "${1:-}" in
     # `pane send` reads its two switches, and the pane states it saves and
     # restores, from these.
     case "$*" in
+      # Where the app that configured this server keeps the user's config:
+      # a send reads permissions.json from there.
+      *@tmuxy-config-dir) echo "${MOCK_TMUX_CONFIG_DIR:-}"; exit 0 ;;
       *@tmuxy-send-ask) echo "${MOCK_TMUX_SEND_ASK:-}"; exit 0 ;;
       *@tmuxy-send-allow) echo "${MOCK_TMUX_SEND_ALLOW:-}"; exit 0 ;;
       *@tmuxy-send-allow-into) echo "${MOCK_TMUX_SEND_ALLOW_INTO:-}"; exit 0 ;;

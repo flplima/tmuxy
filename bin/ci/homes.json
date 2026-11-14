@@ -387,6 +387,7 @@
         "packages/tmuxy-tauri-app/src/windows/ssh_link.rs",
         "packages/tmuxy-verbs/src/agents/session.rs",
         "packages/tmuxy-verbs/src/connect_cli.rs",
+        "packages/tmuxy-verbs/src/permissions_file.rs",
         "packages/tmuxy-core/src/ask/queue.rs",
         "packages/tmuxy-verbs/src/send_cli/wait.rs"
       ]
