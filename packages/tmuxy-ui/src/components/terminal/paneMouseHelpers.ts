@@ -12,7 +12,10 @@ export function mouseOp(
   cell: { x: number; y: number },
   release: boolean,
 ): TmuxOp {
-  return TmuxOp.SendMouse({ paneId, button, x: cell.x + 1, y: Math.max(1, cell.y + 1), release });
+  return TmuxOp.SendMouse({
+    paneId,
+    reports: [{ button, x: cell.x + 1, y: Math.max(1, cell.y + 1), release }],
+  });
 }
 
 export interface UsePaneMouseOptions {

@@ -88,8 +88,10 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
     const dispatchWithErrorSurface = (
       program: ReturnType<TmuxStore['dispatch']>,
       command: string,
+      answered?: () => void,
     ): void => {
       void runtime.runPromiseExit(program).then((exit) => {
+        answered?.();
         if (Exit.isSuccess(exit)) return;
         const reason = failureText(exit.cause);
         if (reason !== null) parent.send({ type: 'TMUX_ERROR', error: `${command}: ${reason}` });
@@ -104,7 +106,15 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
         // Fire-and-forget — the store rolls a failed op back on its own (the
         // next TMUX_MODEL_UPDATE reflects it); dispatchWithErrorSurface
         // reports the failure.
-        dispatchWithErrorSurface(store.dispatch(event.op, { wire: event.wire }), command);
+        dispatchWithErrorSurface(
+          store.dispatch(event.op, { wire: event.wire }),
+          command,
+          // A divider drag sends its next step once this one is answered,
+          // refused or not.
+          event.op._tag === 'ResizePanes'
+            ? () => parent.send({ type: 'RESIZE_ANSWERED' })
+            : undefined,
+        );
         return;
       }
 

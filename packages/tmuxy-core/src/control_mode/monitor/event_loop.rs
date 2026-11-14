@@ -8,7 +8,7 @@ pub(super) const PENDING_OUTPUT_MAX: Duration = Duration::from_millis(100);
 pub(super) const LAYOUT_DEBOUNCE: Duration = Duration::from_millis(16);
 
 /// Events within one [`RATE_WINDOW`] above which output is throttled. Below
-/// it, events emit immediately for low latency.
+/// it, output is debounced ([`LOW_THROUGHPUT_DEBOUNCE`]).
 pub(super) const THROTTLE_THRESHOLD: u32 = 20;
 
 /// Window for counting events to detect high-frequency output.

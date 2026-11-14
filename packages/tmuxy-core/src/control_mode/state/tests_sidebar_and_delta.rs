@@ -35,10 +35,15 @@ fn window_ids_by_sizing_splits_both_sidebars_off() {
             .build(),
     );
 
-    let (mut viewport, mut sidebars) = agg.window_ids_by_sizing();
+    let (mut viewport, mut sidebars, floats) = agg.window_ids_by_sizing();
     viewport.sort_by_key(WindowId::number);
     sidebars.sort_by_key(|(w, _, _)| w.number());
     assert_eq!(viewport, vec![wid("@1"), wid("@2")]);
+    assert_eq!(
+        floats,
+        vec![],
+        "a float that names no size is sized like a tab"
+    );
     assert_eq!(
         sidebars,
         vec![
@@ -64,6 +69,54 @@ fn window_ids_by_sizing_splits_both_sidebars_off() {
     assert_eq!(sidebar_dock::size(WindowType::Float, None, 50), None);
 }
 
+/// A float is drawn over its tab at the size its tags name, so that is the
+/// grid its window gets: both sides for a centred float, and for a drawer
+/// only the side it docks by, since it runs the length of that edge. Sized
+/// to the viewport instead, its pane was far larger than the box the UI
+/// draws, and a full-screen program drew most of itself out of sight.
+#[test]
+fn window_ids_by_sizing_gives_a_float_the_grid_its_tags_name() {
+    let mut agg = StateAggregator::new();
+    let float = |id: &str, index: u32| {
+        window_row(id, index, false, "float").set(WindowColumn::WindowType, "float")
+    };
+    for row in [
+        float("@2", 1)
+            .set(WindowColumn::FloatWidth, 60)
+            .set(WindowColumn::FloatHeight, 15),
+        float("@3", 2)
+            .set(WindowColumn::FloatWidth, 40)
+            .set(WindowColumn::FloatHeight, 10)
+            .set(WindowColumn::FloatDrawer, "right"),
+        float("@4", 3)
+            .set(WindowColumn::FloatWidth, 40)
+            .set(WindowColumn::FloatHeight, 12)
+            .set(WindowColumn::FloatDrawer, "bottom"),
+        float("@5", 4).set(WindowColumn::FloatWidth, 72),
+        // A size tag on a tab is not a float's size.
+        window_row("@6", 5, true, "shell")
+            .set(WindowColumn::WindowType, "tab")
+            .set(WindowColumn::FloatWidth, 60)
+            .set(WindowColumn::FloatHeight, 15),
+    ] {
+        agg.parse_list_windows_line(&row.build());
+    }
+
+    let (viewport, sidebars, mut floats) = agg.window_ids_by_sizing();
+    floats.sort_by_key(|(w, _, _)| w.number());
+    assert_eq!(viewport, vec![wid("@6")]);
+    assert_eq!(sidebars, vec![]);
+    assert_eq!(
+        floats,
+        vec![
+            (wid("@2"), Some(60), Some(15)),
+            (wid("@3"), Some(40), None),
+            (wid("@4"), None, Some(12)),
+            (wid("@5"), Some(72), None),
+        ]
+    );
+}
+
 /// A dragged column width replaces the default, and is clamped so a drag
 /// can neither squeeze the column below legibility nor swallow the grid.
 #[test]
@@ -77,7 +130,7 @@ fn sidebar_width_honours_the_user_drag_within_limits() {
             .set(WindowColumn::SidebarCols, "48")
             .build(),
     );
-    let (_, sidebars) = agg.window_ids_by_sizing();
+    let (_, sidebars, _) = agg.window_ids_by_sizing();
     assert_eq!(sidebars, vec![(wid("@3"), 48, None)]);
 
     assert_eq!(
@@ -132,6 +185,87 @@ fn sidebar_loses_the_pane_border_a_tab_gets() {
     );
     // ...exactly once, and never re-enforced afterwards.
     assert!(agg.window_setup_commands().is_empty());
+}
+
+/// A float is drawn as many rows tall as its window, its header apart, so
+/// its window has no border row: whether it was first adopted as a tab (the
+/// type lands a beat after `%window-add`) or typed on arrival. With the row
+/// left on, a 15-row float held a 14-row pane.
+#[test]
+fn float_loses_the_pane_border_a_tab_gets() {
+    let off = "set-option -w -t @4 pane-border-status off";
+    let float = || {
+        window_row("@4", 2, false, "float")
+            .set(WindowColumn::WindowType, "float")
+            .build()
+    };
+
+    let mut adopted_first = StateAggregator::new();
+    adopted_first.parse_list_windows_line(&window_row("@4", 2, false, "float").build());
+    let adopted = adopted_first.window_setup_commands();
+    assert!(
+        adopted
+            .iter()
+            .any(|c| c == "set-option -w -t @4 pane-border-status top"),
+        "an untyped new window is adopted as a tab: {adopted:?}"
+    );
+    adopted_first.parse_list_windows_line(&float());
+    let corrected = adopted_first.window_setup_commands();
+    assert_eq!(corrected, vec![off.to_string()]);
+    assert!(adopted_first.window_setup_commands().is_empty());
+
+    let mut typed_on_arrival = StateAggregator::new();
+    typed_on_arrival.parse_list_windows_line(&float());
+    let cmds = typed_on_arrival.window_setup_commands();
+    assert!(cmds.iter().any(|c| c == off), "{cmds:?}");
+    assert!(
+        !cmds.iter().any(|c| c.contains("pane-border-status top")),
+        "{cmds:?}"
+    );
+}
+
+/// `%window-add` says a window exists and nothing of what it is. Until
+/// `list-windows` describes it, it is told to stop sizing itself and no
+/// more: no border row and no size. Set up and sized as a tab for that
+/// beat, a new float was the viewport's size and a row short just as the
+/// program in it started and asked how big its terminal was.
+#[test]
+fn a_window_only_announced_gets_no_border_row_and_no_size() {
+    let mut agg = StateAggregator::new();
+    agg.process_event(ControlModeEvent::WindowAdd {
+        window_id: wid("@4"),
+    });
+
+    let on_add = agg.window_setup_commands();
+    assert!(
+        on_add
+            .iter()
+            .any(|c| c == "set-option -w -t @4 window-size manual"),
+        "{on_add:?}"
+    );
+    assert!(
+        !on_add.iter().any(|c| c.contains("pane-border-status")),
+        "{on_add:?}"
+    );
+    assert_eq!(agg.window_ids_by_sizing(), (vec![], vec![], vec![]));
+
+    // Described as a float: its own setup and its own grid, and the options
+    // every window gets are not sent twice.
+    agg.parse_list_windows_line(
+        &window_row("@4", 2, false, "float")
+            .set(WindowColumn::WindowType, "float")
+            .set(WindowColumn::FloatWidth, 60)
+            .set(WindowColumn::FloatHeight, 15)
+            .build(),
+    );
+    assert_eq!(
+        agg.window_setup_commands(),
+        vec!["set-option -w -t @4 pane-border-status off".to_string()]
+    );
+    assert_eq!(
+        agg.window_ids_by_sizing(),
+        (vec![], vec![], vec![(wid("@4"), Some(60), Some(15))])
+    );
 }
 
 /// The monitor re-lists windows right behind a create command, so a
