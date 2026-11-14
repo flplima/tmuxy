@@ -99,11 +99,23 @@ describe('tmuxy agent', () => {
   test('with the inbox bridge on, a session records its process and inbox path, never its token', async () => {
     const socketPath = '/tmp/fake-inbox-dir/4242.sock';
     // A `ps` that names the process above the hook as Claude Code, as it is
-    // when Claude Code runs the hook.
+    // when Claude Code runs the hook, and that, like the real one, names no
+    // process that has ended. It answers slowly: a hook that asked it from
+    // its background job would have returned by then.
     const stubs = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-agent-ps-'));
     fs.writeFileSync(
       path.join(stubs, 'ps'),
-      '#!/bin/sh\ncase "$*" in\n  *lstart*) echo "Mon Jan  1 00:00:00 2026" ;;\n  *) echo "1 claude" ;;\nesac\n',
+      [
+        '#!/bin/sh',
+        'sleep 0.5',
+        'for pid; do :; done',
+        'kill -0 "$pid" 2>/dev/null || exit 1',
+        'case "$*" in',
+        '  *lstart*) echo "Mon Jan  1 00:00:00 2026" ;;',
+        '  *) echo "1 claude" ;;',
+        'esac',
+        '',
+      ].join('\n'),
       { mode: 0o755 },
     );
     const session = {

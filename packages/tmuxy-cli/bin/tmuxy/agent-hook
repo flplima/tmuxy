@@ -63,19 +63,28 @@ claude_above() {
   done
   return 1
 }
+# The Claude process is found now, before the hook returns: by the time the
+# background job below runs, this process and the shell that started it may
+# have ended, and a walk up from them finds nothing. SessionStart only.
+pinned=""
+if [[ "$inbox" =~ ^/[A-Za-z0-9/._-]+\.sock$ ]] && pinned="$(claude_above)"; then
+  started="$(started_of "$pinned")"
+  if [ -n "$started" ] && [[ "$started" != *"|"* ]]; then
+    pinned="$pinned|$started"
+  else
+    pinned=""
+  fi
+fi
 record_inbox() {
-  local pane_t pid started
+  local pane_t
   pane_t="$(shquote "$TMUX_PANE")"
   [ "$(_tmux show-options -gqv "$OPT_SEND_INBOX" 2>/dev/null)" = on ] || return 0
   if [ "$inbox" = - ]; then
     _run_safe "set-option -p -u -t $pane_t $OPT_AGENT_INBOX"
     return 0
   fi
-  [[ "$inbox" =~ ^/[A-Za-z0-9/._-]+\.sock$ ]] || return 0
-  pid="$(claude_above)" || return 0
-  started="$(started_of "$pid")"
-  [ -n "$started" ] && [[ "$started" != *"|"* ]] || return 0
-  _run_safe "set-option -p -t $pane_t $OPT_AGENT_INBOX $(shquote "$pid|$started|$inbox")"
+  [ -n "$pinned" ] || return 0
+  _run_safe "set-option -p -t $pane_t $OPT_AGENT_INBOX $(shquote "$pinned|$inbox")"
 }
 [ -z "$inbox" ] || record_inbox </dev/null >/dev/null 2>&1 &
 
