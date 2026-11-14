@@ -298,3 +298,6 @@ export function pluginAction(op: {
     ` --pane ${op.paneId} --trigger menu${token} >/dev/null 2>&1"`
   );
 }
+
+/** tmux's own version, for the bug report snippet: a read, run as a query. */
+export const TMUX_VERSION_QUERY = "display-message -p '#{version}'";

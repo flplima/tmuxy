@@ -143,7 +143,12 @@ Nothing is short-circuited with an adapter call, so a regression anywhere in
 that chain lands in the number.
 
 Measured today: `key-echo`, `key-burst`, `pane-nav-keyboard`,
-`pane-zoom-toggle`, `pane-split`, `tab-switch`.
+`pane-zoom-toggle`, `pane-split`, `tab-switch`, and `key-echo-busy`: the
+keystroke again, in a tab where the focused pane shares the screen with 23
+panes each redrawing a spinner at ~2 KB/s (`scripts/lib/busy-panes.mjs`; the
+harness writes the frames into the panes' terminals itself, so the load is
+exactly that and stops with the run). Its ratio to `key-echo` is what other
+panes' output costs a keystroke.
 
 **Two targets, one suite.** The same interactions are measured against the web
 app and against the desktop app, because they reach the same Rust core over
@@ -194,15 +199,21 @@ leaves the absolute column blank and rides on the ratio gate.
 
 ### Running it
 
+**Only against a throwaway server.** The harness splits panes, types, opens
+tabs and closes the ones it made; pointed at the server you work in, it would
+do that to your session. So `--url` has no default, and the run refuses any
+server whose tmux socket is not named for one (`tmuxy-perf`, or
+`tmuxy-perf-<anything>`; the E2E suite's `tmuxy-test` is let through too)
+before it touches anything (`scripts/lib/throwaway.mjs`). Start one on its own
+`tmuxy-perf…` socket, port and `TMUX_TMPDIR`, with the environment the E2E
+suites use (`tests/helpers/server-env.js`); CI's perf jobs set
+`TMUX_SOCKET: tmuxy-perf`.
+
 ```
 npm run perf:interactions -- --url http://localhost:9000 --samples 12 \
                              --label local --out tests/perf/interaction-report.json
 npm run perf:compare -- --report tests/perf/interaction-report.json
 ```
-
-The suite types, splits, zooms and makes tabs in the session it is pointed at:
-`--url` names a throwaway server on its own tmux socket, never one serving a
-session somebody works in.
 
 Add `--cdp http://localhost:9222` to attach to the Chrome the dev environment
 already runs instead of launching one (the devcontainer deliberately does not

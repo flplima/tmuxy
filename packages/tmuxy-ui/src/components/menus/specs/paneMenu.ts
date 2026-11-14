@@ -132,6 +132,7 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
     {
       kind: 'item',
       id: 'pane-close',
+      destructive: true,
       label: 'Close Pane',
       icon: 'close',
       keyHint: keyHint(keybindings, TmuxOp.KillPane({ paneId: null })),
