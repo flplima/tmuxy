@@ -169,3 +169,35 @@ fn a_label_or_path_reaches_tmux_formats_as_text() {
         .windows(2)
         .any(|w| w == ["@tmuxy-label", "#(touch x) #{pane_id}"]));
 }
+
+/// tmux reads an argument ending in `;` as the end of its command and drops
+/// the `;`: a label `fix-a;` would be stored as `fix-a`, past the check that
+/// no other pane has it. A trailing `;` goes as `\;`, which tmux reads as `;`.
+#[test]
+fn a_label_or_path_ending_in_a_semicolon_stays_one_argument() {
+    let placed = place_argv(
+        Place::Stack,
+        "%3",
+        Some(Path::new("/w/odd;")),
+        false,
+        Path::new("/tmp/d/spawn.sh"),
+    );
+    assert!(
+        placed.windows(2).any(|w| w == ["-c", "/w/odd\\;"]),
+        "{placed:?}"
+    );
+    let tagged = tag_argv("%9", "%3", "x;", Some("fix-a;"));
+    for pair in [
+        ["@tmuxy-agent", "x\\;"],
+        ["@tmuxy-label", "fix-a\\;"],
+        ["-T", "fix-a\\;"],
+    ] {
+        assert!(
+            tagged.windows(2).any(|w| w == pair),
+            "{pair:?} in {tagged:?}"
+        );
+    }
+    // Only a trailing `;` ends a command; one inside a word is text.
+    assert_eq!(tmux_word("a;b"), "a;b");
+    assert_eq!(tmux_word(";"), "\\;");
+}
