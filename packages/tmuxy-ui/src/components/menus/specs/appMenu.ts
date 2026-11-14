@@ -236,6 +236,13 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec
     },
     {
       kind: 'item',
+      id: 'debug-copy-report',
+      label: 'Copy Bug Report Snippet',
+      icon: 'copy',
+      action: local({ verb: 'copy-bug-report' }),
+    },
+    {
+      kind: 'item',
       id: 'debug-copy-state',
       label: 'Copy App State',
       icon: 'copy',
