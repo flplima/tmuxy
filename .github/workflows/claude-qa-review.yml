@@ -128,10 +128,14 @@ jobs:
             `STACK_BASE_REF=${bottom.baseRefName}`,
             `STACK_COUNT=${chain.length}`,
           ];
-          fs.appendFileSync(process.env.GITHUB_ENV, `${envLines.join('\n')}\n`, 'utf8');
+          const envText = `${envLines.join('\n')}\n`;
+          fs.writeFileSync('/tmp/pr-stack.env', envText, 'utf8');
+          fs.appendFileSync(process.env.GITHUB_ENV, envText, 'utf8');
           EOF
 
           cat /tmp/pr-stack.md
+          # shellcheck disable=SC1091
+          source /tmp/pr-stack.env
           git checkout -B "$TOP_HEAD_REF" "origin/$TOP_HEAD_REF"
 
       - uses: ./.github/actions/setup-node-rust
