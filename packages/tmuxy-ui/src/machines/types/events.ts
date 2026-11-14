@@ -5,6 +5,7 @@ import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../doma
 import type { TabStripGeometry } from '../drag/tabStripDrop';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
+import type { PaletteMode } from '../../domain/palette/entries';
 import type { TmuxOp } from '../../domain/commands';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
@@ -90,6 +91,14 @@ export type AppMachineEvent =
   | { type: 'KEY_TABLE_CHANGE'; table: string | null }
   /** Open or close the keys view (`prefix ?`). */
   | { type: 'TOGGLE_KEYS_VIEW' }
+  /** Open the command palette in `mode`, or close it when it is open in that mode. */
+  | { type: 'TOGGLE_PALETTE'; mode: PaletteMode }
+  | { type: 'CLOSE_PALETTE' }
+  /**
+   * Go to a tab or a pane, in this session or another one on the socket
+   * (`sessionName`): the session is switched first, then the place is picked.
+   */
+  | { type: 'GO_TO'; sessionName: string; windowId: WindowId; paneId?: PaneId }
 
   // UI config events
   | {
@@ -178,6 +187,8 @@ export type AppMachineEvent =
   | { type: 'TAB_OVERVIEW_MOVE'; delta: number }
   | { type: 'TAB_OVERVIEW_ACTIVATE'; index?: number }
   | { type: 'SELECT_TAB_BY_POSITION'; position: number }
+  /** ctrl+alt+1…9: the Nth pane of the tab in front, in reading order (`domain/jumpHints.ts`). */
+  | { type: 'SELECT_PANE_BY_POSITION'; position: number }
   | { type: 'REORDER_TAB'; windowId: WindowId; toIndex: number }
   | { type: 'MOVE_ACTIVE_TAB'; by: -1 | 1 }
   | { type: 'CLOSE_TAB'; windowId: WindowId }
@@ -275,7 +286,14 @@ export type AppMachineEvent =
 
   // Session & server events
   | { type: 'SWITCH_SESSION'; sessionName: string }
-  | { type: 'NEW_SESSION' }
+  /**
+   * A session switch opened a new stream (the web's reconnect under the new
+   * session's name), and it is up. It has sent no state yet, and an idle
+   * session never will on its own.
+   */
+  | { type: 'TMUX_SESSION_SWITCHED' }
+  /** Create a session and switch to it; `name` when the user typed one, else a made-up one. */
+  | { type: 'NEW_SESSION'; name?: string }
   | { type: 'OPEN_CONNECT_FLOAT' }
   | { type: 'SESSIONS_UPDATED'; sessions: SessionTreeNode[] }
   | { type: 'SNAPSHOTS_UPDATED'; restorableSessions: RestorableSession[] }

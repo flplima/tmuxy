@@ -241,7 +241,7 @@ describe('appMenuSpec', () => {
       .map((n) => n.kind === 'submenu' && n.label);
     expect(submenus).toEqual(['Pane', 'Tab', 'Session', 'View', 'Debug']);
     const view = web.find((n) => n.kind === 'submenu' && n.id === 'menu-view');
-    const first = view?.kind === 'submenu' ? view.children[0] : null;
+    const first = view?.kind === 'submenu' ? view.children.find((n) => n.kind === 'submenu') : null;
     expect(first).toMatchObject({ kind: 'submenu', id: 'menu-theme', label: 'Theme' });
     const ids = itemIds(web);
     expect(ids).toContain('session-reload-config');
