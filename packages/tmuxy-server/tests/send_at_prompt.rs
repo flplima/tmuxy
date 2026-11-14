@@ -322,8 +322,10 @@ fn a_queued_send_waits_out_work_and_prompts_and_can_be_taken_back() {
     );
 
     // Free, but another sender's question is on screen: nothing goes in.
-    set_state(&s, &busy.pane, "idle");
+    // The question goes up before the pane is idle: the other way round, the
+    // queued send, polling, could find it idle with nothing up in between.
     s.tmux(&["set-option", "-p", "-t", &busy.pane, "@tmuxy-ask", "e30="]);
+    set_state(&s, &busy.pane, "idle");
     assert_eq!(received(&busy.log), "");
 
     // Free: the first goes in, alone, and the agent takes it up.
