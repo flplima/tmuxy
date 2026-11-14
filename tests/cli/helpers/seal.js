@@ -177,6 +177,16 @@ function sealChildProcesses(childProcess = require('child_process')) {
   return unseal;
 }
 
+/**
+ * Take the seal off `childProcess` if this process put one on; a no-op where
+ * it did not (Jest's own process, when the files ran in workers).
+ *
+ * @param {object} [childProcess] - The module the seal was put on (the real one)
+ */
+function unsealChildProcesses(childProcess = require('child_process')) {
+  childProcess[UNSEAL]?.();
+}
+
 module.exports = {
   MOCK_TMUX,
   RESERVED,
@@ -186,4 +196,5 @@ module.exports = {
   sealChildProcesses,
   sealProblem,
   suite,
+  unsealChildProcesses,
 };

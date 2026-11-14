@@ -108,12 +108,23 @@ export async function probeRefusalReason(
   return null;
 }
 
+/** A numbered command's place in its connection's order (S7 in docs/INVARIANTS.md). */
+export interface CommandOrder {
+  /** This command's number; the server runs a connection's in number order. */
+  seq: number;
+  /** Numbers whose POST failed with no answer: the server stops waiting for them. */
+  lost: readonly number[];
+  /** Called when the server answers, with any status. */
+  onAnswered: () => void;
+}
+
 export async function postCommandJson(
   session: string,
   connectionId: number,
   cmd: string,
   args: unknown,
   actionId?: string,
+  order?: CommandOrder,
 ): Promise<unknown> {
   const commandsUrl = buildEndpointUrl('/commands', session);
   const response = await fetch(commandsUrl, {
@@ -123,9 +134,12 @@ export async function postCommandJson(
       'X-Connection-Id': String(connectionId),
       // Correlate the request leg in the trace (docs/TRACING.md).
       ...(actionId ? { 'X-Action-Id': actionId } : {}),
+      ...(order ? { 'X-Command-Seq': String(order.seq) } : {}),
+      ...(order?.lost.length ? { 'X-Command-Lost': order.lost.join(',') } : {}),
     },
     body: JSON.stringify({ cmd, args }),
   });
+  order?.onAnswered();
 
   if (!response.ok) {
     // The server's refusal is a `{ error, kind }` body, thrown as is so the
@@ -138,6 +152,32 @@ export async function postCommandJson(
 
   const data = (await response.json()) as { result?: unknown };
   return data.result;
+}
+
+/**
+ * Tell the server which numbered POSTs failed with no answer, when no later
+ * command is there to say so: the ones already waiting behind them run now
+ * and not after the server's timeout. Resolves to whether it was heard.
+ */
+export async function postCommandsLost(
+  session: string,
+  connectionId: number,
+  lost: readonly number[],
+): Promise<boolean> {
+  try {
+    const response = await fetch(buildEndpointUrl('/commands', session), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Connection-Id': String(connectionId),
+        'X-Command-Lost': lost.join(','),
+      },
+      body: JSON.stringify({ cmd: 'commands_lost', args: {} }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -1,24 +1,26 @@
 name: Bug Report
-description: File a bug report for tmuxy
-title: "[Bug]: "
-labels: ["bug"]
+description: Something in tmuxy does not work as it should
+title: '[Bug]: '
+labels: ['bug']
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for reporting an issue! Please check existing issues before filing.
+        Thanks for reporting! Please check the existing issues first.
+
+        [Reporting an issue](https://github.com/flplima/tmuxy/blob/main/docs/REPORTING-ISSUES.md) says what helps most, and how to attach an action trace without sharing anything private. A security problem goes in a [private advisory](https://github.com/flplima/tmuxy/security/advisories/new), not here.
   - type: textarea
     id: description
     attributes:
-      label: Description
-      description: A clear and concise description of what the bug is.
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Steps to Reproduce
-      description: Steps to reproduce the behavior.
+      label: Steps to reproduce
+      description: In order, from a fresh start if you can.
       placeholder: |
         1. Run `...`
         2. Click on `...`
@@ -26,27 +28,44 @@ body:
     validations:
       required: true
   - type: textarea
-    id: expected
+    id: snippet
     attributes:
-      label: Expected Behavior
-      description: What you expected to happen instead.
+      label: Bug report snippet
+      description: "Optional: the Debug menu's `Copy Bug Report Snippet`, read and pasted here. It holds the versions and settings below, and no names, commands, paths or hosts."
+      render: markdown
+    validations:
+      required: false
+  - type: input
+    id: tmux-version
+    attributes:
+      label: tmux version
+      description: 'Output of `tmux -V`. The most important one: each tmux version has control-mode bugs of its own.'
+      placeholder: 'tmux 3.5a'
+    validations:
+      required: true
+  - type: input
+    id: tmuxy-version
+    attributes:
+      label: tmuxy version
+      description: Output of `tmuxy --version`
+      placeholder: 'tmuxy 0.1.6'
     validations:
       required: true
   - type: dropdown
     id: interface
     attributes:
-      label: Interface
-      description: How are you running tmuxy?
+      label: How you run tmuxy
       options:
-        - Web App (browser)
-        - Desktop App (Tauri)
+        - Desktop app
+        - Web app, in a browser on the same machine
+        - Web app, from another machine (VPN, SSH tunnel, reverse proxy)
     validations:
       required: true
   - type: dropdown
     id: platform
     attributes:
-      label: Platform
-      description: What operating system are you on?
+      label: Operating system
+      description: Of the machine running tmuxy.
       options:
         - macOS
         - Linux
@@ -54,36 +73,39 @@ body:
     validations:
       required: true
   - type: input
-    id: tmuxy-version
+    id: install
     attributes:
-      label: tmuxy Version
-      description: Output of `tmuxy --version`
-      placeholder: "tmuxy 0.0.10-alpha.65"
+      label: How you installed it
+      description: Homebrew, a .dmg, an AppImage, a .deb, built from source…
     validations:
-      required: true
+      required: false
   - type: input
-    id: tmux-version
+    id: browser
     attributes:
-      label: tmux Version
-      description: Output of `tmux -V`
-      placeholder: "tmux 3.5a"
-    validations:
-      required: true
-  - type: textarea
-    id: trace
-    attributes:
-      label: Action Trace
-      description: |
-        If possible, attach or paste relevant entries from your local trace file.
-        - macOS: `~/Library/Application Support/tmuxy/trace.ndjson`
-        - Linux: `~/.local/state/tmuxy/trace.ndjson`
-        See docs/TRACING.md for redaction and format details.
+      label: Browser
+      description: For the web app.
+      placeholder: 'Firefox 140 on Android'
     validations:
       required: false
   - type: textarea
+    id: trace
+    attributes:
+      label: Trace slice
+      description: |
+        Optional, and the fastest way to see what tmuxy did. Redacted, from the Debug menu's `Copy Trace…` or `tmuxy trace --last 20 --redact > tmuxy-trace-slice.ndjson`, and read as [Reporting an issue](https://github.com/flplima/tmuxy/blob/main/docs/REPORTING-ISSUES.md) says. Paste it, or drag the file here.
+    validations:
+      required: false
+  - type: checkboxes
+    id: trace-checked
+    attributes:
+      label: Before attaching a trace
+      options:
+        - label: It is redacted, I read it, and it holds nothing I would not post publicly.
+          required: false
+  - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
-      description: Add any other context, screenshots, or terminal logs here.
+      label: Anything else
+      description: Screenshots, the browser console's errors, `tmuxy.log` lines. Read logs before posting them; they can quote a command or a folder name.
     validations:
       required: false

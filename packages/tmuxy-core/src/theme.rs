@@ -42,6 +42,9 @@ pub struct Appearance {
     pub cursor_blink: bool,
     /// Whether a send into another pane asks first (`@tmuxy-send-ask`).
     pub send_ask: bool,
+    /// Whether closing a pane or tab whose program says it is busy asks
+    /// first (`@tmuxy-confirm-close`).
+    pub confirm_close: bool,
     /// Push a notification when a pane needs the user (`@tmuxy-notify`).
     pub notify: bool,
     /// Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`).
@@ -77,6 +80,7 @@ impl Default for Appearance {
             animations: true,
             cursor_blink: true,
             send_ask: true,
+            confirm_close: true,
             notify: true,
             tab_overview_cols: 3,
             gesture_swipe_tabs: true,
@@ -120,7 +124,7 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
         .map_or(default, |v| v.min(max))
 }
 
-const SETTINGS_OPTIONS: [&str; 19] = [
+const SETTINGS_OPTIONS: [&str; 20] = [
     tmux_options::THEME,
     tmux_options::THEME_MODE,
     tmux_options::OPACITY,
@@ -133,6 +137,7 @@ const SETTINGS_OPTIONS: [&str; 19] = [
     tmux_options::ANIMATIONS,
     tmux_options::CURSOR_BLINK,
     tmux_options::SEND_ASK,
+    tmux_options::CONFIRM_CLOSE,
     tmux_options::NOTIFY,
     tmux_options::TAB_OVERVIEW_COLS,
     tmux_options::GESTURE_SWIPE_TABS,
@@ -211,6 +216,7 @@ fn parse_settings(output: &str) -> ThemeSettings {
         animations: parse_flag(value(tmux_options::ANIMATIONS), defaults.animations),
         cursor_blink: parse_flag(value(tmux_options::CURSOR_BLINK), defaults.cursor_blink),
         send_ask: parse_flag(value(tmux_options::SEND_ASK), defaults.send_ask),
+        confirm_close: parse_flag(value(tmux_options::CONFIRM_CLOSE), defaults.confirm_close),
         notify: parse_flag(value(tmux_options::NOTIFY), defaults.notify),
         tab_overview_cols: parse_count(
             value(tmux_options::TAB_OVERVIEW_COLS),
