@@ -20,6 +20,8 @@ import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
 import { pluginsState } from './states/plugins';
 import { pluginsActions } from './actions/plugins';
+import { paletteGlobalEvents } from './states/palette';
+import { paletteActions } from './actions/palette';
 import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
 import { notificationsState } from './states/notifications';
@@ -91,6 +93,7 @@ export const appMachine = setup({
   actions: {
     ...uiPrefsActions,
     ...pluginsActions,
+    ...paletteActions,
     ...commandUiActions,
     ...notificationsActions,
     ...copyModeActions,
@@ -176,6 +179,7 @@ export const appMachine = setup({
     ...layoutGlobalEvents,
     ...sidebarsGlobalEvents,
     ...tabOverviewGlobalEvents,
+    ...paletteGlobalEvents,
     ...phoneGlobalEvents,
     ...gesturesGlobalEvents,
     ...connectionGlobalEvents,
@@ -207,7 +211,7 @@ export const appMachine = setup({
         ...commandEntry,
         TMUX_STATE_UPDATE: relayState,
         TMUX_MODEL_UPDATE: {
-          actions: 'layout_modelUpdate',
+          actions: ['layout_modelUpdate', 'palette_land'],
         },
         TMUX_ERROR: {
           actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),
