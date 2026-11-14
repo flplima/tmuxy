@@ -35,6 +35,15 @@ cmd_config() {
       shift
       cmd_config_doctor "$@"
       ;;
+    permissions)
+      shift
+      # --json goes ahead of the verb: after `--` it would be one of the keys.
+      find_server_cmd || exit "$EXIT_FAILED"
+      if [ "$JSON_OUT" = true ]; then
+        exec "${SERVER_CMD[@]}" config --json permissions "$@"
+      fi
+      exec "${SERVER_CMD[@]}" config permissions "$@"
+      ;;
     ""|--help|-h)
       cat <<'EOF'
 Usage: tmuxy config <setting> [value]
@@ -54,6 +63,12 @@ Settings:
                            first one): list them and exit 1, or with --fix
                            comment each out in place, keeping a timestamped
                            backup beside the file.
+  permissions [--caller NAME] [--into PROGRAM] [-- KEYS...]
+                           What permissions.json says: with no keys, whether
+                           it reads as rules; with keys, what typing them into
+                           another pane would get (allow, ask, deny or none).
+                           Nothing is sent. Exits 1 for a file that is not
+                           rules and for a send it denies.
 
 Your files live in the config dir (~/.config/tmuxy), which tmuxy never writes
 after the first run, so it is safe to symlink from a dotfiles repo. tmuxy's own

@@ -15,6 +15,9 @@ use std::process::Command;
 use serde::Serialize;
 use thiserror::Error;
 
+pub mod create;
+pub mod guard;
+
 /// Hard limit for one discovery request. tmux provides one path per pane, so
 /// this is comfortably above normal use while bounding filesystem/Git work.
 pub const MAX_DISCOVERY_PATHS: usize = 256;
@@ -155,21 +158,13 @@ fn existing_directory(path: &Path) -> Option<PathBuf> {
     }
 }
 
-/// A git subprocess rooted at `path`, with the environment that would
-/// redirect it elsewhere scrubbed: a `GIT_DIR` or `GIT_WORK_TREE` inherited
-/// from the host process would make every pane report that one repository.
+/// A git subprocess rooted at `path`, run the way tmuxy runs git in a
+/// repository it did not make (`crate::safe_git`): nothing the repository
+/// names runs, and the environment that would aim it at another repository
+/// (a `GIT_DIR` inherited from the host process would make every pane
+/// report that one) is dropped.
 fn git(path: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(path)
-        .args(args)
-        .env("LC_ALL", "C")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_COMMON_DIR");
-    command
+    crate::safe_git::command(path, &[], args)
 }
 
 fn git_common_dir(path: &Path) -> WorktreeDiscoveryResult<Option<PathBuf>> {

@@ -93,7 +93,10 @@ describe('CLI widget subcommands', () => {
       });
       expect(exitCode).toBe(1);
       expect(stderr).toContain('cannot open a preview on another pane (%1)');
-      expect(tmuxCalls).toEqual([{ args: ['display-message', '-p', '-t', '%1', '#{pane_pid}'] }]);
+      // The pane's id first, so a gone pane cannot answer for another one.
+      expect(tmuxCalls).toEqual([
+        { args: ['display-message', '-p', '-t', '%1', '#{pane_id}\t#{pane_pid}'] },
+      ]);
     });
   });
 });

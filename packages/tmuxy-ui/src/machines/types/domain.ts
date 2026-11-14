@@ -24,6 +24,17 @@ export type KeyboardOwner =
   | { readonly kind: 'panes' }
   | { readonly kind: 'float' | SidebarSide; readonly paneId: PaneId };
 
+/**
+ * A tab or pane of another session the client is on its way to: it switched
+ * sessions at `at` (ms), and picks the place when the session's state names it.
+ */
+export interface PendingGoTo {
+  readonly sessionName: string;
+  readonly windowId: WindowId;
+  readonly paneId: PaneId | null;
+  readonly at: number;
+}
+
 /** One sidebar column's state on this client. */
 export interface SidebarState {
   /**
@@ -70,6 +81,8 @@ export interface FloatPaneState {
   /** Backdrop style (default: dim) */
   backdrop?: FloatBackdrop;
   hideHeader?: boolean;
+  /** Minimized to the queue at the bottom of its tab (`@tmuxy-float-minimized`): not drawn. */
+  minimized?: boolean;
 }
 
 export interface DragState {
@@ -181,6 +194,13 @@ export interface ResizeState {
    * flushes whatever delta is still unsent.
    */
   lastSentAt: number;
+  /**
+   * A resize command is out and not yet answered. The next one waits for the
+   * answer and then carries everything the pointer moved meanwhile, so a drag
+   * over a slow link sends a command a round trip, not one every interval
+   * into a queue that is still draining after the mouse is released.
+   */
+  awaitingAnswer: boolean;
 }
 
 /** An error the user has to see, or a message tmux showed them (`display-message`). */
@@ -311,6 +331,8 @@ export type ResizeMachineEvent =
       charHeight: number;
     }
   | { type: 'RESIZE_MOVE'; clientX: number; clientY: number }
+  /** The backend answered the last resize command this drag sent. */
+  | { type: 'RESIZE_ANSWERED' }
   | { type: 'RESIZE_END' }
   | KeyPressEvent;
 

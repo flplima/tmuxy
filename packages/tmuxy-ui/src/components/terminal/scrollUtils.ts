@@ -58,12 +58,12 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
   if (mouseAnyFlag) {
     // SGR wheel buttons: 64 up, 65 down.
     const button = isScrollUp ? 64 : 65;
-    for (let i = 0; i < absLines; i++) {
-      send({
-        type: 'DISPATCH_OP',
-        op: TmuxOp.SendMouse({ paneId, button, x: cellX + 1, y: cellY + 1, release: false }),
-      });
-    }
+    // One op for the whole flick: a report a row, in a single command.
+    const report = { button, x: cellX + 1, y: cellY + 1, release: false };
+    send({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.SendMouse({ paneId, reports: Array.from({ length: absLines }, () => report) }),
+    });
   } else {
     const key = isScrollUp ? 'Up' : 'Down';
     for (let i = 0; i < absLines; i++) {
