@@ -55,6 +55,9 @@ const RATIO_BUDGETS = {
   'pane-zoom-toggle': 5, // measured ~2.4×
   'pane-split': 5, // measured ~2.0×
   'tab-switch': 4, // measured ~0.1× — the optimistic prediction paints at once
+  // The keystroke with 23 panes beside it each redrawing a spinner at ~2 KB/s:
+  // measured 1.1–1.8× on a loaded dev machine, p95 nearer 2×.
+  'key-echo-busy': 3,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */

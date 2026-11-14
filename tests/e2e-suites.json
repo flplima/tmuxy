@@ -17,7 +17,7 @@
     },
     {
       "name": "layout",
-      "path": "tests/2-layout-navigation(-(float|groups|overview|panes|zoom-drag))?\\.test\\.js"
+      "path": "tests/2-layout-navigation(-(float|groups|overview|palette|panes|zoom-drag))?\\.test\\.js"
     },
     {
       "name": "layout-tree",
@@ -76,11 +76,11 @@
     },
     {
       "name": "services",
-      "path": "tests/(19-mcp|20-push|23-kindle|27-trace-share|28-trace-replay)\\.test\\.js"
+      "path": "tests/(19-mcp|20-push|23-kindle|26-bug-report|27-trace-share|28-trace-replay)\\.test\\.js"
     },
     {
       "name": "agents",
-      "path": "tests/2[12]-(agent-states|process-icons)\\.test\\.js"
+      "path": "tests/2[12]-(agent-states|agent-spawn|process-icons)\\.test\\.js"
     },
     {
       "name": "session-snapshot",
