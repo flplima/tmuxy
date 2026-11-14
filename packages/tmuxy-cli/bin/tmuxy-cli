@@ -158,6 +158,7 @@ Exit codes:
   2    bad command line (unknown command, bad flag, missing argument)
   3    target not found, or a label naming more than one pane
   4    no tmux server on the socket
+  5    sent, but what was waited for after it did not happen (pane send --wait)
   130  interrupted
   'pane run --wait' and 'pane wait' exit with the program's own status.
 
@@ -189,7 +190,9 @@ Commands:
   break         Break pane into own tab
   capture       Capture pane content [target] [--trim] [--unwrap] [--format text|vt|html]
   send          Send keys to pane <keys...>
+  queue         Sends waiting for a busy pane [-t target] [--retract id]
   state         Declare what the pane is doing <state> [target]
+  meta          Fields the pane's tree row shows: set key=value [--ttl 5m], unset, list, clear
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]

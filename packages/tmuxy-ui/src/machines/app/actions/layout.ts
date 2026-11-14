@@ -171,6 +171,12 @@ export const layoutActions = {
     enqueue(sendTo('resizeLogic', event));
   }),
 
+  /** The divider drag paces its commands by their answers (ResizeState.awaitingAnswer). */
+  layout_forwardResizeAnswer: act(({ event, enqueue }) => {
+    if (event.type !== 'RESIZE_ANSWERED') return;
+    enqueue(sendTo('resizeLogic', event));
+  }),
+
   layout_applyResizeState: act(({ event, enqueue }) => {
     if (event.type !== 'RESIZE_STATE_UPDATE') return;
     enqueue.assign({ resize: event.resize, resizeActive: event.resize !== null });
