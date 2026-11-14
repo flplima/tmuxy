@@ -24,10 +24,9 @@
  * number never includes driver round-trip cost.
  */
 import { execSync } from 'node:child_process';
-
-/** A sample slower than this is a timeout, not a datapoint. */
 import { BUSY_PANES, closeWindow, newWindowId, startBusyPanes } from './busy-panes.mjs';
 
+/** A sample slower than this is a timeout, not a datapoint. */
 export const SAMPLE_TIMEOUT_MS = 5000;
 
 /**
