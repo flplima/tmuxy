@@ -82,6 +82,13 @@ export class GuestTmuxAdapter implements TransportDriver {
   private readonly initDoneOption: string | null;
   private readonly files: Record<string, string | URL>;
   private sink: EngineSink | null = null;
+  /**
+   * Whether the app has its first state. Until then the states stay here: the
+   * init ran at another size, and the resize to the client's viewport streams
+   * the windows one by one, so one drawn on the way is a frame at a size the
+   * start never stays at.
+   */
+  private started = false;
 
   readonly events = new EventHub<TransportEvent>();
 
@@ -96,6 +103,8 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async connect(): Promise<void> {
+    this.engine.claim(this);
+    this.started = false;
     this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', hostname: null }));
     this.events.emit(TransportEvent.KeyBindings({ keybindings: DEFAULT_KEYBINDINGS }));
 
@@ -113,6 +122,7 @@ export class GuestTmuxAdapter implements TransportDriver {
     // active-window id the new state never contains, so zero panes forever).
     this.sink = {
       onState: (raw) => {
+        if (!this.started) return;
         // A sandbox engine emits a full state every time, so one that fails
         // its decode is simply dropped; the next one replaces it.
         const state = decodeStateForListener(raw);
@@ -136,6 +146,8 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async send(call: BackendCall): Promise<unknown> {
+    // Another adapter has started on this (shared) engine since.
+    if (!this.engine.ownedBy(this)) return noAnswer(call.cmd);
     if (isThemeCall(call)) {
       const answer = answerThemeCall(call);
       if (call.cmd === 'set_theme')
@@ -148,6 +160,7 @@ export class GuestTmuxAdapter implements TransportDriver {
         // the first frame is drawn at the size it stays at.
         const { cols, rows } = call.args;
         if (cols > 0 && rows > 0) await this.engine.resize(cols, rows);
+        this.started = true;
         return this.engine.getLastState();
       }
       case 'set_client_size':
@@ -229,6 +242,9 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async switchSession(sessionName: string): Promise<void> {
+    if (!this.engine.ownedBy(this)) {
+      throw { error: 'another client has the guest', kind: 'unavailable' } satisfies CommandFailure;
+    }
     // The engine re-syncs either way, so a failed switch flows the current
     // session's state back in rather than leaving the app with its optimistic
     // state cleared.

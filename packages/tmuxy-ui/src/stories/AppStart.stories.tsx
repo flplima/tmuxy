@@ -2,6 +2,9 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
 import { withTmuxView } from './tmuxView';
+import { appContext } from './storyApp';
+import { tmuxCaughtUp } from './tmuxBarrier';
+import { gridExtent } from '../domain/paneGeometry';
 
 const meta: Meta<typeof V86AppHarness> = {
   title: 'Scenarios/Application Start',
@@ -38,6 +41,12 @@ const frame = () =>
 let frames: string[] = [];
 let recorder: MutationObserver | null = null;
 const lastFrame = () => frames[frames.length - 1];
+
+/** The shown tab's grid, in cells. */
+const shownGrid = () => {
+  const { panes, activeWindowId, totalWidth, totalHeight } = appContext();
+  return gridExtent(panes, activeWindowId, { cols: totalWidth, rows: totalHeight });
+};
 
 /**
  * An init that works on a shell's time: a second tab whose shell, a second
@@ -79,13 +88,17 @@ export const ShowsOnlyTheFinishedStart: Story = {
       return {};
     },
   ],
-  play: async () => {
+  play: async ({ args }) => {
     await waitFor(
       () => {
         expect(lastFrame()).toMatch(/^Tab 1: \S+ \(active\) \| Tab 2: \S+ \|/);
+        expect(shownGrid()).toEqual({ cols: args.cols, rows: args.rows });
       },
       { timeout: 60000, interval: 200 },
     );
+    // A late resize (the previous story's app reporting its box on its way
+    // out of a shared engine) would land by now.
+    await tmuxCaughtUp();
     expect(frames).toEqual([lastFrame()]);
   },
 };
