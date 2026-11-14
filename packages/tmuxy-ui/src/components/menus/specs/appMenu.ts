@@ -40,6 +40,9 @@ const LAYOUTS: ReadonlyArray<{ layout: string; label: string; icon: MenuIconName
   { layout: 'tiled', label: 'Tiled', icon: 'layout-tiled' },
 ];
 
+/** The items that open the palette; the palette leaves them out of its own list. */
+export const PALETTE_ITEM_IDS = { all: 'view-palette', goTo: 'view-go-to' } as const;
+
 const MODES: ReadonlyArray<{ mode: ThemeMode; label: string }> = [
   { mode: 'dark', label: 'Dark Mode' },
   { mode: 'light', label: 'Light Mode' },
@@ -92,7 +95,44 @@ export function themeMenuSpec(ctx: AppMachineContext): AppMenuSpec {
 
 export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec {
   return tidy([
+    // Both search what the menus hold (components/palette): the first lists
+    // everything, the second only the sessions, tabs and panes to go to.
+    {
+      kind: 'item',
+      id: PALETTE_ITEM_IDS.all,
+      label: 'Command Palette…',
+      icon: 'search',
+      // The chord is the Mac's own modifier there; Ctrl+Shift+P works too.
+      keyHint: env.isMac ? 'cmd+shift+p' : commandHint(ctx.keybindings, 'palette'),
+      action: command('palette'),
+    },
+    {
+      kind: 'item',
+      id: PALETTE_ITEM_IDS.goTo,
+      label: 'Go to Session, Tab or Pane…',
+      icon: 'go-to',
+      keyHint: commandHint(ctx.keybindings, 'palette-go-to'),
+      action: command('palette-go-to'),
+    },
+    separator,
     { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
+    separator,
+    {
+      kind: 'item',
+      id: 'view-activity',
+      label: 'Activity',
+      icon: 'tabs',
+      keyHint: commandHint(ctx.keybindings, 'view-activity'),
+      action: command('view-activity'),
+    },
+    {
+      kind: 'item',
+      id: 'view-activity-most-urgent',
+      label: 'Go to the Pane That Needs You',
+      icon: 'next',
+      keyHint: commandHint(ctx.keybindings, 'view-activity-most-urgent'),
+      action: command('view-activity-most-urgent'),
+    },
     separator,
     ...LAYOUTS.map((l): AppMenuNode => {
       const layout = TmuxOp.SelectLayout({ layout: l.layout });
@@ -228,11 +268,26 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec
     },
     {
       kind: 'item',
+      id: 'trace-copy-share',
+      label: 'Copy Trace…',
+      icon: 'copy',
+      disabled: !trace?.path,
+      action: local({ verb: 'copy-trace' }),
+    },
+    {
+      kind: 'item',
       id: 'trace-copy-path',
       label: 'Copy trace.ndjson Path',
       icon: 'copy',
       disabled: !trace?.enabled || !trace?.path,
       action: local({ verb: 'copy-trace-path' }),
+    },
+    {
+      kind: 'item',
+      id: 'debug-copy-report',
+      label: 'Copy Bug Report Snippet',
+      icon: 'copy',
+      action: local({ verb: 'copy-bug-report' }),
     },
     {
       kind: 'item',
@@ -265,6 +320,7 @@ export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'
     env.isTauri && {
       kind: 'item',
       id: 'restart-app',
+      destructive: true,
       label: 'Restart App',
       icon: 'restart',
       action: command('restart-app'),
@@ -289,6 +345,7 @@ export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'
       !env.isMac && {
         kind: 'item',
         id: 'quit',
+        destructive: true,
         label: 'Quit',
         icon: 'quit',
         accelerator: 'Ctrl+Q',
@@ -321,6 +378,7 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSp
     {
       kind: 'item',
       id: 'session-detach',
+      destructive: true,
       label: 'Detach Session',
       icon: 'detach',
       keyHint: commandHint(keybindings, 'session-detach'),

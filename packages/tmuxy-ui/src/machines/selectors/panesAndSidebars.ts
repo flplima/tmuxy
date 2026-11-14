@@ -1,3 +1,4 @@
+import { paneJumpOrder } from '../../domain/jumpHints';
 import { CONTAINER_PADDING_X } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
 import type { FloatPaneState, SidebarSide } from '../types/domain';
@@ -164,9 +165,10 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
 }
 
 /**
- * The floats that belong to the tab the user is looking at, bottom-most first.
+ * The floats that belong to the tab the user is looking at, bottom-most
+ * first, drawn or minimized.
  */
-export function visibleFloats(
+function floatsOfTab(
   floatPanes: Record<PaneId, FloatPaneState>,
   windows: TmuxWindow[],
   activeWindowId: WindowId | null,
@@ -179,10 +181,28 @@ export function visibleFloats(
   });
 }
 
+/** The floats drawn over the tab the user is looking at, bottom-most first. */
+export function visibleFloats(
+  floatPanes: Record<PaneId, FloatPaneState>,
+  windows: TmuxWindow[],
+  activeWindowId: WindowId | null,
+): FloatPaneState[] {
+  return floatsOfTab(floatPanes, windows, activeWindowId).filter((float) => !float.minimized);
+}
+
 export const selectVisibleFloats = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.floatPanes, ctx.activeWindowId, ctx.windows] as const,
   (context: AppMachineContext): FloatPaneState[] =>
     visibleFloats(context.floatPanes, context.windows, context.activeWindowId),
+);
+
+/** The tab's minimized floats, in the queue at its bottom edge, oldest first. */
+export const selectMinimizedFloats = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.floatPanes, ctx.activeWindowId, ctx.windows] as const,
+  (context: AppMachineContext): FloatPaneState[] =>
+    floatsOfTab(context.floatPanes, context.windows, context.activeWindowId).filter(
+      (float) => float.minimized,
+    ),
 );
 
 export const selectVisiblePanes = createMemoizedSelector(
@@ -282,3 +302,9 @@ export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<PaneId
 export function selectActivePaneTree(context: AppMachineContext): PaneTree | null {
   return context.windows.find((w) => w.id === context.activeWindowId)?.paneTree ?? null;
 }
+
+/** The tab in front's panes as ctrl+alt+1…9 number them (`domain/jumpHints.ts`). */
+export const selectPaneJumpOrder = createMemoizedSelector(
+  (ctx: AppMachineContext) => ({ visible: selectVisiblePanes(ctx) }),
+  (ctx: AppMachineContext) => paneJumpOrder(selectVisiblePanes(ctx)),
+);

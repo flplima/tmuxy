@@ -79,6 +79,38 @@ describe('tmuxy pane send', () => {
     expect(verbArgs(paste.stdout)).toMatch(/ --paste -- some text$/);
   });
 
+  test('passes on --wait, its time and its stall limit, and only with --wait', () => {
+    const waited = runCLI(
+      ['pane', 'send', '-t', '%3', '--wait', '--for', '10m', '--stall-after', '8', 'ok', 'Enter'],
+      { env: IN_PANE_1 },
+    );
+    expect(verbArgs(waited.stdout)).toMatch(/ --wait --wait-for 10m --stall-after 8 -- ok Enter$/);
+    expect(
+      verbArgs(runCLI(['pane', 'send', '-t', '%3', '--wait', 'go'], { env: IN_PANE_1 }).stdout),
+    ).toMatch(/ --wait -- go$/);
+    const stray = runCLI(['pane', 'send', '-t', '%3', '--for', '10m', 'go'], { env: IN_PANE_1 });
+    expect(stray.exitCode).toBe(2);
+    expect(verbArgs(stray.stdout)).toBeNull();
+  });
+
+  test('passes on --queue, and pane queue lists or takes back through the queue verb', () => {
+    const queued = runCLI(['pane', 'send', '-t', '%3', '--queue', 'go', 'Enter'], {
+      env: IN_PANE_1,
+    });
+    expect(verbArgs(queued.stdout)).toMatch(/ --queue -- go Enter$/);
+    const queueArgs = (stdout) => {
+      const line = stdout.split('\n').find((l) => l.startsWith('mock-server-started send-queue '));
+      return line ? line.slice('mock-server-started '.length) : null;
+    };
+    const listed = runCLI(['--json', 'pane', 'queue', '-t', '%3'], { env: IN_PANE_1 });
+    expect(queueArgs(listed.stdout)).toBe('send-queue --target %3 --json');
+    const taken = runCLI(['pane', 'queue', '-t', '%3', '--retract', '1-2'], { env: IN_PANE_1 });
+    expect(queueArgs(taken.stdout)).toBe('send-queue --target %3 --retract 1-2');
+    const stray = runCLI(['pane', 'queue', 'extra'], { env: IN_PANE_1 });
+    expect(stray.exitCode).toBe(2);
+    expect(queueArgs(stray.stdout)).toBeNull();
+  });
+
   describe('refusals', () => {
     test('needs keys to send', () => {
       const { exitCode, stderr } = send(['-t', '%3']);
@@ -103,6 +135,22 @@ describe('tmuxy pane send', () => {
       const { exitCode, stdout } = send(['-t', 'nobody', 'ls'], IN_PANE_1);
       expect(exitCode).toBe(3);
       expect(verbArgs(stdout)).toBeNull();
+    });
+
+    // tmux answers a closed pane's read for no pane, or for its default one,
+    // and exits 0: before, the send went on and could resolve to that pane.
+    test('a pane closed since is exit 3, and nothing is handed on', () => {
+      // Answered for no pane (no client), or for the default pane (a client).
+      for (const answersAs of ['', '%0']) {
+        const { exitCode, stdout, stderr } = send(['-t', '%7', 'ls'], {
+          ...IN_PANE_1,
+          MOCK_TMUX_GONE_PANES: '%7',
+          MOCK_TMUX_GONE_ANSWERS_AS: answersAs,
+        });
+        expect(exitCode).toBe(3);
+        expect(stderr).toContain('no such pane: %7');
+        expect(verbArgs(stdout)).toBeNull();
+      }
     });
   });
 

@@ -114,6 +114,41 @@ describe('keys in every table', () => {
     expect(clientKeyHint(null, 'left-sidebar')).toBeUndefined();
   });
 
+  it("hints no key the user's own binding took from the client", () => {
+    expect(clientKeyHint(MODES, 'activity')).toBe('ctrl+a A');
+    const owned: KeyBindings = {
+      ...MODES,
+      prefix_bindings: [
+        ...MODES.prefix_bindings,
+        { key: 'A', command: 'list-keys', description: '' },
+      ],
+    };
+    expect(clientKeyHint(owned, 'activity')).toBeUndefined();
+    // The older client keys are tmuxy's own defaults, and keep their hint.
+    const sidebar: KeyBindings = {
+      ...MODES,
+      prefix_bindings: [
+        ...MODES.prefix_bindings,
+        { key: 's', command: 'list-keys', description: '' },
+      ],
+    };
+    expect(clientKeyHint(sidebar, 'left-sidebar')).toBe('ctrl+a s');
+  });
+
+  it('names the go-to key only while the key is not bound to something else', () => {
+    expect(clientKeyHint(MODES, 'go-to')).toBe('ctrl+a g');
+    // The palette's chord is its hint, whatever the tables hold.
+    expect(clientKeyHint(MODES, 'command-palette')).toBe('ctrl+shift+p');
+    const bound: KeyBindings = {
+      ...MODES,
+      prefix_bindings: [
+        ...MODES.prefix_bindings,
+        { key: 'g', command: 'display-message hello', description: '' },
+      ],
+    };
+    expect(clientKeyHint(bound, 'go-to')).toBeUndefined();
+  });
+
   it("finds a plugin's key in any table", () => {
     const bound: KeyBindings = {
       ...MODES,

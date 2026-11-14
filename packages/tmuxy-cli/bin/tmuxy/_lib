@@ -389,7 +389,7 @@ reap_pids() {
 }
 
 pane_window() {
-  _tmux display-message -t "$1" -p '#{window_id}'
+  _pane_read "$1" '#{window_id}'
 }
 
 # The name for a session the user did not name: an adjective and a noun from
