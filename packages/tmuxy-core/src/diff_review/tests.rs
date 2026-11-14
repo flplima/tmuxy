@@ -292,6 +292,29 @@ fn a_read_runs_nothing_the_repository_names() {
             assert!(lines(&read.files[0]).contains(&(LineKind::Added, None, Some(2), "changed")));
         }
     }
+    // A hunk staged and one reverted: git writes the index and the working
+    // tree as they are, and still runs nothing.
+    hunk::test_reverts();
+    let unstaged = read_in(&dir, Scope::Unstaged).unwrap();
+    for (path, action) in [
+        ("notes.md", hunk::HunkAction::Revert),
+        ("a.txt", hunk::HunkAction::Stage),
+    ] {
+        let file = unstaged.files.iter().find(|f| f.path == path).unwrap();
+        let request = hunk::HunkRequest {
+            scope: Scope::Unstaged,
+            path: path.into(),
+            hunk: 0,
+            token: file.token.clone(),
+            action,
+        };
+        hunk::change_in(&dir, &request).unwrap();
+        assert!(
+            !ran.exists(),
+            "{action:?} ran a program the repository names"
+        );
+    }
+
     turn::forget(&root);
     std::fs::remove_dir_all(&dir).unwrap();
 }

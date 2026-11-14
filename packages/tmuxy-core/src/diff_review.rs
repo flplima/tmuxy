@@ -29,6 +29,7 @@ use crate::control_mode::{query, MonitorCommandSender};
 use crate::{CommandError, PaneId};
 
 mod git;
+pub mod hunk;
 mod patch;
 pub mod turn;
 
@@ -97,6 +98,23 @@ fn authorisation_query(pane: &PaneId) -> String {
         .join(" ; ")
 }
 
+/// The checkout `pane` may act on, as tmux says on this call.
+async fn authorised(tx: &MonitorCommandSender, pane: &PaneId) -> Result<PathBuf, CommandError> {
+    let answer = query(tx, &authorisation_query(pane))
+        .await
+        .map_err(|e| e.context("Failed to read the pane's diff"))?;
+    parse_authorisation(&answer)
+}
+
+/// `work` off the async runtime.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, CommandError> + Send + 'static,
+) -> Result<T, CommandError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| CommandError::unavailable(format!("diff task failed: {e}")))?
+}
+
 /// `read_diff`, as both transports answer it: authorised by tmux on every
 /// call, read off the async runtime.
 pub async fn read_diff(
@@ -104,13 +122,36 @@ pub async fn read_diff(
     pane: &PaneId,
     scope: Scope,
 ) -> Result<DiffRead, CommandError> {
-    let answer = query(tx, &authorisation_query(pane))
-        .await
-        .map_err(|e| e.context("Failed to read the pane's diff"))?;
-    let dir = parse_authorisation(&answer)?;
-    tokio::task::spawn_blocking(move || read_in(&dir, scope))
-        .await
-        .map_err(|e| CommandError::unavailable(format!("diff read task failed: {e}")))?
+    let dir = authorised(tx, pane).await?;
+    blocking(move || read_in(&dir, scope)).await
+}
+
+/// `change_hunk`: authorised as a read is, done off the async runtime.
+pub async fn change_hunk(
+    tx: &MonitorCommandSender,
+    pane: &PaneId,
+    request: hunk::HunkRequest,
+) -> Result<hunk::HunkChanged, CommandError> {
+    let dir = authorised(tx, pane).await?;
+    blocking(move || hunk::change_in(&dir, &request)).await
+}
+
+/// `undo_revert`: only in the checkout the pane shows.
+pub async fn undo_revert(
+    tx: &MonitorCommandSender,
+    pane: &PaneId,
+    id: String,
+) -> Result<(), CommandError> {
+    let dir = authorised(tx, pane).await?;
+    blocking(move || hunk::undo_in(&dir, &id)).await
+}
+
+/// The top folder of the checkout `dir` is in.
+fn checkout_root(dir: &Path, deadline: std::time::Instant) -> Result<PathBuf, CommandError> {
+    git::text(dir, &["rev-parse", "--show-toplevel"], deadline)
+        .map(|out| PathBuf::from(out.trim()))
+        .filter(|root| root.is_absolute())
+        .ok_or_else(|| CommandError::invalid(format!("{} is not in a git checkout", dir.display())))
 }
 
 /// The changes of the checkout `dir` is in, in `scope`.
@@ -121,12 +162,7 @@ pub fn read_in(dir: &Path, scope: Scope) -> Result<DiffRead, CommandError> {
         ));
     }
     let deadline = git::deadline();
-    let root = git::text(dir, &["rev-parse", "--show-toplevel"], deadline)
-        .map(|out| PathBuf::from(out.trim()))
-        .filter(|root| root.is_absolute())
-        .ok_or_else(|| {
-            CommandError::invalid(format!("{} is not in a git checkout", dir.display()))
-        })?;
+    let root = checkout_root(dir, deadline)?;
     let head = git::text(
         &root,
         &["rev-parse", "--verify", "-q", "HEAD^{commit}"],

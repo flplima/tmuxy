@@ -126,8 +126,9 @@ pub fn empty_tree(dir: &Path) -> &'static str {
     }
 }
 
-/// One more setting on a [`base`] command, numbered after the others.
-fn with_setting(command: &mut Command, key: &str, value: &str) {
+/// One more setting on a [`base`] command, numbered after the others, so it
+/// wins over any before it.
+pub(crate) fn with_setting(command: &mut Command, key: &str, value: &str) {
     let count: usize = command
         .get_envs()
         .find(|(k, _)| *k == "GIT_CONFIG_COUNT")

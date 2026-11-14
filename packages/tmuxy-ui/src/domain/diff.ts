@@ -40,6 +40,8 @@ export const DiffFile = Schema.Struct({
   status: Schema.Literal('modified', 'added', 'deleted', 'renamed'),
   binary: Schema.Boolean,
   modeChange: optional(Schema.String),
+  /** Names the file's patch as read: a hunk action hands it back (`change_hunk`). */
+  token: Schema.String,
   hunks: Schema.Array(DiffHunk),
 });
 export type DiffFile = Schema.Schema.Type<typeof DiffFile>;
@@ -77,3 +79,23 @@ export function fileCounts(file: DiffFile): { added: number; removed: number } {
   }
   return { added, removed };
 }
+
+/** What a hunk's button asks of the server (`change_hunk`). */
+export const HunkAction = Schema.Literal('stage', 'unstage', 'revert');
+export type HunkAction = Schema.Schema.Type<typeof HunkAction>;
+
+/** The actions a hunk of `file` offers in `scope`: a changed text file's only. */
+export function hunkActions(scope: DiffScope, file: DiffFile): HunkAction[] {
+  if (file.status !== 'modified' || file.binary || file.modeChange) return [];
+  if (scope === 'unstaged') return ['stage', 'revert'];
+  if (scope === 'staged') return ['unstage'];
+  return [];
+}
+
+/** The sign git puts before a line of each kind. */
+export const LINE_SIGN: Record<DiffLine['kind'], string> = {
+  context: ' ',
+  added: '+',
+  removed: '-',
+  note: '\\',
+};

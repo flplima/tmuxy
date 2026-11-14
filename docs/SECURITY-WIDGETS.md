@@ -47,6 +47,17 @@ The "Last turn" scope (`tmuxy-core/src/diff_review/turn.rs`) shows what changed 
 
 A turn is kept in memory only: a host that restarts has seen none, and the scope says so until the next one.
 
+## A Hunk Action Changes Only The Hunk Drawn
+
+Stage and Revert… on a hunk of the unstaged changes, Unstage on one of the staged changes (`tmuxy-core/src/diff_review/hunk.rs`, `components/widgets/diff/HunkBar.tsx`). Only a changed text file's hunks offer them.
+
+| Risk | What holds it |
+| ---- | ------------- |
+| The client makes git apply a patch of its own | The client sends the file's name, the hunk's place and the token of the file's patch as drawn, nothing more. The server reads the checkout again; the patch git applies is that hunk as git itself printed it, with its file's header |
+| An action lands on a file that changed since it was drawn | Refused unless the file's patch now has the token the client drew: "changed since the diff was drawn: nothing was done". A revert waiting for its confirm keeps the token from when it was asked |
+| A revert throws away the user's work | It asks first, with the hunk in front of the user. Before `git apply -R`, the file is copied into tmuxy's state dir (`diff-reverts`, `0700`); Undo puts it back while the file is still as the revert left it, and says so otherwise. Copies are kept a week. Only a plain file inside the checkout is reverted, never a link |
+| git runs something the repository names | `git apply` goes through `safe_git` with every content filter off (the trap test stages and reverts). Attributes are read from the checkout's files for it, not from a tree, because git 2.56's `apply` to the working tree crashes with `attr.tree` set; with filters off they can only change line endings or an encoding |
+
 ## A Review Types Into One Agent, Never At A Question
 
 A diff's comments go to an agent as one numbered prompt (`domain/review.ts`, `components/widgets/diff/ReviewBar.tsx`): pasted into the pane the review bar names, then Enter. Only a pane of the widget's own tab running an agent (`agent_screen::AGENT_COMMANDS`, generated into the UI) is offered; `tmuxy widget diff --to %N` only preselects one, and the script takes nothing but a pane id there.
