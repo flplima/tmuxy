@@ -214,8 +214,8 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         },
         marked(&markers, LIST_BEGIN_MARKER, TmuxList::Panes.name()),
         response(
-            "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
-             %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,",
+            "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,,\n\
+             %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,,",
         ),
         marked(&markers, LIST_END_MARKER, ""),
         marked(&markers, LIST_BEGIN_MARKER, TmuxList::Windows.name()),

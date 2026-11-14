@@ -96,6 +96,7 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Ap
     {
       kind: 'item',
       id: 'tab-close',
+      destructive: true,
       label: 'Close Tab',
       icon: 'close',
       keyHint: keyHint(keybindings, TmuxOp.KillWindow({ windowId: null })),
