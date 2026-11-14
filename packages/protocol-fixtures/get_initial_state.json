@@ -134,6 +134,7 @@
         "float_bg": "dim",
         "float_drawer": "bottom",
         "float_height": 20,
+        "float_minimized": true,
         "float_noheader": true,
         "float_parent": "@1",
         "float_width": 60,

@@ -164,9 +164,9 @@ type a few letters, `↑`/`↓` (or `Ctrl+N`/`Ctrl+P`, `Ctrl+J`/`Ctrl+K`) to mov
 `>` there brings the actions back. A name no session has can become one from
 the same box.
 
-`tmuxy keymap` lists every binding with the file and line it comes from, and
-the defaults your `tmuxy.conf` replaced: `tmuxy keymap --table prefix t` says
-where `prefix t` comes from.
+`tmuxy keymap` lists every binding with the file and line it comes from, the
+defaults your `tmuxy.conf` replaced, and your own plugin's actions and verbs:
+`tmuxy keymap --table prefix t` says where `prefix t` comes from.
 
 A sidebar opens over the panes; pressing its key again while it is open docks
 it beside them, and again frees it. PANE and TAB are sticky modes: keys are

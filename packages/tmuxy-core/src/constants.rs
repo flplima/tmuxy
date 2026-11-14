@@ -54,6 +54,10 @@ pub mod tmux_options {
     /// dock's shell, the tree's widget), so the window's existence does not
     /// mean "open".
     pub const SIDEBAR_HIDDEN: &str = "@tmuxy-sidebar-hidden";
+    /// Window-scoped flag on a float the user has minimized: `1` while it
+    /// waits in the queue at the bottom of the tab, unset while it is shown.
+    /// Its pane keeps running either way.
+    pub const FLOAT_MINIMIZED: &str = "@tmuxy-float-minimized";
     /// `1` while the window keeps only the first-level row that holds the
     /// active pane expanded and collapses the others to one row per pane
     /// (see `layout.rs`). Unset for a normally tiled window.
@@ -262,6 +266,8 @@ pub mod preview_lines {
 /// them by `tests/dev_ports.rs`.
 pub const DEFAULT_SERVER_PORT: u16 = 9000;
 pub const DEV_VITE_PORT: u16 = 9001;
+
+pub mod float_grid;
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).
