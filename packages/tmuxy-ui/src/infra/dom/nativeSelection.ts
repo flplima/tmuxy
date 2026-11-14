@@ -27,7 +27,23 @@ export function readNativeSelection(): string {
   if (typeof window === 'undefined') return '';
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return '';
-  return terminalTextOf(selection.getRangeAt(0)) ?? selection.toString();
+  const range = selection.getRangeAt(0);
+  return terminalTextOf(range) ?? (selection.toString() || range.toString());
+}
+
+/**
+ * Whether the page has text selected, asked of the range and never of
+ * `Selection.toString()`: in the pointer event that ends a drag over a pane,
+ * Firefox answers that with an empty string for a selection whose range
+ * holds the text. Read as "nothing selected", the release handed the
+ * keyboard back to the hidden input, which collapsed the selection before it
+ * could be copied.
+ */
+export function hasNativeSelection(): boolean {
+  if (typeof window === 'undefined') return false;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+  return selection.getRangeAt(0).toString().length > 0;
 }
 
 /** The terminal rows a range covers, as copied text; null outside a terminal. */
