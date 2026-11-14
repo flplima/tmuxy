@@ -157,6 +157,9 @@ row_table! {
         // Global, so every row carries the same value: the session-wide plugin
         // inventory's revision (`plugins::inventory`), a hex hash.
         PluginsRev => Field::Var(tmux_options::PLUGINS_REV),
+        // Written by the host from checked reports, but an option anything
+        // can set: read as free text, so a comma in it shifts no field.
+        Status => Field::Text(tmux_options::PANE_STATUS),
     }
 }
 
@@ -173,6 +176,7 @@ row_table! {
         FloatDrawer => Field::Var(tmux_options::FLOAT_DRAWER),
         FloatBg => Field::Var(tmux_options::FLOAT_BG),
         FloatNoheader => Field::Var(tmux_options::FLOAT_NOHEADER),
+        FloatMinimized => Field::Var(tmux_options::FLOAT_MINIMIZED),
         // Session-scoped, so every row carries the same value.
         FocusRequest => Field::Var(tmux_options::FOCUS_REQUEST),
         SidebarCols => Field::Var(tmux_options::SIDEBAR_COLS),

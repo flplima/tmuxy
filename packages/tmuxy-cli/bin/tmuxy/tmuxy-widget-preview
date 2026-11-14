@@ -62,15 +62,7 @@ case "$(printf '%s' "$FILE" | tr '[:upper:]' '[:lower:]')" in
   *.html|*.htm|*.md|*.markdown) ;;
   *) _fail "$EXIT_FAILED" "a preview shows .html and .md files: $FILE" ;;
 esac
-OWN_PANE="${TMUXY_CALLER_PANE-${TMUX_PANE:-}}"
-if [ -z "$OWN_PANE" ]; then
-  _fail "$EXIT_FAILED" "run this inside a tmuxy pane"
-fi
-if [ "$(verified_own_pane "$OWN_PANE")" != "$OWN_PANE" ]; then
-  _fail "$EXIT_FAILED" "cannot open a preview on another pane ($OWN_PANE)"
-fi
-TMUX_PANE="$OWN_PANE"
-export TMUX_PANE
+take_own_pane "a preview"
 
 DIR="$(cd "$(dirname "$FILE")" && pwd -P)"
 ABS="$DIR/$(basename "$FILE")"

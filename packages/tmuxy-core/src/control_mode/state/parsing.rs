@@ -113,7 +113,11 @@ impl StateAggregator {
         pane.history_size = row.parse_field(PaneColumn::HistorySize).unwrap_or(0);
         pane.group_id = GroupId::parse(row.field(PaneColumn::GroupId)).ok();
         pane.group_pos = row.parse_field(PaneColumn::GroupPos);
-        pane.pane_state = row.option(PaneColumn::PaneState);
+        if !pane.program_status.take_row_stale() {
+            pane.pane_state = row.option(PaneColumn::PaneState);
+            let status = row.text(PaneColumn::Status).trim().to_string();
+            pane.pane_status = (!status.is_empty()).then_some(status);
+        }
         pane.pane_ask = row.option(PaneColumn::Ask);
         pane.pane_widget = row.option(PaneColumn::Widget);
         pane.pane_restore = (!restore.is_empty()).then_some(restore);
@@ -148,6 +152,7 @@ impl StateAggregator {
         let float_drawer = row.option(WindowColumn::FloatDrawer);
         let float_bg = row.option(WindowColumn::FloatBg);
         let float_noheader = row.flag(WindowColumn::FloatNoheader);
+        let float_minimized = row.flag(WindowColumn::FloatMinimized);
         // Session-scoped, so every row carries the same value and the last one
         // parsed wins. Read from this poll rather than its own `show-options`
         // because the poll already runs; see `tmux_options::FOCUS_REQUEST`.
@@ -172,6 +177,8 @@ impl StateAggregator {
             .entry(window_id.clone())
             .or_insert_with(|| WindowState::new(window_id.clone(), index));
 
+        window.awaiting_list = false;
+        window.listed = true;
         window.index = index;
         window.name = name;
         window.active = active;
@@ -183,6 +190,7 @@ impl StateAggregator {
         window.float_drawer = float_drawer;
         window.float_bg = float_bg;
         window.float_noheader = float_noheader;
+        window.float_minimized = float_minimized;
         window.sidebar_cols = sidebar_cols;
         window.sidebar_hidden = sidebar_hidden;
         window.sidebar_rows = sidebar_rows;

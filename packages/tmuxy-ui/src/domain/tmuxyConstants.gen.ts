@@ -14,8 +14,21 @@ export const PREVIEW_LINES = {
   rev: '__REV__:',
 } as const;
 
+/** The pane options of a pane's state, its program's words and its label (`tmux_options`). */
+export const PANE_OPTIONS = {
+  state: '@tmuxy-pane-state',
+  status: '@tmuxy-pane-status',
+  label: '@tmuxy-label',
+} as const;
+
 /** The session parked pane-group members live in (`STASH_SESSION`). */
 export const STASH_SESSION = '__tmuxy_stash';
+
+/** The option a pane's custom fields are kept in (`tmux_options::PANE_META`). */
+export const PANE_META_OPTION = '@tmuxy-meta';
+
+/** The user's option for what a tree row shows (`tmux_options::TREE_ROW`). */
+export const TREE_ROW_OPTION = '@tmuxy-tree-row';
 
 /** A pane's title with tmux's host-name seed filtered out (`tmux_formats::APP_PANE_TITLE`). */
 export const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
@@ -25,6 +38,13 @@ export const CHROME_WINDOW_TYPES = ['float', 'sidebar-left', 'sidebar-right'] as
 
 /** The `@tmuxy-pane-state` words tmuxy knows, in attention order (`PaneStateName`). */
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
+
+/** Agent process names (`AGENT_COMMANDS`). */
+export const AGENT_COMMANDS = ['claude', 'codex', 'agy', 'antigravity'] as const;
+
+/** `agent_takes_input_format`. */
+export const AGENT_TAKES_INPUT =
+  '#{&&:#{||:#{||:#{||:#{||:#{==:#{pane_current_command},claude},#{==:#{pane_current_command},codex}},#{==:#{pane_current_command},agy}},#{==:#{pane_current_command},antigravity}},#{m:[0-9]*.[0-9]*,#{pane_current_command}}},#{&&:#{!=:#{@tmuxy-pane-state},needs-input},#{==:#{@tmuxy-ask},}}}';
 
 /** Sidebar column widths and drag bounds, in cells (`sidebar_dock`). */
 export const SIDEBAR_DOCK = {
@@ -64,6 +84,7 @@ export const DEFAULT_APPEARANCE = {
   activeTextOpacity: 1,
   animations: true,
   blur: true,
+  confirmClose: true,
   cursorBlink: true,
   gesturePinchOverview: true,
   gesturePinchZoom: true,

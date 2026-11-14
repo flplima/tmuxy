@@ -16,6 +16,8 @@ export const connectionGlobalEvents = {
     actions: 'connection_sessionMenuOpened',
   },
   GIT_REPOSITORIES_UPDATED: { actions: 'connection_gitRepositoriesUpdated' },
+  PANE_PORTS_UPDATED: { actions: 'connection_panePortsUpdated' },
+  TREE_ROW_TEMPLATE_UPDATED: { actions: 'connection_treeRowTemplateUpdated' },
   SERVERS_UPDATED: { actions: 'connection_serversUpdated' },
   TMUX_CLIPBOARD: { actions: 'connection_tmuxClipboard' },
   APP_FOCUS: {
@@ -31,13 +33,18 @@ export const connectionGlobalEvents = {
   CONNECT_SERVER: {
     actions: 'connection_connectServer',
   },
+  OWN_TMUX_OFFERED: { actions: 'connection_ownTmuxOffered' },
+  ANSWER_OWN_TMUX_OFFER: { actions: 'connection_answerOwnTmuxOffer' },
+  OWN_TMUX_OFFER_TAKEN: { actions: 'connection_ownTmuxOfferTaken' },
   RECONNECT_NOW: {
     actions: 'connection_reconnectNow',
   },
   DETACH_CLIENT: {
     actions: 'connection_detachClient',
   },
-  SWITCH_SESSION: { actions: 'connection_switchSession' },
+  // The palette's slice forgets a place it was on its way to in another session.
+  SWITCH_SESSION: { actions: ['connection_switchSession', 'palette_leave'] },
+  TMUX_SESSION_SWITCHED: { actions: 'connection_sessionSwitched' },
   NEW_SESSION: { actions: 'connection_newSession' },
   KEYBINDINGS_RECEIVED: { actions: 'connection_keybindingsReceived' },
 } as const;

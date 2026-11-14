@@ -10,9 +10,11 @@ use std::sync::Arc;
 use tmuxy_core::host::{
     self, ClientCommand, HostCtx, HostEvent, RuntimeConfig, SessionRuntime, Sink,
 };
+use tmuxy_core::session::SessionName;
 use tmuxy_core::CommandError;
 
 use super::clients::open_client;
+use super::order::Refused;
 use super::SessionQuery;
 use crate::state::AppState;
 
@@ -54,26 +56,31 @@ pub async fn commands_handler(
         Ok(session) => session,
         Err(rejection) => return rejection.into_command_failure(),
     };
-    if !has_json_content_type(&headers) {
-        return command_failure(
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            CommandError::invalid("Content-Type must be application/json"),
-        );
-    }
-    let Ok(body) = axum::body::to_bytes(body, COMMANDS_MAX_BYTES).await else {
-        return command_failure(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            CommandError::invalid("command payload too large"),
-        );
-    };
-
     // Every stream is handed its id in the `connection-info` greeting, so no
     // header means no stream. Not 0: that is a real id, and its viewport
     // entry would be overwritten.
-    let conn_id: Option<u64> = headers
-        .get("x-connection-id")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse().ok());
+    let conn_id: Option<u64> = header_number(&headers, "x-connection-id");
+
+    // A numbered command waits for the ones its client issued before it; the
+    // turn is held until this one is on the monitor's channel. One with no
+    // number, or from a client with no stream, runs as it arrives.
+    let seq: Option<u64> = header_number(&headers, "x-command-seq");
+    let gate = conn_id.and_then(|conn_id| state.command_gate(conn_id));
+    if let Some(gate) = &gate {
+        // Numbers whose POST the client saw fail: nothing waits for them.
+        for lost in lost_numbers(&headers) {
+            gate.skip(lost);
+        }
+    }
+    let gate = gate.zip(seq);
+    // A request answered without running still passes its turn on, or every
+    // later number would wait out the timeout for it.
+    let refuse = |response: Response| {
+        if let Some((gate, seq)) = &gate {
+            gate.skip(*seq);
+        }
+        response
+    };
 
     // The request leg of an action's trace (docs/TRACING.md); the id only,
     // never the content.
@@ -81,39 +88,41 @@ pub async fn commands_handler(
         tracing::info!(target: "tmuxy_server::sse", action_id = %action_id, "client command");
     }
 
-    // `ensure_session` is this door's own request, not a client command:
-    // it creates the session `GET /events` will attach to, under the
-    // server's session cap, and its refusals have HTTP statuses of their own.
-    let value: serde_json::Value = match serde_json::from_slice(&body) {
+    let value = match read_command(&headers, body).await {
         Ok(value) => value,
-        Err(e) => {
-            return command_failure(
-                StatusCode::BAD_REQUEST,
-                CommandError::invalid(format!("invalid command payload: {e}")),
-            );
-        }
+        Err((status, error)) => return refuse(command_failure(status, error)),
     };
-    if value.get("cmd").and_then(serde_json::Value::as_str) == Some(ENSURE_SESSION) {
-        return match super::clients::ensure_session(&state, &session).await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(CommandResponse {
-                    result: serde_json::Value::Null,
-                }),
-            )
-                .into_response(),
-            Err(rejection) => rejection.into_command_failure(),
-        };
+    if let Some(response) = door_request(&value, &state, &session).await {
+        return refuse(response);
     }
 
     let cmd = match ClientCommand::from_value(value) {
         Ok(c) => c,
         Err(e) => {
-            return command_failure(
+            return refuse(command_failure(
                 StatusCode::BAD_REQUEST,
                 CommandError::invalid(format!("invalid command payload: {e}")),
-            );
+            ));
         }
+    };
+
+    let _turn = match &gate {
+        Some((gate, seq)) => match gate.enter(*seq).await {
+            Ok(turn) => Some(turn),
+            Err(Refused::Full) => {
+                return refuse(command_failure(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    CommandError::unavailable("too many commands waiting for their turn"),
+                ));
+            }
+            Err(Refused::Late) => {
+                return command_failure(
+                    StatusCode::CONFLICT,
+                    CommandError::unavailable("arrived after the commands issued after it ran"),
+                );
+            }
+        },
+        None => None,
     };
 
     match handle_command(cmd, &session, &state, conn_id).await {
@@ -121,6 +130,87 @@ pub async fn commands_handler(
         Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
     }
 }
+
+/// The answer to one of this door's own requests, which are not client
+/// commands and never reach the monitor.
+async fn door_request(
+    value: &serde_json::Value,
+    state: &Arc<AppState>,
+    session: &SessionName,
+) -> Option<Response> {
+    let done = || {
+        (
+            StatusCode::OK,
+            Json(CommandResponse {
+                result: serde_json::Value::Null,
+            }),
+        )
+            .into_response()
+    };
+    match value.get("cmd").and_then(serde_json::Value::as_str)? {
+        // The notice that numbered POSTs failed: its header was all of it.
+        COMMANDS_LOST => Some(done()),
+        // Creates the session `GET /events` will attach to, under the
+        // server's session cap; its refusals have HTTP statuses of their own.
+        ENSURE_SESSION => Some(match super::clients::ensure_session(state, session).await {
+            Ok(()) => done(),
+            Err(rejection) => rejection.into_command_failure(),
+        }),
+        _ => None,
+    }
+}
+
+fn header_number(headers: &HeaderMap, name: &str) -> Option<u64> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+}
+
+/// How many numbers one request may report as lost.
+const LOST_NUMBERS_MAX: usize = 64;
+
+/// `X-Command-Lost: 3,7`: numbers the client posted and saw fail with no
+/// answer.
+fn lost_numbers(headers: &HeaderMap) -> impl Iterator<Item = u64> + '_ {
+    headers
+        .get("x-command-lost")
+        .and_then(|v| v.to_str().ok())
+        .into_iter()
+        .flat_map(|list| list.split(','))
+        .filter_map(|n| n.trim().parse().ok())
+        .take(LOST_NUMBERS_MAX)
+}
+
+/// The body as JSON, or the status and error to refuse it with.
+async fn read_command(
+    headers: &HeaderMap,
+    body: Body,
+) -> Result<serde_json::Value, (StatusCode, CommandError)> {
+    if !has_json_content_type(headers) {
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            CommandError::invalid("Content-Type must be application/json"),
+        ));
+    }
+    let Ok(body) = axum::body::to_bytes(body, COMMANDS_MAX_BYTES).await else {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            CommandError::invalid("command payload too large"),
+        ));
+    };
+    serde_json::from_slice(&body).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            CommandError::invalid(format!("invalid command payload: {e}")),
+        )
+    })
+}
+
+/// The web door's own request: nothing to run, sent for its
+/// `X-Command-Lost` header when a numbered POST fails and no command
+/// follows to carry it.
+pub(super) const COMMANDS_LOST: &str = "commands_lost";
 
 /// The web door's own request: make `?session=` exist (with a monitor)
 /// before `GET /events` attaches to it, so the stream itself stays free of

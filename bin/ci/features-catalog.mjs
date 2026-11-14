@@ -24,7 +24,7 @@ const DEFAULTS_CONF = 'packages/tmuxy-core/assets/tmuxy.defaults.conf';
 const CLI_DISPATCH = 'packages/tmuxy-cli/bin/tmuxy-cli';
 const CLI_SCRIPTS = 'packages/tmuxy-cli/bin/tmuxy';
 const VERBS = 'packages/tmuxy-verbs/src';
-const CONSTANTS = 'packages/tmuxy-core/src/constants.rs';
+const CONSTANTS = 'packages/tmuxy-core/src/constants';
 
 const COLUMNS = { menu: 'Menu', keys: 'Keybinding', cli: 'CLI', config: 'Config / Tag' };
 
@@ -177,7 +177,10 @@ export function checkFeaturesCatalog(root, addError) {
     filesUnder(root, CLI_SCRIPTS, /^cli-.*\.sh$/).map(read),
   );
   const rust = rustVerbs(filesUnder(root, VERBS, /\.rs$/).map(read));
-  const { user, known } = options(conf, read(CONSTANTS));
+  const constants = [`${CONSTANTS}.rs`, ...filesUnder(root, CONSTANTS, /\.rs$/)]
+    .map(read)
+    .join('\n');
+  const { user, known } = options(conf, constants);
 
   const missing = (what, have, column, hint) => {
     const listed = named(column);

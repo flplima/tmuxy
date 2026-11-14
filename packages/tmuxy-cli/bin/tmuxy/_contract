@@ -101,6 +101,20 @@ _tmux_read() {
   return "$status"
 }
 
+# `$2` (a format) as pane `$1` itself answers it, on stdout. tmux's
+# display-message does not fail for a gone target: it answers for no pane,
+# or for its default one when a client is attached. So the answer carries the
+# pane's id, and a pane id answered as anything else fails with
+# $EXIT_TARGET. A target that is no pane id (`main:0.1`) is read as given.
+_pane_read() {
+  local said
+  said="$(_tmux_read display-message -p -t "$1" "#{pane_id}"$'\t'"$2")" || return $?
+  if [[ "$1" == %* ]] && [ "${said%%$'\t'*}" != "$1" ]; then
+    return "$EXIT_TARGET"
+  fi
+  printf '%s\n' "${said#*$'\t'}"
+}
+
 # After a `_tmux_read` run inside `$(…)` with its stderr dropped: a "no
 # server" there has answered already under --json (the JSON fd is the real
 # stdout) and exited only the subshell, so the caller would answer a second
@@ -154,49 +168,97 @@ _resolve_target() {
   printf '%s' "${matches%%$'\t'*}"
 }
 
+# The parent of process `$1`, as `/proc` says; nothing where it cannot say.
+_parent_of() {
+  awk '/^PPid:/ { print $2; exit }' "/proc/$1/status" 2>/dev/null || true
+}
+
+# Every `pid ppid` pair, for a system without `/proc` (macOS).
+_process_table() {
+  ps -A -o pid=,ppid= 2>/dev/null || true
+}
+
 # The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:
 # the pane whose process is an ancestor of this one. TMUX_PANE is only an
 # environment variable, so anything can claim any pane with it; what the
-# claim buys — typing into that pane without asking, or setting its widget
-# tags — is given only to a process that really runs there. Prints nothing
-# when it is not.
+# claim buys (typing into that pane without asking, setting its restore
+# command or its widget tags) is given only to a process that really runs
+# there. Prints nothing when it is not, and also when it cannot be proven:
+# a parent that cannot be read anywhere up the line, or a process table that
+# does not name this process. That case says so on stderr.
 #
 # A system that names no parent even for this process (the CheerpX guest's
-# `/proc` has none, and its `ps` reads that `/proc`) has no ancestry to check
-# and nothing else that tells one pane's processes from another's, so there
-# the claim stands. Linux and macOS always name it.
+# `/proc` has none, and its `ps` reads that `/proc`) can prove nothing, and
+# there the claim stands only where the server says so: the guest's own
+# config sets @tmuxy-trust-pane-claims on.
 verified_own_pane() {
-  local claimed="${1:-}" pane_pid
+  local claimed="${1:-}" pane_pid verdict
   [ -n "$claimed" ] || return 0
   [[ "$claimed" =~ ^%[0-9]+$ ]] || return 0
-  pane_pid="$(_tmux display-message -p -t "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
+  pane_pid="$(_pane_read "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
   [[ "$pane_pid" =~ ^[0-9]+$ ]] || return 0
-  if [ -r "/proc/$$/status" ]; then
+  if [[ "$(_parent_of "$$")" =~ ^[1-9][0-9]*$ ]]; then
     local p="$$" i=0 ppid
-    while [ "$i" -lt 128 ] && [ "$p" -gt 1 ]; do
+    verdict=unproven
+    while [ "$i" -lt 128 ]; do
       if [ "$p" = "$pane_pid" ]; then
-        printf '%s' "$claimed"
-        return 0
+        verdict=yes
+        break
       fi
-      ppid="$(awk '/^PPid:/ { print $2; exit }' "/proc/$p/status" 2>/dev/null || true)"
-      if ! [[ "$ppid" =~ ^[1-9][0-9]*$ ]]; then
-        [ "$p" = "$$" ] && printf '%s' "$claimed"
-        return 0
-      fi
+      [ "$p" -gt 1 ] || {
+        verdict=no
+        break
+      }
+      ppid="$(_parent_of "$p")"
+      [[ "$ppid" =~ ^[0-9]+$ ]] || break
       p="$ppid"
       i=$((i + 1))
     done
-    return 0
+  else
+    # One table for the whole tree: 0 an ancestor, 1 not, 2 unproven.
+    local rc=0
+    _process_table | awk -v me="$$" -v want="$pane_pid" '
+      { parent[$1] = $2 }
+      END {
+        if (!(me in parent) || parent[me] < 1) exit 2
+        p = me
+        for (i = 0; i < 128; i++) {
+          if (p == want) exit 0
+          if (p <= 1) exit 1
+          if (!(p in parent)) exit 2
+          p = parent[p]
+        }
+        exit 2
+      }' || rc=$?
+    case "$rc" in
+      0) verdict=yes ;;
+      1) verdict=no ;;
+      *) verdict=unproven ;;
+    esac
   fi
-  # Fallback where `/proc` is absent (macOS): one `ps` for the whole tree.
-  if ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$$" -v want="$pane_pid" '
-    { parent[$1] = $2 }
-    END {
-      if (!(me in parent) || parent[me] < 1) exit 0
-      p = me
-      for (i = 0; i < 128 && p > 1; i++) { if (p == want) exit 0; p = parent[p] }
-      exit 1
-    }'; then
-    printf '%s' "$claimed"
+  case "$verdict" in
+    yes) printf '%s' "$claimed" ;;
+    unproven)
+      if [ "$(_tmux show-options -gqv "$OPT_TRUST_PANE_CLAIMS" 2>/dev/null)" = on ]; then
+        printf '%s' "$claimed"
+      else
+        echo "tmuxy: cannot prove this runs in $claimed (its process ancestry cannot be read), so it is treated as another pane" >&2
+      fi
+      ;;
+  esac
+}
+
+# Take the pane this script runs in as TMUX_PANE, or stop: a widget's tags
+# may be set on the caller's own pane only (`verified_own_pane`). `$1` says
+# what was being opened, for the refusal.
+take_own_pane() {
+  local own="${TMUXY_CALLER_PANE-${TMUX_PANE:-}}"
+  if [ -z "$own" ]; then
+    _fail "$EXIT_FAILED" "run this inside a tmuxy pane"
   fi
+  if [ "$(verified_own_pane "$own")" != "$own" ]; then
+    _fail "$EXIT_FAILED" "cannot open $1 on another pane ($own)"
+  fi
+  TMUX_PANE="$own"
+  export TMUX_PANE
 }

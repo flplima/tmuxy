@@ -8,7 +8,7 @@ pub(super) const PENDING_OUTPUT_MAX: Duration = Duration::from_millis(100);
 pub(super) const LAYOUT_DEBOUNCE: Duration = Duration::from_millis(16);
 
 /// Events within one [`RATE_WINDOW`] above which output is throttled. Below
-/// it, events emit immediately for low latency.
+/// it, output is debounced ([`LOW_THROUGHPUT_DEBOUNCE`]).
 pub(super) const THROTTLE_THRESHOLD: u32 = 20;
 
 /// Window for counting events to detect high-frequency output.
@@ -128,6 +128,11 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 .core
                 .next_deadline()
                 .saturating_duration_since(Instant::now());
+            // A hidden pane's last frame, held back (`state::hidden_panes`).
+            let hidden_due = self.core.aggregator().hidden_panes_due();
+            let hidden_sleep = hidden_due.map_or(LONG_SLEEP, |due| {
+                due.saturating_duration_since(Instant::now())
+            });
 
             let running = tokio::select! {
                 event = self.connection.recv() => match event {
@@ -153,6 +158,11 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 }
 
                 _ = tokio::time::sleep_until(layout_deadline), if rs.layout_emit_at.is_some() => {
+                    self.flush(emitter, &mut rs);
+                    true
+                }
+
+                _ = tokio::time::sleep(hidden_sleep), if hidden_due.is_some() => {
                     self.flush(emitter, &mut rs);
                     true
                 }

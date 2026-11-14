@@ -5,7 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use tmuxy_core::constants::tmux_formats::TmuxList;
+use tmuxy_core::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};
 use tmuxy_core::control_mode::{
     Parser, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, LIST_BEGIN_MARKER,
     LIST_END_MARKER,
@@ -20,32 +20,44 @@ fn feed(parser: &mut Parser, agg: &mut StateAggregator, stream: &str) {
     }
 }
 
-/// The aggregator's own marked list-panes, as tmux answers it: three blocks,
-/// the rows (fields in `PaneColumn` order) in the middle one.
-fn pane_list(agg: &StateAggregator, number: u32, rows: &str) -> String {
+/// The aggregator's own marked `list`, as tmux answers it: three blocks, the
+/// rows (fields in the list's column order) in the middle one.
+fn marked_list(agg: &StateAggregator, list: TmuxList, number: u32, rows: &str) -> String {
     let begin = agg.markers().tag(LIST_BEGIN_MARKER);
     let end = agg.markers().tag(LIST_END_MARKER);
-    let panes = TmuxList::Panes.name();
+    let name = list.name();
     let (a, b, c) = (number, number + 1, number + 2);
     format!(
-        "%begin {a} {a} 1\n{begin} {panes}\n%end {a} {a} 1\n\
+        "%begin {a} {a} 1\n{begin} {name}\n%end {a} {a} 1\n\
          %begin {b} {b} 1\n{rows}%end {b} {b} 1\n\
          %begin {c} {c} 1\n{end}\n%end {c} {c} 1\n"
     )
 }
 
-/// A real `tmux -CC` slice: session/window handshake, the list-panes answer,
-/// and the window layout — what the browser feeds the parser after `attach`
-/// + `refresh-client -C`.
+fn pane_list(agg: &StateAggregator, number: u32, rows: &str) -> String {
+    marked_list(agg, TmuxList::Panes, number, rows)
+}
+
+/// A real `tmux -CC` slice: session/window handshake, the list-panes and
+/// list-windows answers, and the window layout — what the browser feeds the
+/// parser after `attach` + `refresh-client -C`.
 fn attach(parser: &mut Parser, agg: &mut StateAggregator) {
+    let window = RowBuilder::<WindowColumn>::new()
+        .set(WindowColumn::WindowId, "@0")
+        .set(WindowColumn::Index, 0)
+        .set(WindowColumn::Active, 1)
+        .set(WindowColumn::Zoomed, 0)
+        .set(WindowColumn::Name, "zsh")
+        .build();
     let stream = format!(
-        "%begin 1 1 0\n%end 1 1 0\n%session-changed $0 m\n%window-add @0\n{}{}",
+        "%begin 1 1 0\n%end 1 1 0\n%session-changed $0 m\n%window-add @0\n{}{}{}",
         pane_list(
             agg,
             2,
-            "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n\
-             %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
+            "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n\
+             %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n",
         ),
+        marked_list(agg, TmuxList::Windows, 5, &format!("{window}\n")),
         "%window-pane-changed @0 %0\n\
          %layout-change @0 8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} \
          8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
@@ -120,8 +132,8 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
     let in_copy_mode = pane_list(
         &agg,
         6,
-        "%0,0,0,0,40,24,0,0,1,zsh,,1,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n\
-         %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
+        "%0,0,0,0,40,24,0,0,1,zsh,,1,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n\
+         %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,,\n",
     );
     feed(&mut parser, &mut agg, &in_copy_mode);
     let event = parser.parse_line("%paste-buffer-changed buffer0").unwrap();

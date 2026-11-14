@@ -42,7 +42,7 @@ App-answered keys (`app …`), mouse gestures and `Enforced by` paths are not re
 | P8 | Join a pane from another tab | drag a pane onto a tab in the strip | — | `prefix j` `pane g` | — | — | `tests/2-layout-navigation-zoom-drag.test.js` |
 | P9 | Move a pane to a new tab | drag it onto the empty strip | `pane-move-new-tab` | `pane b` | `tmuxy pane break` | — | `tests/2-layout-navigation-zoom-drag.test.js` |
 | P10 | Zoom | double-click a header; pinch on a trackpad | `view-zoom` | `pane z` | `tmuxy pane zoom` | `@tmuxy-gesture-pinch-zoom` | `tests/2-layout-navigation-zoom-drag.test.js` |
-| P11 | Close | the header's ✕ | `pane-close` | `pane x` | `tmuxy pane kill` | — | `tests/2-layout-navigation.test.js` |
+| P11 | Close | the header's ✕ | `pane-close` | `pane x` | `tmuxy pane kill` | `@tmuxy-confirm-close` | `tests/2-layout-navigation.test.js` |
 | P12 | Rename | rename in the header | `pane-rename` | `pane ,` | — | — | `packages/tmuxy-ui/src/stories/InlineRename.stories.tsx` |
 | P13 | Clear the screen | — | `pane-clear` | — | — | — | — |
 | P14 | Stack a tab's panes, collapsed to headers | click a collapsed row | `tab-stack-toggle` | `pane s` `pane S` | — | — | `tests/2-layout-navigation-panes.test.js` |
@@ -54,6 +54,8 @@ App-answered keys (`app …`), mouse gestures and `Enforced by` paths are not re
 | P20 | Say how a pane comes back after a restore | — | — | — | `tmuxy pane restore-cmd` | `@tmuxy-pane-restore` | `tests/15-session-snapshot.test.js` |
 | P21 | The pane menu | a header's ⋮ or right-click | `menu-pane` | — | — | — | `packages/tmuxy-ui/src/stories/PaneHeaderActions.stories.tsx` |
 | P22 | The prefix and the pane key table | — | — | `prefix C-a` `prefix a` `prefix p` | — | — | `tests/2-layout-navigation-tree-drag.test.js` |
+| P23 | Your own rules for what a caller may type into another pane: refuse it, or always ask | — | — | — | `tmuxy config permissions` | `~/.config/tmuxy/permissions.json` | `tests/cli/cli-guest-verbs.test.js` |
+| P24 | A send that waits in line for a busy pane; list the line, take one back | — | — | — | `tmuxy pane queue` | — | `tests/cli/cli-send.test.js` |
 
 ## Groups
 
@@ -79,3 +81,4 @@ App-answered keys (`app …`), mouse gestures and `Enforced by` paths are not re
 | B2 | Move panes and tabs in the tree | drag a row | — | — | — | — | `tests/2-layout-navigation-tree-drag.test.js` |
 | B3 | The right sidebar, a dock for a shell | click to dock | — | `app prefix S` | — | — | `tests/2-layout-navigation-dock.test.js` |
 | B4 | The keys view | — | — | `app prefix ?` | — | — | `tests/2-layout-navigation-tree-drag.test.js` |
+| B5 | A pane's tree row: the lines its checkout changed, the ports its programs listen on, fields a script sets, and which items show where | click a port | — | — | `tmuxy pane meta` | `@tmuxy-tree-row` | `tests/2-layout-navigation-tree-fields.test.js` |

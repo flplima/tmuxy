@@ -26,14 +26,19 @@ back to a shell. That is what ctrl+c in a widget pane does.
 | --- | --- | --- |
 | `tree` | `tmuxy widget tree` | none — the tabs/panes tree is derived from state the app already holds |
 | `preview` | `tmuxy open [--net] [--no-theme] [file]` (alias: `tmuxy widget preview`; without a file, `index.html` or `README.md` in the current directory) | `__FILE__:<name>` and `__REV__:<fingerprint>` — the file's name and a line rewritten in place whenever the file changes (inotify where there is one, a poll every second otherwise). The file itself never travels in pane output: the widget reads it with `read_preview`, which tmux authorises (below). A markdown document is drawn by the app, mermaid fences as diagrams and YAML front matter as a block of its own above it, in the theme's colours; an HTML page is drawn in a sandboxed frame, in the theme's colours unless `--no-theme` |
+| `diff` | `tmuxy widget diff [folder]` (the checkout the current folder is in, without one) | A git checkout's changes, in the scope its bar is switched to: unstaged (with the files git does not track), staged, or the branch against its base. Read again every few seconds while the app is on screen. |
 
 ### A preview: what it reads, and the page it frames
 
-A preview's path is a pane option, `@tmuxy-pane-preview`, written by `tmuxy-widget-preview` out of band like the widget tag, and the widget asks for the document by naming its pane, never a path (`read_preview`, both transports, `tmuxy_core::preview`). What it links — stylesheets, scripts, images, fonts — it may read only from the document's own folder. Why, and what else holds, is [A Preview Reads One File](SECURITY-CONTENT.md#a-preview-reads-one-file).
+A preview's path is a pane option, `@tmuxy-pane-preview`, written by `tmuxy-widget-preview` out of band like the widget tag, and the widget asks for the document by naming its pane, never a path (`read_preview`, both transports, `tmuxy_core::preview`). What it links — stylesheets, scripts, images, fonts — it may read only from the document's own folder. Why, and what else holds, is [A Preview Reads One File](SECURITY-WIDGETS.md#a-preview-reads-one-file).
 
 A new rev is the cue to read the document again; the old one stays on screen meanwhile, and on a failed read, so a save never blanks the pane. A markdown document is replaced inside the scroller it was drawn in, so the reader stays where they were. A page is composed by the client (`components/widgets/preview/previewPage.ts`) — its local resources inlined as code and `data:` URLs, the theme and a small bridge script put first — staged with the backend, and loaded by the frame from a URL that carries the page's own policy as a header. A new composition is a new URL, so the frame reloads, and it reopens at the scroll position the bridge last reported.
 
 The frame is the same hole in the event surface the old browser widget was, and it is handled the same way: the pane is activated from the focus moving into the frame (`components/useFramedPaneFocus.ts`), and the pane's content takes no pointer while the app is dragging a divider or a pane. The keyboard is the page's while the user is in it, so the bridge sends a Ctrl or Alt chord pressed there back to the app, replayed on the pane: Ctrl+C reaches `WidgetPane` and ends the widget, the prefix reaches the keyboard actor. In the markdown view the pager keys scroll (`j`/`k`, space and `b`, `ctrl-d`/`ctrl-u`, `g`/`G`), and any other plain key stops at the widget rather than being typed into a pane where nothing reads it.
+
+### A diff: what it reads
+
+The checkout is a pane option, `@tmuxy-pane-diff`, written by `tmuxy-widget-diff` out of band like the preview's file; the widget asks `read_diff` for the pane and a scope, and the host runs git with nothing the repository names (`tmuxy-core/src/diff_review.rs`, [SECURITY-WIDGETS.md](SECURITY-WIDGETS.md#a-diff-reads-one-checkout)). The answer is parsed files, hunks and numbered lines, drawn as text (`components/widgets/diff/`); on a phone a line keeps one number column and the scope tabs grow to a thumb's size.
 
 ### A pane group's header
 

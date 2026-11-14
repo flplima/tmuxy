@@ -1,6 +1,32 @@
 {
+  "change_hunk": [
+    {
+      "revert": "1794452507000-0"
+    }
+  ],
+  "close_own_tmux_offer": [
+    null
+  ],
   "connect_server": [
     null
+  ],
+  "create_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
+  "delete_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
   ],
   "detach_client": [
     null
@@ -70,6 +96,7 @@
           "mouse_any_flag": true,
           "pane_ask": "eyJ0b2tlbiI6ImExIn0=",
           "pane_state": "working",
+          "pane_status": "state=working:progress=40:app=make:msg=QnVpbGRpbmc=",
           "pane_widget": "tree",
           "selection_present": true,
           "selection_start_x": 1,
@@ -140,6 +167,7 @@
           "float_bg": "dim",
           "float_drawer": "bottom",
           "float_height": 20,
+          "float_minimized": true,
           "float_noheader": true,
           "float_parent": "@1",
           "float_width": 60,
@@ -151,6 +179,23 @@
           "window_type": "float",
           "zoomed": false
         }
+      ]
+    }
+  ],
+  "get_last_command_output": [
+    {
+      "text": "ok\n"
+    },
+    {
+      "text": null
+    }
+  ],
+  "get_prompt_marks": [
+    {
+      "historySize": 1234,
+      "prompts": [
+        1190,
+        1240
       ]
     }
   ],
@@ -193,6 +238,7 @@
         "activeTextOpacity": 1.0,
         "animations": true,
         "blur": true,
+        "confirmClose": true,
         "cursorBlink": true,
         "gesturePinchOverview": true,
         "gesturePinchZoom": true,
@@ -243,6 +289,12 @@
       "level": "shape",
       "locked": false,
       "path": "/home/u/.local/state/tmuxy/trace.ndjson"
+    }
+  ],
+  "get_trace_share": [
+    {
+      "lines": 1,
+      "text": "{\"layer\":\"tmux\",\"op\":\"Split\",\"session\":\"session-1\"}\n"
     }
   ],
   "greeting": [
@@ -312,6 +364,26 @@
       }
     ]
   ],
+  "list_pane_ports": [
+    [
+      {
+        "paneId": "%2",
+        "ports": [
+          5173,
+          8123
+        ]
+      }
+    ]
+  ],
+  "list_profiles": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
   "list_servers": [
     {
       "currentId": "localhost",
@@ -354,6 +426,15 @@
   "open_url": [
     null
   ],
+  "own_tmux_offer": [
+    {
+      "canSwitch": true,
+      "serverId": "my-tmux",
+      "session": "work",
+      "sessions": 3
+    },
+    null
+  ],
   "prepare_plugin_action": [
     {
       "token": "tok-1"
@@ -361,6 +442,56 @@
   ],
   "query_tmux": [
     "%0 bash\n"
+  ],
+  "read_diff": [
+    {
+      "base": "main",
+      "branch": "feature",
+      "files": [
+        {
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -1,2 +1,2 @@",
+              "lines": [
+                {
+                  "kind": "context",
+                  "new": 1,
+                  "old": 1,
+                  "text": "fn main() {"
+                },
+                {
+                  "kind": "removed",
+                  "old": 2,
+                  "text": "}"
+                },
+                {
+                  "kind": "added",
+                  "new": 2,
+                  "text": "} // end"
+                },
+                {
+                  "kind": "note",
+                  "text": "No newline at end of file"
+                }
+              ]
+            }
+          ],
+          "modeChange": "100644 → 100755",
+          "oldPath": "src/old.rs",
+          "path": "src/new.rs",
+          "status": "renamed",
+          "token": "5f0c1e2d3a4b6c7d"
+        }
+      ],
+      "name": "app",
+      "scope": "branch",
+      "truncated": false,
+      "untracked": [
+        "notes.txt"
+      ],
+      "untrackedMore": 0
+    }
   ],
   "read_preview": [
     {
@@ -376,6 +507,15 @@
   ],
   "record_trace": [
     null
+  ],
+  "rename_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
   ],
   "restore_session": [
     null
@@ -409,5 +549,17 @@
   ],
   "stage_preview": [
     null
+  ],
+  "undo_revert": [
+    null
+  ],
+  "use_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
   ]
 }

@@ -1,18 +1,46 @@
 //! What a pane's program asks of the terminal beyond drawing: a title
-//! (OSC 0 / OSC 2) and a clipboard write (OSC 52). vt100 reads the sequences
-//! (with the rest of the pane's output: hyperlinks and text sizes are cell
-//! attributes there) and calls these; the pane drains them after each write.
+//! (OSC 0 / OSC 2), a clipboard write (OSC 52) and its own status (OSC 7501,
+//! with the shell's marks, OSC 133: a prompt, a command's start and its
+//! end). vt100
+//! reads the sequences (with the rest of the pane's output: hyperlinks and
+//! text sizes are cell attributes there) and calls these; the pane drains
+//! them after each write.
+
+use super::program_status::Report;
 
 /// Upper bound on an OSC 0 / OSC 2 pane title accepted from terminal output.
 const MAX_TITLE_BYTES: usize = 1024;
 /// Upper bound on raw base64 bytes decoded for a single OSC 52 clipboard write.
 const MAX_CLIPBOARD_BASE64_BYTES: usize = 2 * 1024 * 1024;
+/// How many `;`-separated pieces of an OSC vte keeps: one that has this many
+/// may have lost its tail.
+const OSC_PIECES_KEPT: usize = 16;
+
+/// What the output said about the status of the pane's program, in order.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum StatusEvent {
+    Report(Report),
+    /// A new shell prompt began (OSC 133 ; A).
+    PromptBegan,
+    /// The shell started a command (OSC 133 ; C).
+    CommandBegan,
+    /// The command ended (OSC 133 ; D), with its exit status when the shell
+    /// gave one.
+    CommandEnded(Option<i32>),
+}
+
+/// The exit status of `OSC 133 ; D ; <status>`: the first piece after the
+/// `D`, when it is a number.
+fn exit_status(rest: &[&[u8]]) -> Option<i32> {
+    std::str::from_utf8(rest.first()?).ok()?.parse().ok()
+}
 
 /// The requests one pane's output made since they were last taken.
 #[derive(Debug, Default)]
 pub(crate) struct OscRequests {
     title: Option<String>,
     clipboard: Option<String>,
+    status: Vec<StatusEvent>,
 }
 
 impl vt100::Callbacks for OscRequests {
@@ -39,6 +67,24 @@ impl vt100::Callbacks for OscRequests {
             self.clipboard = Some(text);
         }
     }
+
+    fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
+        match params {
+            // A report holds no `;`, but one that does is still read past its
+            // malformed pair, so the pieces are put back together.
+            [b"7501", body @ ..] if !body.is_empty() && params.len() < OSC_PIECES_KEPT => {
+                if let Some(report) = Report::parse(&body.join(&b';')) {
+                    self.status.push(StatusEvent::Report(report));
+                }
+            }
+            [b"133", b"A", ..] => self.status.push(StatusEvent::PromptBegan),
+            [b"133", b"C", ..] => self.status.push(StatusEvent::CommandBegan),
+            [b"133", b"D", rest @ ..] => self
+                .status
+                .push(StatusEvent::CommandEnded(exit_status(rest))),
+            _ => {}
+        }
+    }
 }
 
 impl OscRequests {
@@ -50,6 +96,11 @@ impl OscRequests {
     /// The last OSC 0 / OSC 2 title, if one came since the last call.
     pub(crate) fn take_title(&mut self) -> Option<String> {
         self.title.take()
+    }
+
+    /// The program status reports and prompt marks since the last call.
+    pub(crate) fn take_status(&mut self) -> Vec<StatusEvent> {
+        std::mem::take(&mut self.status)
     }
 }
 

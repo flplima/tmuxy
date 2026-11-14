@@ -101,10 +101,14 @@ tmuxy runs tmux on a **socket of its own** (`tmuxy`), not the one your bare
 session you are working in, and an update or a crash cannot take your real work
 with it.
 
+The first time tmuxy starts while your own tmux server has sessions, it tells
+you so, once.
+
 To point it at your own tmux server instead:
 
 - **Desktop app** — the session menu lists **my tmux** under _Servers_ whenever
-  that server has sessions. Pick it; the app reconnects in place.
+  that server has sessions. Pick it, or take the offer in that first notice;
+  the app reconnects in place.
 - **Web** — the server binds its socket at launch, so tell it at launch:
 
   ```bash
@@ -113,7 +117,10 @@ To point it at your own tmux server instead:
 
 Attaching to your own server applies only the settings tmuxy cannot work
 without — it will not touch your prefix, your status line or your bindings
-there. Your own `~/.tmux.conf` is not loaded on tmuxy's own socket by default
+there. It does set eight options on that server (`escape-time`,
+`history-limit`, `default-terminal`, `terminal-overrides`, `destroy-unattached`,
+`exit-empty`, `focus-events`, `set-clipboard`), turns `mouse` and `set-titles`
+on for the session it shows, and adds its command aliases. Your own `~/.tmux.conf` is not loaded on tmuxy's own socket by default
 either; `tmuxy config use-tmux-conf on` changes that (see
 [docs/TMUX.md](docs/TMUX.md)).
 
@@ -128,6 +135,7 @@ Without the prefix:
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab                 |
 | `Ctrl+1`…`9`                  | Go to tab 1…9                       |
 | `Ctrl+0`                      | Show every tab (Tab Overview)       |
+| `Ctrl+Shift+P`                | Command palette                     |
 | `Ctrl` / `Cmd` `+` `-`        | Font size (`Cmd+0` resets it)       |
 | `Ctrl+Shift+A`                | Select the pane's scrollback        |
 | `Ctrl+Shift+C`                | Copy the selection                  |
@@ -136,7 +144,7 @@ Without the prefix:
 | `Ctrl+Shift+1`…`9`            | Focus window 1…9 (desktop app)      |
 
 On macOS the last five are the `Cmd` shortcuts you would expect: `Cmd+A`,
-`Cmd+C`, `Cmd+V`, `Cmd+N` and `Cmd+1`…`9`. A _window_ here is an OS window — several can
+`Cmd+C`, `Cmd+V`, `Cmd+N` and `Cmd+1`…`9`, and the palette is also `Cmd+Shift+P`. A _window_ here is an OS window — several can
 watch one session, each on its own tab (Window ▸ New Window).
 
 With the prefix (`Ctrl+a`):
@@ -154,6 +162,18 @@ With the prefix (`Ctrl+a`):
 | `<` / `>`        | Swap with the previous / next pane                                       |
 | `z`              | Zoom / unzoom                                                            |
 | `?`              | Every key, table by table                                                |
+| `P`              | Command palette (for a browser that keeps `Ctrl+Shift+P` to itself)      |
+| `g`              | Go to a session, tab or pane by name                                     |
+
+The command palette searches every menu item and every session, tab and pane:
+type a few letters, `↑`/`↓` (or `Ctrl+N`/`Ctrl+P`, `Ctrl+J`/`Ctrl+K`) to move,
+`Enter` to run, `Esc` to close. `prefix g` lists only the places to go; typing
+`>` there brings the actions back. A name no session has can become one from
+the same box.
+
+`tmuxy keymap` lists every binding with the file and line it comes from, the
+defaults your `tmuxy.conf` replaced, and your own plugin's actions and verbs:
+`tmuxy keymap --table prefix t` says where `prefix t` comes from.
 
 A sidebar opens over the panes; pressing its key again while it is open docks
 it beside them, and again frees it. PANE and TAB are sticky modes: keys are

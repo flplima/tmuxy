@@ -42,3 +42,20 @@ export function clipboardWriteMessage(text: string, paneId: PaneId | null): stri
   const chars = text.length === 1 ? '1 char' : `${text.length} chars`;
   return paneId ? `Copied ${chars} from pane ${paneId}` : `Copied ${chars}`;
 }
+
+/**
+ * What the status line says when the browser refused a pane's write. Firefox
+ * and Safari take a clipboard write only while a key press or a click is
+ * still fresh, so an OSC 52 that arrives on its own (a command that copies
+ * its result when it ends) is turned down there; a page served without https
+ * off localhost has no clipboard at all. Saying "Copied" then is how a user
+ * pastes something else.
+ */
+export function clipboardBlockedMessage(text: string, paneId: PaneId | null): string {
+  const chars = text.length === 1 ? '1 char' : `${text.length} chars`;
+  const who = paneId ? `Pane ${paneId} could not copy ${chars}` : `Could not copy ${chars}`;
+  const hasClipboard = typeof navigator !== 'undefined' && !!navigator.clipboard?.writeText;
+  return hasClipboard
+    ? `${who}: the browser wants a key or a click first`
+    : `${who}: no clipboard without https or localhost`;
+}

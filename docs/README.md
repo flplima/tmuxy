@@ -68,9 +68,17 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | --- | --- | --- |
 | [TMUX.md](TMUX.md) | Control mode architecture, command routing rules (which commands must use control mode vs. safe as subprocesses), `new-window` crash workaround, flow control | Any work involving tmux commands, pane/window operations, or shell scripts |
 | [TMUX-TAGS.md](TMUX-TAGS.md) | The `@tmuxy-*` window/pane tag schema and the pane-group model built on it (floats, groups, the stash session, window filtering) | Floats, pane groups, anything that reads or writes a tag |
+| [TMUX-TAGS-GROUPS.md](TMUX-TAGS-GROUPS.md) | Pane groups on the tags: `@tmuxy-group-id` and `@tmuxy-group-pos`, the `__tmuxy_stash` session, and `tmuxy_core::groups` | Pane groups, their order, the stash session |
+| [SUB-AGENTS.md](SUB-AGENTS.md) | Agents that start and wait on other agents in panes: `agent spawn` and `agent wait` | An orchestrator, `@tmuxy-spawned-by`, `@tmuxy-agent` |
+| [SCREEN-RULES.md](SCREEN-RULES.md) | A state for agents without hooks, from their screens, and why it never overwrites a declared one | Agents with no hooks (Gemini CLI, Aider…), the socket watch |
+| [AGENT-SETUP.md](AGENT-SETUP.md) | `tmuxy agent install`: what goes where for each agent, and what `status` says of it | Adding an agent, changing the hooks or the skill, `tmuxy agent status` |
 | [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md) | The two sidebar columns and `tmuxy pane send -t`, both built on the tags | The tree, the dock, cross-pane sends |
 | [TMUX-CONFIG.md](TMUX-CONFIG.md) | The dedicated socket, the config chain, session groups, servers and client-side key tables | The socket, the config chain and pins, PANE/TAB modes, remote servers |
+| [PROFILES.md](PROFILES.md) | Named sets of the menus' settings, one per tmux session, and the Default Profile that changes nothing | Profiles; settings that differ by session |
+| [WORKTREES.md](WORKTREES.md) | Git worktrees: removing one without losing work, and how tmuxy runs git in a repository it did not make | `tmuxy worktree`, anything that runs git in a pane's checkout |
 | [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) | Version-specific tmux behaviour tmuxy depends on or works around, 3.2 to HEAD | A bug that shows on one tmux version |
+| [PROMPT-MARKS.md](PROMPT-MARKS.md) | The shell's prompts (OSC 133): how their rows are read from tmux, the marks and the jump in the scrollback, Copy Last Output, the result a long command leaves on its pane | Working on prompt marks, the jump between prompts, or what a finished command shows |
+| [ACTIVITY.md](ACTIVITY.md) | The activity inbox: every pane that declared a state, across sessions, by urgency, and the jump to the one that needs you | Working on the inbox, cross-session attention, or `prefix A` / `U` |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
 
 ### Extending
@@ -80,6 +88,8 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [PLUGINS.md](PLUGINS.md) | Plugins: the manifest, the install gate, how an action runs | Writing or installing a plugin |
 | [PLUGIN-API.md](PLUGIN-API.md) | The plugin API — the one surface that only grows (a change needs `api = 2`) | Changing anything a plugin can call |
 | [MCP.md](MCP.md) | The `/mcp` endpoint (`tmuxy mcp`) and its tools | An agent driving a session |
+| [PERMISSIONS.md](PERMISSIONS.md) | `permissions.json`: rules that refuse a send into another pane, or have it asked | Changing what an agent may type into another pane |
+| [AGENT-INBOX.md](AGENT-INBOX.md) | A spike, off by default: `pane send --inbox` posts to a Claude Code session's inbox socket instead of typing | Sending to agents without keystrokes; the bridge's open questions |
 
 ### Security & Constraints
 
@@ -87,7 +97,8 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | --- | --- | --- |
 | [SECURITY.md](SECURITY.md) | Threat model, optional password auth, loopback by default, known risks (no TLS, file access, run-shell), deployment recommendations | Deploying tmuxy, adding network-facing features, or assessing risk |
 | [SECURITY-NETWORK.md](SECURITY-NETWORK.md) | Where the server listens, what it serves, and how to deploy it | Exposing a server beyond the machine it runs on |
-| [SECURITY-CONTENT.md](SECURITY-CONTENT.md) | Previewed files, session snapshots and hostile pane output | The preview widget, snapshots, anything that renders what a program wrote |
+| [SECURITY-CONTENT.md](SECURITY-CONTENT.md) | What widgets read (a pointer), session snapshots and hostile pane output | The preview widget, snapshots, anything that renders what a program wrote |
+| [SECURITY-WIDGETS.md](SECURITY-WIDGETS.md) | The one file a preview reads and the one checkout a diff reads, and what git may not run | The preview or diff widget, anything that reads a file for a pane |
 | [TELEMETRY.md](TELEMETRY.md) | Every network connection the server, the desktop app, the CLI and the website make: when, to where, what is sent, how to turn it off | Adding anything that talks to the network; answering "does tmuxy phone home?" |
 | [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do (no terminal emulation, no live local scrollback buffer, no local echo, no canvas rendering, etc.) | Before proposing a new feature; understanding design boundaries |
 
@@ -101,11 +112,14 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md) | The deterministic and v86 Storybook probes, quarantine, accessibility | Writing or fixing a story |
 | [FEATURES.md](FEATURES.md) | Every capability a user or an agent has, by surface (mouse, menu, keys, CLI, config), with the test that holds it; [FEATURES-TABS.md](FEATURES-TABS.md) and [FEATURES-APP.md](FEATURES-APP.md) hold the rest | Adding or removing a menu item, a binding, a CLI verb or an option; finding where a capability is reachable |
 | [INVARIANTS.md](INVARIANTS.md) | The ledger of cross-layer promises — effect ordering, stream sequencing, predictions, read-only gating — each with the test that holds it | Fixing a bug on a seam; adding a test for ordering or a race |
+| [INVARIANTS-SERVER-STREAM.md](INVARIANTS-SERVER-STREAM.md) | The ledger's `S` rows: the server's event stream (seqs, the replay ring, reconnects) | Fixing a bug in `GET /events`, replay or a reconnect |
 | [INVARIANTS-UI-LIFECYCLE.md](INVARIANTS-UI-LIFECYCLE.md) | The ledger's `U` and `L` rows: UI-mode records, session lifecycle | Fixing a bug in copy mode, resize preview, or restore |
 | [INVARIANTS-CLIENT-MODEL.md](INVARIANTS-CLIENT-MODEL.md) | The ledger's client rows: `C` (stream stage), `Q` (command queue and input), `P` (predictions and reconcile) | Fixing a bug in the client's stream, its command queue or keyboard batching, an optimistic op, a placeholder id, or a focus prediction |
 | [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each | Benchmarking, profiling, or investigating latency |
+| [PERFORMANCE-RUNNING.md](PERFORMANCE-RUNNING.md) | Running the whole-interaction harness: the throwaway server it requires, `perf:interactions` and `perf:compare` and their flags | Running or changing the perf harness |
 | [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) | The numbers measured so far, long-session retention, and snapshot costs | Judging whether a measurement regressed |
 | [TRACING.md](TRACING.md) | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: reading it, the redaction boundary | Debugging complex cross-layer issues; reporting a bug with a trace |
+| [REPORTING-ISSUES.md](REPORTING-ISSUES.md) | For users: what a bug report needs, how to take a trace slice, what a trace holds and how to check it before sharing | Filing or triaging an issue; answering "is it safe to share my trace?" |
 | [TRACING-DESIGN.md](TRACING-DESIGN.md) | The trace file's schema, its instrumentation seams and correlation | Adding instrumentation |
 | [CI-TRIAGE.md](CI-TRIAGE.md) | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points | Investigating red GitHub Actions runs |
 | [NIGHTLY-SWEEP.md](NIGHTLY-SWEEP.md) | Why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it tells a flake from a defect | A red nightly sweep |
@@ -116,6 +130,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | --- | --- | --- |
 | [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (iTerm2, Kitty, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
 | [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) | Why every glyph must land on tmux's cell grid, and how widths are kept in agreement | Fonts, wide characters, anything that measures a cell |
+| [RICH-RENDERING-TESTING.md](RICH-RENDERING-TESTING.md) | How to try each rich-rendering protocol by hand, and the tests that cover them | Testing images, links or OSC sequences |
 
 ## Conventions
 

@@ -131,3 +131,16 @@ fn the_agents_are_known_by_their_process_names() {
     assert!(is_agent("claude") && is_agent("antigravity") && is_agent("2.1.30"));
     assert!(!is_agent("zsh"));
 }
+
+/// The format as written; `tests/agent_takes_input.rs` asks a real tmux.
+#[test]
+fn the_agent_takes_input_format_is_spelled_from_the_agent_list() {
+    let format = agent_takes_input_format();
+    assert_eq!(
+        format,
+        "#{&&:#{||:#{||:#{||:#{||:#{==:#{pane_current_command},claude},\
+         #{==:#{pane_current_command},codex}},#{==:#{pane_current_command},agy}},\
+         #{==:#{pane_current_command},antigravity}},#{m:[0-9]*.[0-9]*,#{pane_current_command}}},\
+         #{&&:#{!=:#{@tmuxy-pane-state},needs-input},#{==:#{@tmuxy-ask},}}}"
+    );
+}

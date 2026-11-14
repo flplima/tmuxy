@@ -32,6 +32,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | S8 | The session menu | — | `menu-session` | — | — | — | — |
 | S9 | Size shared by several clients | — | — | — | — | `@tmuxy-size` | `tests/4-session-connectivity.test.js` |
 | S10 | Reconnect after a dropped connection | the overlay | — | — | — | — | `tests/4-session-connectivity.test.js` |
+| S11 | The activity inbox: every pane that needs you, across sessions, and the jump to the most urgent | — | `view-activity` `view-activity-most-urgent` | — | — | — | `tests/4-session-connectivity-activity.test.js` |
 
 ## Copy mode and scrollback
 
@@ -49,3 +50,6 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | W1 | Preview a markdown file or a page in a pane | — | `widget:preview-close` | — | `tmuxy open` `tmuxy widget preview` | — | `tests/14-widget-preview.test.js` |
 | W2 | Only a pane that asked draws a widget | — | — | — | — | — | `tests/14-widget-authorisation.test.js` |
+| W3 | A checkout's changes in a pane, by scope, with line comments sent to its agent as one review | — | — | — | `tmuxy widget diff` | — | `tests/14-widget-diff.test.js` |
+| W4 | The last turn: what an agent changed while it worked | — | — | — | `tmuxy widget diff` | — | `tests/14-widget-diff-turn.test.js` |
+| W5 | Stage, unstage or revert one hunk, with an undo | — | — | — | `tmuxy widget diff` | — | `tests/14-widget-diff-hunks.test.js` |
