@@ -57,6 +57,7 @@ import type { KeyboardActorInput } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
+import type { JumpHintsActorEvent } from '../actors/jumpHintsActor';
 import type { GestureActorEvent, GestureActorInput } from '../gestures/gestureActor';
 import type { ServersActorEvent, ServersActorInput } from '../actors/serversActor';
 import { keyboardGlobalEvents } from './states/keyboard';
@@ -85,6 +86,7 @@ export const appMachine = setup({
     keyboardActor: fromCallback<EventObject, KeyboardActorInput>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
+    jumpHintsActor: fromCallback<JumpHintsActorEvent>(() => () => {}),
     gestureActor: fromCallback<GestureActorEvent, GestureActorInput>(() => () => {}),
     serversActor: fromCallback<ServersActorEvent, ServersActorInput>(() => () => {}),
     dragMachine,
@@ -146,6 +148,10 @@ export const appMachine = setup({
     {
       id: 'linkModifier',
       src: 'linkModifierActor',
+    },
+    {
+      id: 'jumpHints',
+      src: 'jumpHintsActor',
     },
     {
       id: 'gestures',

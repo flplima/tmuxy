@@ -65,3 +65,16 @@
   flex-shrink: 0;
   height: 100%;
 }
+
+/* There only over a slow link (infra/linkLatency.ts), before the buttons that
+   are always there so it never pushes them. */
+.link-latency {
+  padding: 0 var(--spacing-lg);
+  color: var(--accent-orange);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.link-latency.is-very-slow {
+  color: var(--error-color);
+}

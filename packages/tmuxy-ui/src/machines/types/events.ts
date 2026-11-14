@@ -122,10 +122,14 @@ export type AppMachineEvent =
   | { type: 'SUPPRESS_ANIMATIONS' }
   /** The grid is the size this client asked for and settled: layout changes may animate again. */
   | { type: 'ANIMATIONS_SETTLED' }
+  /** A size report did not reach the backend (tmuxActor): it is owed again. */
+  | { type: 'CLIENT_SIZE_UNREPORTED'; cols: number; rows: number }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;
       rows: number;
+      /** Report it to the backend even if it was reported before: the connection or the size policy is new. */
+      resend?: boolean;
     }
   | { type: 'SET_CONTAINER_SIZE'; width: number; height: number }
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
@@ -187,6 +191,8 @@ export type AppMachineEvent =
   | { type: 'TAB_OVERVIEW_MOVE'; delta: number }
   | { type: 'TAB_OVERVIEW_ACTIVATE'; index?: number }
   | { type: 'SELECT_TAB_BY_POSITION'; position: number }
+  /** ctrl+alt+1…9: the Nth pane of the tab in front, in reading order (`domain/jumpHints.ts`). */
+  | { type: 'SELECT_PANE_BY_POSITION'; position: number }
   | { type: 'REORDER_TAB'; windowId: WindowId; toIndex: number }
   | { type: 'MOVE_ACTIVE_TAB'; by: -1 | 1 }
   | { type: 'CLOSE_TAB'; windowId: WindowId }

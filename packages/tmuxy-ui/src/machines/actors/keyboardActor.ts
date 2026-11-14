@@ -3,6 +3,7 @@
  * dispatches prefix, sticky key-table, root, and literal/keystroke ops.
  */
 
+import { jumpDigit, jumpHintMode } from '../../domain/jumpHints';
 import { clearNativeSelection, terminalSelection } from '../../infra/dom/nativeSelection';
 import { fromCallback, type AnyActorRef, type EventObject } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
@@ -362,6 +363,15 @@ export function createKeyboardActor() {
           const binding = tables.get(keyTable)?.get(bindingKey);
           setKeyTable(binding ? (runBinding(binding) ?? null) : null);
         }
+        notifyKeyPress(event);
+        return;
+      }
+
+      // ctrl+alt+1…9: the Nth pane of the tab in front, as the hints number them.
+      const paneDigit = jumpHintMode(event) === 'panes' ? jumpDigit(event.code) : null;
+      if (!replayed && paneDigit) {
+        event.preventDefault();
+        input.parent.send({ type: 'SELECT_PANE_BY_POSITION', position: paneDigit });
         notifyKeyPress(event);
         return;
       }

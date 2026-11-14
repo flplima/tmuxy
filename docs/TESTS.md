@@ -27,6 +27,20 @@ The most common failure mode in UI testing is asserting against the DOM instead 
 3. Never trust `getComputedStyle` alone. A green border on an element clipped to 0px height is not a green border.
 4. When testing content rendering (e.g., "type a command and see output"), verify the content container has **visible dimensions** and the text is within the visible region.
 
+## The Loopback Trap
+
+Every suite runs with the browser, the server and tmux on one machine, where a round trip takes about a millisecond. Three costs are invisible there, and each one has shipped:
+
+- **Round trips in a row.** A request that waits for the answer to the one before costs nothing on loopback and a full round trip each on a real link. Typing over a 170 ms link fell seconds behind because every keystroke's `POST` waited for the previous one.
+- **Requests per action.** One wheel notch sent five requests and a client beside a smaller one sent three per keystroke. On loopback nobody could tell.
+- **Bytes per action.** A page load fetched 3.4 MB uncompressed every time, and the first scroll-up of a long history about 1 MB of JSON.
+
+**Rules:**
+
+1. A latency result is only true at the input rate it was measured at. The first slow-link experiment pressed keys 400 ms apart, more than every delay it injected, so nothing ever queued and it reported the transport as free of head-of-line cost. Measure a burst faster than the link's round trip as well as a single action.
+2. When a change adds a request to something the user does repeatedly (a key, a pointer move, a resize, a model update), pin the count in a unit test: N inputs in, at most M requests out. Counts do not depend on the machine, so this gates on every push. `keyBatching.test.ts`, `clientSizeReport.test.ts` and `sizeActor.test.ts` are the pattern. `packages/tmuxy-ui/scripts/measure-requests.mjs` (`npm run perf:requests`) counts the same thing through the real app, with the bytes that came back, and fails on its budgets: a page load, a reload, typing alone and beside a smaller client, a window drag, a wheel flick over a mouse program, the first scroll-up of a long history.
+3. When a change adds a wait for an answer before the next send, it needs a run over a delayed link before it ships ([PERFORMANCE.md](PERFORMANCE.md), Axis B).
+
 ## Test What the Feature Does, Not How It Works
 
 Bad test: "After split-window, XState context has 2 panes and the DOM has 2 `.pane-layout-item` elements."
@@ -123,6 +137,9 @@ npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvf
 # Interaction latency (needs a running server; --cdp reuses the dev browser)
 npm run perf:interactions -- --url http://localhost:9000 --out tests/perf/interaction-report.json
 npm run perf:compare -- --report tests/perf/interaction-report.json
+
+# Requests and bytes per user action, against budgets (needs a running server)
+npm run perf:requests -- --url http://localhost:9000
 ```
 
 ## Known Gaps
@@ -133,6 +150,7 @@ npm run perf:compare -- --report tests/perf/interaction-report.json
 | The packaged macOS app is only tested after merge | The Linux desktop smoke test runs on PRs (`desktop` in `lint-and-tests.yml`), but `build-app.yml` — which builds the macOS app and runs the sparse-PATH test — triggers only on tags, a daily cron and manual dispatch. Dispatch it before tagging when a change touches the desktop app or packaging. |
 | Firefox runs in no suite | The E2E matrix drives Chromium and one suite drives Playwright's WebKit (`tests/11-webkit.test.js`); nothing drives Gecko. A drag over a pane selected and copied nothing in Firefox, and a clipboard write the browser refused was announced as copied in Firefox and Safari, until both were found by hand with real Firefox (geckodriver) and WebKitGTK (WebKitWebDriver). Their unit tests pin the two conditions; a Gecko E2E shard would catch the next one. |
 | macOS WKWebView gets no functional desktop suite | `tests/tauri/` is Linux-only (`tests/tauri/helpers/xvfb.js`, `tests/tauri/helpers/tauri-driver.js`); macOS only gets `tests/smoke/smoke-test.js`, post-merge. |
+| Almost nothing runs over a slow link | The E2E matrix, the story probes and the interaction gate all sit on loopback ([The Loopback Trap](#the-loopback-trap)). Request counts are pinned by unit tests; time over a delayed link is not measured on a push ([PERFORMANCE.md](PERFORMANCE.md), Axis B). A divider drag (a `resize-pane` every 80 ms, however slow the link) and the HTML preview (one request per resource, in a row) are known and not yet bounded. |
 | Output flood tests are light | The heaviest is `tests/5-stress-stability.test.js` Scenario 17: `yes \| head -500` and `seq 1 2000`. No sustained, multi-megabyte or backpressure test exists, and the latency gate measures no output throughput. |
 | Uncovered crates and scripts | The `packages/tmuxy-demo` site has no tests (only its agent-docs build script does) and `deploy-demo.yml` deploys without testing. |
 | `deltaProtocol.ts` is largely untested in substance | A one-off Stryker run scored it at 24.96% (285 surviving mutants, 175 lines with no coverage) despite unit and property tests existing for it; most survivors were the conditional-spread guards the property tests exercise without asserting on. |

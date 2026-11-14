@@ -251,6 +251,14 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec
     },
     {
       kind: 'item',
+      id: 'trace-copy-share',
+      label: 'Copy Trace…',
+      icon: 'copy',
+      disabled: !trace?.path,
+      action: local({ verb: 'copy-trace' }),
+    },
+    {
+      kind: 'item',
       id: 'trace-copy-path',
       label: 'Copy trace.ndjson Path',
       icon: 'copy',
