@@ -162,6 +162,8 @@ export type AppMachineEvent =
   /** A plain key typed into a pane with a question on it; the ask slice decides what it does. */
   | { type: 'ASK_KEY'; paneId: PaneId; key: string }
   | { type: 'CLOSE_FLOAT'; paneId: PaneId }
+  /** Send a float to the queue at the bottom of its tab, or bring it back (`@tmuxy-float-minimized`). */
+  | { type: 'MINIMIZE_FLOAT'; paneId: PaneId; minimized: boolean }
 
   // Who holds the keyboard (the keyboard slice)
   | { type: 'TAKE_KEYBOARD'; owner: KeyboardOwner }

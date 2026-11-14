@@ -65,6 +65,7 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     prev.floatDrawer === next.floatDrawer &&
     prev.floatBg === next.floatBg &&
     prev.floatNoheader === next.floatNoheader &&
+    Boolean(prev.floatMinimized) === Boolean(next.floatMinimized) &&
     (prev.sidebarCols ?? null) === (next.sidebarCols ?? null) &&
     Boolean(prev.sidebarHidden) === Boolean(next.sidebarHidden) &&
     Boolean(prev.collapsible) === Boolean(next.collapsible) &&
