@@ -86,7 +86,7 @@ function tmuxRunAsOperator(command, env = tmuxEnv()) {
  * @param {string[]} args - The CLI's arguments
  * @returns {string} What it printed
  */
-function tmuxyCli(args) {
+function tmuxyCli(args, extraEnv = {}) {
   return execFileSync(TMUXY_CLI, args, {
     cwd: WORKSPACE_ROOT,
     encoding: 'utf-8',
@@ -94,7 +94,8 @@ function tmuxyCli(args) {
     stdio: ['ignore', 'pipe', 'pipe'],
     // The build under test, as a pane's shell gets it from the server's
     // published environment: a `tmuxy-server` on PATH is some other build.
-    env: cliEnv(),
+    // `extraEnv` adds to it: `TMUX_PANE` runs the CLI as from that pane.
+    env: { ...cliEnv(), ...extraEnv },
   });
 }
 
