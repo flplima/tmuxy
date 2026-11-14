@@ -236,3 +236,23 @@ fn with_no_saved_preference_the_build_kind_decides() {
     assert!(resolve_enabled(false, None, true));
     assert!(!resolve_enabled(false, None, false));
 }
+
+/// `--trace /tmp/run.ndjson`, as CI's E2E job passes it: `/tmp` is root's and
+/// cannot be made owner-only, which used to turn tracing off.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_trace_file_in_a_directory_another_user_owns_still_opens() {
+    use std::os::unix::fs::MetadataExt;
+    let shared = std::path::Path::new("/tmp");
+    // As root, or with a `/tmp` of its own, the directory would be tightened
+    // for real: nothing to show then.
+    let owner = std::fs::metadata(shared).unwrap().uid();
+    // SAFETY: getuid() has no preconditions.
+    if owner == unsafe { libc::getuid() } {
+        return;
+    }
+    let path = shared.join(format!("tmuxy-trace-open-{}.ndjson", std::process::id()));
+    let opened = layer::open_append(&path);
+    let _ = std::fs::remove_file(&path);
+    assert!(opened.is_ok(), "{opened:?}");
+}

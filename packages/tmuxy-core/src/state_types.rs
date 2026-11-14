@@ -72,6 +72,13 @@ pub struct TmuxPane {
     /// collapses anything it does not recognize.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_state: Option<String>,
+    /// What the pane's program reported behind that state (OSC 7501), from
+    /// `@tmuxy-pane-status`: a report body,
+    /// `state=blocked:kind=permission:msg=<base64>`, which a host wrote from
+    /// the pane's output. Carried verbatim; the client decodes the text.
+    /// `None` when the state is not the one the report was made with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_status: Option<String>,
     /// The pending confirmation from `@tmuxy-ask`: the base64 payload
     /// `tmuxy pane send -t` wrote on the pane the keys are meant for. Carried verbatim —
     /// the client decodes it and draws the question over the pane's content.
@@ -207,6 +214,10 @@ pub struct TmuxWindow {
     /// True if the float hides its header chrome (from @tmuxy-float-noheader).
     #[serde(default, skip_serializing_if = "is_false")]
     pub float_noheader: bool,
+    /// True while the user has minimized this float to the queue at the
+    /// bottom of its tab (from @tmuxy-float-minimized). Its pane keeps running.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub float_minimized: bool,
     /// A sidebar column's width in terminal columns when the user has dragged it
     /// off its default (from @tmuxy-sidebar-cols). The client draws the column
     /// at this many cells, so it must match what the backend sized the pane to.

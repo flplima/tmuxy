@@ -15,7 +15,7 @@
  * | `type(text)` | type a literal string, `\n` meaning Enter |
  * | `wait(ms)` | sleep |
  * | `clickActivePane()` | put keyboard focus in the ACTIVE pane's terminal |
- * | `arm(probe, arg, timeoutMs)` | start a measurement, resolve to `{ settle() }` |
+ * | `arm(probe, arg, timeoutMs, keys)` | start a measurement whose clock starts on the `keys`-th keydown (the first when omitted), resolve to `{ settle() }` |
  *
  * `arm` is split from its result because the two drivers differ exactly there:
  * Playwright can hold a pending in-page promise across a keystroke, while
@@ -24,6 +24,7 @@
  * number never includes driver round-trip cost.
  */
 import { execSync } from 'node:child_process';
+import { BUSY_PANES, closeWindow, newWindowId, startBusyPanes } from './busy-panes.mjs';
 
 /** A sample slower than this is a timeout, not a datapoint. */
 export const SAMPLE_TIMEOUT_MS = 5000;
@@ -33,6 +34,18 @@ export const SAMPLE_TIMEOUT_MS = 5000;
  * land inside the next one's measurement window.
  */
 export const SETTLE_MS = 450;
+
+/**
+ * `key-burst`: this many keys, this far apart — a fast typist's pace, and
+ * faster than a slow link answers. Timed from the LAST keydown to the whole
+ * burst being on screen, so anything that makes keys queue behind one another
+ * (a POST that waits for the answer to the one before it) shows as a multiple
+ * of `key-echo` instead of hiding in a p50 of keys pressed one at a time.
+ */
+export const BURST_KEYS = 30;
+export const BURST_INTERVAL_MS = 60;
+/** A queued burst pays up to one round trip per key: far past a single sample's limit. */
+const BURST_TIMEOUT_MS = 30000;
 
 /** A distinct letter per sample, so a probe counts THIS keystroke's echo. */
 export const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
@@ -74,17 +87,20 @@ function probeInstaller() {
     // Occurrences of a specific character in the focused pane, so an
     // unrelated repaint (a clock, a spinner) cannot resolve the sample.
     charCount: (ch) => (activeLog()?.textContent ?? '').split(ch).length - 1,
+    // Whether the focused pane shows at least `count` of `ch`: a burst's end.
+    charsShown: ({ ch, count }) => window.__perfProbes.charCount(ch) >= count,
   };
 
-  window.__perfArm = (probeName, arg, timeoutMs) =>
+  window.__perfArm = (probeName, arg, timeoutMs, keys = 1) =>
     new Promise((resolve) => {
       const probe = window.__perfProbes[probeName];
       const base = probe(arg);
       let t0 = 0;
       let settled = false;
+      let keydowns = 0;
 
       const onKey = () => {
-        if (!t0) t0 = performance.now();
+        if (++keydowns === keys) t0 = performance.now();
       };
       document.addEventListener('keydown', onKey, { capture: true });
 
@@ -99,7 +115,7 @@ function probeInstaller() {
       };
 
       const check = () => {
-        if (!t0) return; // a mutation before the keydown is not ours
+        if (!t0) return; // a mutation before the keydown that starts the clock is not ours
         if (probe(arg) !== base) finish(performance.now() - t0);
       };
 
@@ -123,9 +139,9 @@ function probeInstaller() {
   // `null` while pending, never `undefined`: WebDriver serializes `undefined`
   // to `null` on the way out, so an unset slot and a settled one would be
   // indistinguishable to a polling reader.
-  window.__perfArmStart = (probeName, arg, timeoutMs) => {
+  window.__perfArmStart = (probeName, arg, timeoutMs, keys) => {
     window.__perfResult = null;
-    window.__perfArm(probeName, arg, timeoutMs).then((v) => {
+    window.__perfArm(probeName, arg, timeoutMs, keys).then((v) => {
       window.__perfResult = v;
     });
   };
@@ -140,9 +156,13 @@ export async function installProbes(adapter) {
  *
  * `act` performs the keystroke that starts the clock; `probe`/`probeArg` name
  * the observable that stops it. `between` runs untimed after each sample to
- * put the session back where the next sample expects it.
+ * put the session back where the next sample expects it. An `act` of several
+ * keys says so in `keys`, and the clock starts on the last of them.
  */
-export async function measure(adapter, { name, samples, act, probe, probeArg = null, between }) {
+export async function measure(
+  adapter,
+  { name, samples, act, probe, probeArg = null, between, keys = 1, timeoutMs = SAMPLE_TIMEOUT_MS },
+) {
   const values = [];
   let timeouts = 0;
 
@@ -152,8 +172,8 @@ export async function measure(adapter, { name, samples, act, probe, probeArg = n
   // one-off cost into every p95.
   for (let round = 0; round <= samples; round++) {
     const warmup = round === 0;
-    const arg = typeof probeArg === 'function' ? probeArg(round) : probeArg;
-    const armed = await adapter.arm(probe, arg, SAMPLE_TIMEOUT_MS);
+    const arg = typeof probeArg === 'function' ? await probeArg(round) : probeArg;
+    const armed = await adapter.arm(probe, arg, timeoutMs, keys);
     await adapter.wait(40); // let the listener attach before the key
     await act(round);
     const ms = await armed.settle();
@@ -183,6 +203,7 @@ export function summarize(result) {
   }
   return {
     name: result.name,
+    ...(result.load ? { load: result.load } : {}),
     samples: sorted.length,
     timeouts: result.timeouts,
     p50: round1(pct(sorted, 0.5)),
@@ -310,6 +331,33 @@ export async function runInteractions(adapter, { samples }) {
   await adapter.press('Control+u');
   await adapter.wait(500);
 
+  results.push(
+    await measure(adapter, {
+      name: 'key-burst',
+      samples,
+      keys: BURST_KEYS,
+      timeoutMs: BURST_TIMEOUT_MS,
+      probe: 'charsShown',
+      // Counted from what the pane already shows: the letter may be in the prompt.
+      probeArg: async (i) => {
+        const ch = LETTERS[i % 26];
+        const shown = await adapter.evaluate((c) => window.__perfProbes.charCount(c), ch);
+        return { ch, count: shown + BURST_KEYS };
+      },
+      act: async (i) => {
+        // Paced against the clock, not by sleeping between keys: a driver that
+        // takes 20 ms to press one must not stretch the burst.
+        const start = Date.now();
+        for (let k = 0; k < BURST_KEYS; k++) {
+          const ahead = start + k * BURST_INTERVAL_MS - Date.now();
+          if (ahead > 0) await adapter.wait(ahead);
+          await adapter.press(LETTERS[i % 26]);
+        }
+      },
+      between: () => adapter.press('Control+u'),
+    }),
+  );
+
   await ensurePanes(adapter, prefix, 2);
   results.push(
     await measure(adapter, {
@@ -358,7 +406,41 @@ export async function runInteractions(adapter, { samples }) {
     }),
   );
 
+  results.push(await measureKeyEchoBusy(adapter, prefix, samples));
   return results;
+}
+
+/**
+ * `key-echo` again, in a tab of its own where the focused pane shares the
+ * screen with {@link BUSY_PANES} panes redrawing a spinner: what a keystroke
+ * costs while other panes are loud. The tab goes when it is measured.
+ */
+async function measureKeyEchoBusy(adapter, prefix, samples) {
+  const windowId = await newWindowId(adapter, () => prefixKey(adapter, prefix, 'c'));
+  await adapter.wait(800);
+  let busy = null;
+  let result = null;
+  let closed = false;
+  try {
+    busy = await startBusyPanes(adapter, { windowId, count: BUSY_PANES });
+    await adapter.wait(1500);
+    await adapter.clickActivePane();
+    await adapter.press('Control+u');
+    await adapter.wait(500);
+    result = await measure(adapter, {
+      name: 'key-echo-busy',
+      samples,
+      probe: 'charCount',
+      probeArg: (i) => LETTERS[i % 26],
+      act: (i) => adapter.press(LETTERS[i % 26]),
+    });
+  } finally {
+    busy?.stop();
+    // The tab this run made, by its id, however the run ended.
+    closed = await closeWindow(adapter, windowId);
+  }
+  if (!closed) throw new Error(`the busy tab ${windowId} could not be closed`);
+  return { ...result, load: busy.stop() };
 }
 
 /**
@@ -366,7 +448,15 @@ export async function runInteractions(adapter, { samples }) {
  * derived: the desktop harness measures a different product on the same
  * machine and must not be compared against the web baseline.
  */
-export function buildReport({ results, label, platform, target, url, samplesRequested }) {
+export function buildReport({
+  results,
+  label,
+  platform,
+  target,
+  url,
+  samplesRequested,
+  linkRttMs = null,
+}) {
   const summaries = results.map(summarize);
   const reference = summaries.find((s) => s.name === 'key-echo');
   const refP50 = reference && reference.p50 ? reference.p50 : null;
@@ -380,6 +470,8 @@ export function buildReport({ results, label, platform, target, url, samplesRequ
     target,
     url,
     samplesRequested,
+    // The round trip a latency proxy added between the browser and the server.
+    linkRttMs,
     // A multiple of this run's keystroke round trip: machine-speed-independent,
     // which is what makes a CI budget possible.
     reference: 'key-echo',

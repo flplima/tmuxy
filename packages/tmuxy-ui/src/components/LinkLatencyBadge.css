@@ -1,0 +1,26 @@
+/* There only over a slow link (infra/linkLatency.ts). In the status bar it
+   sits before the buttons that are always there, so it never pushes them. */
+.link-latency {
+  flex: none;
+  padding: 0 var(--spacing-lg);
+  color: var(--accent-orange);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-small-font-size);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.link-latency.is-very-slow {
+  color: var(--error-color);
+}
+
+/* On a phone it is a button: after the three views' tabs upright, at the far
+   end of the menu's strip held sideways. */
+button.link-latency {
+  border: none;
+  background: transparent;
+}
+
+.phone-side-strip > .link-latency {
+  margin-left: auto;
+}

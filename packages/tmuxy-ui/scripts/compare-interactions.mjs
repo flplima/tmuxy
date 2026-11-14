@@ -23,6 +23,7 @@
  *                                 [--summary FILE] [--update-baseline]
  */
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { compareHiddenBytes } from './lib/compare-bytes.mjs';
 import { dirname } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -45,12 +46,23 @@ const UPDATE = has('--update-baseline');
  */
 const RATIO_BUDGETS = {
   'key-echo': 1.5, // the reference, compared against itself
+  // The last key of 30 typed 60 ms apart. Keys that queue behind one another
+  // put it a round trip further back per key: over a 150 ms link, with each
+  // POST waiting for the answer to the one before it, this measured 15×.
+  'key-burst': 3, // measured ~1×, on the bare link and over 150 ms
   // 3× leaves room for noise while still failing loudly if navigation ever
   // loses its optimistic prediction again — un-predicted, it measured 12×.
   'pane-nav-keyboard': 3, // measured ~0.3×
   'pane-zoom-toggle': 5, // measured ~2.4×
   'pane-split': 5, // measured ~2.0×
   'tab-switch': 4, // measured ~0.1× — the optimistic prediction paints at once
+  // The keystroke with 23 panes beside it each redrawing a spinner at ~2 KB/s:
+  // measured 1.1–1.8× on a loaded dev machine, p95 nearer 2×.
+  'key-echo-busy': 3,
+  // Navigation start to the focused pane's prompt, and to the first key
+  // echoed, with 10k lines of scrollback: measured ~12× and ~17×.
+  'attach-paint': 30,
+  'attach-interactive': 40,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */
@@ -77,6 +89,14 @@ const report = load(REPORT, 'report');
 if (!report) {
   console.error(`no report at ${REPORT}`);
   process.exit(2);
+}
+// A `perf:hidden-bytes` report has a budget of its own, and no baseline.
+if (report.kind === 'hidden-bytes') {
+  const { lines, failures } = compareHiddenBytes(report);
+  const out = lines.join('\n');
+  console.log(out);
+  if (SUMMARY) appendFileSync(SUMMARY, `${out}\n`);
+  process.exit(failures.length === 0 ? 0 : 1);
 }
 /**
  * Baselines are keyed by platform and target: a macOS laptop says nothing
@@ -130,6 +150,15 @@ for (const item of report.interactions) {
     } else {
       warnings.push(`${item.name}: ${item.timeouts} sample(s) never produced a visible result`);
     }
+  }
+
+  // Keys typed during an attach that never arrived (`lib/attach.mjs`): the
+  // page holds them until it connects, so one lost is a regression.
+  if (item.load?.lostKeys > 0) {
+    verdict = '❌';
+    failures.push(
+      `${item.name}: ${item.load.lostKeys} of ${item.load.typedKeys} keys typed during the attach never arrived`,
+    );
   }
 
   rows.push({
