@@ -64,6 +64,9 @@ const RATIO_BUDGETS = {
   // the entry script is gzipped and cached (it was ~11× and ~17×).
   'attach-paint': 12,
   'attach-interactive': 20,
+  // A first wheel scroll over 10k lines of history to the rows in view
+  // loaded: ~2.5× since history comes newest first (it was ~11×).
+  'attach-scroll': 6,
 };
 
 /** Absolute p50 growth over the baseline that earns a warning line. */

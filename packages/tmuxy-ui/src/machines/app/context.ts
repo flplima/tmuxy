@@ -28,6 +28,7 @@ export type StateName =
   | 'gestures'
   | 'ask'
   | 'plugins'
+  | 'activity'
   | 'palette';
 
 /**
@@ -55,9 +56,12 @@ export const FIELD_OWNERS = {
   heldOverflow: 'connection',
   sessions: 'connection',
   repositories: 'connection',
+  panePorts: 'connection',
+  treeRowTemplate: 'connection',
   servers: 'connection',
   currentServerId: 'connection',
   restorableSessions: 'connection',
+  ownTmuxNotice: 'connection',
 
   targetCols: 'viewport',
   targetRows: 'viewport',
@@ -125,6 +129,8 @@ export const FIELD_OWNERS = {
   pendingClose: 'commandUi',
   renamingPaneId: 'commandUi',
 
+  activityOpen: 'activity',
+  activityRows: 'activity',
   palette: 'palette',
   pendingGoTo: 'palette',
 
@@ -133,6 +139,7 @@ export const FIELD_OWNERS = {
   themeName: 'uiPrefs',
   themeMode: 'uiPrefs',
   availableThemes: 'uiPrefs',
+  profiles: 'uiPrefs',
   traceSettings: 'uiPrefs',
   baseFontSize: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
@@ -201,9 +208,12 @@ export function createInitialContext(): AppMachineContext {
     bodyWidth: 0,
     sessions: [],
     repositories: [],
+    panePorts: [],
+    treeRowTemplate: '',
     servers: [],
     currentServerId: null,
     restorableSessions: [],
+    ownTmuxNotice: null,
     floatPanes: {},
     keyboardOwner: { kind: 'panes' },
     sidebars: {
@@ -243,6 +253,7 @@ export function createInitialContext(): AppMachineContext {
     themeName: loadThemePref().theme,
     themeMode: loadThemePref().mode,
     availableThemes: [],
+    profiles: null,
     traceSettings: null,
     plugins: [],
     pluginsRev: '',
@@ -254,6 +265,8 @@ export function createInitialContext(): AppMachineContext {
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
+    activityOpen: false,
+    activityRows: [],
     pendingClose: null,
     palette: null,
     pendingGoTo: null,

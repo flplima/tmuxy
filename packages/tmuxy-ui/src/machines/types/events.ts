@@ -1,9 +1,18 @@
 import type { PushState } from '../../infra/pushNotifications';
 import type { ServerState, KeyBindings, Appearance, ProcessIcons } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
-import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../domain/wireSettings';
+import type {
+  ProfilesInfo,
+  ThemeInfo,
+  ThemeMode,
+  TraceLevel,
+  TraceSettings,
+} from '../../domain/wireSettings';
+import type { ProfileCall } from '../../domain/backendCalls';
 import type { TabStripGeometry } from '../drag/tabStripDrop';
 import type { AskAnswer } from '../../domain/paneAsk';
+import type { PromptDirection } from '../../domain/promptMarks';
+import type { ActivityRow, ActivityTarget } from '../../domain/activity';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
 import type { TmuxOp } from '../../domain/commands';
@@ -21,6 +30,8 @@ import type {
 } from './domain';
 import type {
   GitRepository,
+  OwnTmuxOffer,
+  PanePorts,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
@@ -94,6 +105,16 @@ export type AppMachineEvent =
   | { type: 'KEY_TABLE_CHANGE'; table: string | null }
   /** Open or close the keys view (`prefix ?`). */
   | { type: 'TOGGLE_KEYS_VIEW' }
+  /** Open or close the activity inbox (every pane that said something, by urgency). */
+  | { type: 'TOGGLE_ACTIVITY' }
+  /** Read the panes again: the inbox asks while it is open. */
+  | { type: 'REFRESH_ACTIVITY' }
+  /** tmux answered with every pane's state; `go` is a jump that was waiting for it. */
+  | { type: 'ACTIVITY_LOADED'; rows: readonly ActivityRow[]; go?: 'most-urgent' }
+  /** Go to a pane, in this session or another, and close the inbox. */
+  | { type: 'ACTIVITY_GO'; row: ActivityTarget }
+  /** Go straight to the pane that wants the user most. */
+  | { type: 'ACTIVITY_GO_MOST_URGENT' }
   /** Open the command palette in `mode`, or close it when it is open in that mode. */
   | { type: 'TOGGLE_PALETTE'; mode: PaletteMode }
   | { type: 'CLOSE_PALETTE' }
@@ -245,6 +266,18 @@ export type AppMachineEvent =
       width: number;
     }
   | { type: 'COPY_MODE_CHUNK_FAILED'; paneId: PaneId }
+  /** Go to the shell's previous or next prompt in a pane's scrollback (OSC 133). */
+  | { type: 'PROMPT_JUMP'; paneId?: PaneId; direction: PromptDirection }
+  /** tmux answered with a pane's prompt rows; `jump` is the move that asked. */
+  | {
+      type: 'PROMPT_MARKS_LOADED';
+      paneId: PaneId;
+      historySize: number;
+      prompts: readonly number[];
+      jump?: PromptDirection;
+    }
+  /** Put what a pane's newest command printed on the clipboard. */
+  | { type: 'COPY_LAST_OUTPUT'; paneId?: PaneId }
   | {
       type: 'COPY_MODE_CURSOR_MOVE';
       paneId: PaneId;
@@ -313,12 +346,20 @@ export type AppMachineEvent =
   | { type: 'RESTORE_SESSION'; sessionName: string }
   | { type: 'SESSION_MENU_OPENED' }
   | { type: 'GIT_REPOSITORIES_UPDATED'; repositories: GitRepository[] }
+  | { type: 'PANE_PORTS_UPDATED'; panePorts: readonly PanePorts[] }
+  | { type: 'TREE_ROW_TEMPLATE_UPDATED'; treeRowTemplate: string }
   | {
       type: 'SERVERS_UPDATED';
       servers: TmuxServer[];
       currentServerId: string | null;
     }
   | { type: 'CONNECT_SERVER'; serverId: string; session?: string }
+  /** The host's answer about the user's own tmux server (null: nothing to tell). */
+  | { type: 'OWN_TMUX_OFFERED'; offer: OwnTmuxOffer | null }
+  /** The launch notice's buttons: switch to that server, or close the notice. */
+  | { type: 'ANSWER_OWN_TMUX_OFFER'; answer: 'use' | 'dismiss' }
+  /** Whether the host took the switch the notice asked for (tmuxActor). */
+  | { type: 'OWN_TMUX_OFFER_TAKEN'; taken: boolean }
   | { type: 'DETACH_CLIENT' }
   | { type: 'RECONNECT_NOW' }
   | { type: 'TMUX_DETACHED'; reason: string | null }
@@ -353,6 +394,9 @@ export type AppMachineEvent =
       pinned?: readonly string[];
     }
   | { type: 'THEMES_LIST_RECEIVED'; themes: ThemeInfo[] }
+  /** A profile command (View > Profiles); the answer arrives as PROFILES_RECEIVED. */
+  | { type: 'PROFILE_CALL'; call: ProfileCall }
+  | { type: 'PROFILES_RECEIVED'; profiles: ProfilesInfo }
   | { type: 'CSS_CHANGED' }
   | { type: 'GESTURE_PINCH'; scale: number; paneId: PaneId | null }
   | { type: 'GESTURE_PINCH_END' }

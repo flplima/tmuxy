@@ -41,6 +41,11 @@ impl ScratchServer {
             "-y",
             &rows,
         ]);
+        // A tmux server keeps the environment it was started in and hands it
+        // to every hook and `run-shell` job. A `TMUX_SOCKET` the shell
+        // exported would name another server there: the CLI a hook runs goes
+        // by it before `$TMUX`, and the hook then works on the wrong socket.
+        server.tmux(&["set-environment", "-g", "-u", "TMUX_SOCKET"]);
         server
     }
 

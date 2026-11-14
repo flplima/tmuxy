@@ -37,6 +37,19 @@ Nothing in the rules sends keys to a pane: they read the screen and write two pa
 
 The rules write the state and, beside it, `@tmuxy-rules-state`: what they last wrote. They change `@tmuxy-pane-state` only while it is unset or still equal to that. So a hook, `tmuxy pane state`, a program's OSC 7501 report or a send's question is never overwritten, and the order of precedence holds without any of those writers knowing about the rules. Each write is an `if-shell -F` on the state the pass read, so a state declared between the read and the write is not overwritten either. When the agent's process ends, a state that is still the rules' own is taken off.
 
+## Explain
+
+`tmuxy pane state explain [target] [--json]` says where a pane's state came from (`tmuxy-core/src/host/socket_watch/agent_rules/explain.rs`, run by `tmuxy-verbs/src/state_cli.rs`):
+
+| Line | What |
+| --- | --- |
+| `source` | nothing; a send's question; a declared state (a hook, `tmuxy pane state`, the program); or the screen rules, with the sign or the user rule and its pattern |
+| `program` | the program as the rules find it, and what tmux names it when that differs |
+| `read by` | the built-in signs, a user's file first, an agent's hooks, or nothing |
+| `left out` | each user rules file that was refused, with its reason |
+
+The rules write their reason beside the state as a token (`@tmuxy-rules-why`: `dialog`, `changed`, `still`, `user:<file>:<rule>`), in the same guarded write. A user file's name may hold only letters, digits, `.`, `_` and `-`, so the token stays one word.
+
 ## Limits
 
 - **A long silent step reads as idle**: a tool that runs for minutes without printing stops the screen, and after 4.5 s the pane says idle. Herdr's users report the same, which is why the rules never say `done`.

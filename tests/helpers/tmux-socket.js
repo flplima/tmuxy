@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { liveSocketProblem } = require('./live-socket-guard');
 /**
  * The tmux socket, environment and dirs every test helper shares.
  *
@@ -28,9 +29,19 @@ const path = require('path');
  */
 const DEFAULT_SOCKET = 'tmuxy-test';
 
-/** The socket name or path the tmuxy server under test uses. */
+/**
+ * The socket name or path the tmuxy server under test uses. Never one people
+ * work in: a released build's, the dev server's, plain tmux's, or the tmux
+ * the suite was started from (`./live-socket-guard.js`). The suites kill
+ * panes, windows and the server itself.
+ */
 function tmuxSocket() {
-  return process.env.TMUX_SOCKET || DEFAULT_SOCKET;
+  const socket = process.env.TMUX_SOCKET || DEFAULT_SOCKET;
+  const problem = liveSocketProblem({ socket });
+  if (problem) {
+    throw new Error(`The suite will not run on TMUX_SOCKET=${socket}: ${problem}.`);
+  }
+  return socket;
 }
 
 /**

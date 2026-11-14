@@ -25,9 +25,15 @@ const FRAME_MS = 50;
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-/** One frame: back to the line's start, a coloured glyph, a status, padded to `size` bytes. */
+/**
+ * One frame, as an agent at work draws it: the terminal title set to the
+ * spinner's glyph (Claude Code animates its title so), then back to the
+ * line's start, a coloured glyph and a status, padded to `size` bytes.
+ */
 function frame(n, size) {
-  const head = `\r\x1b[36m${SPINNER[n % SPINNER.length]}\x1b[0m Thinking… ${String(n).padStart(6, '0')} `;
+  const glyph = SPINNER[n % SPINNER.length];
+  const title = `\x1b]2;${glyph} Working\x07`;
+  const head = `${title}\r\x1b[36m${glyph}\x1b[0m Thinking… ${String(n).padStart(6, '0')} `;
   const fill = Math.max(0, size - Buffer.byteLength(head));
   return head + '·'.repeat(Math.floor(fill / Buffer.byteLength('·')));
 }

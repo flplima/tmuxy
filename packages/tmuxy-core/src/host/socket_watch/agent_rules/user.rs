@@ -41,6 +41,8 @@ pub struct Rule {
     pub pattern: String,
     regex: regex::Regex,
     pub state: PaneStateName,
+    /// Its file and number, for `explain`.
+    pub why: super::Why,
 }
 
 #[derive(Debug)]
@@ -101,6 +103,14 @@ struct RawRule {
 
 /// One file's agent, or why it was left out. `name` is the file's stem.
 pub fn parse(name: &str, text: &str) -> Result<UserAgent, String> {
+    // The name goes into a pane option as part of a word (`Why::token`).
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    {
+        return Err("name the file with letters, digits, '.', '_' or '-'".to_string());
+    }
     let file: File = toml::from_str(text).map_err(|e| e.message().to_string())?;
     let command = file.command.unwrap_or_else(|| name.to_string());
     if super::super::agent_screen::is_agent(&command) {
@@ -132,6 +142,10 @@ pub fn parse(name: &str, text: &str) -> Result<UserAgent, String> {
             pattern: raw.pattern,
             regex,
             state,
+            why: super::Why::User {
+                file: format!("{name}.toml"),
+                rule: n + 1,
+            },
         });
     }
     Ok(UserAgent {
@@ -191,6 +205,14 @@ impl UserRules {
 
     pub fn knows(&self, command: &str) -> bool {
         self.agents.iter().any(|a| a.command == command)
+    }
+
+    /// The rule `why` names, if its file still has it.
+    pub fn rule(&self, file: &str, number: usize) -> Option<&Rule> {
+        self.agents
+            .iter()
+            .find(|a| a.file == file)
+            .and_then(|a| a.rules.get(number.checked_sub(1)?))
     }
 
     /// The first rule of `command`'s that matches the bottom of `screen`.
