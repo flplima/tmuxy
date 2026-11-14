@@ -50,7 +50,7 @@ Tracing is off by default. Nothing is sent anywhere: the trace is a file on the 
 
 The file itself is `trace.ndjson` in tmuxy's state directory: `~/.local/state/tmuxy` on Linux, `~/Library/Application Support/tmuxy` on macOS, or wherever `TMUXY_STATE_DIR` points. The Debug menu's `Copy trace.ndjson Path` gives it to you. With the web app, the file is on the machine running the server, not the one running the browser.
 
-`tmuxy trace check` also gives a short health summary (reconnects, rejected commands, errors). From a `Shape` trace it is safe to paste as text.
+`tmuxy trace --check` also gives a short health summary (reconnects, rejected commands, errors). From a `Shape` trace it is safe to paste as text.
 
 ## What a trace holds
 
@@ -88,7 +88,7 @@ grep -i -e "$USER" -e "$(hostname)" tmuxy-trace-slice.ndjson
 grep -i -e "my-project" -e "my-company" tmuxy-trace-slice.ndjson
 ```
 
-Put your own project, client or folder names in the second line. And check the level tracing is at: `trace.json`, beside the trace, says `"level": Shape`.
+Put your own project, client or folder names in the second line. And check the level tracing is at: `trace.json`, beside the trace, says `"level": "shape"`.
 
 If any of them prints something, do not attach the slice: delete it, switch the Debug menu to `Shape`, reproduce, and take a new one. If you are unsure, describe the problem without a trace. We will ask for what we need.
 
