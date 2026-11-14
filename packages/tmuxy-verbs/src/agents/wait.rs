@@ -174,7 +174,11 @@ pub(crate) struct Waiter {
 }
 
 impl Waiter {
-    pub(crate) fn new(panes: Vec<String>, until: &[Until], all: bool, now: bool) -> Self {
+    pub(crate) fn new(mut panes: Vec<String>, until: &[Until], all: bool, now: bool) -> Self {
+        // A pane named twice (its id and its label) is one pane: `--all`
+        // would otherwise wait for a second count that never comes.
+        let mut named = std::collections::HashSet::new();
+        panes.retain(|pane| named.insert(pane.clone()));
         let until = if until.is_empty() {
             &SETTLED[..]
         } else {
