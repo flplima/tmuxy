@@ -32,6 +32,8 @@ The pane is always in the caller's tab: spawn needs `TMUX_PANE` and refuses to r
 | `@tmuxy-agent` | `claude`, `codex`, `gemini`, or the program `cmd` ran |
 | `@tmuxy-label` and the pane title | the label, when one was given |
 
+A report sets one more, `@tmuxy-report-at`: when it was written, in Unix seconds.
+
 ## Start
 
 `tmuxy agent start <label> [spawn's options] [--for 60s]` is spawn by name that returns once the agent is ready (`start.rs`): once its pane has a state. An agent with tmuxy's hooks sets one when its session starts, one without hooks gets one from the screen rules, and any program can declare its own with `tmuxy pane state`. It prints `<pane> <label> <state>`, or with `--json` adds `state` to spawn's answer.
@@ -67,6 +69,17 @@ A shell that keeps a helper process at its prompt (a prompt theme's status daemo
 
 It reads `@tmuxy-pane-state` every 250 ms for the first 10 s, then every second (`wait.rs`). A state reached before the first read, or one that came and went between two reads, is not seen; `--now` counts a pane already in a wanted state. A per-pane change counter, bumped by every writer of the state, would close that gap; it is not written yet.
 
+## Report
+
+`tmuxy pane report <text>` (or `-` for stdin) is how an agent says what it did, for whoever started it (`tmuxy-verbs/src/report_cli.rs`). `tmuxy pane report -t <pane>` reads it back, and `agent wait --json` includes it with each pane's state. A report is what the pane said through tmuxy, not proof: any process of the same user can write the file. It stays until the pane writes another, so one from an earlier turn may still be there: compare its `at` with when the turn began. It survives scrollback and a cleared screen, which a capture does not, and a collapsed stack row is one line tall, so its capture shows almost nothing anyway.
+
+| Rule | Why |
+| --- | --- |
+| only the pane itself writes its report; `-t` only reads | the shell checks the caller is a process of that pane, as for `restore-cmd` |
+| kept in the state dir, `reports/<socket path>/<pane>.txt`, mode 0600 in 0700 directories | a report can say anything the agent saw; two servers sharing a socket name keep apart |
+| at most 64 KiB | a summary, not a log |
+| counts only while `@tmuxy-report-at` is on the pane | the option goes with the pane, so a pane id a later server hands out again never shows an old report |
+
 ## Tests
 
-`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` (the wait) and `tests/21-agent-spawn.test.js` (the spawn) run them through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent revive` resumes a session a hook event recorded, in a fake `claude` on a PATH set for the test server only, and refuses while it runs, and a hostile session id is never recorded. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running.
+`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` (the wait) and `tests/21-agent-spawn.test.js` (the spawn) run them through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent revive` resumes a session a hook event recorded, in a fake `claude` on a PATH set for the test server only, and refuses while it runs, and a hostile session id is never recorded. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running. A spawned child writes its report from inside its pane; the orchestrator reads it as text and JSON and gets it from `agent wait --json`, while a write from outside the pane, or one with `-t`, is refused.

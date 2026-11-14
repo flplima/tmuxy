@@ -241,7 +241,7 @@ describeE2E("Scenario: an orchestrator waits on its agents' states", {}, (ctx) =
       expect(answered.code).toBe(0);
       expect(JSON.parse(answered.stdout)).toEqual({
         ok: true,
-        panes: [{ paneId: first, label: 'child-a', state: 'needs-input' }],
+        panes: [{ paneId: first, label: 'child-a', state: 'needs-input', report: null }],
       });
 
       const all = tmuxyCliAsync([

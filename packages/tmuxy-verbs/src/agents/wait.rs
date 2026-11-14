@@ -309,7 +309,9 @@ pub fn run(answer: &Answer, args: WaitArgs) {
     let panes = counted
         .iter()
         .map(|c| {
-            serde_json::json!({ "paneId": c.pane, "label": c.label, "state": c.state }).to_string()
+            let report = crate::report_cli::read(&c.pane).map(|(text, _)| text);
+            serde_json::json!({ "paneId": c.pane, "label": c.label, "state": c.state, "report": report })
+                .to_string()
         })
         .collect::<Vec<_>>()
         .join(",");
