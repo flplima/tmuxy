@@ -41,7 +41,14 @@ pub fn prepare() -> Result<Prepared, TmuxCheckError> {
     let config = crate::session::ensure_config();
     let themes = crate::session::ensure_themes();
     let bin = crate::session::ensure_bin_scripts();
-    let config_warnings = crate::session::config_warnings(&crate::paths::Layout::current());
+    let layout = crate::paths::Layout::current();
+    let mut config_warnings = crate::session::config_warnings(&layout);
+    // What tmux cannot parse: none of that file will be applied.
+    let unparsed = crate::session::reload_blockers(&layout);
+    if !unparsed.is_empty() {
+        config_warnings.extend(unparsed.iter().map(ToString::to_string));
+        config_warnings.push(crate::session::CHECK_HINT.to_string());
+    }
     for warning in &config_warnings {
         tracing::warn!("config: {warning}");
     }

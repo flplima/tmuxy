@@ -365,7 +365,16 @@ impl SessionRuntime {
                         self.push_config().await;
                     }
                     Err(e) => {
-                        tracing::warn!(session = %self.session(), error = %e, "could not source the saved tmuxy.conf")
+                        tracing::warn!(session = %self.session(), error = %e, "could not source the saved tmuxy.conf");
+                        // A refused file (`refuse_broken_config`) is the
+                        // user's to fix, and they are looking at their
+                        // editor, not at a log: why the save changed nothing
+                        // goes to the app. Any other failure stays a log line.
+                        if e.kind == crate::ErrorKind::Invalid {
+                            self.emit(HostEvent::Error {
+                                message: e.to_string(),
+                            });
+                        }
                     }
                 }
             }

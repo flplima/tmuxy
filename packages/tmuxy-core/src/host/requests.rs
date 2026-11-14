@@ -196,7 +196,12 @@ where
     };
     let sourced = is_source_file(&routed);
     let routed = if sourced {
-        source_with_entry(routed, crate::session::get_config_path().as_deref())
+        let entry = crate::session::get_config_path();
+        // Reload Config: the same check a saved file gets.
+        if entry.is_some() && routed.trim() == bindings::SOURCE_ENTRY_CONF {
+            bindings::refuse_broken_config().await?;
+        }
+        source_with_entry(routed, entry.as_deref())
     } else {
         routed
     };

@@ -100,3 +100,20 @@ fn update_rate_exits_throttle_when_rate_drops() {
         "a fully-quiet rate window should exit throttle mode"
     );
 }
+
+/// An app restarted beside a config tmux cannot parse must not source the
+/// chain over a server that is already running with it: the defaults would
+/// go back and none of the user's file with them. Only a server that never
+/// had the chain still gets it.
+#[test]
+fn a_chain_with_an_unparseable_file_is_sourced_only_where_it_never_was() {
+    let path = "/state/tmuxy.entry.conf";
+    assert_eq!(
+        sync::source_chain(path, false),
+        "source-file '/state/tmuxy.entry.conf'"
+    );
+    assert_eq!(
+        sync::source_chain(path, true),
+        r"if-shell -F '#{?@tmuxy-cli,0,1}' 'source-file '\''/state/tmuxy.entry.conf'\'''"
+    );
+}

@@ -7,10 +7,16 @@ impl<C: ControlLink> TmuxMonitor<C> {
     /// scripts run and this machine's plugins.
     #[instrument(skip(self), fields(session = %self.config.session))]
     pub async fn sync_initial_state(&mut self) -> Result<(), TmuxError> {
+        // The check starts a tmux and waits for it: off the runtime's thread,
+        // as the reload paths run it. A check that cannot run holds nothing
+        // back.
+        let unparsed = tokio::task::spawn_blocking(crate::session::current_reload_blockers)
+            .await
+            .unwrap_or_default();
         let commands = self.core.attach_commands(
             (INITIAL_PTY_COLS, INITIAL_PTY_ROWS),
             super::super::monitor_core::AttachConfig {
-                config: attach_config(&self.config.session),
+                config: attach_config(&self.config.session, &unparsed),
                 host: attach_host(),
             },
         );
@@ -69,14 +75,38 @@ impl<C: ControlLink> TmuxMonitor<C> {
 /// and only for what the user's tmuxy.conf leaves unset — an option it sets
 /// is pinned, and config beats menu state. Then the session's own profile,
 /// if it has one other than the default (`crate::profiles`).
-fn attach_config(session: &str) -> Vec<String> {
+fn attach_config(session: &str, blockers: &[crate::session::ConfigProblem]) -> Vec<String> {
+    if let Some(refusal) = crate::session::refusal(blockers) {
+        warn!("{refusal}");
+    }
     let mut commands: Vec<String> = crate::session::get_config_path()
-        .map(|path| format!("source-file {}", crate::tmux_quote(&path.to_string_lossy())))
+        .map(|path| source_chain(&path.to_string_lossy(), !blockers.is_empty()))
         .into_iter()
         .collect();
     commands.extend(crate::session::current_managed_state_commands());
     commands.extend(crate::session::current_profile_commands(session));
     commands
+}
+
+/// The command that sources the chain file `path` on attach.
+///
+/// With a file of the user's that tmux cannot parse (`broken`), the chain is
+/// sourced only on a server that has never had it (no `@tmuxy-cli`, which the
+/// chain's first lines set): there it is what makes the app work at all. On
+/// a server that is already running with it, sourcing it again would put
+/// tmuxy's defaults back and then apply none of the user's own file, taking
+/// their prefix and bindings out of sessions they are in. An app that is
+/// restarted beside a typo keeps what was running.
+pub(super) fn source_chain(path: &str, broken: bool) -> String {
+    let source = format!("source-file {}", crate::tmux_quote(path));
+    if !broken {
+        return source;
+    }
+    format!(
+        "if-shell -F '#{{?{},0,1}}' {}",
+        crate::session::CLI_OPTION,
+        crate::tmux_quote(&source)
+    )
 }
 
 /// Which binary runs this build's server verbs (`session::SERVER_BIN_ENV`),

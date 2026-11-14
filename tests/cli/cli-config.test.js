@@ -29,7 +29,15 @@ describe('CLI config commands', () => {
   test('config --help lists every verb', () => {
     const { stdout, exitCode } = runCLI(['config', '--help']);
     expect(exitCode).toBe(0);
-    for (const verb of ['reload', 'use-tmux-conf', 'init', 'paths', 'doctor', 'permissions']) {
+    for (const verb of [
+      'reload',
+      'check',
+      'use-tmux-conf',
+      'init',
+      'paths',
+      'doctor',
+      'permissions',
+    ]) {
       expect(stdout).toContain(verb);
     }
   });
@@ -50,6 +58,8 @@ describe('CLI config commands', () => {
     [['config', 'paths', '--json'], 'config paths --json'],
     [['config', 'init'], 'config init'],
     [['config', 'init', '--json'], 'config init --json'],
+    [['config', 'check'], 'config check'],
+    [['config', 'check', 'my.conf', '--json'], 'config check my.conf --json'],
     [['config', 'doctor'], 'config doctor'],
     [['config', 'doctor', '--fix', '--json'], 'config doctor --fix --json'],
     [['config', 'permissions'], 'config permissions'],
