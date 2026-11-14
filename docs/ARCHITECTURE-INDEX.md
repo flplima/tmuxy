@@ -49,6 +49,7 @@ Feature-to-files retrieval map for agents.
 | Performance harnesses | `tests/perf`<br>`packages/tmuxy-ui/scripts` |
 | E2E and helper layers | `tests`<br>`tests/helpers` |
 | Cross-layer invariants and the test holding each | `docs/INVARIANTS.md` |
+| Every user-facing capability, by surface, and the test holding each | `docs/FEATURES.md`<br>`bin/ci/features-catalog.mjs` (what keeps it true) |
 | Every network connection (listeners, outbound requests, the website's analytics) | `docs/TELEMETRY.md` |
 
 ## Generated files

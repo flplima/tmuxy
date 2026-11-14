@@ -15,6 +15,7 @@ See [docs/TELEMETRY.md](docs/TELEMETRY.md) for every network connection tmuxy an
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NIGHTLY-SWEEP.md](docs/NIGHTLY-SWEEP.md) for why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it now tells a flake from a defect.
 See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, session lifecycle) and the test that holds each one.
+See [docs/FEATURES.md](docs/FEATURES.md) for what a user or an agent can do, by surface (mouse, menu, keys, CLI, config), with the test that holds each; `npm run check:policy` fails when a surface gains or loses an action without a row.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/PLUGINS.md](docs/PLUGINS.md) for plugins: the manifest, the install gate, how an action runs.
 See [docs/MCP.md](docs/MCP.md) for the `/mcp` endpoint (`tmuxy mcp`) and its tools.
@@ -36,13 +37,13 @@ Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> -
 
 ## Running it
 
-| Want             | Do                                                                                                                 | Notes                                                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| The dev server   | `npm start`, `npm stop`, `npm restart`, `npm logs`                                                                 | `bin/dev-server run` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev`                                                  |
-| A one-off server | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev`                                                         | No watcher — what to reach for when `cargo watch` is missing; its sessions start in `$HOME` unless `TMUXY_START_DIR` names a directory |
-| Drive the app    | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                                                                                  |
-| The trace        | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TRACING.md](docs/TRACING.md)                                                                   |
-| Server logs      | `npm logs` (`bin/dev-server`), or the server's own stderr                                                          | `RUST_LOG` filters it                                                                                                                  |
+| Want | Do | Notes |
+| --- | --- | --- |
+| The dev server | `npm start`, `npm stop`, `npm restart`, `npm logs` | `bin/dev-server run` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev` |
+| A one-off server | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev` | No watcher — what to reach for when `cargo watch` is missing; its sessions start in `$HOME` unless `TMUXY_START_DIR` names a directory |
+| Drive the app | `agent-browser --session <slug> open http://localhost:9000` | See its own skill for the command set |
+| The trace | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TRACING.md](docs/TRACING.md) |
+| Server logs | `npm logs` (`bin/dev-server`), or the server's own stderr | `RUST_LOG` filters it |
 
 **Three sockets, never mixed:** a released build serves `tmuxy`, the dev server
 `tmuxy-dev`, the E2E suite `tmuxy-test`, so a test run cannot disturb the
@@ -54,12 +55,12 @@ runner so neither can drift from the other.
 
 ## Devcontainer
 
-| Variable         | Description                                                                |
-| ---------------- | -------------------------------------------------------------------------- |
-| `CONTAINER_NAME` | Container name (e.g., `tmuxy-worktree-1`)                                  |
-| `HOST_PORT`      | Port exposed on the host (e.g., `14089`)                                   |
-| `PORT`           | Internal server port (`9000`)                                              |
-| `CODESPACES`     | Set by GitHub Codespaces; the credential-volume scripts no-op when present |
+| Variable | Description |
+| --- | --- |
+| `CONTAINER_NAME` | Container name (e.g., `tmuxy-worktree-1`) |
+| `HOST_PORT` | Port exposed on the host (e.g., `14089`) |
+| `PORT` | Internal server port (`9000`) |
+| `CODESPACES` | Set by GitHub Codespaces; the credential-volume scripts no-op when present |
 
 One `.devcontainer/` serves `bin/devcontainer` (plain Docker), VS Code Dev
 Containers and GitHub Codespaces. **Never hardcode the workspace path** — every
@@ -140,14 +141,14 @@ Before wrapping up a task, run the local check that mirrors CI's lint job and th
 
 The rest of the map, for when a change reaches further:
 
-| Scope                                  | Command                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------- |
-| First run in a fresh environment       | `bash bin/bootstrap`                                                      |
-| Everything, including Rust and the CLI | `npm run check:full`                                                      |
-| E2E (browser + tmux)                   | `npm run test:e2e`                                                        |
-| Desktop / Tauri E2E                    | `npm run test:tauri`                                                      |
-| Rust workspace                         | `cargo test --workspace`                                                  |
-| A red CI job                           | [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) maps each job to its local command |
+| Scope | Command |
+| --- | --- |
+| First run in a fresh environment | `bash bin/bootstrap` |
+| Everything, including Rust and the CLI | `npm run check:full` |
+| E2E (browser + tmux) | `npm run test:e2e` |
+| Desktop / Tauri E2E | `npm run test:tauri` |
+| Rust workspace | `cargo test --workspace` |
+| A red CI job | [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) maps each job to its local command |
 
 ### Before pushing: run the CI jobs your change touches
 
@@ -158,19 +159,19 @@ twenty minutes, and running nothing ships a red main.
 
 Work out the set from what you changed:
 
-| Changed                                     | Also run before pushing                                                                                    |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `packages/tmuxy-ui/src/**` (app code)       | `npm test`, and the E2E suites covering the feature                                                        |
-| `packages/tmuxy-ui/src/stories/**`          | `npm run test-storybook -w tmuxy-ui` (add `test-storybook:v86` for a `v86`-tagged story)                   |
-| `tests/**`                                  | the suites you edited, **plus** any other suite sharing their helpers                                      |
-| `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour               |
-| a `constants.rs` tmux format string         | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
-| `packages/tmuxy-cli/**`                     | `npm run test:cli`                                                                                         |
-| `packages/tmuxy-verbs/**`                   | `npm run test:cli` and `cargo test -p tmuxy-verbs`                                                         |
-| `packages/tmuxy-wasm/**`                    | `npm run test-storybook:v86`                                                                               |
-| a generated file (`gen/`, shared constants) | `cargo test -p tmuxy-core --test generated_constants` (rewrite with `UPDATE_GENERATED=1`)                  |
-| `packages/tmuxy-tauri-app/**`               | `npm run test:tauri`                                                                                       |
-| perf harnesses, `tests/perf/**`             | `npm run perf:interactions` + `npm run perf:compare`                                                       |
+| Changed | Also run before pushing |
+| --- | --- |
+| `packages/tmuxy-ui/src/**` (app code) | `npm test`, and the E2E suites covering the feature |
+| `packages/tmuxy-ui/src/stories/**` | `npm run test-storybook -w tmuxy-ui` (add `test-storybook:v86` for a `v86`-tagged story) |
+| `tests/**` | the suites you edited, **plus** any other suite sharing their helpers |
+| `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour |
+| a `constants.rs` tmux format string | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
+| `packages/tmuxy-cli/**` | `npm run test:cli` |
+| `packages/tmuxy-verbs/**` | `npm run test:cli` and `cargo test -p tmuxy-verbs` |
+| `packages/tmuxy-wasm/**` | `npm run test-storybook:v86` |
+| a generated file (`gen/`, shared constants) | `cargo test -p tmuxy-core --test generated_constants` (rewrite with `UPDATE_GENERATED=1`) |
+| `packages/tmuxy-tauri-app/**` | `npm run test:tauri` |
+| perf harnesses, `tests/perf/**` | `npm run perf:interactions` + `npm run perf:compare` |
 
 [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) has the full job-to-command map — it is the
 source of truth for which command stands in for which job, and it works in both
@@ -201,17 +202,17 @@ When working on a branch other than `main`, always `git merge main` before start
 
 Use [gitmoji](https://gitmoji.dev/) for commit messages:
 
-| Emoji | Description              |
-| ----- | ------------------------ |
-| ✨    | New feature              |
-| 🐛    | Bug fix                  |
-| ♻️    | Refactor                 |
-| 🎨    | Improve structure/format |
-| ⚡    | Performance              |
-| 🔥    | Remove code/files        |
-| ✅    | Tests                    |
-| 📝    | Documentation            |
-| 🔧    | Configuration            |
-| 🚀    | Version bump / release   |
+| Emoji | Description |
+| --- | --- |
+| ✨ | New feature |
+| 🐛 | Bug fix |
+| ♻️ | Refactor |
+| 🎨 | Improve structure/format |
+| ⚡ | Performance |
+| 🔥 | Remove code/files |
+| ✅ | Tests |
+| 📝 | Documentation |
+| 🔧 | Configuration |
+| 🚀 | Version bump / release |
 
 The release process lives in the `release` skill — read `.agents/skills/release/SKILL.md` and follow it when shipping a version.
