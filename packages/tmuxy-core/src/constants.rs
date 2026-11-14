@@ -54,6 +54,10 @@ pub mod tmux_options {
     /// dock's shell, the tree's widget), so the window's existence does not
     /// mean "open".
     pub const SIDEBAR_HIDDEN: &str = "@tmuxy-sidebar-hidden";
+    /// Window-scoped flag on a float the user has minimized: `1` while it
+    /// waits in the queue at the bottom of the tab, unset while it is shown.
+    /// Its pane keeps running either way.
+    pub const FLOAT_MINIMIZED: &str = "@tmuxy-float-minimized";
     /// `1` while the window keeps only the first-level row that holds the
     /// active pane expanded and collapses the others to one row per pane
     /// (see `layout.rs`). Unset for a normally tiled window.
@@ -215,6 +219,9 @@ pub mod tmux_options {
     /// program in front is one of them skips that question — an agent's
     /// prompt, which other agents may type into. Read where `SEND_ALLOW` is.
     pub const SEND_ALLOW_INTO: &str = "@tmuxy-send-allow-into";
+    /// `on`/`off`: whether closing a pane or tab asks first while a pane in
+    /// it says it is `working` or `needs-input` (`@tmuxy-pane-state`).
+    pub const CONFIRM_CLOSE: &str = "@tmuxy-confirm-close";
     /// `on`/`off`: whether a pane entering `needs-input` or `error` sends a
     /// web push notification to the devices that turned them on
     /// (`tmuxy-server/src/push.rs`).

@@ -32,6 +32,20 @@ The pane is always in the caller's tab: spawn needs `TMUX_PANE` and refuses to r
 | `@tmuxy-agent` | `claude`, `codex`, `gemini`, or the program `cmd` ran |
 | `@tmuxy-label` and the pane title | the label, when one was given |
 
+## Start
+
+`tmuxy agent start <label> [spawn's options] [--for 60s]` is spawn by name that returns once the agent is ready (`start.rs`): once its pane has a state. An agent with tmuxy's hooks sets one when its session starts, one without hooks gets one from the screen rules, and any program can declare its own with `tmuxy pane state`. It prints `<pane> <label> <state>`, or with `--json` adds `state` to spawn's answer.
+
+| Outcome | Exit |
+| --- | --- |
+| the pane has a state | 0 |
+| the pane went away first: the agent exited | 1 |
+| no state within `--for` | 1; the agent keeps running, and the message names its pane |
+
+Ready is any state, `needs-input` included: an agent that opens on a trust or login prompt is ready, and waiting for you. Check the `state` in the answer before handing it work. Exited and timed out are both exit 1; the message (or a following `agent wait`) tells them apart.
+
+An agent that never gets a state (no hooks installed, no screen rule for it) always waits out `--for`; spawn it instead.
+
 ## Wait
 
 `tmuxy agent wait <pane>...` waits for panes, by id or label, to change to a state: `idle`, `needs-input`, `error`, `done` or `exited`; by default any but working. The first pane that gets there ends the wait, or every one with `--all`. A pane that goes away ends it with exit 3, unless `exited` was asked for. `--for` gives up with exit 1.
@@ -40,4 +54,4 @@ It reads `@tmuxy-pane-state` every 250 ms for the first 10 s, then every second 
 
 ## Tests
 
-`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` (the wait) and `tests/21-agent-spawn.test.js` (the spawn) run them through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused.
+`spawn_tests.rs` holds each agent's command line, the permission rule (no flag unless named, and only one word), the wrapper's quoting, the placement and the tags. `wait_tests.rs` holds the wait. `tests/21-agent-states.test.js` (the wait) and `tests/21-agent-spawn.test.js` (the spawn) run them through the CLI against a real tmux: a `cmd` agent spawned from a pane lands in its tab as a stack row with its tags and header, the focus stays, its task arrives intact, and a taken label is refused. `agent start` returns with the state a child declares a second in, fails for a child that exits at once, and gives up on `--for` with the child left running.

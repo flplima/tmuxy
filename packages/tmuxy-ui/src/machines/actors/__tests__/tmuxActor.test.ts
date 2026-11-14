@@ -257,6 +257,37 @@ describe('tmuxActor — the shell prompts', () => {
   });
 });
 
+describe('tmuxActor — the client size report', () => {
+  const report = { type: 'SET_CLIENT_SIZE', cols: 120, rows: 30 } as const;
+  const unreported = (events: Array<{ type: string }>) =>
+    events.filter((e) => e.type === 'CLIENT_SIZE_UNREPORTED');
+
+  // The app reports a size once, so the actor has to say when the one report
+  // was lost: nothing else would send it again.
+  it('tells the parent when a report did not reach the backend', async () => {
+    const { runtime } = fakeTransport({
+      send: async () => {
+        throw { error: 'connection reset', kind: 'network' };
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send(report);
+    await waitFor(() => unreported(events).length > 0);
+    expect(unreported(events)).toEqual([{ type: 'CLIENT_SIZE_UNREPORTED', cols: 120, rows: 30 }]);
+    actor.stop();
+  });
+
+  it('says nothing of a report the backend took', async () => {
+    const transport = fakeTransport();
+    const { actor, events } = spawnTmuxActor(transport.runtime);
+    actor.getSnapshot().children.tmux!.send(report);
+    await waitFor(() => transport.invocations.length > 0);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(unreported(events)).toEqual([]);
+    actor.stop();
+  });
+});
+
 describe('tmuxActor — switching session', () => {
   it('says when a switch opened a new stream, so its state can be asked for', async () => {
     const switched: string[] = [];

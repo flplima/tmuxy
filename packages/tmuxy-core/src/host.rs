@@ -35,7 +35,7 @@ pub use command::{handle, ClientCommand, HostCtx};
 pub use event::{ConnectionInfo, EventData, HostEvent};
 pub use plugins::PluginToken;
 pub use prompt_marks::{last_command_output, prompt_marks, LastOutput, PromptMarks};
-pub use requests::{run_with_output, ScrollbackCells, SnapshotInfo, TraceSettings};
+pub use requests::{run_with_output, ScrollbackCells, SnapshotInfo, TraceSettings, TraceShare};
 pub use runtime::{ClientId, RuntimeConfig, SessionRuntime, Sink, MONITOR_READY_TIMEOUT};
 pub use start::{save_final_snapshots, start, Sessions, Started, FINAL_SNAPSHOT_TIMEOUT};
 pub use supervise::*;

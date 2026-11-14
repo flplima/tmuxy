@@ -173,6 +173,12 @@
   },
   {
     "args": {
+      "last": 20
+    },
+    "cmd": "get_trace_share"
+  },
+  {
+    "args": {
       "paneId": "%2"
     },
     "cmd": "get_prompt_marks"

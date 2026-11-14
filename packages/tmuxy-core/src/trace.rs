@@ -29,6 +29,7 @@ use layer::TraceHandle;
 pub use layer::TraceLayer;
 mod redact;
 pub mod schema;
+pub mod share;
 #[cfg(test)]
 use layer::{target_allowed, FieldVisitor};
 pub use redact::redact_command;

@@ -4,6 +4,7 @@
  * records reconciled, the columns' lifecycle, the size this client asks for).
  */
 
+import { stillPending } from '../../../../domain/closeGuard';
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../../actionTypes';
 import type { AppMachineContext } from '../../../types/context';
@@ -253,6 +254,7 @@ export const layoutModelUpdateActions = {
         paneGroups,
         floatPanes,
         askSelections: pruneAskSelections({ ...ctx, panes: transformed.panes }),
+        pendingClose: stillPending(ctx.pendingClose, transformed.panes),
         copyModeStates: updatedCopyModeStates,
         resize: heldResize,
         suppressLayoutTransition: animateGeometry
