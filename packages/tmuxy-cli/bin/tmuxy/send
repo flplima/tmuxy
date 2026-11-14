@@ -50,7 +50,11 @@ Skipping the question:
   set -g @tmuxy-send-allow-into claude,agy
                                         don't ask into panes running these
 
-Exit status: 0 sent (and, with --wait, finished); 1 nothing sent (declined,
+Rules of your own: permissions.json in the config dir can refuse a command
+(deny) or have it asked whatever the options above say. It skips no question.
+`tmuxy config permissions` checks the file and says what a send would get.
+
+Exit status: 0 sent (and, with --wait, finished); 1 nothing sent (denied, declined,
 unanswered, at a prompt, taken out of the queue, or --wait into an agent
 already working); 2 bad
 usage; 3 no such pane; 5 sent, but with --wait it stalled, stopped at a

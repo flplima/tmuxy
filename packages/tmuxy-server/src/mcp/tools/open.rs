@@ -94,7 +94,18 @@ pub(in crate::mcp) async fn pane_send_keys(
     }
     let pane = tmux.pane(Some(&args.pane)).await?;
     let timeout = timeout(args.timeout_seconds, SEND_DEFAULT, SEND_MAX);
-    ask::send_keys(tmux, &pane.id, &args.keys, caller.display_name(), timeout).await
+    // Read from disk for this send and no other: an edit holds at once.
+    let file =
+        tmuxy_core::permissions::Loaded::read(&tmuxy_core::paths::Layout::current().permissions());
+    ask::send_keys(
+        tmux,
+        &pane.id,
+        &args.keys,
+        caller.display_name(),
+        timeout,
+        &file,
+    )
+    .await
 }
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]

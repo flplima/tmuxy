@@ -14,6 +14,9 @@ struct Fake {
     /// What `#{pane_current_command}` reads in the caller's pane.
     caller_program: String,
     reply: Option<&'static str>,
+    /// The caller does not run in the pane it names: that pane's process is
+    /// no ancestor of this one.
+    elsewhere: bool,
     /// The pane is gone: every read of its answer fails.
     gone: bool,
     asked: Mutex<String>,
@@ -49,6 +52,8 @@ impl ask::Tmux for Fake {
         Ok(id
             + &match format.as_str() {
                 "#{pane_current_command}" => self.caller_program.clone(),
+                "#{pane_pid}" if self.elsewhere => "0".into(),
+                "#{pane_pid}" => std::process::id().to_string(),
                 "#{@tmuxy-ask}" => String::new(),
                 "#{@tmuxy-pane-state}" if !self.typed().is_empty() => {
                     let mut script = self.after_typing.lock().unwrap();
@@ -174,7 +179,22 @@ fn args(caller_pane: Option<&str>) -> SendArgs {
 }
 
 async fn run(tmux: &Fake, args: SendArgs) -> Result<(), (i32, String)> {
-    send(tmux, args, &Answer::new(false)).await
+    send(
+        tmux,
+        args,
+        &Answer::new(false),
+        &permissions::Loaded::Missing,
+    )
+    .await
+}
+
+/// [`run`], with the user's permissions file holding `rules`.
+async fn run_with(tmux: &Fake, args: SendArgs, rules: &str) -> Result<(), (i32, String)> {
+    let file = match permissions::Permissions::parse(rules) {
+        Ok(rules) => permissions::Loaded::Rules(rules),
+        Err(why) => permissions::Loaded::Malformed(why),
+    };
+    send(tmux, args, &Answer::new(false), &file).await
 }
 
 #[tokio::test]
@@ -427,3 +447,5 @@ async fn a_wait_is_refused_into_a_working_agent_and_a_failed_wait_is_exit_5() {
     let (code, _) = run(&stalls, args).await.unwrap_err();
     assert_eq!(code, EXIT_SENT);
 }
+
+mod rules_file;

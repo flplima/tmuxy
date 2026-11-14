@@ -19,6 +19,10 @@
 //! naming the program in front in the target pane (`claude,agy`: an agent's
 //! prompt, which an agent may type into). A send that skips it still marks
 //! the pane unread, so nothing is typed into a pane unseen.
+//!
+//! The user's `permissions.json` ([`crate::permissions`]) is heard first by
+//! both senders: a rule of it can refuse a send outright, or have it asked
+//! where one of these options would have skipped the question.
 
 use std::future::Future;
 use std::time::Duration;

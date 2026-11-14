@@ -18,6 +18,7 @@ mod connect_cli;
 mod float_cli;
 mod group_cli;
 mod keymap_cli;
+mod permissions_file;
 #[cfg(feature = "native")]
 mod plugin_cli;
 mod run_cli;

@@ -18,6 +18,7 @@ See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effec
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/PLUGINS.md](docs/PLUGINS.md) for plugins: the manifest, the install gate, how an action runs.
 See [docs/MCP.md](docs/MCP.md) for the `/mcp` endpoint (`tmuxy mcp`) and its tools.
+See [docs/PERMISSIONS.md](docs/PERMISSIONS.md) for `permissions.json`: the user's rules that refuse a send into another pane, or have it asked.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
 See [docs/TRACING.md](docs/TRACING.md) for unified cross-layer action tracing into a single local NDJSON file (schema, seams, redaction boundary).

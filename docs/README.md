@@ -86,6 +86,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [PLUGINS.md](PLUGINS.md) | Plugins: the manifest, the install gate, how an action runs | Writing or installing a plugin |
 | [PLUGIN-API.md](PLUGIN-API.md) | The plugin API — the one surface that only grows (a change needs `api = 2`) | Changing anything a plugin can call |
 | [MCP.md](MCP.md) | The `/mcp` endpoint (`tmuxy mcp`) and its tools | An agent driving a session |
+| [PERMISSIONS.md](PERMISSIONS.md) | `permissions.json`: rules that refuse a send into another pane, or have it asked | Changing what an agent may type into another pane |
 
 ### Security & Constraints
 
