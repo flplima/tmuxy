@@ -1,0 +1,44 @@
+/* Jump numbers (JumpHint.tsx): hidden until their chord is held, when
+   jumpHintsActor puts the class on <body>. */
+.jump-hint {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  height: 1.5em;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: var(--theme-accent);
+  color: #000;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+:root.theme-light .jump-hint {
+  color: #fff;
+}
+
+.jump-hints-tabs .jump-hint-tab,
+.jump-hints-panes .jump-hint-pane {
+  display: inline-flex;
+}
+
+/* Over the tab's own mark, at its left edge, inside the tab's box. */
+.jump-hint-tab {
+  left: var(--spacing-sm);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* The middle of the pane, large enough to read from across the screen. */
+.jump-hint-pane {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2em;
+}

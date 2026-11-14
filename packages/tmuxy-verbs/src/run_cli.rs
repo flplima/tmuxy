@@ -92,7 +92,8 @@ fn relay(answer: &Answer, ran: &Ran) {
     }
 }
 
-fn fail_to_run(answer: &Answer, e: RunShellError) -> ! {
+/// A run-shell failure under the CLI's contract: no server is exit 4.
+pub(crate) fn fail_to_run(answer: &Answer, e: RunShellError) -> ! {
     match e {
         RunShellError::NoServer(_) => answer.exit(
             EXIT_NO_SERVER,

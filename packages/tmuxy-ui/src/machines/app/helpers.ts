@@ -205,10 +205,10 @@ export function buildFloatPanesFromWindows(
     const hideHeader = window.floatNoheader || undefined;
     const minimized = window.floatMinimized || undefined;
     // @tmuxy-float-width/height (in cells) are the float's REQUESTED size —
-    // authoritative when present. The pane's tmux size is only a fallback: a
-    // single-pane float window can't be shrunk by resize-pane, so on some
-    // backends the pane stays session-sized even though the user asked for a
-    // 40-col float.
+    // authoritative when present, and the grid the backend sizes the float's
+    // window to (tmuxy-core `constants::float_grid`), so the pane a program runs in is
+    // the size drawn here. The pane's tmux size is the fallback for a float
+    // that names none.
     const metaWidth = window.floatWidth ? window.floatWidth * charWidth : null;
     const metaHeight = window.floatHeight ? window.floatHeight * charHeight : null;
     const existing = existingFloats[paneId];

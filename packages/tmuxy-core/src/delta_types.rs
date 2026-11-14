@@ -69,6 +69,10 @@ pub struct PaneDelta {
     /// `@tmuxy-pane-state` on exit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pane_state: Option<Option<String>>,
+    /// Nested like `group_id`: the inner `None` is a state that is no longer
+    /// a program's report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_status: Option<Option<String>>,
     /// Nested like `group_id`: the inner `None` is the `@tmuxy-ask` question
     /// answered.
     #[serde(skip_serializing_if = "Option::is_none")]

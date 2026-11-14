@@ -62,6 +62,8 @@ export const WirePane = Schema.Struct({
   cursor_shape: Schema.optional(Schema.Number),
   cursor_hidden: Schema.optional(Schema.Boolean),
   pane_state: OptionalNull(Schema.String),
+  /** What the pane's program reported behind its state (OSC 7501); see `domain/paneStatus.ts`. */
+  pane_status: OptionalNull(Schema.String),
   pane_ask: OptionalNull(Schema.String),
   /** `@tmuxy-pane-widget`; see `findPaneWidget` for why the marker alone authorises nothing. */
   pane_widget: OptionalNull(Schema.String),
@@ -193,6 +195,7 @@ export const PaneDelta = Schema.Struct({
   pane_ask: OptionalNull(Schema.String),
   pane_widget: OptionalNull(Schema.String),
   pane_restore: OptionalNull(Schema.String),
+  pane_status: OptionalNull(Schema.String),
 });
 export type PaneDelta = Schema.Schema.Type<typeof PaneDelta>;
 

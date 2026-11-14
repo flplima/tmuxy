@@ -6,9 +6,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../Modal';
-import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
+import { useAppSend, useAppActor, useAppRuntime, useAppSelector } from '../../machines/appHooks';
 import { isTauri } from '../../infra/platform';
 import { copyAppState, type ClipboardReport } from './copyAppState';
+import { copyBugReport } from './copyBugReport';
+import type { AppMachineContext } from '../../machines/types/context';
+import type { AppRuntime } from '../../infra/runtime';
 import { writeClipboard } from '../../infra/clipboard';
 import {
   closeGuiWindow,
@@ -35,9 +38,23 @@ export interface AppMenuSurface {
   dialogs: ReactNode;
 }
 
+/** The Debug menu's copies: each puts its text on the clipboard and says so. */
+function copyFromMenu(
+  verb: 'copy-app-state' | 'copy-bug-report' | 'copy-trace-path',
+  ctx: AppMachineContext,
+  runtime: AppRuntime,
+  report: ClipboardReport,
+  tracePath: string | null,
+): void {
+  if (verb === 'copy-app-state') return copyAppState(ctx, report);
+  if (verb === 'copy-bug-report') return copyBugReport(ctx, runtime, report);
+  return copyTracePath(tracePath, report);
+}
+
 export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   const send = useAppSend();
   const actor = useAppActor();
+  const runtime = useAppRuntime();
   const activePaneId = useAppSelector((c) => c.activePaneId);
   const sessionName = useAppSelector((c) => c.sessionName);
   const tracePath = useAppSelector((c) => c.traceSettings?.path ?? null);
@@ -66,9 +83,9 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
       case 'confirm-kill-session':
         return setConfirmKill(true);
       case 'copy-app-state':
-        return copyAppState(actor.getSnapshot().context, report);
+      case 'copy-bug-report':
       case 'copy-trace-path':
-        return copyTracePath(tracePath, report);
+        return copyFromMenu(local.verb, actor.getSnapshot().context, runtime, report, tracePath);
       case 'window-refresh':
         return refreshWindows();
       case 'window-new':

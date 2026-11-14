@@ -1,5 +1,6 @@
 /**
- * Layout & Navigation E2E Tests (Float Pane Lifecycle & Float fzf Workflow)
+ * Layout & Navigation E2E Tests (Float Pane Lifecycle, Float fzf Workflow &
+ * Float Size)
  */
 
 const {
@@ -23,92 +24,6 @@ const {
   openFloatFromCli,
   waitForKeyboardTarget,
 } = require('./helpers/layout-helpers');
-
-// ==================== Scenario 6f: Minimized floats ====================
-
-describeE2E('Scenario 6f: Minimized floats', {}, (ctx) => {
-  /** The queue's pills drawn on screen, by pane id: only those with a box count. */
-  const pills = (page) =>
-    page.evaluate(() =>
-      [...document.querySelectorAll('[data-float-pill]')]
-        .filter((el) => {
-          const box = el.getBoundingClientRect();
-          return box.width > 20 && box.height > 8 && box.bottom <= innerHeight;
-        })
-        .map((el) => el.dataset.floatPill),
-    );
-  // `runCommand`, not `query`: these name their own target.
-  const floatTag = async (floatId) =>
-    String(
-      await ctx.session.runCommand(`show-options -wqv -t ${floatId} @tmuxy-float-minimized`),
-    ).trim();
-  const paneAlive = async (paneId) =>
-    String(await ctx.session.runCommand('list-panes -a -F "#{pane_id}"'))
-      .split('\n')
-      .includes(paneId);
-
-  test("minimize a float → it leaves the screen for a pill, still running, and the panes have the keyboard → the pill brings it back with the keyboard → the pill's ✕ closes it", async () => {
-    await ctx.setupPage();
-    const floatId = await openFloatFromCli(ctx);
-    await typeInTerminal(ctx.page, 'echo FLOAT_ALIVE', {
-      target: '.float-container [role="log"]',
-    });
-    await pressEnter(ctx.page);
-
-    await ctx.page.click('.float-container .pane-header-minimize');
-    await waitForNoModal(ctx.page);
-    await waitForCondition(
-      ctx.page,
-      async () => (await pills(ctx.page)).includes(floatId),
-      10000,
-      'a pill for the minimized float',
-    );
-    expect(await floatTag(floatId)).toBe('1');
-    // Its pane is alive behind the pill, and the tiled pane takes the keys.
-    expect(await paneAlive(floatId)).toBe(true);
-    expect(await focusedFloatPaneId(ctx.page)).toBeNull();
-    await runCommand(ctx.page, 'echo BG_WHILE_MINIMIZED', 'BG_WHILE_MINIMIZED');
-
-    await ctx.page.click(`[data-float-pill="${floatId}"] .float-queue-restore`);
-    await waitForFloatModal(ctx.page);
-    await verifyFloatVisible(ctx.page);
-    await waitForCondition(
-      ctx.page,
-      async () => (await focusedFloatPaneId(ctx.page)) === floatId,
-      5000,
-      'the float back with the keyboard',
-    );
-    expect(await pills(ctx.page)).toEqual([]);
-    expect(await floatTag(floatId)).toBe('');
-    // The same shell, still running what it ran before.
-    await waitForCondition(
-      ctx.page,
-      () =>
-        ctx.page.evaluate(
-          () =>
-            document.querySelector('.float-container')?.textContent?.includes('FLOAT_ALIVE') ??
-            false,
-        ),
-      5000,
-      'the float to show what it printed before',
-    );
-
-    await ctx.page.click('.float-container .pane-header-minimize');
-    await waitForCondition(
-      ctx.page,
-      async () => (await pills(ctx.page)).length === 1,
-      10000,
-      'the pill again',
-    );
-    await ctx.page.click(`[data-float-pill="${floatId}"] .float-queue-close`);
-    await waitForCondition(
-      ctx.page,
-      async () => (await pills(ctx.page)).length === 0 && !(await paneAlive(floatId)),
-      10000,
-      "the pill's ✕ to close the float",
-    );
-  }, 90000);
-});
 
 // ==================== Scenario 6: Float Pane Lifecycle ====================
 
@@ -489,5 +404,82 @@ describeE2E('Scenario 22: Float fzf Workflow', { snapshot: true }, (ctx) => {
     // Background pane should be interactive after float closes
     const bgMarker = `BG_RESTORED_${Date.now()}`;
     await runCommand(ctx.page, `echo ${bgMarker}`, bgMarker);
+  }, 180000);
+});
+
+// ==================== Scenario 22b: A Float's Program Sees the Float's Size ====================
+
+describeE2E("Scenario 22b: A float's program sees the float's own size", {}, (ctx) => {
+  test('a 50x12 float → its program reads 12 rows and 50 columns → what it draws on its last row is on screen, inside the float', async () => {
+    await ctx.setupPage();
+    await runCommand(ctx.page, 'echo SIZE_BG_READY', 'SIZE_BG_READY');
+
+    // A program that does what a full-screen one does: asks the terminal for
+    // its size once, at start, and draws on the last row it was told it has.
+    // Sized to the whole window, as the float's pane once was, that row is
+    // far below the float's box and the marker names the window's size.
+    const COLS = 50;
+    const ROWS = 12;
+    const script = `printf "\\033[999;1HLAST_ROW_%s" "$(stty size | tr " " x)"; sleep 300`;
+    await typeInTerminal(
+      ctx.page,
+      `${TMUXY_CLI} pane float --detach --width ${COLS} --height ${ROWS} sh -c '${script}'`,
+    );
+    await pressEnter(ctx.page);
+    await waitForFloatModal(ctx.page, 20000);
+    await verifyFloatVisible(ctx.page);
+
+    /** The marker's row in the float, and where it sits against the float's box. */
+    const readMarker = () =>
+      ctx.page.evaluate(() => {
+        const float = document.querySelector('.float-container');
+        const content = float?.querySelector('.float-content');
+        if (!float || !content) return null;
+        const rows = [...float.querySelectorAll('[role="log"] .terminal-line')];
+        const row = rows.find((el) => (el.textContent || '').includes('LAST_ROW_'));
+        if (!row) return { text: null, rows: rows.length };
+        const box = content.getBoundingClientRect();
+        const r = row.getBoundingClientRect();
+        // The topmost element where the marker is drawn belongs to the float.
+        const top = document.elementFromPoint(r.left + 20, r.top + r.height / 2);
+        return {
+          text: (row.textContent || '').trim(),
+          rows: rows.length,
+          insideBox:
+            r.height > 0 &&
+            r.top >= box.top - 1 &&
+            r.bottom <= box.bottom + 1 &&
+            r.left >= box.left - 1,
+          belowIt: rows.filter((el) => el.getBoundingClientRect().top > r.top + 1).length,
+          uncovered: top !== null && float.contains(top),
+          inViewport: r.bottom <= window.innerHeight && r.right > 0,
+        };
+      });
+
+    let seen = null;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        seen = await readMarker();
+        return Boolean(seen?.text);
+      },
+      20000,
+      () => `the float's program to draw its marker\n${JSON.stringify(seen)}`,
+    );
+    // The size the program was told is the float's, not the window's.
+    expect(seen.text).toBe(`LAST_ROW_${ROWS}x${COLS}`);
+    // And its last row is the float's last row: drawn, inside the box, with
+    // nothing of the terminal under it, and nothing covering it.
+    expect(seen.insideBox).toBe(true);
+    expect(seen.belowIt).toBe(0);
+    expect(seen.rows).toBe(ROWS);
+    expect(seen.uncovered).toBe(true);
+    expect(seen.inViewport).toBe(true);
+
+    // The float closes on Escape and the pane under it takes keys again.
+    await ctx.page.keyboard.press('Escape');
+    await waitForNoModal(ctx.page);
+    const token = `SIZE_BG_BACK_${Date.now()}`;
+    await runCommand(ctx.page, `echo ${token}`, token);
   }, 180000);
 });

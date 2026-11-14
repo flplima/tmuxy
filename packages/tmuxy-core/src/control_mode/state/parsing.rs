@@ -113,7 +113,11 @@ impl StateAggregator {
         pane.history_size = row.parse_field(PaneColumn::HistorySize).unwrap_or(0);
         pane.group_id = GroupId::parse(row.field(PaneColumn::GroupId)).ok();
         pane.group_pos = row.parse_field(PaneColumn::GroupPos);
-        pane.pane_state = row.option(PaneColumn::PaneState);
+        if !pane.program_status.take_row_stale() {
+            pane.pane_state = row.option(PaneColumn::PaneState);
+            let status = row.text(PaneColumn::Status).trim().to_string();
+            pane.pane_status = (!status.is_empty()).then_some(status);
+        }
         pane.pane_ask = row.option(PaneColumn::Ask);
         pane.pane_widget = row.option(PaneColumn::Widget);
         pane.pane_restore = (!restore.is_empty()).then_some(restore);
@@ -173,6 +177,7 @@ impl StateAggregator {
             .entry(window_id.clone())
             .or_insert_with(|| WindowState::new(window_id.clone(), index));
 
+        window.listed = true;
         window.index = index;
         window.name = name;
         window.active = active;
