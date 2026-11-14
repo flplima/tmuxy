@@ -24,7 +24,13 @@ import {
 } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes } from '../machines/selectors/layout';
-import { selectSessions, selectRepositories, selectPanePorts } from '../machines/selectors/ui';
+import {
+  selectSessions,
+  selectRepositories,
+  selectPanePorts,
+  selectTreeRowTemplate,
+} from '../machines/selectors/ui';
+import { DEFAULT_ROW_TEMPLATE, parseRowTemplate } from '../domain/rowTemplate';
 import { portsByPane } from './panePorts';
 import { tabPaneStates } from '../domain/paneState';
 import { PaneContextMenu } from './PaneContextMenu';
@@ -83,6 +89,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const sessions = useAppSelectorShallow(selectSessions);
   const repositories = useAppSelectorShallow(selectRepositories);
   const panePorts = useAppSelector(selectPanePorts);
+  const treeRowOption = useAppSelector(selectTreeRowTemplate);
+  const rowTemplate = useMemo(
+    () => parseRowTemplate(treeRowOption) ?? DEFAULT_ROW_TEMPLATE,
+    [treeRowOption],
+  );
   const collapsedTabIds = useAppSelectorShallow((ctx) => ctx.collapsedTabIds);
   const paneGroups = useAppSelector((ctx) => ctx.paneGroups);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
@@ -321,6 +332,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       branchOf={branchOf}
       portsOf={portsOf}
       fieldsOf={fieldsOf}
+      rowTemplate={rowTemplate}
       activate={activate}
       toggleCollapse={toggleCollapse}
       movePaneToTab={movePaneToTab}

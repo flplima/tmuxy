@@ -326,6 +326,7 @@ export type AppMachineEvent =
   | { type: 'SESSION_MENU_OPENED' }
   | { type: 'GIT_REPOSITORIES_UPDATED'; repositories: GitRepository[] }
   | { type: 'PANE_PORTS_UPDATED'; panePorts: readonly PanePorts[] }
+  | { type: 'TREE_ROW_TEMPLATE_UPDATED'; treeRowTemplate: string }
   | {
       type: 'SERVERS_UPDATED';
       servers: TmuxServer[];

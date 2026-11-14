@@ -17,6 +17,10 @@ export function selectPanePorts(context: AppMachineContext): readonly PanePorts[
   return context.panePorts;
 }
 
+export function selectTreeRowTemplate(context: AppMachineContext): string {
+  return context.treeRowTemplate;
+}
+
 export function selectError(context: AppMachineContext): string | null {
   return context.error;
 }
