@@ -63,6 +63,19 @@ describe('keyboardActor — the page gets the focus with no pane clicked', () =>
     expect(sendCommands(handle.events)).toEqual([]);
   });
 
+  // The palette's box holds the keyboard while it is open. With the focus
+  // knocked off it, handing the keyboard to a pane's input would put what
+  // is typed next, a composition above all, into the pane behind it.
+  it('leaves the keyboard where it is while the command palette is open', () => {
+    handle.set({ palette: 'all' });
+    pageGetsFocusWith(chrome);
+    expect(document.activeElement).toBe(chrome);
+
+    handle.set({ palette: null });
+    pageGetsFocusWith(chrome);
+    expect(document.activeElement).toBe(getMobileInput());
+  });
+
   it('reclaims on the tab becoming visible too', () => {
     pageGetsFocusWith(chrome);
     chrome.focus();

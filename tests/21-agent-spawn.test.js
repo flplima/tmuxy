@@ -1,0 +1,212 @@
+/**
+ * Sub-agents in panes: an orchestrator spawns an agent into its own tab
+ * (`tmuxy agent spawn`), as an agent or a script would, through the CLI
+ * against a real tmux, and `tmuxy agent start` waits for it to be ready.
+ * Waiting on their states is in 21-agent-states.
+ */
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const {
+  describeE2E,
+  waitForShellPrompt,
+  waitForPaneCount,
+  waitForCondition,
+} = require('./helpers');
+const { tmuxyCli, tmuxyCliAsync, TMUXY_CLI } = require('./helpers/cli');
+
+/**
+ * `tmuxy agent spawn` puts an agent in the caller's own tab with its task.
+ * The "agent" is `--agent cmd`: a shell that prints its task and waits, so
+ * no real agent runs; the adapters' command lines are the unit tests'
+ * (agents/spawn_tests.rs).
+ */
+describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (ctx) => {
+  test("agent spawn adds a tagged row to the caller's tab, keeps the focus, hands over the task, refuses a taken label and keeps #() in a label or path as text", async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    const caller = await page.evaluate(() => window.app?.view().activePaneId);
+    const asCaller = { TMUX_PANE: caller };
+    let child = null;
+    let second = null;
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-e2e-spawn-'));
+    try {
+      const out = tmuxyCli(
+        [
+          'agent',
+          'spawn',
+          '--json',
+          '--agent',
+          'cmd',
+          '--label',
+          'child-x',
+          '--',
+          'bash',
+          '-c',
+          'echo "task: $1"; exec sleep 600',
+          '_',
+          "it's #{a} task",
+        ],
+        asCaller,
+      );
+      const answer = JSON.parse(out);
+      expect(answer).toMatchObject({ ok: true, label: 'child-x', agent: 'bash' });
+      child = answer.paneId;
+      await waitForPaneCount(page, 2);
+
+      const read = (format) =>
+        tmuxyCli(['run', 'display-message', '-p', '-t', child, format]).trim();
+      expect(read('#{window_id}')).toBe(
+        tmuxyCli(['run', 'display-message', '-p', '-t', caller, '#{window_id}']).trim(),
+      );
+      expect(read('#{@tmuxy-collapsible}')).toBe('1');
+      expect(read('#{@tmuxy-spawned-by} #{@tmuxy-agent} #{@tmuxy-label}')).toBe(
+        `${caller} bash child-x`,
+      );
+
+      // The focus stays with the caller; the new row shows as a header.
+      expect(await page.evaluate(() => window.app?.view().activePaneId)).toBe(caller);
+      await waitForCondition(
+        page,
+        () =>
+          page.evaluate((id) => {
+            const header = document.querySelector(`[data-pane-tab="${id}"]`);
+            const box = header?.getBoundingClientRect();
+            return (
+              !!box && box.width > 0 && box.height > 0 && header.textContent.includes('child-x')
+            );
+          }, child),
+        15000,
+        "the spawned row's header, named child-x, to be drawn",
+      );
+
+      // The task reached the agent as one argument, quotes and #{} intact.
+      const screen = await waitForCondition(
+        page,
+        () => {
+          // A collapsed row is one line tall: the line is in its history.
+          const text = tmuxyCli(['run', 'capture-pane', '-p', '-S', '-', '-t', child]);
+          return text.includes('task: ') && text;
+        },
+        15000,
+        'the agent to print its task',
+      );
+      expect(screen).toContain("task: it's #{a} task");
+
+      const taken = await tmuxyCliAsync(
+        ['agent', 'spawn', '--agent', 'cmd', '--label', 'child-x', '--', 'true'],
+        asCaller,
+      );
+      expect(taken.code).not.toBe(0);
+      expect(taken.stderr).toContain('already labelled child-x');
+
+      // A label or a directory holding `#(…)` reaches tmux as text: tmux
+      // expands formats in a pane's title and start directory, where an
+      // unescaped one would run the command as the server. Ending in `;`,
+      // each stays one argument, rather than ending tmux's command there.
+      const marker = path.join(scratch, 'ran');
+      const hostile = `#(touch ${marker});`;
+      const cwd = path.join(scratch, hostile);
+      fs.mkdirSync(cwd, { recursive: true });
+      second = JSON.parse(
+        tmuxyCli(
+          [
+            'agent',
+            'spawn',
+            '--json',
+            '--agent',
+            'cmd',
+            '--place',
+            'split',
+            '--label',
+            hostile,
+          ].concat(['--cwd', cwd, '--', 'sleep', '600']),
+          asCaller,
+        ),
+      ).paneId;
+      const readSecond = (format) =>
+        tmuxyCli(['run', 'display-message', '-p', '-t', second, format]).trim();
+      await waitForCondition(
+        page,
+        () => readSecond('#{pane_current_path}') === cwd,
+        15000,
+        () => `the second agent to start in ${cwd}, not ${readSecond('#{pane_current_path}')}`,
+      );
+      expect(readSecond('#{pane_title}')).toBe(hostile);
+      expect(readSecond('#{@tmuxy-label}')).toBe(hostile);
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      for (const pane of [child, second].filter(Boolean)) {
+        try {
+          tmuxyCli(['pane', 'kill', pane]);
+        } catch {
+          // Already gone.
+        }
+      }
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 120000);
+
+  test('agent start returns once the agent has a state, fails when it exits first, and gives up on --for', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    const caller = await page.evaluate(() => window.app?.view().activePaneId);
+    const asCaller = { TMUX_PANE: caller };
+    const started = [];
+    try {
+      // The "agent" declares its state a second in, as a hook does when a
+      // session starts.
+      const before = Date.now();
+      const ready = await tmuxyCliAsync(
+        ['agent', 'start', 'starter', '--json', '--agent', 'cmd', '--', 'bash', '-c'].concat([
+          `sleep 1; "${TMUXY_CLI}" pane state idle; exec sleep 600`,
+        ]),
+        asCaller,
+      );
+      expect(ready.code).toBe(0);
+      const answer = JSON.parse(ready.stdout);
+      started.push(answer.paneId);
+      expect(answer).toMatchObject({ ok: true, label: 'starter', agent: 'bash', state: 'idle' });
+      expect(Date.now() - before).toBeGreaterThanOrEqual(1000);
+
+      // It exits a second in, after spawn has tagged its pane: tmux then
+      // answers a read of the gone pane with another pane's, which must not
+      // pass for this one still starting.
+      const exited = await tmuxyCliAsync(
+        ['agent', 'start', 'quitter', '--for', '20s', '--agent', 'cmd', '--', 'sleep', '1'],
+        asCaller,
+      );
+      expect(exited.code).toBe(1);
+      expect(exited.stderr).toContain('quitter exited before it was ready');
+
+      const slow = await tmuxyCliAsync(
+        ['agent', 'start', 'sleeper', '--for', '2s', '--agent', 'cmd', '--', 'sleep', '600'],
+        asCaller,
+      );
+      expect(slow.code).toBe(1);
+      expect(slow.stderr).toContain('sleeper was not ready within 2s; it is still running in %');
+      const still = slow.stderr.match(/still running in (%\d+)/)[1];
+      started.push(still);
+      expect(
+        tmuxyCli(['run', 'display-message', '-p', '-t', still, '#{@tmuxy-label}']).trim(),
+      ).toBe('sleeper');
+
+      const twice = await tmuxyCliAsync(
+        ['agent', 'start', 'x', '--label', 'y', '--agent', 'cmd', '--', 'true'],
+        asCaller,
+      );
+      expect(twice.code).toBe(2);
+    } finally {
+      for (const pane of started) {
+        try {
+          tmuxyCli(['pane', 'kill', pane]);
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+  }, 120000);
+});

@@ -180,3 +180,71 @@ describe('tmuxActor — cancellable scrollback', () => {
     actor.stop();
   });
 });
+
+describe('tmuxActor — the client size report', () => {
+  const report = { type: 'SET_CLIENT_SIZE', cols: 120, rows: 30 } as const;
+  const unreported = (events: Array<{ type: string }>) =>
+    events.filter((e) => e.type === 'CLIENT_SIZE_UNREPORTED');
+
+  // The app reports a size once, so the actor has to say when the one report
+  // was lost: nothing else would send it again.
+  it('tells the parent when a report did not reach the backend', async () => {
+    const { runtime } = fakeTransport({
+      send: async () => {
+        throw { error: 'connection reset', kind: 'network' };
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send(report);
+    await waitFor(() => unreported(events).length > 0);
+    expect(unreported(events)).toEqual([{ type: 'CLIENT_SIZE_UNREPORTED', cols: 120, rows: 30 }]);
+    actor.stop();
+  });
+
+  it('says nothing of a report the backend took', async () => {
+    const transport = fakeTransport();
+    const { actor, events } = spawnTmuxActor(transport.runtime);
+    actor.getSnapshot().children.tmux!.send(report);
+    await waitFor(() => transport.invocations.length > 0);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(unreported(events)).toEqual([]);
+    actor.stop();
+  });
+});
+
+describe('tmuxActor — switching session', () => {
+  it('says when a switch opened a new stream, so its state can be asked for', async () => {
+    const switched: string[] = [];
+    const { runtime } = fakeTransport({
+      switchSession: async (name) => {
+        switched.push(name);
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'SWITCH_SESSION', sessionName: 'play' });
+
+    await waitFor(() => events.some((e) => e.type === 'TMUX_SESSION_SWITCHED'));
+    expect(switched).toEqual(['play']);
+    actor.stop();
+  });
+
+  // The desktop moves its one client with switch-client and does not wait for
+  // it: a fetch then could answer with the session it was leaving.
+  it('says nothing when the one client moved instead, as on the desktop', async () => {
+    const ran: string[] = [];
+    const { runtime } = fakeTransport({
+      send: async (call) => {
+        if (call.cmd === 'run_tmux_command') ran.push(call.args.command);
+        return null;
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'SWITCH_SESSION', sessionName: 'play' });
+
+    await waitFor(() => ran.length > 0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ran[0]).toContain('switch-client');
+    expect(events.some((e) => e.type === 'TMUX_SESSION_SWITCHED')).toBe(false);
+    actor.stop();
+  });
+});

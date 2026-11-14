@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
+pub mod agent_rules;
 pub mod agent_screen;
 
 pub const INTERVAL: Duration = Duration::from_millis(1500);
@@ -22,7 +23,7 @@ pub fn panes_format() -> String {
     format!(
         "#{{pane_id}}\t#{{session_name}}\t#{{@tmuxy-notify}}\t#{{@tmuxy-pane-state}}\t\
          #{{pane_current_command}}\t#{{window_id}}\t#{{{PANE_WIDGET}}}\t#{{@tmuxy-ask}}\t\
-         #{{@tmuxy-label}}\t#{{window_name}}"
+         #{{@tmuxy-label}}\t#{{pane_pid}}\t#{{window_name}}"
     )
 }
 
@@ -37,6 +38,9 @@ pub struct PaneRow {
     /// A send's question is up on the pane: the state is the question's.
     pub asking: bool,
     pub label: String,
+    /// The pane's first process, for finding the program an interpreter
+    /// runs (`agent_rules::program`).
+    pub pid: Option<u32>,
     pub window: String,
     /// The tab, `@N`.
     pub window_id: String,
@@ -49,8 +53,8 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
     listing
         .lines()
         .filter_map(|line| {
-            let f: Vec<&str> = line.splitn(10, '\t').collect();
-            let [pane_id, session, notify, state, command, window_id, widget, ask, label, window] =
+            let f: Vec<&str> = line.splitn(11, '\t').collect();
+            let [pane_id, session, notify, state, command, window_id, widget, ask, label, pid, window] =
                 f[..]
             else {
                 return None;
@@ -63,6 +67,7 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
                 command: command.to_string(),
                 asking: !ask.is_empty(),
                 label: label.to_string(),
+                pid: pid.parse().ok(),
                 window: window.to_string(),
                 window_id: window_id.to_string(),
                 widget: widget.to_string(),
@@ -87,23 +92,27 @@ pub fn read_panes() -> Option<Vec<PaneRow>> {
 pub type Rows = watch::Receiver<Arc<Vec<PaneRow>>>;
 
 /// Read the panes every [`INTERVAL`] for as long as the future runs,
-/// correcting agent panes from their screens and publishing each read (a
+/// correcting agent panes from their screens, giving agents without hooks a
+/// state from theirs (`agent_rules`), and publishing each read (a
 /// server that cannot be asked publishes nothing).
 pub async fn run(watch: watch::Sender<Arc<Vec<PaneRow>>>) {
     let mut corrector = agent_screen::Corrector::default();
+    let mut rules = agent_rules::Rules::default();
     loop {
         tokio::time::sleep(INTERVAL).await;
         // A pass that panicked starts the next from nothing seen.
-        let (back, rows) = tokio::task::spawn_blocking(move || {
+        let (back, back_rules, rows) = tokio::task::spawn_blocking(move || {
             let rows = read_panes();
             if let Some(rows) = &rows {
                 corrector.pass(rows);
+                rules.pass(rows);
             }
-            (corrector, rows)
+            (corrector, rules, rows)
         })
         .await
         .unwrap_or_default();
         corrector = back;
+        rules = back_rules;
         if let Some(rows) = rows {
             watch.send_replace(Arc::new(rows));
         }
@@ -123,7 +132,7 @@ mod tests {
     fn the_format_has_a_field_for_each_one_a_row_reads() {
         let format = panes_format();
         let fields: Vec<&str> = format.split('\t').collect();
-        assert_eq!(fields.len(), 10);
+        assert_eq!(fields.len(), 11);
         let widget = format!("#{{{}}}", crate::constants::tmux_options::PANE_WIDGET);
         assert_eq!((fields[5], fields[6]), ("#{window_id}", widget.as_str()));
     }
@@ -131,9 +140,9 @@ mod tests {
     #[test]
     fn a_pane_list_row_reads_into_its_fields() {
         let rows = parse_rows(
-            "%3\twork\ton\tworking\tclaude\t@1\t\t\t\tmain\n\
-             %4\twork\ton\t\tzsh\t@2\tdiff\t\tbuild\tside\twith\ttabs\n\
-             %5\twork\toff\tneeds-input\t2.1.30\t@1\t\tMay I?\t\tmain\n\
+            "%3\twork\ton\tworking\tclaude\t@1\t\t\t\t4021\tmain\n\
+             %4\twork\ton\t\tzsh\t@2\tdiff\t\tbuild\t\tside\twith\ttabs\n\
+             %5\twork\toff\tneeds-input\t2.1.30\t@1\t\tMay I?\t\t77\tmain\n\
              %6\ttoo\tshort\n",
         );
         assert_eq!(rows.len(), 3);
@@ -147,6 +156,7 @@ mod tests {
                 command: "claude".into(),
                 asking: false,
                 label: String::new(),
+                pid: Some(4021),
                 window: "main".into(),
                 window_id: "@1".into(),
                 widget: String::new(),

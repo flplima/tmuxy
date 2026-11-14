@@ -5,7 +5,8 @@ name: nightly perf
 #   interaction-baseline  on demand — measures Axis C on ubuntu-26.04 and
 #                         opens a PR with a refreshed tests/perf/interaction-baseline.json
 #   interaction-latency   nightly — Axis C, web and desktop: the ratio budgets
-#                         in compare-interactions.mjs fail the run
+#                         in compare-interactions.mjs fail the run; the web
+#                         one runs again over a 150 ms link (Axis B)
 #   core-bench            nightly — Axis A: the parse → aggregate → delta
 #                         pipeline bench; its ratio budget fails the run
 #   soak                  nightly — Axis D, does a long session degrade; its
@@ -94,6 +95,9 @@ jobs:
           export-path: 'true'
 
       - uses: ./.github/actions/start-test-server
+        # A socket named for a perf run: the harness refuses any other.
+        env:
+          TMUX_SOCKET: tmuxy-perf
 
       # More samples than the 12 the gate job uses: this number is committed
       # and lived with, so it is worth a steadier p50.
@@ -221,6 +225,9 @@ jobs:
           export-path: 'true'
 
       - uses: ./.github/actions/start-test-server
+        # A socket named for a perf run: the harness refuses any other.
+        env:
+          TMUX_SOCKET: tmuxy-perf
 
       - name: Measure interactions
         run: |
@@ -233,12 +240,32 @@ jobs:
       - name: Compare against budgets and baseline
         run: npm run perf:compare -- --report tests/perf/interaction-report.json
 
+      # Axis B: the same interactions with 150 ms added to every round trip
+      # (tests/helpers/latency-proxy.js). On the runner's own loopback nothing
+      # ever waits for the link, so a cost counted in round trips, like keys
+      # queueing behind one another, is invisible in the run above.
+      - name: Measure interactions over a slow link
+        if: always()
+        run: |
+          npm run perf:interactions -- \
+            --url http://localhost:9000 \
+            --proxy-rtt 150 \
+            --samples 6 \
+            --label ci \
+            --out tests/perf/interaction-report-rtt150.json
+
+      - name: Compare the slow link against budgets
+        if: always()
+        run: npm run perf:compare -- --report tests/perf/interaction-report-rtt150.json
+
       - name: Upload interaction report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: interaction-latency-${{ github.run_id }}
-          path: tests/perf/interaction-report.json
+          path: |
+            tests/perf/interaction-report.json
+            tests/perf/interaction-report-rtt150.json
 
       - name: Server logs (debug)
         if: failure()

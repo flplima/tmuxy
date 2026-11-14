@@ -24,6 +24,7 @@ import { execSync } from 'node:child_process';
 import { remote } from 'webdriverio';
 import { buildReport, runInteractions, waitForReady } from './lib/perf-harness.mjs';
 import { WD_KEYS, toChord } from './lib/wd-keys.mjs';
+import { assertThrowawaySocket } from './lib/throwaway.mjs';
 
 const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -72,14 +73,15 @@ function wdioAdapter(driver) {
     // WebKitWebDriver's `execute` is synchronous and cannot hold a pending
     // in-page promise across the keystroke, so the armer parks its answer on
     // `window` and settling polls for it.
-    arm: async (probe, arg, timeoutMs) => {
+    arm: async (probe, arg, timeoutMs, keys = 1) => {
       await driver.execute(
-        (p, a, t) => {
-          window.__perfArmStart(p, a, t);
+        (p, a, t, k) => {
+          window.__perfArmStart(p, a, t, k);
         },
         probe,
         arg,
         timeoutMs,
+        keys,
       );
       return {
         settle: async () => {
@@ -136,6 +138,7 @@ async function main() {
 
   // A socket of its own, so a perf run never disturbs the developer's session.
   const socket = process.env.TMUX_SOCKET || 'tmuxy-perf';
+  assertThrowawaySocket(socket);
   process.env.TMUX_SOCKET = socket;
   process.env.TMUXY_SESSION = SESSION;
   prepareSession(SESSION);

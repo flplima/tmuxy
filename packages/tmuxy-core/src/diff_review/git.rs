@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::safe_git;
 
-pub use safe_git::EMPTY_TREE;
+pub use safe_git::empty_tree;
 
 /// The longest one read of a checkout is given, every git it runs together.
 const READ_LIMIT: Duration = Duration::from_secs(5);

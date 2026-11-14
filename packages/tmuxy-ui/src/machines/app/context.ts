@@ -27,7 +27,8 @@ export type StateName =
   | 'uiPrefs'
   | 'gestures'
   | 'ask'
-  | 'plugins';
+  | 'plugins'
+  | 'palette';
 
 /**
  * Maps every AppMachineContext field to the state slice that owns it.
@@ -59,6 +60,7 @@ export const FIELD_OWNERS = {
   targetCols: 'viewport',
   targetRows: 'viewport',
   viewportMeasured: 'viewport',
+  reportedSize: 'viewport',
   charWidth: 'viewport',
   charHeight: 'viewport',
   cellGap: 'viewport',
@@ -120,6 +122,9 @@ export const FIELD_OWNERS = {
   keysViewOpen: 'commandUi',
   renamingPaneId: 'commandUi',
 
+  palette: 'palette',
+  pendingGoTo: 'palette',
+
   notifications: 'notifications',
 
   themeName: 'uiPrefs',
@@ -170,6 +175,7 @@ export function createInitialContext(): AppMachineContext {
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
     viewportMeasured: false,
+    reportedSize: null,
     drag: null,
     resize: null,
     resizeActive: false,
@@ -242,6 +248,8 @@ export function createInitialContext(): AppMachineContext {
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
+    palette: null,
+    pendingGoTo: null,
     renamingPaneId: null,
     baseFontSize: loadFontSizePref(),
   };
