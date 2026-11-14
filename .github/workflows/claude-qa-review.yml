@@ -214,6 +214,9 @@ jobs:
           anthropic_oidc_audience: https://api.anthropic.com
           github_token: ${{ github.token }}
           classify_inline_comments: 'false'
+          # A rerun with debug logging shows Claude's own output, so a run that
+          # fails before its first turn says why; a normal run keeps it hidden.
+          show_full_output: ${{ runner.debug == '1' }}
           trigger_phrase: '@claude qa'
           allowed_bots: '*'
           allowed_non_write_users: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
