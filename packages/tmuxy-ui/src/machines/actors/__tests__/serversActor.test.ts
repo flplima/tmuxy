@@ -10,6 +10,22 @@ import type { AppMachineContext } from '../../types/context';
 const row = (...fields: string[]) => fields.join('\t');
 
 describe('parseSessions', () => {
+  it('reads the fields set on each pane, leaving out those past their time', () => {
+    const b64 = (value: unknown) => btoa(JSON.stringify(value));
+    const windows = row('work', '@0', '0', 'shell', 'tab');
+    const panes = [
+      row('work', '@0', '%0', 'zsh', '1', '', '/src', '', b64({ ci: { v: 'passing' } })),
+      row('work', '@0', '%1', 'zsh', '0', '', '/src', '', b64({ old: { v: 'x', until: 50 } })),
+      row('work', '@0', '%2', 'zsh', '0', '', '/src', ''),
+    ].join('\n');
+    const [session] = parseSessions(windows, panes, 100);
+    expect(session.panes.map((p) => [p.id, p.fields])).toEqual([
+      ['%0', [{ key: 'ci', value: 'passing' }]],
+      ['%1', []],
+      ['%2', []],
+    ]);
+  });
+
   it('groups windows and panes under their sessions, index-ordered', () => {
     const windows = [
       row('work', '@1', '1', 'editor', 'tab'),

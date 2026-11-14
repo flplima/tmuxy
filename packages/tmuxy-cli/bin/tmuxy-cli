@@ -192,6 +192,7 @@ Commands:
   send          Send keys to pane <keys...>
   queue         Sends waiting for a busy pane [-t target] [--retract id]
   state         Declare what the pane is doing <state> [target]
+  meta          Fields the pane's tree row shows: set key=value [--ttl 5m], unset, list, clear
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]

@@ -37,6 +37,7 @@ import {
   rowDomId,
   rowKey,
   useSidebarGitContext,
+  fieldsByPane,
   type MenuState,
   type Row,
   type TabGroup,
@@ -92,6 +93,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
   const { cwdByPane, branchOf } = useSidebarGitContext(sessions, sessionName, repositories);
   const portsOf = useMemo(() => portsByPane(panePorts), [panePorts]);
+  const fieldsOf = useMemo(() => fieldsByPane(sessions, sessionName), [sessions, sessionName]);
 
   const tabSummaries = useMemo(
     () =>
@@ -318,6 +320,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       cwdByPane={cwdByPane}
       branchOf={branchOf}
       portsOf={portsOf}
+      fieldsOf={fieldsOf}
       activate={activate}
       toggleCollapse={toggleCollapse}
       movePaneToTab={movePaneToTab}

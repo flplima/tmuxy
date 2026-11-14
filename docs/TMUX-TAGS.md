@@ -35,6 +35,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | `@tmuxy-config-dir` | global | the config directory | set by the entry file ([PERMISSIONS.md](PERMISSIONS.md)) |
 | `@tmuxy-pane-state` | pane | `idle` \| `working` \| `needs-input` \| `error` \| `unread` \| unset | what the pane says it is doing; set by whatever runs in it |
 | `@tmuxy-pane-status` | pane | report body \| unset | what the pane's program said behind its state with OSC 7501; written by the host that read it |
+| `@tmuxy-meta` | pane | base64 JSON | `tmuxy pane meta` (`tmuxy-core/src/pane_meta.rs`) |
 | `@tmuxy-ask` | pane | base64 of `{token, caller, keys}` or `{token, kind: "offer", command}` \| unset | a send into this pane waiting on the user (`tmuxy pane send -t`), or a command a session restore offers to run again (the client shows it as a one-line banner and runs or drops it itself) |
 | `@tmuxy-ask-answer` | pane | `<token>:yes` \| `<token>:no` \| unset | the answer a client recorded for the pending `@tmuxy-ask` |
 | `@tmuxy-pane-widget` | pane | a widget name, e.g. `tree` \| unset | which widget this pane may render; written by `tmuxy-widget` and cleared when it exits |
