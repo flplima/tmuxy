@@ -8,12 +8,13 @@ import { fromCallback, type AnyActorRef, type EventObject } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
 import { getMobileInput, markKeyboardTarget } from '../../infra/dom/mobileKeyboard';
 import { TmuxOp } from '../../domain/commands';
-import { CLIENT_KEYS, type ClientKey, splitTableSwitch } from '../../domain/keyTables';
+import { clientKeyFor, type ClientKey, splitTableSwitch } from '../../domain/keyTables';
 import { tabWalksChrome } from '../../infra/dom/chromeTab';
 import {
   bindingKeyOf,
   formatTmuxKey,
   isModifierOnlyKey,
+  isPaletteChord,
   isRealFormControl,
   isTextKey,
   windowShortcut,
@@ -164,6 +165,10 @@ export function createKeyboardActor() {
           return input.parent.send({ type: 'MOVE_ACTIVE_TAB', by: -1 });
         case 'tab-right':
           return input.parent.send({ type: 'MOVE_ACTIVE_TAB', by: 1 });
+        case 'command-palette':
+          return input.parent.send({ type: 'TOGGLE_PALETTE', mode: 'all' });
+        case 'go-to':
+          return input.parent.send({ type: 'TOGGLE_PALETTE', mode: 'go' });
       }
     };
 
@@ -212,6 +217,27 @@ export function createKeyboardActor() {
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') return;
       if (windowShortcut(event) && event.code === 'KeyV') return;
 
+      const replayed = isReplayedPreviewKey(event);
+
+      // The command palette, from anywhere: over a scroll view, a question, a
+      // sticky table. Only from the user's own keyboard, never a page's replay.
+      if (!replayed && isPaletteChord(event)) {
+        event.preventDefault();
+        prefixMode.exit();
+        setKeyTable(null);
+        input.parent.send({ type: 'TOGGLE_PALETTE', mode: 'all' });
+        return;
+      }
+      // While it is open the keys are its field's (a real form control, which
+      // never gets here). A key that arrives anyway found the focus elsewhere:
+      // Escape still closes the palette, and nothing is typed into a pane
+      // the palette is drawn over.
+      if (ctx.paletteOpen) {
+        event.preventDefault();
+        if (event.key === 'Escape') input.parent.send({ type: 'CLOSE_PALETTE' });
+        return;
+      }
+
       if (
         handleModalOrCopyKeyDown(event, input.parent, {
           keys: ctx,
@@ -221,8 +247,6 @@ export function createKeyboardActor() {
       ) {
         return;
       }
-
-      const replayed = isReplayedPreviewKey(event);
 
       // Ctrl+Shift+C copies the page's selection, as in a terminal emulator.
       // After the copy keys above, which copy a client selection (select-all,
@@ -289,7 +313,7 @@ export function createKeyboardActor() {
         event.preventDefault();
         const bindingKey = bindingKeyOf(event);
 
-        const clientKey = CLIENT_KEYS.prefix[bindingKey];
+        const clientKey = clientKeyFor('prefix', bindingKey, prefix.has(bindingKey));
         if (clientKey) {
           runClientKey(clientKey);
           prefixMode.exit();
@@ -324,7 +348,11 @@ export function createKeyboardActor() {
       if (keyTable !== null) {
         event.preventDefault();
         const bindingKey = bindingKeyOf(event);
-        const clientKey = CLIENT_KEYS[keyTable]?.[bindingKey];
+        const clientKey = clientKeyFor(
+          keyTable,
+          bindingKey,
+          tables.get(keyTable)?.has(bindingKey) ?? false,
+        );
         if (event.key === 'Escape') {
           setKeyTable(null);
         } else if (clientKey) {
