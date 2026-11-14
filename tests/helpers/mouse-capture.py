@@ -50,19 +50,29 @@ try:
             if not data:
                 break
 
-            # A 'q' outside an escape sequence quits.
-            if b'q' in data and b'\x1b' not in data:
-                break
-
             buf += data
+            quit = False
 
-            # Parse SGR mouse sequences: \x1b[<Pb;Px;Py{M|m}
-            while b'\x1b[<' in buf:
-                start = buf.index(b'\x1b[<')
-
-                if start > 0:
-                    buf = buf[start:]
-                    start = 0
+            # Parse SGR mouse sequences: \x1b[<Pb;Px;Py{M|m}. A 'q' outside
+            # one quits, whatever else came in the same read: the pty hands
+            # over all that piled up, so a click's release and the 'q' typed
+            # after it often arrive together on a busy machine.
+            while buf:
+                start = buf.find(b'\x1b')
+                if b'q' in (buf if start == -1 else buf[:start]):
+                    quit = True
+                    break
+                if start == -1:
+                    buf = b''
+                    break
+                buf = buf[start:]
+                if len(buf) < 3:
+                    # Maybe the start of a report; the rest is in the next read.
+                    break
+                if not buf.startswith(b'\x1b[<'):
+                    # Some other escape sequence: not a report, and not a 'q'.
+                    buf = buf[1:]
+                    continue
 
                 # Terminated by 'M' (0x4d, press) or 'm' (0x6d, release).
                 end = -1
@@ -75,7 +85,10 @@ try:
                         break
 
                 if end == -1:
-                    # Incomplete; the rest is in the next read.
+                    # Incomplete, or malformed up to the next ESC.
+                    if b'\x1b' in buf[1:]:
+                        buf = buf[1:]
+                        continue
                     break
 
                 inner = buf[3:end].decode('ascii', errors='replace')
@@ -107,6 +120,9 @@ try:
                 log.write(line + '\n')
                 log.flush()
                 os.write(1, (line + '\r\n').encode())
+
+            if quit:
+                break
 
 finally:
     os.write(1, b'\033[?1000l\033[?1002l\033[?1006l')
