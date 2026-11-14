@@ -1,5 +1,5 @@
 use super::parser::ControlModeEvent;
-use super::{images, osc};
+use super::{images, osc, program_status};
 use crate::{PaneId, WindowId};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
@@ -372,6 +372,8 @@ mod tests_capture_cursor;
 mod tests_hyperlinks;
 #[cfg(test)]
 mod tests_panes;
+#[cfg(test)]
+mod tests_program_status;
 #[cfg(test)]
 mod tests_sidebar_and_delta;
 #[cfg(test)]

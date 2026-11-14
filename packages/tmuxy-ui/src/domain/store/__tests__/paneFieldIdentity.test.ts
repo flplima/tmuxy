@@ -42,6 +42,7 @@ const full: TmuxPane = {
   cursorShape: 0,
   cursorHidden: false,
   paneState: 'idle',
+  paneStatus: null,
   paneAsk: null,
   paneWidget: null,
 };

@@ -148,6 +148,11 @@ impl StateAggregator {
             .filter(|_| self.clipboard_write_due(&pane_id, Instant::now()))
             .map(|text| vec![(Some(pane_id.clone()), text)])
             .unwrap_or_default();
+        let commands = self
+            .panes
+            .get_mut(&pane_id)
+            .map(|pane| pane.status_commands(Instant::now()))
+            .unwrap_or_default();
         ProcessEventResult {
             state_changed: changed,
             panes_needing_refresh: Vec::new(),
@@ -158,6 +163,7 @@ impl StateAggregator {
             },
             new_images,
             clipboard_writes,
+            commands,
             ..Default::default()
         }
     }
