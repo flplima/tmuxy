@@ -1,11 +1,13 @@
 /**
  * The one lane every tmux op takes to a backend, whatever the driver.
  *
- * Ops and calls leave strictly in issue order, one at a time: each host runs every
+ * Ops and calls reach tmux strictly in issue order: each host runs every
  * request as its own task (an axum handler per POST, a Tauri command per
  * IPC call), so two in flight at once can reach tmux reversed — a
  * `split-window -h` that overtook a `select-window -t @B` splits the
- * previous tab, and keystrokes transpose. Keystrokes are batched first
+ * previous tab, and keystrokes transpose. A driver that keeps the order
+ * itself (`ordersSends`) is handed each at once; over any other, each waits
+ * for the answer to the one before. Keystrokes are batched first
  * (`KeyBatcher`), and anything else that is sent flushes them, so nothing
  * overtakes a key typed before it. Every op is the latency tracker's input
  * mark (Axis-B) and a trace event under its own `action_id`.
@@ -17,7 +19,11 @@ import { latencyTracker } from '../latencyTracker';
 import { tracer } from '../tracer';
 import { KeyBatcher } from './keyBatching';
 
-export type SendCall = (call: BackendCall, actionId: string | undefined) => Promise<unknown>;
+export type SendCall = (
+  call: BackendCall,
+  actionId: string | undefined,
+  ordered?: boolean,
+) => Promise<unknown>;
 
 export interface CommandLane {
   /**
@@ -45,7 +51,7 @@ export function commandLane(send: SendCall, ordered = false): CommandLane {
 
   const queue = (call: BackendCall, actionId?: string): Promise<unknown> => {
     inFlight++;
-    const sent = ordered ? send(call, actionId) : tail.then(() => send(call, actionId));
+    const sent = ordered ? send(call, actionId, true) : tail.then(() => send(call, actionId));
     const done = sent.finally(() => inFlight--);
     // The next send waits for this one to settle, never for it to succeed.
     tail = done.catch(() => undefined);

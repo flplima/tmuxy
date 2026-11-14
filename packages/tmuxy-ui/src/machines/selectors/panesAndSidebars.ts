@@ -1,3 +1,4 @@
+import { paneJumpOrder } from '../../domain/jumpHints';
 import { CONTAINER_PADDING_X } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
 import type { FloatPaneState, SidebarSide } from '../types/domain';
@@ -282,3 +283,9 @@ export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<PaneId
 export function selectActivePaneTree(context: AppMachineContext): PaneTree | null {
   return context.windows.find((w) => w.id === context.activeWindowId)?.paneTree ?? null;
 }
+
+/** The tab in front's panes as ctrl+alt+1…9 number them (`domain/jumpHints.ts`). */
+export const selectPaneJumpOrder = createMemoizedSelector(
+  (ctx: AppMachineContext) => ({ visible: selectVisiblePanes(ctx) }),
+  (ctx: AppMachineContext) => paneJumpOrder(selectVisiblePanes(ctx)),
+);

@@ -19,15 +19,16 @@ The web client uses two HTTP endpoints on the Axum server:
 - `reconnecting` — the tmux connection is being retried: logged on the web, the link going down on the desktop
 - `log`, `tmux-error`, `fatal` — Diagnostic and error notifications; `tmux-error` is never about the link. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
 
-**`POST /commands?session=<name>`** — HTTP POST (client-to-server):
+**`POST /commands?session=<name>`** (client-to-server):
 
 - Request body: `{ "cmd": "command_name", "args": {...} }`
+- `X-Command-Seq` numbers a connection's commands: the server runs them in that order, so none waits for an answer (INVARIANTS.md S7).
 - Response: `{ "result": ... }` or `{ "error": "message" }`
 - **Loopback by default** — a routable `--host` needs an HTTP Basic password (or an explicit `--no-auth`), and every API route refuses requests from other origins — see [SECURITY.md](SECURITY.md).
 
 **`POST /mcp?session=<name>`** — the MCP endpoint an agent drives the session through: one JSON-RPC message per request, answered with JSON. It is not the client's; see [MCP.md](MCP.md).
 
-SSE rather than WebSocket: server-to-client dominates, `EventSource` reconnects on its own, SSE crosses every proxy, and `Last-Event-Id` gives a clean resync (below).
+SSE rather than WebSocket: server-to-client dominates, `EventSource` reconnects on its own, SSE crosses every proxy, and `Last-Event-Id` gives a clean resync.
 
 ### Reconnecting
 
@@ -113,7 +114,7 @@ Reads go the same way: scrollback, key bindings, theme settings and snapshot che
 
 ```
 Frontend
-    │ TmuxTransport (one serial lane: commandLane.ts)
+    │ TmuxTransport (one ordered lane: commandLane.ts)
     ▼ driver.send({ cmd, args })
 ┌──────────────────────────────────────────┐
 │  Backend                                 │
@@ -182,8 +183,8 @@ Each stage prints `✓`, or `✗` with verbatim `ssh`/`tmux` stderr and stops. T
 
 ## Related
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — the components each transport connects
-- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — what the state updates flowing over these transports contain
-- [TMUX.md](TMUX.md) — why mutations must ride control mode rather than a subprocess
-- [SECURITY.md](SECURITY.md) — what the unauthenticated `POST /commands` endpoint exposes
-- [INVARIANTS.md](INVARIANTS.md) — the sequencing promises the stream makes (`S` and `C` rows) and what tests them
+- [ARCHITECTURE.md](ARCHITECTURE.md) — what each transport connects
+- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — what the state updates contain
+- [TMUX.md](TMUX.md) — why mutations ride control mode
+- [SECURITY.md](SECURITY.md) — what an unauthenticated `POST /commands` exposes
+- [INVARIANTS.md](INVARIANTS.md) — the sequencing promises the stream makes (`S` and `C` rows) and their tests

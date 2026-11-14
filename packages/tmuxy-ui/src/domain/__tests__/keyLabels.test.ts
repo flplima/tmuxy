@@ -114,6 +114,20 @@ describe('keys in every table', () => {
     expect(clientKeyHint(null, 'left-sidebar')).toBeUndefined();
   });
 
+  it('names the go-to key only while the key is not bound to something else', () => {
+    expect(clientKeyHint(MODES, 'go-to')).toBe('ctrl+a g');
+    // The palette's chord is its hint, whatever the tables hold.
+    expect(clientKeyHint(MODES, 'command-palette')).toBe('ctrl+shift+p');
+    const bound: KeyBindings = {
+      ...MODES,
+      prefix_bindings: [
+        ...MODES.prefix_bindings,
+        { key: 'g', command: 'display-message hello', description: '' },
+      ],
+    };
+    expect(clientKeyHint(bound, 'go-to')).toBeUndefined();
+  });
+
   it("finds a plugin's key in any table", () => {
     const bound: KeyBindings = {
       ...MODES,

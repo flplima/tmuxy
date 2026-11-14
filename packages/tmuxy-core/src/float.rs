@@ -1,7 +1,7 @@
 //! The one tmux command list that makes a float: the split, the break-pane
 //! that moves the new pane into a window of its own, every `@tmuxy-float-*`
-//! tag, the size, the select-pane that gives the caller's pane back, and the
-//! read of what was made. A plugin's float or popup surface
+//! tag, the window's size, the select-pane that gives the caller's pane back,
+//! and the read of what was made. A plugin's float or popup surface
 //! (`plugins::invoke::surface_argv`), `tmuxy pane float` (the server binary's
 //! `float` verb, behind `bin/tmuxy/float-create`) and the MCP endpoint's
 //! `pane_float` all build it here.
@@ -138,14 +138,22 @@ impl Float {
                 then(&["set-option", "-w", "-t", at, option, value]);
             }
         }
-        // A single-pane window cannot be shrunk by resize-pane on every
-        // backend, so the tags above are what the UI sizes the float by;
-        // these keep the tmux-side pane in step where it can be resized.
-        if let Some(width) = &width {
-            then(&["resize-pane", "-t", at, "-x", width]);
-        }
-        if let Some(height) = &height {
-            then(&["resize-pane", "-t", at, "-y", height]);
+        // The window holds the float's pane and nothing else, so sizing the
+        // window is what sizes the pane (resize-pane cannot shrink a
+        // window's only pane: it has no neighbour to give the cells to).
+        // Done in the list that makes the float, so a program started in it
+        // reads the float's size the first time it asks; an attached client
+        // keeps the window there (`MonitorCore::size_windows`).
+        let (cols, rows) = grid(self.width, self.height, self.drawer);
+        if cols.is_some() || rows.is_some() {
+            let mut resize = vec!["resize-window", "-t", at];
+            if let Some(cols) = cols.and(width.as_deref()) {
+                resize.extend(["-x", cols]);
+            }
+            if let Some(rows) = rows.and(height.as_deref()) {
+                resize.extend(["-y", rows]);
+            }
+            then(&resize);
         }
         // break-pane takes the caller's ACTIVE pane away (split-window had to
         // make the new pane active for the break to find it), and tmux then
@@ -263,6 +271,16 @@ pub fn default_size(
     }
 }
 
+/// The grid a float's window is sized to
+/// ([`crate::constants::float_grid::size`]), for a float still being made.
+pub fn grid(
+    width: Option<u32>,
+    height: Option<u32>,
+    drawer: Option<Drawer>,
+) -> (Option<u32>, Option<u32>) {
+    crate::constants::float_grid::size(width, height, drawer.map(Drawer::as_str))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,10 +306,57 @@ mod tests {
              ; set-option -w -t $1:7 @tmuxy-float-width 60 \
              ; set-option -w -t $1:7 @tmuxy-float-drawer left \
              ; set-option -w -t $1:7 @tmuxy-float-bg blur \
-             ; resize-pane -t $1:7 -x 60 \
+             ; resize-window -t $1:7 -x 60 \
              ; select-pane -t %3 \
              ; display-message -p -t $1:7 #{pane_id} #{window_id}"
         );
+    }
+
+    /// The pane is the window's only one, so the window is what is sized:
+    /// both sides for a centred float, the docked side alone for a drawer,
+    /// and nothing for a float that names no size.
+    #[test]
+    fn a_float_sizes_its_window_to_the_grid_it_is_drawn_at() {
+        let resize = |float: Float| {
+            let argv = float.argv().join(" ");
+            argv.split(" ; ")
+                .find(|command| command.starts_with("resize-"))
+                .map(str::to_string)
+        };
+        let sized = |drawer| Float {
+            at: "$1:7".into(),
+            width: Some(60),
+            height: Some(15),
+            drawer,
+            ..Float::default()
+        };
+        assert_eq!(
+            resize(sized(None)).as_deref(),
+            Some("resize-window -t $1:7 -x 60 -y 15")
+        );
+        assert_eq!(
+            resize(sized(Some(Drawer::Right))).as_deref(),
+            Some("resize-window -t $1:7 -x 60")
+        );
+        assert_eq!(
+            resize(sized(Some(Drawer::Bottom))).as_deref(),
+            Some("resize-window -t $1:7 -y 15")
+        );
+        assert_eq!(
+            resize(Float {
+                at: "$1:7".into(),
+                ..Float::default()
+            }),
+            None
+        );
+        assert_eq!(grid(Some(60), None, None), (Some(60), None));
+        assert_eq!(grid(None, Some(15), Some(Drawer::Left)), (None, None));
+        // The tags' rule and the drawer's own agree on which side is docked.
+        for drawer in Drawer::ALL {
+            let (cols, rows) = grid(Some(60), Some(15), Some(drawer));
+            assert_eq!(cols.is_some(), drawer.docks_by_width(), "{drawer:?}");
+            assert_eq!(rows.is_some(), !drawer.docks_by_width(), "{drawer:?}");
+        }
     }
 
     #[test]
