@@ -122,10 +122,14 @@ export type AppMachineEvent =
   | { type: 'SUPPRESS_ANIMATIONS' }
   /** The grid is the size this client asked for and settled: layout changes may animate again. */
   | { type: 'ANIMATIONS_SETTLED' }
+  /** A size report did not reach the backend (tmuxActor): it is owed again. */
+  | { type: 'CLIENT_SIZE_UNREPORTED'; cols: number; rows: number }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;
       rows: number;
+      /** Report it to the backend even if it was reported before: the connection or the size policy is new. */
+      resend?: boolean;
     }
   | { type: 'SET_CONTAINER_SIZE'; width: number; height: number }
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
