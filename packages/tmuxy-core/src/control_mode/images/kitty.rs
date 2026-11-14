@@ -26,17 +26,11 @@ impl ImageParser {
             return None;
         }
 
-        let mut end = 3;
-        while end + 1 < data.len() {
-            if data[end] == 0x1B && data[end + 1] == b'\\' {
-                break;
-            }
-            end += 1;
-        }
-        if end + 1 >= data.len() {
-            return None; // Incomplete; wait for more bytes.
-        }
-        let consumed = end + 2;
+        // Incomplete (`None`): wait for more bytes. Aborted: not a picture.
+        let (end, consumed) = match string_end(data, 3, false)? {
+            StringEnd::Terminated { at, after } => (at, after),
+            StringEnd::Aborted => return None,
+        };
         let body = &data[3..end];
 
         let (keys_part, payload_part) = match body.iter().position(|&b| b == b';') {
