@@ -33,6 +33,8 @@ export interface PaneMenuOptions {
   navigation?: boolean;
   /** Offer "Rename Pane" (the surface showing the title owns the field). */
   rename?: boolean;
+  /** "Revive Agent Session", when revive's own check says it can (`useReviveItems`). */
+  reviveItems?: AppMenuSpec;
 }
 
 /**
@@ -99,6 +101,7 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
   const navigation = options.navigation ?? true;
 
   const widget = options.widgetItems ?? [];
+  const revive = options.reviveItems ?? [];
 
   const op = (
     id: keyof typeof PANE_OPS,
@@ -116,6 +119,8 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
   });
 
   return tidy([
+    ...revive,
+    revive.length > 0 && separator,
     ...widget,
     widget.length > 0 && separator,
     options.rename && {
