@@ -121,11 +121,21 @@ fn embedded_file(path: &str, request: &axum::http::HeaderMap) -> Response {
     if let Some(response) = serve_user_css(path) {
         return response;
     }
+    bundle_file(path, request, |name| {
+        FrontendAssets::get(name).map(|file| file.data.into_owned())
+    })
+}
+
+/// `path` from the frontend build that `get` reads, or the app's page for a
+/// route of its own.
+fn bundle_file(
+    path: &str,
+    request: &axum::http::HeaderMap,
+    get: impl Fn(&str) -> Option<Vec<u8>>,
+) -> Response {
     // Anything that is not a file of the bundle is a route of the app's own.
-    let file = (path != "index.html")
-        .then(|| FrontendAssets::get(path))
-        .flatten();
-    match (file, FrontendAssets::get("index.html")) {
+    let file = (path != "index.html").then(|| get(path)).flatten();
+    match (file, get("index.html")) {
         // A build's file that is not in this build (a page left open across
         // an update asking for a chunk it was built with): a 404 the page's
         // loader can tell from a file, never the page itself as text/html.
@@ -133,13 +143,13 @@ fn embedded_file(path: &str, request: &axum::http::HeaderMap) -> Response {
         (Some(file), _) => delivery::cached(
             path,
             tmuxy_core::mime::content_type_for_path(path),
-            file.data.into_owned(),
+            file,
             request,
         ),
         (None, Some(index)) => delivery::cached(
             "index.html",
             "text/html; charset=utf-8",
-            titled_index_html(&index.data, &tmuxy_core::host::server_host_name()),
+            titled_index_html(&index, &tmuxy_core::host::server_host_name()),
             request,
         ),
         (None, None) => StatusCode::NOT_FOUND.into_response(),
@@ -429,19 +439,29 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 #[cfg(test)]
 mod tests {
     use super::{
-        embedded_file, is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid,
+        bundle_file, is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid,
         titled_index_html, Server, StatusCode,
     };
 
+    /// A build of its own: the tests run against whatever `dist/` holds,
+    /// which on CI is an empty placeholder.
     #[test]
     fn a_missing_build_file_is_a_404_and_any_other_path_the_app() {
-        let missing = embedded_file(
-            "/assets/PreviewWidget-gone.js",
-            &axum::http::HeaderMap::new(),
+        let build = |name: &str| {
+            matches!(name, "index.html" | "assets/index-DcgKV4k9.js").then(|| b"file".to_vec())
+        };
+        let serve = |path| bundle_file(path, &axum::http::HeaderMap::new(), build);
+        assert_eq!(
+            serve("assets/PreviewWidget-gone1234.js").status(),
+            StatusCode::NOT_FOUND
         );
-        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
-        let route = embedded_file("/some/app/route", &axum::http::HeaderMap::new());
+        assert_eq!(serve("assets/index-DcgKV4k9.js").status(), StatusCode::OK);
+        let route = serve("some/app/route");
         assert_eq!(route.status(), StatusCode::OK);
+        assert_eq!(
+            route.headers()[axum::http::header::CONTENT_TYPE],
+            "text/html; charset=utf-8"
+        );
     }
 
     #[test]
