@@ -18,6 +18,8 @@ mod connect_cli;
 mod float_cli;
 mod group_cli;
 mod keymap_cli;
+mod meta_cli;
+mod permissions_file;
 #[cfg(feature = "native")]
 mod plugin_cli;
 mod report_cli;
@@ -71,6 +73,14 @@ pub enum Verb {
     /// `tmuxy pane paste`, which resolve the target and the caller.
     #[command(hide = true)]
     Send(send_cli::SendArgs),
+    /// List the sends waiting in line for a pane, or take one back. Backs
+    /// `tmuxy pane queue`.
+    #[command(hide = true)]
+    SendQueue(send_cli::QueueArgs),
+    /// A pane's custom fields, for its row in the sidebar tree. Backs
+    /// `tmuxy pane meta`, which resolves the target.
+    #[command(hide = true)]
+    Meta(meta_cli::MetaArgs),
     /// Ask the desktop app to reconnect to another tmux server. Backs
     /// `tmuxy connect <socket>`.
     #[cfg(feature = "native")]
@@ -134,6 +144,8 @@ pub async fn run(verb: Verb) {
         Verb::Config(args) => config_cli::run(args),
         Verb::Keymap(args) => keymap_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
+        Verb::SendQueue(args) => send_cli::run_queue(args).await,
+        Verb::Meta(args) => meta_cli::run(args).await,
         #[cfg(feature = "native")]
         Verb::Connect(args) => connect_cli::run(args),
         #[cfg(feature = "native")]

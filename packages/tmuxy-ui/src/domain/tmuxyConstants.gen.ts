@@ -24,6 +24,12 @@ export const PANE_OPTIONS = {
 /** The session parked pane-group members live in (`STASH_SESSION`). */
 export const STASH_SESSION = '__tmuxy_stash';
 
+/** The option a pane's custom fields are kept in (`tmux_options::PANE_META`). */
+export const PANE_META_OPTION = '@tmuxy-meta';
+
+/** The user's option for what a tree row shows (`tmux_options::TREE_ROW`). */
+export const TREE_ROW_OPTION = '@tmuxy-tree-row';
+
 /** A pane's title with tmux's host-name seed filtered out (`tmux_formats::APP_PANE_TITLE`). */
 export const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
 

@@ -16,6 +16,7 @@ EXIT_FAILED=1
 EXIT_USAGE=2
 EXIT_TARGET=3
 EXIT_NO_SERVER=4
+EXIT_SENT=5
 JSON_FAILURE_FORMAT='{"ok":false,"error":%s,"code":%s}'
 
 # What tmux says when there is no server on the socket (`session::NO_SERVER_SIGNS`).
@@ -34,10 +35,12 @@ OPT_FOCUS_REQUEST='@tmuxy-focus-request'
 OPT_GROUP_ID='@tmuxy-group-id'
 OPT_PANE_RESTORE='@tmuxy-pane-restore'
 OPT_PANE_STATE='@tmuxy-pane-state'
+OPT_PANE_META='@tmuxy-meta'
 OPT_PANE_LABEL='@tmuxy-label'
 OPT_PANE_WIDGET='@tmuxy-pane-widget'
 OPT_PANE_PREVIEW='@tmuxy-pane-preview'
 OPT_PANE_PREVIEW_NET='@tmuxy-pane-preview-net'
+OPT_TRUST_PANE_CLAIMS='@tmuxy-trust-pane-claims'
 
 # The window types tmuxy's chrome is tagged with (`WindowType`); an
 # untagged window is a tab. A sidebar's window is named by its prefix.

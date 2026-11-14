@@ -263,12 +263,31 @@ pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError
             "no tmuxy config chain this server can read (not written, or the server is over SSH)",
         ));
     };
+    refuse_broken_config().await?;
     run(
         tx,
         &format!("source-file {}", tmux_quote(&path.to_string_lossy())),
     )
     .await?;
     after_source_file(tx).await
+}
+
+/// Before the chain is sourced again on a running server: refused when the
+/// user's part of it has a problem (`session::check_config`). The chain
+/// starts by putting tmuxy's defaults back, so a file tmux then cannot read,
+/// or reads only part of, would take the user's prefix and bindings out of
+/// the session they are working in. The first connect is not asked: there is
+/// no running config to keep.
+pub(super) async fn refuse_broken_config() -> Result<(), CommandError> {
+    let problems = tokio::task::spawn_blocking(|| {
+        crate::session::reload_blockers(&crate::paths::Layout::current())
+    })
+    .await
+    .unwrap_or_default();
+    match crate::session::refusal(&problems) {
+        Some(message) => Err(CommandError::invalid(message)),
+        None => Ok(()),
+    }
 }
 
 /// What follows every `source-file` of the config chain, the monitor's own

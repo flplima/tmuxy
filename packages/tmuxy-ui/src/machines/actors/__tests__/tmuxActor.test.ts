@@ -181,6 +181,118 @@ describe('tmuxActor — cancellable scrollback', () => {
   });
 });
 
+describe('tmuxActor — taking the offer of the user’s own tmux', () => {
+  const take = { type: 'TAKE_OWN_TMUX_OFFER', serverId: 'my-tmux', session: 'work' } as const;
+  const verdicts = (events: Array<{ type: string }>) =>
+    events.filter((e) => e.type === 'OWN_TMUX_OFFER_TAKEN');
+
+  it('connects, and only then closes the offer on the host and tells the parent', async () => {
+    const transport = fakeTransport();
+    const { actor, events } = spawnTmuxActor(transport.runtime);
+    actor.getSnapshot().children.tmux!.send(take);
+    await waitFor(() => transport.invocations.length === 2);
+    expect(transport.invocations).toEqual([
+      { cmd: 'connect_server', args: { id: 'my-tmux', session: 'work' } },
+      { cmd: 'close_own_tmux_offer', args: {} },
+    ]);
+    expect(verdicts(events)).toEqual([{ type: 'OWN_TMUX_OFFER_TAKEN', taken: true }]);
+    actor.stop();
+  });
+
+  // That server has gone since the offer was made: the host knows no such
+  // server, and an offer that was never taken must stay open.
+  it('a connect the host refuses closes nothing, and the parent hears it was not taken', async () => {
+    const transport = fakeTransport({
+      send: async () => {
+        throw { error: "unknown server 'my-tmux'", kind: 'invalid' };
+      },
+    });
+    const { actor, events } = spawnTmuxActor(transport.runtime);
+    actor.getSnapshot().children.tmux!.send(take);
+    await waitFor(() => verdicts(events).length > 0);
+    expect(verdicts(events)).toEqual([{ type: 'OWN_TMUX_OFFER_TAKEN', taken: false }]);
+    expect(transport.invocations.map((call) => call.cmd)).toEqual(['connect_server']);
+    expect(events.some((e) => e.type === 'TMUX_ERROR')).toBe(true);
+    actor.stop();
+  });
+});
+
+describe('tmuxActor — the shell prompts', () => {
+  it('FETCH_PROMPT_MARKS answers with the rows, and carries the jump that asked', async () => {
+    const { runtime } = fakeTransport({
+      send: async ({ cmd }) =>
+        cmd === 'get_prompt_marks' ? { historySize: 100, prompts: [40, 80] } : null,
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor
+      .getSnapshot()
+      .children.tmux!.send({ type: 'FETCH_PROMPT_MARKS', paneId: '%1', jump: 'previous' });
+
+    await waitFor(() => events.some((e) => e.type === 'PROMPT_MARKS_LOADED'));
+    expect(events.find((e) => e.type === 'PROMPT_MARKS_LOADED')).toEqual({
+      type: 'PROMPT_MARKS_LOADED',
+      paneId: '%1',
+      historySize: 100,
+      prompts: [40, 80],
+      jump: 'previous',
+    });
+    actor.stop();
+  });
+
+  /** Copy the last output with a system clipboard whose write does `writeText`. */
+  async function copyLastOutput(writeText: (text: string) => Promise<void>) {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      const { runtime } = fakeTransport({
+        send: async ({ cmd }) => (cmd === 'get_last_command_output' ? { text: 'ok\nfine' } : null),
+      });
+      const { actor, events } = spawnTmuxActor(runtime);
+      actor.getSnapshot().children.tmux!.send({ type: 'COPY_LAST_OUTPUT', paneId: '%1' });
+      await waitFor(() => events.some((e) => e.type === 'NOTIFY'));
+      actor.stop();
+      return events.find((e) => e.type === 'NOTIFY');
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  }
+
+  it('COPY_LAST_OUTPUT puts the text on the clipboard and says how much', async () => {
+    const written: string[] = [];
+    const notice = await copyLastOutput(async (text) => {
+      written.push(text);
+    });
+
+    expect(written).toEqual(['ok\nfine']);
+    expect(notice).toMatchObject({ kind: 'info', text: 'Copied the last output: 7 characters' });
+  });
+
+  // A browser may refuse a write that comes a round trip after the click.
+  it('says the copy failed when the clipboard refused it, not that it copied', async () => {
+    const notice = await copyLastOutput(() => Promise.reject(new Error('NotAllowedError')));
+
+    expect(notice).toMatchObject({
+      kind: 'error',
+      text: 'Pane %1 could not copy 7 chars: the browser wants a key or a click first',
+    });
+  });
+
+  it('a shell that marks no output copies nothing and says why', async () => {
+    delete (globalThis as { __tmuxyLastClipboard?: unknown }).__tmuxyLastClipboard;
+    const { runtime } = fakeTransport({
+      send: async ({ cmd }) => (cmd === 'get_last_command_output' ? { text: null } : null),
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'COPY_LAST_OUTPUT', paneId: '%1' });
+
+    await waitFor(() => events.some((e) => e.type === 'NOTIFY'));
+    expect(events.find((e) => e.type === 'NOTIFY')?.text).toBe(
+      'No command output to copy: this shell marks none',
+    );
+    expect((globalThis as { __tmuxyLastClipboard?: unknown }).__tmuxyLastClipboard).toBeUndefined();
+    actor.stop();
+  });
+});
+
 describe('tmuxActor — the activity inbox', () => {
   it('FETCH_ACTIVITY lists every session’s panes and answers with the rows, most urgent first', async () => {
     const asked: string[] = [];

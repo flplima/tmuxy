@@ -48,6 +48,23 @@ pub const SECURITY_KEYS: [&str; 6] = [
     "allowedHosts",
 ];
 
+/// The options a profile sets on its session: what a switch unsets first.
+const SESSION_OPTIONS: [&str; 5] = [
+    tmux_options::PROFILE,
+    tmux_options::THEME,
+    tmux_options::THEME_MODE,
+    tmux_options::CURSOR_BLINK,
+    tmux_options::TRANSPARENCY,
+];
+
+/// The profiles there are and the one a session uses: what every profile
+/// command answers, for the menu.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ProfilesInfo {
+    pub active: String,
+    pub names: Vec<String>,
+}
+
 /// The theme modes a profile may pick.
 const THEME_MODES: [&str; 3] = ["dark", "light", "auto"];
 
@@ -204,9 +221,11 @@ fn check_values(name: &str, profile: &Profile) -> Result<(), ProfileError> {
     Ok(())
 }
 
-/// Write `profile` as `name`, made or replaced.
+/// Write `profile` as `name`, made or replaced: checked as a read is, so
+/// nothing is saved that would be refused on the next load.
 pub fn save(dir: &Path, name: &str, profile: &Profile) -> Result<(), ProfileError> {
     let path = file(dir, name)?;
+    check_values(name, profile)?;
     let text = serde_json::to_string_pretty(profile)
         .map_err(|e| ProfileError::Unreadable(e.to_string()))?;
     crate::private_files::write(&path, format!("{text}\n"))
@@ -273,6 +292,41 @@ pub fn session_commands(
                 crate::tmux_quote(&value?)
             ))
         })
+        .collect()
+}
+
+/// Set the field behind the tmux option `option` to `value` (`on` or `off`
+/// for a switch), as a menu change in a session on this profile does. False
+/// for an option no profile holds, which stays the global one it always was:
+/// asking before a send is never a profile's.
+pub fn set_field(profile: &mut Profile, option: &str, value: &str) -> bool {
+    let on = value == "on";
+    match option {
+        tmux_options::THEME => profile.theme = Some(value.to_string()),
+        tmux_options::THEME_MODE => profile.theme_mode = Some(value.to_string()),
+        tmux_options::CURSOR_BLINK => profile.cursor_blink = Some(on),
+        tmux_options::TRANSPARENCY => profile.transparency = Some(on),
+        _ => return false,
+    }
+    true
+}
+
+/// The commands that move `session` to the profile `name`: every option a
+/// profile sets is unset on the session first, so nothing of the previous
+/// profile stays, then `name`'s are set ([`session_commands`]). Switching to
+/// the default profile only unsets: the session follows the global settings
+/// again.
+pub fn switch_commands(
+    session: &str,
+    name: &str,
+    profile: &Profile,
+    pinned: &[&str],
+) -> Vec<String> {
+    let target = crate::tmux_quote(session);
+    SESSION_OPTIONS
+        .iter()
+        .map(|option| format!("set-option -t {target} -u {option}"))
+        .chain(session_commands(session, name, profile, pinned))
         .collect()
 }
 

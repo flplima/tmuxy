@@ -125,6 +125,26 @@ pub mod tmux_options {
     /// (`control_mode/program_status.rs`), beside [`PANE_STATE`].
     pub const PANE_STATUS: &str = "@tmuxy-pane-status";
 
+    /// Set by tmux on a pane a send was held back from, because the pane said
+    /// it needs the user (`crate::ask::deliver`): with the send's own token
+    /// after it (`@tmuxy-send-held-<token>`), so senders at once each read
+    /// their own. The send reads it back to know, and takes it off.
+    pub const SEND_HELD: &str = "@tmuxy-send-held";
+    /// A send waiting in line for a busy pane (`crate::ask::queue`), one
+    /// option per send: `@tmuxy-send-queued-<id>`, base64 of who and what.
+    pub const SEND_QUEUED: &str = "@tmuxy-send-queued";
+
+    /// A pane's custom fields (`tmuxy pane meta`, `crate::pane_meta`): base64
+    /// of a JSON object, so any text survives the tab-separated pane listing
+    /// the sidebar tree reads them from. Unset for none.
+    pub const PANE_META: &str = "@tmuxy-meta";
+
+    /// Which items a pane's row in the sidebar tree shows, on which lines
+    /// (`set -g @tmuxy-tree-row 'process ports id / cwd branch / title /
+    /// fields'`). The user's to set; the client reads it with the sessions
+    /// poll (`tmuxy-ui/src/domain/rowTemplate.ts`). Unset for the default.
+    pub const TREE_ROW: &str = "@tmuxy-tree-row";
+
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the
     /// shell scripts' `_contract`).
@@ -164,6 +184,11 @@ pub mod tmux_options {
     /// `list-panes` format that free text would break. Unset means no
     /// question is pending.
     pub const ASK: &str = "@tmuxy-ask";
+    /// Global, `on` only where no process ancestry can be read (the CheerpX
+    /// guest's config sets it). It turns the own-pane check off there: a
+    /// caller's claim to run in a pane then stands unproven. Anywhere else an unproven claim is refused
+    /// (`verified_own_pane`, packages/tmuxy-cli/bin/tmuxy/_contract).
+    pub const TRUST_PANE_CLAIMS: &str = "@tmuxy-trust-pane-claims";
 
     /// Pane-scoped answer to the pending [`ASK`], written by the client the
     /// user answered in and read back by the waiting sender (`crate::ask`).
