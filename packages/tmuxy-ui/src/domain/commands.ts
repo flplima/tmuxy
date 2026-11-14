@@ -16,9 +16,11 @@ import {
   sidebarWindowCommand,
   list,
   literalText,
-  mouseReport,
+  mouseReports,
+  type MouseReport,
   NAV_WORD,
   pastedText,
+  reviewInto,
   pluginAction,
   script,
   scriptWith,
@@ -56,7 +58,12 @@ export type SplitDirection = 'horizontal' | 'vertical';
 export type Side = 'left' | 'right' | 'up' | 'down';
 
 /** A tmuxy window option (`@tmuxy-<tag>`) the client writes. */
-export type WindowTag = 'collapsible' | 'sidebar-hidden' | 'sidebar-rows' | 'sidebar-cols';
+export type WindowTag =
+  | 'collapsible'
+  | 'sidebar-hidden'
+  | 'sidebar-rows'
+  | 'sidebar-cols'
+  | 'float-minimized';
 
 /** One step of a divider drag: grow or shrink `paneId` by `cells` toward `direction`. */
 export interface ResizeStep {
@@ -123,14 +130,10 @@ export type TmuxOp = Data.TaggedEnum<{
   SendText: { readonly target: PaneId | string; readonly text: string };
   /** Text pasted as one paste: bracketed when the program in the pane asked for it. */
   PasteText: { readonly target: PaneId | string; readonly text: string };
-  /** An SGR mouse report for a mouse-tracking pane; coordinates are 1-based cells. */
-  SendMouse: {
-    readonly paneId: PaneId;
-    readonly button: number;
-    readonly x: number;
-    readonly y: number;
-    readonly release: boolean;
-  };
+  /** A diff review pasted and entered for the agent in a pane, only if tmux finds it ready. */
+  SendReview: { readonly target: PaneId; readonly text: string; readonly id: string };
+  /** SGR mouse reports for a mouse-tracking pane, in the order they happened. */
+  SendMouse: { readonly paneId: PaneId; readonly reports: ReadonlyArray<MouseReport> };
   EnterCopyMode: { readonly paneId: PaneId | null };
   CancelCopyMode: { readonly paneId: PaneId };
   /**
@@ -174,6 +177,16 @@ export type TmuxOp = Data.TaggedEnum<{
   /** A new pane joins `pane`'s group (or opens one with it); `null` = tmux's current pane. */
   GroupAdd: { readonly pane: SizedPane | null };
   GroupClose: { readonly paneId: PaneId };
+  /**
+   * Bring the agent that exited in `paneId` back into the same conversation:
+   * `tmuxy agent revive`, whose own checks decide (`agent-revive` script).
+   */
+  ReviveAgent: { readonly paneId: PaneId };
+  /**
+   * Ask revive's own check about `paneId` and leave the answer on the pane
+   * for a query to read (`reviveCheckQuery`): the pane menu's question.
+   */
+  CheckRevive: { readonly paneId: PaneId };
   /**
    * Swap a parked member into the visible slot `visiblePaneId` holds. Without
    * a visible member there is nothing to predict; the script still runs.
@@ -280,8 +293,10 @@ export function toTmuxCommand(op: TmuxOp): string {
       return literalText(op.target, op.text);
     case 'PasteText':
       return pastedText(op.target, op.text);
+    case 'SendReview':
+      return reviewInto(op.target, op.text, op.id);
     case 'SendMouse':
-      return mouseReport(op);
+      return mouseReports(op.paneId, op.reports);
     case 'EnterCopyMode':
       return op.paneId ? `copy-mode -t ${op.paneId}` : 'copy-mode';
     case 'CancelCopyMode':
@@ -344,6 +359,10 @@ export function toTmuxCommand(op: TmuxOp): string {
           );
     case 'GroupClose':
       return scriptWith('settle', 'pane-group', 'close', op.paneId);
+    case 'ReviveAgent':
+      return script('agent-revive', op.paneId);
+    case 'CheckRevive':
+      return script('agent-revive', '--mark', op.paneId);
     case 'GroupSwitch':
       return scriptWith('settle', 'pane-group', 'switch', op.clickedPaneId);
     case 'GroupStep':

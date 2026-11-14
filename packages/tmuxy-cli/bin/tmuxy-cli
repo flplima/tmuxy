@@ -124,15 +124,17 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
-  widget      Display widgets (tree, preview)
+  widget      Display widgets (tree, preview, diff)
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
   mcp         Show the MCP endpoint that lets an AI agent drive this session
   run         Run any tmux command safely
+  worktree    A git worktree for a task in its own tab, and its safe removal (new, remove)
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TRACING.md)
   config      Re-apply tmuxy.conf (reload), check it (doctor) or change a setting
+  keymap      Every key binding, and the file and line it comes from [--table T] [key]
   plugin      Install, list, update and remove plugins; run their actions
   gui         Open the desktop GUI application
 
@@ -190,6 +192,7 @@ Commands:
   send          Send keys to pane <keys...>
   queue         Sends waiting for a busy pane [-t target] [--retract id]
   state         Declare what the pane is doing <state> [target]
+  meta          Fields the pane's tree row shows: set key=value [--ttl 5m], unset, list, clear
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
@@ -224,6 +227,8 @@ Commands:
   tree          Display the tabs+panes tree (the left sidebar's content)
   preview       Show a local .html or .md file, kept up to date as it
                 changes [--net] [--no-theme] [file] (also: tmuxy open)
+  diff          Show the changes of the git checkout here: unstaged,
+                staged, or the branch against its base [folder]
 EOF
 }
 
@@ -370,6 +375,11 @@ CEOF
     find_server_cmd
     exec "${SERVER_CMD[@]}" "$@" ${server_json[@]+"${server_json[@]}"}
     ;;
+  worktree)
+    shift
+    find_server_cmd || exit "$EXIT_FAILED"
+    exec "${SERVER_CMD[@]}" worktree "$@" ${server_json[@]+"${server_json[@]}"}
+    ;;
   trace)
     shift
     if [ "${1:-}" = "check" ] || [ "${1:-}" = "health" ]; then
@@ -383,6 +393,11 @@ CEOF
   config)
     shift
     cmd_config "$@"
+    ;;
+  keymap)
+    shift
+    find_server_cmd || exit "$EXIT_FAILED"
+    exec "${SERVER_CMD[@]}" keymap "$@" ${server_json[@]+"${server_json[@]}"}
     ;;
   info)
     shift

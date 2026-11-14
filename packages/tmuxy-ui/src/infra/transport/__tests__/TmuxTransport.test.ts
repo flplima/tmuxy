@@ -57,10 +57,23 @@ describe('TmuxTransport over a driver', () => {
 
   it('a driver with no session switch of its own switches with switch-client on the lane', async () => {
     const adapter = fakeTransport();
-    await adapter.run(call((t) => t.switchSession('demo')));
+    // The one client moved: no new stream, and so no state to ask for.
+    expect(await adapter.run(call((t) => t.switchSession('demo')))).toBe(false);
     expect(adapter.invocations).toEqual([
       { cmd: 'run_tmux_command', args: { command: 'switch-client -t demo' } },
     ]);
+  });
+
+  it('a driver that switches by reconnecting says a new stream opened', async () => {
+    const switched: string[] = [];
+    const adapter = fakeTransport({
+      switchSession: async (name) => {
+        switched.push(name);
+      },
+    });
+    expect(await adapter.run(call((t) => t.switchSession('demo')))).toBe(true);
+    expect(switched).toEqual(['demo']);
+    expect(adapter.invocations).toEqual([]);
   });
 
   it('a fetched state is decoded, and the viewport it was asked at is the reported size', async () => {

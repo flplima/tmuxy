@@ -54,6 +54,7 @@ export const OP_TRAITS = {
   SendKeys: NONE,
   SendText: NONE,
   PasteText: NONE,
+  SendReview: NONE,
   SendMouse: NONE,
   EnterCopyMode: NONE,
   CancelCopyMode: NONE,
@@ -72,6 +73,9 @@ export const OP_TRAITS = {
   // active pane with it.
   GroupAdd: { predicts: null, multiStep: true, focus: 'pane' },
   GroupClose: { predicts: null, multiStep: true, focus: 'pane' },
+  // Respawns the pane in place: its process changes, its place does not.
+  ReviveAgent: NONE,
+  CheckRevive: NONE,
   GroupSwitch: { predicts: 'layout', multiStep: false, focus: 'pane' },
   GroupStep: { predicts: null, multiStep: true, focus: 'pane' },
   GroupMove: { predicts: 'layout', multiStep: false, focus: null },

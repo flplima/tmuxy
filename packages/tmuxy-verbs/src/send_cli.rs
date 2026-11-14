@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use tmuxy_core::ask::{self, Argv, Deadline, Question, Refused, SendRules};
+use tmuxy_core::permissions::{self, Decision};
 use tmuxy_core::{CommandError, PaneId};
 
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_SENT, EXIT_TARGET, EXIT_USAGE};
@@ -59,7 +60,7 @@ pub struct SendArgs {
 /// The CLI's own `Tmux`: reads as tmux subprocesses, which tmux runs safely
 /// beside an attached control-mode client, and every change inside
 /// `run-shell` (docs/TMUX.md).
-struct CliTmux;
+pub(crate) struct CliTmux;
 
 impl ask::Tmux for CliTmux {
     async fn read(&self, argv: Argv) -> Result<String, CommandError> {
@@ -76,7 +77,9 @@ impl ask::Tmux for CliTmux {
 
 pub async fn run(args: SendArgs) {
     let answer = Answer::new(args.json);
-    let code = match send(&CliTmux, args, &answer).await {
+    // The user's permissions file, read from disk for this send and no other.
+    let file = permissions::Loaded::read(&crate::permissions_file::path());
+    let code = match send(&CliTmux, args, &answer, &file).await {
         Ok(()) => 0,
         // Under --json a wait that failed after the keys went in says so.
         Err((EXIT_SENT, message)) => {
@@ -91,6 +94,7 @@ async fn send<T: ask::Tmux>(
     tmux: &T,
     args: SendArgs,
     answer: &Answer,
+    file: &permissions::Loaded,
 ) -> Result<(), (i32, String)> {
     let pane = PaneId::parse(&args.target)
         .map_err(|_| (EXIT_USAGE, format!("not a pane id: {}", args.target)))?;
@@ -125,13 +129,23 @@ async fn send<T: ask::Tmux>(
         also: None,
         inbox: args.inbox,
     };
+    // The caller's pane is a claim until this process is seen to run there:
+    // the flag is the caller's to write, and a claim to the target pane
+    // would deliver with no rule read and nobody asked.
+    let mut caller_pane = args
+        .caller_pane
+        .as_deref()
+        .and_then(|p| PaneId::parse(p).ok());
+    if let Some(claimed) = &caller_pane {
+        if !runs_in(tmux, claimed).await {
+            caller_pane = None;
+        }
+    }
     let route = Route {
-        caller_pane: args
-            .caller_pane
-            .as_deref()
-            .and_then(|p| PaneId::parse(p).ok()),
+        caller_pane,
         process: args.caller_process.as_deref(),
         timeout: args.timeout,
+        file,
     };
     if args.queue {
         let stall = Duration::from_secs(args.stall_after);
@@ -140,16 +154,18 @@ async fn send<T: ask::Tmux>(
     route.send(tmux, &delivery, answer).await
 }
 
-/// Who sends, and how long a question may wait for its answer.
+/// Who sends, how long a question may wait for its answer, and the user's
+/// permissions file.
 struct Route<'a> {
     caller_pane: Option<PaneId>,
     process: Option<&'a str>,
     timeout: Option<u64>,
+    file: &'a permissions::Loaded,
 }
 
 impl Route<'_> {
-    /// Into the caller's own pane at once; into another once its rules or its
-    /// user allow it.
+    /// Into the caller's own pane at once; into another once the user's
+    /// permissions file, the pane's rules or its user allow it.
     async fn send<T: ask::Tmux>(
         &self,
         tmux: &T,
@@ -162,7 +178,18 @@ impl Route<'_> {
         }
         let caller = self.caller(tmux).await;
         let rules = SendRules::read(tmux, pane).await.map_err(failed)?;
-        if rules.skip_question(&[&caller], pane) {
+        // The user's permissions file can refuse the send, or have it asked
+        // where an option would skip the question. It skips none.
+        let verdict = self.file.check_send(permissions::Send {
+            callers: &[&caller],
+            program: &rules.program,
+            keys: delivery.keys,
+            paste: delivery.paste,
+        });
+        if let Decision::Deny(why) = &verdict {
+            return Err((EXIT_FAILED, format!("{why}; nothing sent")));
+        }
+        if verdict == Decision::NoOpinion && rules.skip_question(&[&caller], pane) {
             delivery.deliver(tmux, answer).await?;
             return rules.mark_unread(tmux, pane).await.map_err(failed);
         }
@@ -220,6 +247,16 @@ async fn put_question<T: ask::Tmux>(
         };
         (code, refused.to_string())
     })
+}
+
+/// Whether this process runs in `pane`: the pane's own process is this one
+/// or an ancestor of it.
+async fn runs_in<T: ask::Tmux>(tmux: &T, pane: &PaneId) -> bool {
+    ask::pane_read(tmux, pane, "#{pane_pid}")
+        .await
+        .ok()
+        .and_then(|pid| pid.trim().parse().ok())
+        .is_some_and(crate::permissions_file::runs_under)
 }
 
 /// Who is asking: the program in front in the caller's pane (an agent's own

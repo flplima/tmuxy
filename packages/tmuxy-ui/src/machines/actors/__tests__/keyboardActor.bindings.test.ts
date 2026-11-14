@@ -180,6 +180,40 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
   });
 });
 
+describe('keyboardActor — ctrl+alt+digit is the panes of the tab in front', () => {
+  it('sends the pane position for ctrl+alt+1–9, read off the key, never to tmux', () => {
+    const { events } = spawnWithLiveContext(pid('%1'));
+    const ofType = (type: string) => events.filter((e) => e.type === type);
+
+    // macOS: Option turns the digit into another character; the key is still Digit3.
+    pressKey({ key: '£', code: 'Digit3', ctrlKey: true, altKey: true });
+    expect(ofType('SELECT_PANE_BY_POSITION')).toEqual([
+      { type: 'SELECT_PANE_BY_POSITION', position: 3 },
+    ]);
+    expect(ofType('SELECT_TAB_BY_POSITION')).toEqual([]);
+    expect(sendCommands(events)).toEqual([]);
+
+    // AltGr on Windows arrives as ctrl+alt: AltGr+8 on a German layout is `[`.
+    const altGr = new KeyboardEvent('keydown', {
+      key: '[',
+      code: 'Digit8',
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(altGr, 'getModifierState', { value: (k: string) => k === 'AltGraph' });
+    window.dispatchEvent(altGr);
+    expect(ofType('SELECT_PANE_BY_POSITION')).toHaveLength(1);
+    // ...and its character reaches the pane.
+    expect(sendCommands(events)).toEqual(["send-keys -t %1 -l -- '['"]);
+
+    // With shift too, it is not the jump.
+    pressKey({ key: '#', code: 'Digit3', ctrlKey: true, altKey: true, shiftKey: true });
+    expect(ofType('SELECT_PANE_BY_POSITION')).toHaveLength(1);
+  });
+});
+
 describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', () => {
   it('sends the strip position for ctrl+1–9 and toggles the overview on ctrl+0', () => {
     const { events, set } = spawnWithLiveContext(pid('%1'));
@@ -356,6 +390,42 @@ describe('keyboardActor — sticky key tables and the sidebar keys', () => {
     pressKey({ key: 's' });
     expect(toggles()).toHaveLength(2);
     expect(sendCommands(events)).not.toContain('send-keys -t %1 C-a');
+  });
+});
+
+describe("keyboardActor — the activity keys yield to the user's own binding", () => {
+  const PIN = 'select-window -t @0 \\; select-pane -t %1 \\; ';
+  const unbound = { prefix_key: 'C-a', prefix_bindings: [], root_bindings: [], tables: {} };
+  const owned = {
+    ...unbound,
+    prefix_bindings: [
+      { key: 'A', command: 'command-prompt -I "#W" "rename-window -- \'%%\'"', description: '' },
+    ],
+  };
+
+  it('prefix A opens the inbox and prefix U goes to who needs you, while the user binds neither', () => {
+    const { events, set } = spawnWithLiveContext(pid('%1'));
+    set({ keybindings: unbound });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'A', shiftKey: true });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'U', shiftKey: true });
+    expect(events.map((e) => e.type)).toEqual(
+      expect.arrayContaining(['TOGGLE_ACTIVITY', 'ACTIVITY_GO_MOST_URGENT']),
+    );
+  });
+
+  it("a user's `bind A …` keeps running, and U, which they left alone, is still the client's", () => {
+    const { events, set } = spawnWithLiveContext(pid('%1'));
+    set({ keybindings: owned });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'A', shiftKey: true });
+    expect(events.some((e) => e.type === 'TOGGLE_ACTIVITY')).toBe(false);
+    expect(lastSendCommand(events)).toBe(`${PIN}command-prompt -I "#W" "rename-window -- '%%'"`);
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'U', shiftKey: true });
+    expect(events.some((e) => e.type === 'ACTIVITY_GO_MOST_URGENT')).toBe(true);
   });
 });
 

@@ -15,6 +15,34 @@ cmd_pane() {
   shift 2>/dev/null || true
 
   case "$sub" in
+    report)
+      # A pane's report for whoever started it (docs/SUB-AGENTS.md). Writing
+      # is the caller's own pane only, as for restore-cmd; `-t` reads one.
+      local target="" text=() own
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --help|-h)
+            echo "Usage: tmuxy pane report <text|->        write this pane's report"
+            echo "       tmuxy pane report -t <target>      read a pane's report"
+            return
+            ;;
+          -t) [ -n "${2:-}" ] || _die_usage "-t needs a pane or label"; target="$2"; shift 2 ;;
+          *) text+=("$1"); shift ;;
+        esac
+      done
+      find_server_cmd || exit "$EXIT_FAILED"
+      if [ -n "$target" ]; then
+        [ ${#text[@]} -eq 0 ] || _die_usage "a report is its own pane's to write: -t only reads one"
+        target="$(_resolve_target "$target")" || exit $?
+        # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
+        exec "${SERVER_CMD[@]}" report -t "$target" ${server_json[@]+"${server_json[@]}"}
+      fi
+      [ ${#text[@]} -eq 1 ] || _die_usage "the report is one argument (quote it), or - for stdin"
+      own="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
+      [ -n "$own" ] || _fail "$EXIT_FAILED" "run this inside the pane the report is about"
+      exec "${SERVER_CMD[@]}" report --own "$own" ${server_json[@]+"${server_json[@]}"} -- "${text[0]}"
+      ;;
+
     restore-cmd)
       # Say how to bring this pane back after a restore (`@tmuxy-pane-restore`):
       # the program itself knows (`claude --resume <id>`, `nvim -S`, `ssh
@@ -58,11 +86,26 @@ cmd_pane() {
       # exactly as written by the UI, the push notification and the screen
       # corrector alike, so a near-miss is refused here instead of reading as
       # `idle` everywhere.
+      if [ "${1:-}" = explain ]; then
+        shift
+        # Where the state came from: Rust reads the pane and the rules.
+        local pane="${TMUX_PANE:-}"
+        case "${1:-}" in
+          --help|-h) echo "Usage: tmuxy pane state explain [target] [--json]"; return ;;
+          "") ;;
+          *) pane="$(_resolve_target "$1")" || exit $? ;;
+        esac
+        [ -n "$pane" ] || _die_usage "no pane to explain (pass a target or run inside a pane)"
+        find_server_cmd || exit "$EXIT_FAILED"
+        # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
+        exec "${SERVER_CMD[@]}" state-explain "$pane" ${server_json[@]+"${server_json[@]}"}
+      fi
       local value="" target=""
       for arg in "$@"; do
         case "$arg" in
           --help|-h)
             echo "Usage: tmuxy pane state <$PANE_STATE_WORDS|clear> [target]"
+            echo "       tmuxy pane state explain [target] [--json]"
             return
             ;;
           *) if [ -z "$value" ]; then value="$arg"; else target="$arg"; fi ;;
@@ -285,6 +328,10 @@ FEOF
       cmd_pane_group "$@"
       ;;
 
+    meta)
+      cmd_pane_meta "$@"
+      ;;
+
     --help|-h|"")
       usage_pane
       ;;
@@ -293,6 +340,76 @@ FEOF
       _die_usage "Unknown pane command: $sub" usage_pane
       ;;
   esac
+}
+
+# --- Pane meta ---
+
+usage_pane_meta() {
+  cat <<'EOF'
+Usage: tmuxy pane meta set [-t target] [--ttl 5m] key=value...
+       tmuxy pane meta unset [-t target] key...
+       tmuxy pane meta list [-t target]
+       tmuxy pane meta clear [-t target]
+
+Short fields a script or an agent sets on a pane, for its row in the sidebar
+tree: `tmuxy pane meta set ci=passing`. A key is a lowercase letter, then up
+to 23 of a-z 0-9 - _; a value is one line of up to 80 characters. A pane
+holds up to 8. With --ttl (30s, 5m, 2h, 1d) a field is shown for that long.
+Without -t, the pane you run it in.
+EOF
+}
+
+# The fields' rules, their storage and the answers are the `meta` verb's
+# (`packages/tmuxy-verbs/src/meta_cli.rs`): this resolves the pane.
+cmd_pane_meta() {
+  local action="${1:-}" pane="" ttl="" pairs=() rc=0 resolved
+  case "$action" in
+    set | unset | list | clear) shift ;;
+    "" | --help | -h)
+      usage_pane_meta
+      return
+      ;;
+    *) _die_usage "unknown pane meta action '$action' (set, unset, list, clear)" usage_pane_meta ;;
+  esac
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -t)
+        pane="${2:?-t needs a pane}"
+        shift 2
+        ;;
+      -t*)
+        pane="${1#-t}"
+        shift
+        ;;
+      --ttl)
+        ttl="${2:?--ttl needs a time, like 5m}"
+        shift 2
+        ;;
+      --help | -h)
+        usage_pane_meta
+        return
+        ;;
+      -*) _die_usage "unknown option '$1'" usage_pane_meta ;;
+      *)
+        pairs+=("$1")
+        shift
+        ;;
+    esac
+  done
+  [ "$action" = set ] || [ -z "$ttl" ] || _die_usage "--ttl goes with set"
+  pane="${pane:-${TMUX_PANE:-}}"
+  [ -n "$pane" ] || _die_usage "no pane to work on (pass -t)"
+  pane="$(_resolve_target "$pane")" || exit $?
+  resolved="$(_tmux_read display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" || rc=$?
+  _exit_if_no_server "$rc"
+  [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $pane"
+  [ -n "$resolved" ] && pane="$resolved"
+  find_server_cmd || exit "$EXIT_FAILED"
+  local verb=(meta --target "$pane")
+  [ "$JSON_OUT" = true ] && verb+=(--json)
+  verb+=("$action")
+  [ -n "$ttl" ] && verb+=(--ttl "$ttl")
+  exec "${SERVER_CMD[@]}" "${verb[@]}" -- ${pairs[@]+"${pairs[@]}"}
 }
 
 # --- Pane group subcommands ---

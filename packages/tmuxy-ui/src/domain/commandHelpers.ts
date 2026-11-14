@@ -2,7 +2,13 @@ import { realId, type PaneId } from './ids';
 import { isPluginName } from './plugins';
 // PASTE_BUFFER: named, so a paste never replaces the buffer the user last
 // yanked, and dropped again once pasted.
-import { CLI_PATH, PASTE_BUFFER, SCRIPT_EFFECT_TAGS, SCRIPTS_DIR } from './tmuxyConstants.gen';
+import {
+  AGENT_TAKES_INPUT,
+  CLI_PATH,
+  PASTE_BUFFER,
+  SCRIPT_EFFECT_TAGS,
+  SCRIPTS_DIR,
+} from './tmuxyConstants.gen';
 
 const LITERAL_CHUNK_SIZE = 500;
 
@@ -35,6 +41,18 @@ export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/** Where the `agent-revive --mark` check leaves its answer on a pane. */
+const REVIVABLE_OPTION = '@tmuxy-revivable';
+
+/**
+ * The read that follows a `CheckRevive` op: the answer revive's check left
+ * on the pane, `ok` or nothing. A query only reads, so the check itself runs
+ * as an op first; tmux answers a client's commands in order.
+ */
+export function reviveCheckQuery(paneId: string): string {
+  return `show-options -pqv -t ${paneId} ${REVIVABLE_OPTION}`;
+}
+
 /**
  * What the backend must know of a script run: `settle` for a script that takes
  * several tmux steps (the clients see only where it lands), `relist-windows`
@@ -51,6 +69,14 @@ export function scriptWith(
   ...args: Array<string | number>
 ): string {
   return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+}
+
+/**
+ * A read of every pane of every session on the server, one line per pane in
+ * `format` (a query, not an op: it changes nothing).
+ */
+export function listEveryPane(format: string): string {
+  return `list-panes -a -F '${format}'`;
 }
 
 /** A shell command line as one `run-shell` argument; run-shell expands `#` first. */
@@ -163,17 +189,46 @@ export function tmuxDoubleQuoted(text: string): string {
  * paste from the outer terminal would under native tmux.
  */
 export function pastedText(to: string, text: string): string {
+  const commands = staged(PASTE_BUFFER, text);
+  if (commands.length === 0) return '';
+  commands.push(pasteBufferInto(to));
+  return commands.join('\n');
+}
+
+/** `text` put in tmux buffer `buffer`, control characters dropped, in chunks. */
+function staged(buffer: string, text: string): string[] {
   const chars = Array.from(withoutControls(text).replace(/\r\n/g, '\n'));
   const commands: string[] = [];
   for (let i = 0; i < chars.length; i += LITERAL_CHUNK_SIZE) {
     const chunk = chars.slice(i, i + LITERAL_CHUNK_SIZE).join('');
     const append = i === 0 ? '' : '-a ';
-    commands.push(`set-buffer ${append}-b ${PASTE_BUFFER} ${tmuxDoubleQuoted(chunk)}`);
+    commands.push(`set-buffer ${append}-b ${buffer} ${tmuxDoubleQuoted(chunk)}`);
   }
+  return commands;
+}
+
+/**
+ * A diff review typed to the agent in pane `to`: staged, then pasted and
+ * entered only if tmux, in the same command list, finds an agent there that
+ * waits for nothing (`AGENT_TAKES_INPUT`). So a dialog the client has not
+ * seen yet, or a shell left where the agent was, gets no keys: the staged
+ * review is dropped and a message says so. The paste goes to that pane
+ * alone, even in a synchronized window.
+ */
+export function reviewInto(to: PaneId, text: string, id: string): string {
+  // A buffer of its own, apart from a paste's and from another review's.
+  const buffer = `tmuxy-review-${id.replace(/[^a-z0-9]/gi, '')}`;
+  const commands = staged(buffer, text);
   if (commands.length === 0) return '';
-  commands.push(pasteBufferInto(to));
+  const send = `paste-buffer -p -d -b ${buffer} -t ${to} ; send-keys -t ${to} Enter`;
+  const refuse = `delete-buffer -b ${buffer} ; display-message ${tmuxDoubleQuoted(REVIEW_REFUSED)}`;
+  commands.push(`if-shell -F -t ${to} '${AGENT_TAKES_INPUT}' { ${send} } { ${refuse} }`);
   return commands.join('\n');
 }
+
+/** What tmux says when it refuses a review (no `%` or `#`: the message is expanded). */
+export const REVIEW_REFUSED =
+  'Review not sent: the agent is waiting for an answer, or is gone. Restore brings your comments back.';
 
 /**
  * The staged paste delivered to `to`, or to every synchronized pane of its
@@ -187,21 +242,29 @@ export function pasteBufferInto(to: string): string {
   return `if-shell -F -t ${to} '#{pane_synchronized}' '${synced}' '${single}'`;
 }
 
-/**
- * An SGR mouse report as `send-keys -H` hex bytes — the one reliable way in:
- * tmux ≥ 3.7 consumes mouse sequences pasted through a buffer, and `-l`
- * literals are format-expanded (see docs/TMUX.md).
- */
-export function mouseReport(op: {
-  readonly paneId: PaneId;
+/** One mouse event as SGR reports it: the button code, a 1-based cell, press or release. */
+export interface MouseReport {
   readonly button: number;
   readonly x: number;
   readonly y: number;
   readonly release: boolean;
-}): string {
-  const seq = `\x1b[<${op.button};${op.x};${op.y}${op.release ? 'm' : 'M'}`;
+}
+
+/** SGR adds 32 to the button code of a report that is the pointer moving. */
+export const isMouseMotion = (report: MouseReport): boolean =>
+  !report.release && (report.button & 32) !== 0;
+
+/**
+ * SGR mouse reports as the hex bytes of one `send-keys -H`, the one reliable
+ * way in: tmux ≥ 3.7 consumes mouse sequences pasted through a buffer, and
+ * `-l` literals are format-expanded (see docs/TMUX.md).
+ */
+export function mouseReports(paneId: PaneId, reports: ReadonlyArray<MouseReport>): string {
+  const seq = reports
+    .map((r) => `\x1b[<${r.button};${r.x};${r.y}${r.release ? 'm' : 'M'}`)
+    .join('');
   const hex = Array.from(seq, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
-  return `send-keys -t ${op.paneId} -H ${hex}`;
+  return `send-keys -t ${paneId} -H ${hex}`;
 }
 
 /**
@@ -286,3 +349,6 @@ export function pluginAction(op: {
     ` --pane ${op.paneId} --trigger menu${token} >/dev/null 2>&1"`
   );
 }
+
+/** tmux's own version, for the bug report snippet: a read, run as a query. */
+export const TMUX_VERSION_QUERY = "display-message -p '#{version}'";

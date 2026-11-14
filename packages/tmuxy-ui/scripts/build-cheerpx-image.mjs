@@ -62,7 +62,12 @@ for (const conf of GUEST_CONF_ASSETS) {
 await writeFile(entry, guestEntryConf());
 // A pane runs on a socket pair (patches/pane-socketpair.patch), so bash is
 // asked to be interactive and leaves line editing to tmuxy-pty.
-await writeFile(join(config, 'tmuxy.conf'), guestTmuxyConf('exec /bin/bash --noediting -i'));
+// CheerpX's /proc names no parent, so no caller can prove which pane it runs
+// in (`verified_own_pane`): in this single-user guest the claim stands.
+await writeFile(
+  join(config, 'tmuxy.conf'),
+  guestTmuxyConf('exec /bin/bash --noediting -i', ['set -g @tmuxy-trust-pane-claims on']),
+);
 // The pane shell's ~/.bashrc. CheerpX cannot set a hostname, so the prompt
 // names the host itself. tmux cannot see a pane's directory, so the prompt
 // reports it with OSC 7 (patches/pane-path-from-osc7.patch): tab names and

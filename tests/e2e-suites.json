@@ -17,11 +17,11 @@
     },
     {
       "name": "layout",
-      "path": "tests/2-layout-navigation(-(float|groups|overview|panes|zoom-drag))?\\.test\\.js"
+      "path": "tests/2-layout-navigation(-(float|float-minimize|groups|overview|palette|panes|zoom-drag))?\\.test\\.js"
     },
     {
       "name": "layout-tree",
-      "path": "tests/2-layout-navigation-(dock|float-scope|group-drag|peek|tree|tree-drag|tree-rows)\\.test\\.js"
+      "path": "tests/2-layout-navigation-(dock|float-scope|group-drag|peek|tree|tree-drag|tree-fields|tree-ports|tree-rows|tree-template)\\.test\\.js"
     },
     {
       "name": "rendering-text",
@@ -33,7 +33,7 @@
     },
     {
       "name": "session",
-      "path": "tests/(snapshots/|4-session-connectivity)"
+      "path": "tests/(snapshots/|4-session-connectivity|4-attach-input)"
     },
     {
       "name": "stress",
@@ -68,19 +68,19 @@
     },
     {
       "name": "permissions",
-      "path": "tests/1[34]-(send-permission|widget-authorisation|widget-preview)\\.test\\.js"
+      "path": "tests/1[34]-(send-permission|widget-authorisation|widget-preview|widget-diff|widget-diff-turn|widget-diff-hunks)\\.test\\.js"
     },
     {
       "name": "personalization-plugins",
-      "path": "tests/1[678]-(personalization|plugin)"
+      "path": "tests/(1[678]-(personalization|plugin)|29-profiles)"
     },
     {
       "name": "services",
-      "path": "tests/(19-mcp|20-push|23-kindle)\\.test\\.js"
+      "path": "tests/(19-mcp|20-push|23-kindle|26-bug-report|27-trace-share|28-trace-replay)\\.test\\.js"
     },
     {
       "name": "agents",
-      "path": "tests/2[12]-(agent-states|process-icons)\\.test\\.js"
+      "path": "tests/2[1245]-(agent-states|agent-spawn|process-icons|agent-lifecycle|worktrees)\\.test\\.js"
     },
     {
       "name": "session-snapshot",

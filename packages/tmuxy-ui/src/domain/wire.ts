@@ -62,6 +62,8 @@ export const WirePane = Schema.Struct({
   cursor_shape: Schema.optional(Schema.Number),
   cursor_hidden: Schema.optional(Schema.Boolean),
   pane_state: OptionalNull(Schema.String),
+  /** What the pane's program reported behind its state (OSC 7501); see `domain/paneStatus.ts`. */
+  pane_status: OptionalNull(Schema.String),
   pane_ask: OptionalNull(Schema.String),
   /** `@tmuxy-pane-widget`; see `findPaneWidget` for why the marker alone authorises nothing. */
   pane_widget: OptionalNull(Schema.String),
@@ -91,11 +93,12 @@ export const PaneTree: Schema.Schema<PaneTree, PaneTreeEncoded> = Schema.Union(
   }),
 );
 
-export const WireWindow = Schema.Struct({
-  id: WindowId,
-  index: Schema.Number,
-  name: Schema.String,
-  active: Schema.Boolean,
+/**
+ * What a window and a window's delta both carry, optional on the wire either
+ * way: its kind, its tags (`@tmuxy-*`, docs/TMUX-TAGS.md), its zoom, its
+ * active pane and its layout.
+ */
+const WINDOW_TAGS = {
   window_type: OptionalNull(WindowType),
   float_parent: OptionalNull(WindowId),
   float_width: OptionalNull(Schema.Number),
@@ -103,12 +106,21 @@ export const WireWindow = Schema.Struct({
   float_drawer: OptionalNull(Schema.String),
   float_bg: OptionalNull(Schema.String),
   float_noheader: Schema.optional(Schema.Boolean),
+  float_minimized: Schema.optional(Schema.Boolean),
   sidebar_cols: OptionalNull(Schema.Number),
   sidebar_hidden: Schema.optional(Schema.Boolean),
   collapsible: Schema.optional(Schema.Boolean),
   zoomed: Schema.optional(Schema.Boolean),
   active_pane_id: OptionalNull(PaneId),
   pane_tree: OptionalNull(PaneTree),
+};
+
+export const WireWindow = Schema.Struct({
+  id: WindowId,
+  index: Schema.Number,
+  name: Schema.String,
+  active: Schema.Boolean,
+  ...WINDOW_TAGS,
 });
 export type WireWindow = Schema.Schema.Type<typeof WireWindow>;
 /** A window before decoding; see `WirePaneEncoded`. */
@@ -183,6 +195,7 @@ export const PaneDelta = Schema.Struct({
   pane_ask: OptionalNull(Schema.String),
   pane_widget: OptionalNull(Schema.String),
   pane_restore: OptionalNull(Schema.String),
+  pane_status: OptionalNull(Schema.String),
 });
 export type PaneDelta = Schema.Schema.Type<typeof PaneDelta>;
 
@@ -192,19 +205,7 @@ export const WindowDelta = Schema.Struct({
   index: Schema.optional(Schema.Number),
   name: Schema.optional(Schema.String),
   active: Schema.optional(Schema.Boolean),
-  window_type: OptionalNull(WindowType),
-  float_parent: OptionalNull(WindowId),
-  float_width: OptionalNull(Schema.Number),
-  float_height: OptionalNull(Schema.Number),
-  float_drawer: OptionalNull(Schema.String),
-  float_bg: OptionalNull(Schema.String),
-  float_noheader: Schema.optional(Schema.Boolean),
-  sidebar_cols: OptionalNull(Schema.Number),
-  sidebar_hidden: Schema.optional(Schema.Boolean),
-  collapsible: Schema.optional(Schema.Boolean),
-  zoomed: Schema.optional(Schema.Boolean),
-  active_pane_id: OptionalNull(PaneId),
-  pane_tree: OptionalNull(PaneTree),
+  ...WINDOW_TAGS,
 });
 export type WindowDelta = Schema.Schema.Type<typeof WindowDelta>;
 
@@ -310,6 +311,8 @@ export const Appearance = Schema.Struct({
   cursorBlink: Schema.Boolean,
   /** Whether a send into another pane asks there first (`@tmuxy-send-ask`). */
   sendAsk: Schema.Boolean,
+  /** Whether closing a busy pane or tab asks first (`@tmuxy-confirm-close`); absent from older servers. */
+  confirmClose: Schema.optional(Schema.Boolean),
   /** Whether a pane needing the user is pushed as a notification (`@tmuxy-notify`); absent from older servers. */
   notify: Schema.optional(Schema.Boolean),
   /** Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`), 1–12. */
@@ -383,6 +386,23 @@ export const ScrollbackCells = Schema.Struct({
   width: Schema.Number,
 });
 export type ScrollbackCells = Schema.Schema.Type<typeof ScrollbackCells>;
+
+/**
+ * A `get_prompt_marks` answer: the rows a pane's shell prompts start on
+ * (OSC 133), ascending, counted from the top of a history of `historySize`.
+ */
+export const PromptMarks = Schema.Struct({
+  historySize: Schema.Number,
+  prompts: Schema.Array(Schema.Number),
+});
+export type PromptMarks = Schema.Schema.Type<typeof PromptMarks>;
+
+/**
+ * A `get_last_command_output` answer: what the newest command printed. Null
+ * when the pane has no output mark, empty when the command printed nothing.
+ */
+export const LastOutput = Schema.Struct({ text: Schema.NullOr(Schema.String) });
+export type LastOutput = Schema.Schema.Type<typeof LastOutput>;
 
 /**
  * Why the backend refused a command: `tmux` — tmux itself rejected it (a

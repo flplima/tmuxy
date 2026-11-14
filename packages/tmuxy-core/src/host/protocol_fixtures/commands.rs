@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 30;
+const COMMANDS: usize = 44;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -52,7 +52,32 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::OpenLink { .. } => 27,
         C::OpenText { .. } => 28,
         C::Greeting => 29,
+        C::GetTraceShare { .. } => 30,
+        C::ListPanePorts => 31,
+        C::GetPromptMarks { .. } => 32,
+        C::GetLastCommandOutput { .. } => 33,
+        C::OwnTmuxOffer => 34,
+        C::CloseOwnTmuxOffer => 35,
+        C::ListProfiles => 36,
+        C::UseProfile { .. } => 37,
+        C::CreateProfile { .. } => 38,
+        C::RenameProfile { .. } => 39,
+        C::DeleteProfile { .. } => 40,
+        C::ReadDiff { .. } => 41,
+        C::ChangeHunk { .. } => 42,
+        C::UndoRevert { .. } => 43,
     }
+}
+
+fn profiles() -> Vec<serde_json::Value> {
+    vec![serde_json::to_value(crate::profiles::ProfilesInfo {
+        active: "Reading".to_string(),
+        names: vec![
+            crate::profiles::DEFAULT_PROFILE.to_string(),
+            "Reading".to_string(),
+        ],
+    })
+    .unwrap()]
 }
 
 fn pane() -> PaneId {
@@ -88,6 +113,22 @@ fn every_request() -> Vec<ClientCommand> {
             pane_id: pane(),
             path: Some(s("img/logo.png")),
         },
+        C::ReadDiff {
+            pane_id: pane(),
+            scope: crate::diff_review::Scope::Branch,
+        },
+        C::ChangeHunk {
+            pane_id: pane(),
+            scope: crate::diff_review::Scope::Unstaged,
+            path: s("src/main.rs"),
+            hunk: 1,
+            token: s("5f0c1e2d3a4b6c7d"),
+            action: crate::diff_review::hunk::HunkAction::Revert,
+        },
+        C::UndoRevert {
+            pane_id: pane(),
+            id: s("1794452507000-0"),
+        },
         C::StagePreview {
             pane_id: pane(),
             html: s("<p>hi</p>"),
@@ -99,10 +140,22 @@ fn every_request() -> Vec<ClientCommand> {
         },
         C::SetThemeMode { mode: s("light") },
         C::GetThemesList,
+        C::ListProfiles,
+        C::UseProfile { name: s("Reading") },
+        C::CreateProfile {
+            name: s("Reading copy"),
+            from: Some(s("Reading")),
+        },
+        C::RenameProfile {
+            from: s("Reading copy"),
+            to: s("Night"),
+        },
+        C::DeleteProfile { name: s("Night") },
         C::SetCursorBlink { enabled: true },
         C::SetSendAsk { enabled: false },
         C::SetTransparency { enabled: true },
         C::ListGitWorktrees,
+        C::ListPanePorts,
         C::ListSnapshots,
         C::RestoreSession { session: s("work") },
         C::GetTraceSettings,
@@ -142,6 +195,11 @@ fn every_request() -> Vec<ClientCommand> {
             column: 5,
         },
         C::Greeting,
+        C::GetTraceShare { last: 20 },
+        C::GetPromptMarks { pane_id: pane() },
+        C::GetLastCommandOutput { pane_id: pane() },
+        C::OwnTmuxOffer,
+        C::CloseOwnTmuxOffer,
     ]
 }
 
@@ -187,7 +245,10 @@ fn every_command_request_matches_its_fixture() {
 /// reads it with.
 #[test]
 fn every_command_answer_matches_its_fixture() {
-    use crate::host::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings};
+    use crate::host::{
+        LastOutput, PluginToken, PromptMarks, ScrollbackCells, SnapshotInfo, TraceSettings,
+        TraceShare,
+    };
     let null = || vec![serde_json::Value::Null];
     let json = |v: &dyn erased::Json| vec![v.to_json()];
     let server = crate::servers::Server {
@@ -230,7 +291,67 @@ fn every_command_answer_matches_its_fixture() {
                 )),
             ],
         ),
+        (
+            "read_diff",
+            json(&crate::diff_review::DiffRead {
+                name: "app".to_string(),
+                scope: crate::diff_review::Scope::Branch,
+                branch: Some("feature".to_string()),
+                base: Some("main".to_string()),
+                files: vec![crate::diff_review::DiffFile {
+                    path: "src/new.rs".to_string(),
+                    old_path: Some("src/old.rs".to_string()),
+                    status: crate::diff_review::FileStatus::Renamed,
+                    binary: false,
+                    mode_change: Some("100644 → 100755".to_string()),
+                    hunks: vec![crate::diff_review::Hunk {
+                        header: "@@ -1,2 +1,2 @@".to_string(),
+                        raw: Vec::new(),
+                        lines: vec![
+                            crate::diff_review::DiffLine {
+                                kind: crate::diff_review::LineKind::Context,
+                                old: Some(1),
+                                new: Some(1),
+                                text: "fn main() {".to_string(),
+                            },
+                            crate::diff_review::DiffLine {
+                                kind: crate::diff_review::LineKind::Removed,
+                                old: Some(2),
+                                new: None,
+                                text: "}".to_string(),
+                            },
+                            crate::diff_review::DiffLine {
+                                kind: crate::diff_review::LineKind::Added,
+                                old: None,
+                                new: Some(2),
+                                text: "} // end".to_string(),
+                            },
+                            crate::diff_review::DiffLine {
+                                kind: crate::diff_review::LineKind::Note,
+                                old: None,
+                                new: None,
+                                text: "No newline at end of file".to_string(),
+                            },
+                        ],
+                    }],
+                    token: "5f0c1e2d3a4b6c7d".to_string(),
+                    raw_header: Vec::new(),
+                    raw_path: String::new(),
+                }],
+                untracked: vec!["notes.txt".to_string()],
+                untracked_more: 0,
+                truncated: false,
+                turn: None,
+            }),
+        ),
         ("stage_preview", null()),
+        (
+            "change_hunk",
+            json(&crate::diff_review::hunk::HunkChanged {
+                revert: Some("1794452507000-0".to_string()),
+            }),
+        ),
+        ("undo_revert", null()),
         ("get_theme_settings", json(&canonical_theme_settings())),
         ("set_theme", null()),
         ("set_theme_mode", null()),
@@ -242,6 +363,11 @@ fn every_command_answer_matches_its_fixture() {
                 modes: vec!["dark", "light"],
             }]),
         ),
+        ("list_profiles", profiles()),
+        ("use_profile", profiles()),
+        ("create_profile", profiles()),
+        ("rename_profile", profiles()),
+        ("delete_profile", profiles()),
         ("set_cursor_blink", null()),
         ("set_send_ask", null()),
         ("set_transparency", null()),
@@ -260,7 +386,15 @@ fn every_command_answer_matches_its_fixture() {
                     bare: false,
                     locked: false,
                     prunable: false,
+                    changes: None,
                 }],
+            }]),
+        ),
+        (
+            "list_pane_ports",
+            json(&vec![crate::ports::PanePorts {
+                pane_id: "%2".to_string(),
+                ports: vec![5173, 8123],
             }]),
         ),
         (
@@ -284,6 +418,14 @@ fn every_command_answer_matches_its_fixture() {
         ("set_trace_level", vec!["labeled".into()]),
         ("record_trace", null()),
         ("open_trace_file", null()),
+        (
+            "get_trace_share",
+            json(&TraceShare {
+                text: "{\"layer\":\"tmux\",\"op\":\"Split\",\"session\":\"session-1\"}\n"
+                    .to_string(),
+                lines: 1,
+            }),
+        ),
         ("open_url", null()),
         (
             "list_servers",
@@ -324,6 +466,35 @@ fn every_command_answer_matches_its_fixture() {
                 HostEvent::KeyBindings(canonical_bindings()),
             ]),
         ),
+        (
+            "get_prompt_marks",
+            json(&PromptMarks {
+                history_size: 1234,
+                prompts: vec![1190, 1240],
+            }),
+        ),
+        (
+            "get_last_command_output",
+            vec![
+                erased::Json::to_json(&LastOutput {
+                    text: Some("ok\n".to_string()),
+                }),
+                erased::Json::to_json(&LastOutput { text: None }),
+            ],
+        ),
+        (
+            "own_tmux_offer",
+            vec![
+                erased::Json::to_json(&Some(crate::servers::OwnTmuxOffer {
+                    server_id: crate::servers::MY_TMUX_ID,
+                    sessions: 3,
+                    session: Some("work".to_string()),
+                    can_switch: true,
+                })),
+                serde_json::Value::Null,
+            ],
+        ),
+        ("close_own_tmux_offer", null()),
     ];
     let answered: BTreeSet<String> = answers.iter().map(|(name, _)| name.to_string()).collect();
     assert_eq!(

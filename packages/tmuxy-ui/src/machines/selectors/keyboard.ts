@@ -146,6 +146,10 @@ export interface KeyContext {
   readonly bindingPin: string;
   readonly keybindings: KeyBindings | null;
   readonly keysViewOpen: boolean;
+  /** A close is waiting for the user's answer (Enter closes, Escape keeps). */
+  readonly closePending: boolean;
+  /** The command palette is open: its own field takes the keys. */
+  readonly paletteOpen: boolean;
   /** The pane a scroll view, copy mode or a question applies to; null while the tree holds the keyboard. */
   readonly focusPaneId: PaneId | null;
   /** That pane's client-side copy-mode or scroll-view record. */
@@ -178,6 +182,8 @@ export function selectKeyContext(context: AppMachineContext): KeyContext {
     bindingPin: bindingPin(context),
     keybindings: context.keybindings,
     keysViewOpen: context.keysViewOpen,
+    closePending: context.pendingClose !== null,
+    paletteOpen: context.palette !== null,
     focusPaneId,
     copy: focusPaneId ? context.copyModeStates[focusPaneId] : undefined,
     ask: focusPaneId ? paneAskFor(context.panes.find((p) => p.tmuxId === focusPaneId)) : null,

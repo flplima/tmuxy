@@ -27,6 +27,19 @@
   line-height: 1.5;
 }
 
+/* Copy Trace's preview: exactly the text that will be copied, scrollable. */
+.trace-share-preview {
+  margin: 0 var(--spacing-xl);
+  padding: var(--spacing-md);
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  white-space: pre;
+  color: var(--text-primary);
+  background: var(--bg-dark-alt);
+}
+
 .app-menu-dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -49,5 +62,35 @@
 
 .app-menu-dialog-actions button.is-destructive {
   border-color: var(--error-color);
+  color: var(--error-color);
+}
+
+.app-menu-dialog-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.app-menu-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+
+.app-menu-dialog-field input {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.app-menu-dialog-field input[aria-invalid='true'] {
+  border-color: var(--error-color);
+}
+
+.app-menu-dialog-problem {
+  margin: var(--spacing-xs) 0 0;
   color: var(--error-color);
 }

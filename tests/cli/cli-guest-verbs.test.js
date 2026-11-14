@@ -73,6 +73,31 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     ]);
   });
 
+  // The fields already on the pane are kept, the new one is added with its
+  // time, and what is written is what a reader decodes.
+  test('pane meta adds a field to those on the pane and says what is shown', () => {
+    const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64');
+    const { exitCode, stdout, tmuxCalls } = guest(
+      ['--json', 'pane', 'meta', 'set', '--ttl', '5m', 'deploy=running  '],
+      { MOCK_TMUX_PANE_META: b64({ ci: { v: 'passing' } }) },
+    );
+    expect(exitCode).toBe(0);
+    const written = tmuxCalls
+      .filter((c) => c.args[0] === 'run-shell')
+      .map((c) => c.args[1])
+      .join('\n')
+      .match(/set-option -p -t %5 @tmuxy-meta '?([A-Za-z0-9+/=]+)'?/);
+    expect(written).not.toBeNull();
+    const fields = JSON.parse(Buffer.from(written[1], 'base64').toString());
+    expect(fields.ci).toEqual({ v: 'passing' });
+    expect(fields.deploy.v).toBe('running');
+    expect(fields.deploy.until - Date.now() / 1000).toBeGreaterThan(290);
+    const answer = JSON.parse(stdout);
+    expect(answer).toMatchObject({ ok: true, paneId: '%5' });
+    expect(answer.fields.ci).toEqual({ value: 'passing', secondsLeft: null });
+    expect(answer.fields.deploy.secondsLeft).toBe(300);
+  });
+
   test('config paths answers the files', () => {
     const { stdout, exitCode } = guest(['config', 'paths', '--json']);
     expect(exitCode).toBe(0);
@@ -130,6 +155,253 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     } finally {
       fs.rmSync(configHome, { recursive: true, force: true });
     }
+  });
+
+  /**
+   * `permissions.json` against the real verbs, in a scratch config dir: the
+   * checker says what the file holds and what a send would get, and a real
+   * `pane send` into another pane is refused by a deny rule with no question
+   * put up, and asked where the tmux option alone would have skipped it.
+   */
+  describe('permissions.json', () => {
+    let configHome;
+    let file;
+    let env;
+
+    beforeEach(() => {
+      configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-permissions-'));
+      fs.mkdirSync(path.join(configHome, 'tmuxy'));
+      file = path.join(configHome, 'tmuxy', 'permissions.json');
+      env = { XDG_CONFIG_HOME: configHome };
+    });
+
+    afterEach(() => fs.rmSync(configHome, { recursive: true, force: true }));
+
+    const RULES = {
+      callers: {
+        claude: { allow: ['Send(gh *)'], ask: ['Send(gh pr merge *)'], deny: ['Send(rm *)'] },
+        '*': { deny: ['Send(sudo *)'] },
+      },
+    };
+    const check = (keys, ...flags) =>
+      guest(
+        ['config', 'permissions', '--caller', 'claude', '--into', 'zsh', ...flags, '--', ...keys],
+        env,
+      );
+
+    test('the checker reads the file as a send would, and sends nothing', () => {
+      const none = guest(['config', 'permissions'], env);
+      expect(none.exitCode).toBe(0);
+      expect(none.stdout).toContain(`No ${file}`);
+
+      fs.writeFileSync(file, JSON.stringify(RULES));
+      const some = guest(['config', 'permissions'], env);
+      expect(some.exitCode).toBe(0);
+      expect(some.stdout).toContain('4 rule(s). Sections: *, claude.');
+
+      // Named sections alone hold only for a caller that gives that name.
+      fs.writeFileSync(file, JSON.stringify({ callers: { claude: RULES.callers.claude } }));
+      expect(guest(['config', 'permissions'], env).stdout).toContain('There is no `*` section');
+      fs.writeFileSync(file, JSON.stringify(RULES));
+
+      const denied = check(['rm -rf build', 'Enter']);
+      expect(denied.exitCode).toBe(1);
+      expect(denied.stderr).toContain('deny: denied by `Send(rm *)` (callers.claude)');
+      const star = check(['sudo ls', 'Enter']);
+      expect(star.stderr).toContain('denied by `Send(sudo *)` (callers.*)');
+
+      const asked = check(['gh pr merge 3', 'Enter']);
+      expect(asked.exitCode).toBe(0);
+      expect(asked.stdout).toContain('ask: asked by `Send(gh pr merge *)` (callers.claude)');
+      expect(check(['cargo build', 'Enter']).stdout).toContain('ask: no rule matches');
+      expect(check(['gh pr list; ls', 'Enter']).stdout).toContain('ask: the line holds `;`');
+      // A deny rule reads each command of a line, and any program's pane.
+      expect(check(['gh pr list; rm -rf x', 'Enter']).stderr).toContain('denied by `Send(rm *)`');
+      const intoSsh = guest(
+        ['config', 'permissions', '--caller', 'claude', '--into', 'ssh', '--', 'rm x', 'Enter'],
+        env,
+      );
+      expect(intoSsh.stderr).toContain('denied by `Send(rm *)`');
+      const listInSsh = guest(
+        [
+          'config',
+          'permissions',
+          '--caller',
+          'claude',
+          '--into',
+          'ssh',
+          '--',
+          'gh pr list',
+          'Enter',
+        ],
+        env,
+      );
+      expect(listInSsh.stdout).toContain('ask: the target pane runs `ssh`, not a listed shell');
+      expect(check(['gh pr list']).stdout).toContain('ask: not one command ending in Enter');
+
+      // An allow rule is reported, and said to skip no question.
+      const allowed = check(['gh pr list', 'Enter']);
+      expect(allowed.exitCode).toBe(0);
+      expect(allowed.stdout).toContain('allow: allowed by `Send(gh *)` (callers.claude)');
+      expect(allowed.stdout).toContain('skips no question in this version');
+
+      // --json ahead of the verb, so a key that looks like a flag stays a key.
+      const json = guest(
+        [
+          '--json',
+          'config',
+          'permissions',
+          '--caller',
+          'claude',
+          '--into',
+          'zsh',
+          '--',
+          'rm x',
+          'Enter',
+        ],
+        env,
+      );
+      expect(json.exitCode).toBe(1);
+      expect(JSON.parse(json.stdout)).toMatchObject({
+        ok: false,
+        code: 1,
+        decision: 'deny',
+        file,
+      });
+
+      // The one thing tmux is asked: which config directory is the app's.
+      for (const run of [none, some, denied, asked, allowed, json]) {
+        expect(run.tmuxCalls.map((c) => c.args.join(' '))).toEqual([
+          'show-options -gqv @tmuxy-config-dir',
+        ]);
+      }
+    });
+
+    test('a file that is not rules is an error, with what is wrong in it', () => {
+      fs.writeFileSync(file, JSON.stringify({ callers: { claude: { deny: ['destroy(any)'] } } }));
+      const broken = guest(['config', 'permissions'], env);
+      expect(broken.exitCode).toBe(1);
+      expect(broken.stderr).toContain('cannot be read as rules');
+      expect(broken.stderr).toContain('only Send(...) rules are understood by this version');
+      // And what a send would get from it is a refusal.
+      const send = check(['ls', 'Enter']);
+      expect(send.exitCode).toBe(1);
+      expect(send.stderr).toContain('deny: permissions.json cannot be read as rules');
+    });
+
+    /**
+     * A real send, by a caller in no pane, into `%7`, where zsh runs and
+     * `@tmuxy-send-ask off` would have typed anything without a question.
+     */
+    const target = {
+      MOCK_TMUX_PANE_ID: '%7',
+      MOCK_TMUX_PANE_COMMAND: 'off\t\t\tzsh\tidle',
+      TMUX_PANE: '',
+    };
+    const ran = (calls) => calls.filter((c) => c.args[0] === 'run-shell').map((c) => c.args[1]);
+
+    test('a send a deny rule matches is refused: nothing typed, no question', () => {
+      fs.writeFileSync(file, JSON.stringify(RULES));
+      const { stderr, exitCode, tmuxCalls } = guest(
+        ['pane', 'send', '-t', '%7', 'sudo rm -rf /tmp/x', 'Enter'],
+        { ...env, ...target },
+      );
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('denied by `Send(sudo *)` (callers.*); nothing sent');
+      expect(ran(tmuxCalls)).toEqual([]);
+    });
+
+    test('with rules for the caller, a send the option would have skipped the question for is asked', () => {
+      fs.writeFileSync(file, JSON.stringify(RULES));
+      const { stderr, exitCode, tmuxCalls } = guest(
+        ['pane', 'send', '-t', '%7', '--timeout', '1', 'ls; id', 'Enter'],
+        { ...env, ...target },
+      );
+      // Nobody answers the mock's question: the send gives up, having asked.
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('no answer from %7');
+      const commands = ran(tmuxCalls).join('\n');
+      expect(commands).toContain('@tmuxy-ask ');
+      expect(commands).not.toContain('send-keys');
+    });
+
+    test('without the file the option still skips the question', () => {
+      const { exitCode, tmuxCalls } = guest(['pane', 'send', '-t', '%7', 'sudo ls', 'Enter'], {
+        ...env,
+        ...target,
+      });
+      expect(exitCode).toBe(0);
+      const commands = ran(tmuxCalls).join('\n');
+      expect(commands).toMatch(/if-shell -F -t %7 .*send-keys.*'\\''%7'\\''/);
+      expect(commands).not.toContain('@tmuxy-ask ');
+    });
+
+    /**
+     * The verbs binary runs in the sender's process, so nothing the sender
+     * hands it decides whether the rules are read: not its environment, and
+     * not the pane it says it runs in.
+     */
+    test('the file is the one in the app’s config directory, whatever the sender’s environment says', () => {
+      fs.writeFileSync(file, JSON.stringify(RULES));
+      const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-no-rules-'));
+      try {
+        const sender = {
+          ...target,
+          XDG_CONFIG_HOME: elsewhere,
+          MOCK_TMUX_CONFIG_DIR: path.dirname(file),
+        };
+        const { stderr, exitCode, tmuxCalls } = guest(
+          ['pane', 'send', '-t', '%7', 'sudo ls', 'Enter'],
+          sender,
+        );
+        expect(exitCode).toBe(1);
+        expect(stderr).toContain('denied by `Send(sudo *)` (callers.*); nothing sent');
+        expect(ran(tmuxCalls)).toEqual([]);
+        // And the checker reads that same file.
+        const checked = guest(['config', 'permissions'], sender);
+        expect(checked.stdout).toContain(`${file}: 4 rule(s)`);
+      } finally {
+        fs.rmSync(elsewhere, { recursive: true, force: true });
+      }
+    });
+
+    test('the verb called directly, claiming the target as its own pane, is not believed', () => {
+      fs.writeFileSync(file, JSON.stringify(RULES));
+      const claim = (keys, pid) =>
+        machine.runVerbs(
+          ['send', '--target', '%7', '--caller-pane', '%7', '--timeout', '1', '--', ...keys],
+          { ...env, ...target, MOCK_TMUX_PANE_PID: pid },
+        );
+      // The pane's process is no ancestor of the sender: the claim is
+      // dropped, so the rules are read and the question is asked.
+      const denied = claim(['sudo ls', 'Enter'], '1');
+      expect(denied.exitCode).toBe(1);
+      expect(denied.stderr).toContain('denied by `Send(sudo *)` (callers.*); nothing sent');
+      expect(denied.ran.join('\n')).not.toContain('send-keys');
+
+      const asked = claim(['ls', 'Enter'], '1');
+      expect(asked.exitCode).toBe(1);
+      expect(asked.stderr).toContain('no answer from %7');
+      expect(asked.ran.join('\n')).toContain('@tmuxy-ask ');
+      expect(asked.ran.join('\n')).not.toContain('send-keys');
+
+      // A sender that does run under the pane's process types into it.
+      const own = claim(['ls', 'Enter'], String(process.pid));
+      expect(own.exitCode).toBe(0);
+      expect(own.ran.join('\n')).toMatch(/if-shell -F -t %7 .*send-keys.*'\\''%7'\\''/);
+    });
+
+    test('a file that is not rules refuses a send it could not have bound', () => {
+      fs.writeFileSync(file, '{ "callers": ');
+      const { stderr, exitCode, tmuxCalls } = guest(['pane', 'send', '-t', '%7', 'ls', 'Enter'], {
+        ...env,
+        ...target,
+        MOCK_TMUX_PANE_COMMAND: 'off\t\t\tvim\tidle',
+      });
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('permissions.json cannot be read as rules (not JSON');
+      expect(ran(tmuxCalls)).toEqual([]);
+    });
   });
 
   test('skill prints the agent guide', () => {

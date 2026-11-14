@@ -17,6 +17,8 @@ pub mod command_router;
 pub mod float;
 
 #[cfg(feature = "native")]
+pub mod diff_review;
+#[cfg(feature = "native")]
 pub mod host;
 pub mod layout;
 #[cfg(feature = "cli")]
@@ -24,18 +26,26 @@ pub mod list_keys;
 #[cfg(feature = "native")]
 pub mod logging;
 pub mod mime;
+pub mod pane_meta;
 #[cfg(feature = "cli")]
 pub mod paths;
+pub mod permissions;
 #[cfg(feature = "native")]
 pub mod plugins;
+#[cfg(feature = "native")]
+pub mod ports;
 #[cfg(feature = "native")]
 pub mod preview;
 #[cfg(feature = "cli")]
 pub mod private_files;
+#[cfg(feature = "cli")]
+pub mod profiles;
 pub mod program;
 pub mod random;
 #[cfg(feature = "cli")]
 pub mod run_shell;
+#[cfg(feature = "native")]
+pub mod safe_git;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]

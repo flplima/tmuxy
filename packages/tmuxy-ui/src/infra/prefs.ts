@@ -1,7 +1,8 @@
 /**
  * What this client remembers between visits, in localStorage: the theme and
- * mode picked from the menu, the font size and the phone's split — every
- * key, its default, and the one guarded read and write.
+ * mode picked from the menu, the font size, the phone's split and what the
+ * command palette ran last — every key, its default, and the one guarded
+ * read and write.
  */
 
 import { parseThemeMode, type ThemeInfo, type ThemeMode } from '../domain/wireSettings';
@@ -15,6 +16,7 @@ const KEYS = {
   themeMode: 'tmuxy-theme-mode',
   fontSize: 'tmuxy-font-size',
   phoneSplit: 'tmuxy-phone-split',
+  paletteRecent: 'tmuxy-palette-recent',
 } as const;
 
 type PrefKey = (typeof KEYS)[keyof typeof KEYS];
@@ -121,4 +123,18 @@ export function savePhoneSplitPref(split: PhoneSplit): void {
 /** The next load starts from the default split (a story's clean slate). */
 export function forgetPhoneSplitPref(): void {
   forget(KEYS.phoneSplit);
+}
+
+/** The ids of the palette entries chosen last, most recent first. */
+export function loadPaletteRecentPref(): string[] {
+  try {
+    const ids: unknown = JSON.parse(read(KEYS.paletteRecent) ?? '[]');
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function savePaletteRecentPref(ids: readonly string[]): void {
+  write(KEYS.paletteRecent, JSON.stringify(ids));
 }

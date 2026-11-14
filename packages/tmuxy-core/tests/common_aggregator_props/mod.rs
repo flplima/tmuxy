@@ -1,3 +1,5 @@
+// Shared by several test files, each using part of it.
+#![allow(dead_code)]
 use proptest::prelude::*;
 use tmuxy_core::control_mode::{
     Batch, ControlModeEvent, Notice, SideEffect, StateAggregator, BUFFER_BEGIN_MARKER,
@@ -117,7 +119,7 @@ pub fn emulator_event_strategy() -> impl Strategy<Value = Vec<ControlModeEvent>>
         }),
         1 => (pane_side(), pane_side()).prop_map(|(w, h)| vec![
             response("TMUXY_LS_BEGIN panes"),
-            response(&format!("%2,2,0,0,{w},{h},0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,")),
+            response(&format!("%2,2,0,0,{w},{h},0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,,")),
             response("TMUXY_LS_END"),
         ]),
         1 => (prop::sample::select(vec!["%0", "%1", "%2"]), terminal_bytes_strategy())
@@ -177,9 +179,9 @@ pub fn seeded_aggregator() -> StateAggregator {
     });
     agg.step(signed(&agg, response("TMUXY_LS_BEGIN panes")));
     agg.step(response(
-        "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
-         %1,1,0,13,80,11,0,0,0,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
-         %2,2,40,13,40,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,",
+        "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,,\n\
+         %1,1,0,13,80,11,0,0,0,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,,\n\
+         %2,2,40,13,40,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,,",
     ));
     agg.step(signed(&agg, response("TMUXY_LS_END")));
     agg.step(ControlModeEvent::SessionWindowChanged {

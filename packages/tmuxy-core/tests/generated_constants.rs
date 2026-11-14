@@ -22,6 +22,10 @@ mod crate_graph;
 mod dev_loop;
 #[path = "generated/guest_keys.rs"]
 mod guest_keys;
+#[path = "generated/ts_literal.rs"]
+mod ts_literal;
+
+use ts_literal::{ts_char, ts_literal};
 
 const HEADER: &str =
     "Generated from tmuxy-core by packages/tmuxy-core/tests/generated_constants.rs; do not edit.\n\
@@ -33,6 +37,9 @@ fn packages() -> PathBuf {
 
 /// A string as a single-quoted literal, in TypeScript and in shell alike: no
 /// value written here holds a quote or a backslash.
+#[path = "generated_constants/agents.rs"]
+mod agents;
+
 fn quoted(value: &str) -> String {
     assert!(
         !value.contains('\'') && !value.contains('\\'),
@@ -96,6 +103,15 @@ fn typescript() -> String {
     );
     let _ = writeln!(
         out,
+        "\n/** The option a pane's custom fields are kept in (`tmux_options::PANE_META`). */\n\
+         export const PANE_META_OPTION = {};\n\n\
+         /** The user's option for what a tree row shows (`tmux_options::TREE_ROW`). */\n\
+         export const TREE_ROW_OPTION = {};",
+        quoted(tmuxy_core::constants::tmux_options::PANE_META),
+        quoted(tmuxy_core::constants::tmux_options::TREE_ROW)
+    );
+    let _ = writeln!(
+        out,
         "\n/** A pane's title with tmux's host-name seed filtered out (`tmux_formats::APP_PANE_TITLE`). */\n\
          export const APP_PANE_TITLE = {};",
         quoted(APP_PANE_TITLE)
@@ -120,6 +136,7 @@ fn typescript() -> String {
             .map(|s| quoted(s.as_str()))
             .join(", ")
     );
+    agents::write(&mut out);
     let _ = writeln!(
         out,
         "\n/** Sidebar column widths and drag bounds, in cells (`sidebar_dock`). */\n\
@@ -173,60 +190,6 @@ fn typescript() -> String {
 }
 
 // --- Values the UI shares with the shipped config and the CLI's scripts ---
-
-/// A number as TypeScript writes it after prettier: `1`, not `1.0`.
-fn ts_number(value: &serde_json::Number) -> String {
-    value
-        .as_f64()
-        .map_or_else(|| value.to_string(), |v| format!("{v}"))
-}
-
-/// A JSON value as a TypeScript literal, keys in sorted order and indented
-/// the way prettier prints it (objects only nest one level here).
-fn ts_literal(value: &serde_json::Value, indent: &str) -> String {
-    match value {
-        serde_json::Value::Bool(b) => b.to_string(),
-        serde_json::Value::Number(n) => ts_number(n),
-        serde_json::Value::String(s) => quoted(s),
-        serde_json::Value::Array(items) => format!(
-            "[{}]",
-            items
-                .iter()
-                .map(|v| ts_literal(v, indent))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        serde_json::Value::Object(map) => {
-            let mut keys: Vec<_> = map.keys().collect();
-            keys.sort();
-            if indent.is_empty() {
-                let inner = "  ";
-                let body: String = keys
-                    .iter()
-                    .map(|k| format!("{inner}{k}: {},\n", ts_literal(&map[*k], inner)))
-                    .collect();
-                format!("{{\n{body}}}")
-            } else {
-                let body = keys
-                    .iter()
-                    .map(|k| format!("{k}: {}", ts_literal(&map[*k], indent)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{{ {body} }}")
-            }
-        }
-        serde_json::Value::Null => "null".to_string(),
-    }
-}
-
-/// A character as a TypeScript string literal, quoted the way prettier quotes it.
-fn ts_char(c: char) -> String {
-    match c {
-        '\'' => "\"'\"".to_string(),
-        '\\' => "'\\\\'".to_string(),
-        c => format!("'{c}'"),
-    }
-}
 
 /// Links and whether core's `is_openable_url` opens them, for the client's
 /// rule to be held to (`infra/__tests__/openUrl.test.ts`).
@@ -408,15 +371,19 @@ fn shell_tmux_names(out: &mut String) {
     for (name, value) in [
         ("WINDOW_TYPE", o::WINDOW_TYPE),
         ("SIDEBAR_HIDDEN", o::SIDEBAR_HIDDEN),
+        ("FLOAT_MINIMIZED", o::FLOAT_MINIMIZED),
         ("COLLAPSIBLE", o::COLLAPSIBLE),
         ("FOCUS_REQUEST", o::FOCUS_REQUEST),
         ("GROUP_ID", o::GROUP_ID),
         ("PANE_RESTORE", o::PANE_RESTORE),
         ("PANE_STATE", o::PANE_STATE),
+        ("PANE_META", o::PANE_META),
         ("PANE_LABEL", o::PANE_LABEL),
         ("PANE_WIDGET", o::PANE_WIDGET),
         ("PANE_PREVIEW", o::PANE_PREVIEW),
         ("PANE_PREVIEW_NET", o::PANE_PREVIEW_NET),
+        ("TRUST_PANE_CLAIMS", o::TRUST_PANE_CLAIMS),
+        ("PANE_DIFF", o::PANE_DIFF),
         ("SEND_INBOX", o::SEND_INBOX),
         ("AGENT_INBOX", o::AGENT_INBOX),
     ] {
