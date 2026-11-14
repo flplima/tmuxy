@@ -103,7 +103,11 @@ function runCLI(args, opts = {}) {
     });
     // A CLI that hangs (killed at the timeout) or never started is no exit
     // status at all: reported as one, it would pass every "exits 1" test.
-    if (result.error || result.status === null) {
+    // One that exited without reading its input (a hook outside a tmuxy pane)
+    // did exit: writing the input to it failed with EPIPE, and its status
+    // stands.
+    const unread = result.error?.code === 'EPIPE' && result.status !== null;
+    if ((result.error && !unread) || result.status === null) {
       throw new Error(
         `tmuxy ${args.join(' ')} did not exit: ${result.error?.message ?? `killed by ${result.signal}`}` +
           `\nstderr: ${result.stderr || ''}`,
