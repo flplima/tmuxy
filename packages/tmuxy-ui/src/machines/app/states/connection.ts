@@ -39,7 +39,9 @@ export const connectionGlobalEvents = {
   DETACH_CLIENT: {
     actions: 'connection_detachClient',
   },
-  SWITCH_SESSION: { actions: 'connection_switchSession' },
+  // The palette's slice forgets a place it was on its way to in another session.
+  SWITCH_SESSION: { actions: ['connection_switchSession', 'palette_leave'] },
+  TMUX_SESSION_SWITCHED: { actions: 'connection_sessionSwitched' },
   NEW_SESSION: { actions: 'connection_newSession' },
   KEYBINDINGS_RECEIVED: { actions: 'connection_keybindingsReceived' },
 } as const;

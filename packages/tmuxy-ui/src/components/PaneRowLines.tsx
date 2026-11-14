@@ -16,6 +16,7 @@ import { portUrl } from './panePorts';
 import type { GitBadge } from './sidebarTreeRows';
 import type { TmuxPane } from '../domain/client';
 import type { PaneField } from '../domain/paneMeta';
+import { paneStateLabel } from '../domain/paneStatus';
 import type { RowItem, RowTemplate } from '../domain/rowTemplate';
 import type { paneStateFor } from '../domain/paneState';
 import { openExternalUrl } from '../infra/openUrl';
@@ -159,7 +160,11 @@ function ProcessItem({ parts }: { parts: PaneRowParts }) {
         </Tooltip>
       )}
       {parts.state !== 'idle' ? (
-        <PaneStateMark state={parts.state} className="sidebar-tree-icon sidebar-tree-state" />
+        <PaneStateMark
+          state={parts.state}
+          label={paneStateLabel(parts.state, parts.pane)}
+          className="sidebar-tree-icon sidebar-tree-state"
+        />
       ) : (
         <PaneIcon pane={parts.pane} className="sidebar-tree-icon" />
       )}

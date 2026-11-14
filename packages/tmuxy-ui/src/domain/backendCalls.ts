@@ -13,7 +13,7 @@ import { PaneId } from './ids';
 import { PreviewDocument, PreviewResource } from './preview';
 import { GitRepository, PanePorts, RestorableSession, ServerList } from './servers';
 import { type CommandFailure, ScrollbackCells, ServerState, ThemeSettings } from './wire';
-import { ThemeInfo, TraceLevel, TraceSettings } from './wireSettings';
+import { ThemeInfo, TraceLevel, TraceSettings, TraceShare } from './wireSettings';
 
 interface Command<A, AI, R, RI> {
   readonly args: Schema.Schema<A, AI>;
@@ -70,6 +70,8 @@ export const BACKEND_COMMANDS = {
   list_snapshots: command(NoArgs, Schema.Array(RestorableSession)),
   restore_session: command(Schema.Struct({ session: Schema.String }), Done),
   get_trace_settings: command(NoArgs, TraceSettings),
+  /** The last `last` actions of the trace, redacted for sharing. */
+  get_trace_share: command(Schema.Struct({ last: Schema.Number }), TraceShare),
   /** The switch actually in force: a kill switch can refuse an enable. */
   set_trace_enabled: command(Flag, Schema.Boolean),
   /** The level actually in force: an unknown one normalises to `shape`. */

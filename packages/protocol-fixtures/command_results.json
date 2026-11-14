@@ -70,6 +70,7 @@
           "mouse_any_flag": true,
           "pane_ask": "eyJ0b2tlbiI6ImExIn0=",
           "pane_state": "working",
+          "pane_status": "state=working:progress=40:app=make:msg=QnVpbGRpbmc=",
           "pane_widget": "tree",
           "selection_present": true,
           "selection_start_x": 1,
@@ -140,6 +141,7 @@
           "float_bg": "dim",
           "float_drawer": "bottom",
           "float_height": 20,
+          "float_minimized": true,
           "float_noheader": true,
           "float_parent": "@1",
           "float_width": 60,
@@ -193,6 +195,7 @@
         "activeTextOpacity": 1.0,
         "animations": true,
         "blur": true,
+        "confirmClose": true,
         "cursorBlink": true,
         "gesturePinchOverview": true,
         "gesturePinchZoom": true,
@@ -243,6 +246,12 @@
       "level": "shape",
       "locked": false,
       "path": "/home/u/.local/state/tmuxy/trace.ndjson"
+    }
+  ],
+  "get_trace_share": [
+    {
+      "lines": 1,
+      "text": "{\"layer\":\"tmux\",\"op\":\"Split\",\"session\":\"session-1\"}\n"
     }
   ],
   "greeting": [

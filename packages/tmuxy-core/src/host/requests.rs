@@ -120,6 +120,20 @@ pub fn trace_settings() -> TraceSettings {
     }
 }
 
+/// A slice of the trace, redacted for sharing (`trace::share`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TraceShare {
+    /// NDJSON, one redacted event a line.
+    pub text: String,
+    pub lines: usize,
+}
+
+/// The last `last` actions (at most 200) of the trace, redacted for sharing.
+pub fn trace_share(last: u32) -> Result<TraceShare, String> {
+    let (text, lines) = crate::trace::share::shared_slice(last.clamp(1, 200) as usize)?;
+    Ok(TraceShare { text, lines })
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TraceSettings {
     pub enabled: bool,

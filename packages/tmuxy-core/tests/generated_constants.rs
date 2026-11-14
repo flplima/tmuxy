@@ -367,6 +367,7 @@ fn shell_tmux_names(out: &mut String) {
     for (name, value) in [
         ("WINDOW_TYPE", o::WINDOW_TYPE),
         ("SIDEBAR_HIDDEN", o::SIDEBAR_HIDDEN),
+        ("FLOAT_MINIMIZED", o::FLOAT_MINIMIZED),
         ("COLLAPSIBLE", o::COLLAPSIBLE),
         ("FOCUS_REQUEST", o::FOCUS_REQUEST),
         ("GROUP_ID", o::GROUP_ID),
@@ -377,6 +378,7 @@ fn shell_tmux_names(out: &mut String) {
         ("PANE_WIDGET", o::PANE_WIDGET),
         ("PANE_PREVIEW", o::PANE_PREVIEW),
         ("PANE_PREVIEW_NET", o::PANE_PREVIEW_NET),
+        ("TRUST_PANE_CLAIMS", o::TRUST_PANE_CLAIMS),
     ] {
         let _ = writeln!(out, "OPT_{name}={}", quoted(value));
     }
@@ -407,11 +409,12 @@ fn shell_cli_contract(out: &mut String) {
     let _ = writeln!(
         out,
         "\n# The CLI's exit codes and its failure under --json (`cli_contract`).\n\
-         EXIT_FAILED={}\nEXIT_USAGE={}\nEXIT_TARGET={}\nEXIT_NO_SERVER={}\nJSON_FAILURE_FORMAT={}",
+         EXIT_FAILED={}\nEXIT_USAGE={}\nEXIT_TARGET={}\nEXIT_NO_SERVER={}\nEXIT_SENT={}\nJSON_FAILURE_FORMAT={}",
         c::EXIT_FAILED,
         c::EXIT_USAGE,
         c::EXIT_TARGET,
         c::EXIT_NO_SERVER,
+        c::EXIT_SENT,
         quoted(c::JSON_FAILURE_FORMAT)
     );
     let _ = writeln!(
