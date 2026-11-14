@@ -86,6 +86,8 @@ export function createTmuxActor(runtime: AppRuntime) {
 
     interface RunOptions<T> {
       onSuccess?: (value: T) => void;
+      /** Called for any failure, before it is reported. */
+      onFailure?: () => void;
       /** A context label for the LOG_APPEND error entry (e.g. the command). */
       logPrefix?: string;
       /**
@@ -107,6 +109,7 @@ export function createTmuxActor(runtime: AppRuntime) {
             opts.onSuccess?.(exit.value);
             return;
           }
+          opts.onFailure?.();
           const display = failureText(exit.cause);
           if (display === null) return;
           if (opts.silentFail) {
@@ -225,7 +228,13 @@ export function createTmuxActor(runtime: AppRuntime) {
         logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
         run(
           withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
-          { logPrefix: 'set_client_size' },
+          {
+            logPrefix: 'set_client_size',
+            // The app reports a size once; one the backend never took has
+            // to be reported again.
+            onFailure: () =>
+              parent.send({ type: 'CLIENT_SIZE_UNREPORTED', cols: event.cols, rows: event.rows }),
+          },
         );
       } else if (event.type === 'RESTORE_SESSION') {
         logCommand(`restore_session ${event.sessionName}`);
@@ -429,6 +438,11 @@ export function createTmuxActor(runtime: AppRuntime) {
         run(
           withTransport((t) => t.switchSession(event.sessionName)),
           {
+            // A new stream starts with no state; the desktop's one client
+            // is reported by its monitor wherever it lands.
+            onSuccess: (newStream) => {
+              if (newStream) parent.send({ type: 'TMUX_SESSION_SWITCHED' });
+            },
             logPrefix: `switch-session ${event.sessionName}`,
           },
         );

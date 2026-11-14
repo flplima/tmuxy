@@ -277,6 +277,7 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
         cursor_shape: 0,
         cursor_hidden: false,
         pane_state: None,
+        pane_status: None,
         pane_ask: None,
         pane_widget: widget.map(str::to_string),
         pane_restore: None,
