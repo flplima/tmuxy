@@ -104,6 +104,33 @@
   outline: none;
 }
 
+.snackbar-action.is-primary {
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+/* The launch notice about the user's own tmux: its text on a line of its own,
+   the answers under it. */
+.snackbar-own-tmux {
+  flex-wrap: wrap;
+}
+
+.snackbar-own-tmux .snackbar-text {
+  flex-basis: 100%;
+  white-space: normal;
+}
+
+.snackbar-own-tmux code {
+  font: inherit;
+  color: var(--theme-accent);
+}
+
+.snackbar-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
 @keyframes snackbar-in {
   from {
     opacity: 0;

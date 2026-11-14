@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{read_servers_strict, slug, write_servers, Server, ServerKind, MY_TMUX_ID};
 use crate::constants::STASH_SESSION;
-use crate::session::USERS_OWN_SOCKET;
+use crate::session::{tmux_socket_dirs, USERS_OWN_SOCKET};
 
 /// Reachability state displayed as the status dot on a server row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,52 +75,6 @@ pub fn is_ephemeral_test_socket(name: &str) -> bool {
     false
 }
 
-/// Candidate `tmux-<uid>` directories owned/readable by the current user.
-pub fn tmux_socket_dirs() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    if let Ok(custom) = std::env::var("TMUXY_SOCKET_DIR") {
-        let p = PathBuf::from(custom);
-        if p.is_dir() {
-            dirs.push(std::fs::canonicalize(&p).unwrap_or(p));
-            return dirs;
-        }
-    }
-    let mut roots = Vec::new();
-    if let Ok(tmpdir) = std::env::var("TMUX_TMPDIR") {
-        if !tmpdir.is_empty() {
-            roots.push(PathBuf::from(tmpdir));
-        }
-    }
-    roots.push(PathBuf::from("/tmp"));
-    roots.push(PathBuf::from("/private/tmp"));
-
-    for root in roots {
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name_str) = name.to_str() else {
-                continue;
-            };
-            if !name_str.starts_with("tmux-") {
-                continue;
-            }
-            let path = entry.path();
-            // Tmux creates `tmux-$UID` mode 0700, so `read_dir` succeeds only
-            // for the current user's socket directory. Canonicalize so `/tmp`
-            // and `/private/tmp` on macOS do not scan the same directory twice.
-            if std::fs::read_dir(&path).is_ok() {
-                let canonical = std::fs::canonicalize(&path).unwrap_or(path);
-                if !dirs.contains(&canonical) {
-                    dirs.push(canonical);
-                }
-            }
-        }
-    }
-    dirs
-}
-
 fn socket_mtime(socket: &str) -> Option<SystemTime> {
     if crate::session::is_socket_path(socket) {
         return std::fs::metadata(socket).ok()?.modified().ok();
@@ -142,9 +97,41 @@ fn dead_socket_cache(
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Count non-stash sessions on a local tmux socket that is NOT the live
-/// control-mode socket. Returns `None` if no server is running on that socket.
-pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
+/// How long a look at another tmux server on this machine may take. A server
+/// that is stopped (a `SIGSTOP`, a debugger) keeps its socket and never
+/// answers, and a look is taken on every connect and every poll of the tree.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// What `command` printed, or `None` when it could not be run or has not
+/// ended within `limit`; it is killed then, so a look leaves no process
+/// behind. For a command that prints little: its output is read at the end.
+pub(super) fn output_within(mut command: Command, limit: Duration) -> Option<Output> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
+/// The non-stash sessions on a local tmux socket that is NOT the live
+/// control-mode socket, in tmux's order. `None` when no server is running on
+/// that socket, or it holds nothing but the stash.
+pub fn local_socket_session_names(socket: &str) -> Option<Vec<String>> {
     let mtime = socket_mtime(socket);
     if let Ok(cache) = dead_socket_cache().lock() {
         if let Some(cached_mtime) = cache.get(socket) {
@@ -153,10 +140,11 @@ pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
             }
         }
     }
-    let out = crate::session::local_tmux_on(socket)
-        .args(["list-sessions", "-F", "#{session_name}"])
-        .output()
-        .ok()?;
+    let mut look = crate::session::local_tmux_on(socket);
+    look.args(["list-sessions", "-F", "#{session_name}"]);
+    // No answer in time is not "no server": nothing is cached, so the server
+    // is found again once it answers.
+    let out = output_within(look, PROBE_TIMEOUT)?;
     if !out.status.success() {
         if let Ok(mut cache) = dead_socket_cache().lock() {
             cache.insert(socket.to_string(), mtime);
@@ -166,17 +154,18 @@ pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
     if let Ok(mut cache) = dead_socket_cache().lock() {
         cache.remove(socket);
     }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let count = stdout
+    let names: Vec<String> = String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && *line != STASH_SESSION)
-        .count();
-    if count == 0 {
-        None
-    } else {
-        Some(count)
-    }
+        .map(String::from)
+        .collect();
+    (!names.is_empty()).then_some(names)
+}
+
+/// How many sessions [`local_socket_session_names`] finds on `socket`.
+pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
+    local_socket_session_names(socket).map(|names| names.len())
 }
 
 /// Merge discovered local sockets from `socket_dirs` and populate reachability

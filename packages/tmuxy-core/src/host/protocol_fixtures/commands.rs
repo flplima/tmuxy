@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 34;
+const COMMANDS: usize = 36;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -56,6 +56,8 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::ListPanePorts => 31,
         C::GetPromptMarks { .. } => 32,
         C::GetLastCommandOutput { .. } => 33,
+        C::OwnTmuxOffer => 34,
+        C::CloseOwnTmuxOffer => 35,
     }
 }
 
@@ -150,6 +152,8 @@ fn every_request() -> Vec<ClientCommand> {
         C::GetTraceShare { last: 20 },
         C::GetPromptMarks { pane_id: pane() },
         C::GetLastCommandOutput { pane_id: pane() },
+        C::OwnTmuxOffer,
+        C::CloseOwnTmuxOffer,
     ]
 }
 
@@ -367,6 +371,19 @@ fn every_command_answer_matches_its_fixture() {
                 erased::Json::to_json(&LastOutput { text: None }),
             ],
         ),
+        (
+            "own_tmux_offer",
+            vec![
+                erased::Json::to_json(&Some(crate::servers::OwnTmuxOffer {
+                    server_id: crate::servers::MY_TMUX_ID,
+                    sessions: 3,
+                    session: Some("work".to_string()),
+                    can_switch: true,
+                })),
+                serde_json::Value::Null,
+            ],
+        ),
+        ("close_own_tmux_offer", null()),
     ];
     let answered: BTreeSet<String> = answers.iter().map(|(name, _)| name.to_string()).collect();
     assert_eq!(

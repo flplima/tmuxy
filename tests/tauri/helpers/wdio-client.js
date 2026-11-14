@@ -58,12 +58,13 @@ function killTmuxSession(sessionName) {
  * on Linux, tauri-webdriver on macOS — and return the session driving it.
  *
  * @param {string} [binary] - the app to launch (default: {@link TAURI_BINARY})
+ * @param {number} [port] - the driver to launch it through (default: {@link DRIVER_PORT})
  * @returns {Promise<WebdriverIO.Browser>}
  */
-async function launchApp(binary = TAURI_BINARY) {
+async function launchApp(binary = TAURI_BINARY, port = DRIVER_PORT) {
   return remote({
     hostname: 'localhost',
-    port: DRIVER_PORT,
+    port,
     capabilities: {
       'tauri:options': {
         application: binary,
@@ -480,6 +481,7 @@ module.exports = {
   killTmuxSession,
   launchApp,
   waitForAppReady,
+  waitForXState,
   getTerminalText,
   waitForTerminalText,
   typeKeys,

@@ -33,6 +33,9 @@ export const connectionGlobalEvents = {
   CONNECT_SERVER: {
     actions: 'connection_connectServer',
   },
+  OWN_TMUX_OFFERED: { actions: 'connection_ownTmuxOffered' },
+  ANSWER_OWN_TMUX_OFFER: { actions: 'connection_answerOwnTmuxOffer' },
+  OWN_TMUX_OFFER_TAKEN: { actions: 'connection_ownTmuxOfferTaken' },
   RECONNECT_NOW: {
     actions: 'connection_reconnectNow',
   },

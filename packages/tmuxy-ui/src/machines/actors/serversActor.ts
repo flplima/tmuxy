@@ -18,6 +18,10 @@
  * which reads the pane paths from tmux itself: nothing about the filesystem is
  * sent from here). The tree matches cwds to worktrees client-side
  * (`components/gitContext.ts`).
+ *
+ * It also asks the host, once per page and when the app has connected, whether
+ * the user's own tmux server holds sessions this app is not showing
+ * (`own_tmux_offer`): the launch notice (`components/OwnTmuxNotice`).
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
@@ -35,7 +39,10 @@ import {
 } from '../../domain/tmuxyConstants.gen';
 import { paneFields } from '../../domain/paneMeta';
 
-export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
+export type ServersActorEvent =
+  | { type: 'REFRESH_SESSIONS' }
+  /** The app connected: ask the host, once, about the user's own tmux server. */
+  | { type: 'LOOK_FOR_OWN_TMUX' };
 
 export interface ServersActorInput {
   parent: AnyActorRef;
@@ -273,6 +280,23 @@ export function createServersActor(runtime: AppRuntime) {
         );
       });
 
+    // Asked until the host has answered once: a later connect of the same
+    // page (a reconnect, a switch of server) must not bring the notice back.
+    let ownTmuxAnswered = false;
+    const lookForOwnTmux = (): Effect.Effect<void, never, TmuxTransport> =>
+      Effect.suspend(() => {
+        if (ownTmuxAnswered) return Effect.void;
+        return TmuxTransport.pipe(Effect.flatMap((t) => t.call('own_tmux_offer', {}))).pipe(
+          Effect.flatMap((offer) =>
+            Effect.sync(() => {
+              ownTmuxAnswered = true;
+              parent.send({ type: 'OWN_TMUX_OFFERED', offer });
+            }),
+          ),
+          Effect.ignore,
+        );
+      });
+
     const whileEnumerable = (program: Effect.Effect<void, never, TmuxTransport>) =>
       TmuxTransport.pipe(Effect.flatMap((t) => (t.enumeratesSessions() ? program : Effect.void)));
     const poll = tick().pipe(
@@ -282,6 +306,7 @@ export function createServersActor(runtime: AppRuntime) {
     const pollFiber = runtime.runFork(whileEnumerable(poll));
     receive((event) => {
       if (event.type === 'REFRESH_SESSIONS') runtime.runFork(whileEnumerable(tick(true)));
+      if (event.type === 'LOOK_FOR_OWN_TMUX') runtime.runFork(whileEnumerable(lookForOwnTmux()));
     });
     // The tree coming on screen shows what is there now, not the last poll's.
     const unsubscribe = treeVisible.subscribe((visible) => {

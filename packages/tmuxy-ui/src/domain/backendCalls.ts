@@ -11,7 +11,7 @@
 import { Schema } from 'effect';
 import { PaneId } from './ids';
 import { PreviewDocument, PreviewResource } from './preview';
-import { GitRepository, PanePorts, RestorableSession, ServerList } from './servers';
+import { GitRepository, OwnTmuxOffer, PanePorts, RestorableSession, ServerList } from './servers';
 import {
   type CommandFailure,
   LastOutput,
@@ -99,6 +99,9 @@ export const BACKEND_COMMANDS = {
     Done,
   ),
   detach_client: command(NoArgs, Done),
+  /** The launch notice about the user's own tmux server, or null for none. */
+  own_tmux_offer: command(NoArgs, Schema.NullOr(OwnTmuxOffer)),
+  close_own_tmux_offer: command(NoArgs, Done),
   prepare_plugin_action: command(
     Schema.Struct({
       plugin: Schema.String,

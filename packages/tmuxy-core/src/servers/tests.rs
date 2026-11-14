@@ -207,3 +207,154 @@ fn parse_session_list_filters_out_stash_session() {
     assert_eq!(sessions[1].windows, 1);
     assert!(!sessions[1].attached);
 }
+
+fn asking(socket: &str) -> OwnTmuxAsk<'_> {
+    OwnTmuxAsk {
+        asked: false,
+        told: false,
+        socket,
+        over_ssh: false,
+        can_switch: true,
+    }
+}
+
+fn names(list: &[&str]) -> Option<Vec<String>> {
+    Some(list.iter().map(|name| name.to_string()).collect())
+}
+
+/// A tmux user who opens tmuxy sees an empty session and takes their work
+/// for lost: the launch says where it is, how much of it, and which session
+/// a switch would open.
+#[test]
+fn a_launch_on_tmuxys_own_socket_offers_the_users_tmux() {
+    let offer = own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || {
+        names(&["my project", "work", "notes"])
+    });
+    assert_eq!(
+        offer,
+        Some(OwnTmuxOffer {
+            server_id: MY_TMUX_ID,
+            sessions: 3,
+            // The first name tmuxy can write into a command line.
+            session: Some("work".to_string()),
+            can_switch: true,
+        })
+    );
+}
+
+#[test]
+fn an_offer_with_no_attachable_session_names_none() {
+    let offer = own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || names(&["my project"]));
+    assert_eq!(
+        offer.map(|offer| (offer.sessions, offer.session)),
+        Some((1, None))
+    );
+}
+
+/// A host that cannot switch servers still tells: it says how to start there.
+#[test]
+fn the_offer_says_whether_the_host_can_switch() {
+    let ask = OwnTmuxAsk {
+        can_switch: false,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    };
+    let offer = own_tmux_offer_for(&ask, || names(&["work"])).unwrap();
+    assert!(!offer.can_switch);
+}
+
+/// Asked once, and only of someone who has not chosen a server already; in
+/// those cases the user's tmux is not even looked at.
+#[test]
+fn nothing_is_offered_when_there_is_nothing_to_ask() {
+    let unasked = |ask: OwnTmuxAsk<'_>| {
+        own_tmux_offer_for(&ask, || panic!("looked at the user's tmux")).is_none()
+    };
+    assert!(unasked(OwnTmuxAsk {
+        asked: true,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    }));
+    assert!(unasked(OwnTmuxAsk {
+        over_ssh: true,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    }));
+    assert!(unasked(asking(USERS_OWN_SOCKET)));
+    assert!(unasked(asking("tmuxy-dev")));
+    assert!(unasked(asking("/tmp/some/socket")));
+
+    assert_eq!(
+        own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || None),
+        None
+    );
+    assert_eq!(
+        own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || Some(Vec::new())),
+        None
+    );
+}
+
+/// One machine often runs both: the web server and the desktop app share a
+/// state file. "Got it" on the web is not an answer to the switch only the
+/// desktop can offer, and an answer to that offer is enough for both.
+#[test]
+fn being_told_on_the_web_does_not_answer_the_desktops_offer() {
+    let told_on = |can_switch| OwnTmuxAsk {
+        told: true,
+        can_switch,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    };
+    assert!(own_tmux_offer_for(&told_on(true), || names(&["work"])).is_some());
+    assert!(own_tmux_offer_for(&told_on(false), || names(&["work"])).is_none());
+
+    let web_closed = own_tmux_answer(false);
+    assert_eq!(
+        (web_closed.own_tmux_told, web_closed.own_tmux_asked),
+        (Some(true), None)
+    );
+    let desktop_answered = own_tmux_answer(true);
+    assert_eq!(
+        (
+            desktop_answered.own_tmux_told,
+            desktop_answered.own_tmux_asked
+        ),
+        (None, Some(true))
+    );
+    let asked_on = |can_switch| OwnTmuxAsk {
+        asked: true,
+        can_switch,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    };
+    assert!(own_tmux_offer_for(&asked_on(true), || names(&["work"])).is_none());
+    assert!(own_tmux_offer_for(&asked_on(false), || names(&["work"])).is_none());
+}
+
+/// Someone who once pointed tmuxy at their own socket has a session tmuxy
+/// made there; told "your tmux has 1 session" about it, they would go looking
+/// for work that is not theirs.
+#[test]
+fn tmuxys_own_session_on_the_users_socket_is_not_counted() {
+    let ask = asking(DEFAULT_TMUX_SOCKET);
+    assert_eq!(own_tmux_offer_for(&ask, || names(&["tmuxy"])), None);
+    let offer = own_tmux_offer_for(&ask, || names(&["tmuxy", "work"])).unwrap();
+    assert_eq!(
+        (offer.sessions, offer.session.as_deref()),
+        (1, Some("work"))
+    );
+}
+
+/// A tmux server that is stopped keeps its socket and never answers: the look
+/// gives up, and leaves no process waiting behind it.
+#[test]
+fn a_look_that_gets_no_answer_gives_up_in_time() {
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    let mut quick = Command::new("sh");
+    quick.args(["-c", "echo work"]);
+    let out = discovery::output_within(quick, Duration::from_secs(5)).unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "work\n");
+
+    let mut stuck = Command::new("sh");
+    stuck.args(["-c", "sleep 30"]);
+    let started = Instant::now();
+    assert!(discovery::output_within(stuck, Duration::from_millis(100)).is_none());
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
