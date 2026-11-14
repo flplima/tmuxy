@@ -155,6 +155,10 @@ With the prefix (`Ctrl+a`):
 | `z`              | Zoom / unzoom                                                            |
 | `?`              | Every key, table by table                                                |
 
+`tmuxy keymap` lists every binding with the file and line it comes from, and
+the defaults your `tmuxy.conf` replaced: `tmuxy keymap --table prefix t` says
+where `prefix t` comes from.
+
 A sidebar opens over the panes; pressing its key again while it is open docks
 it beside them, and again frees it. PANE and TAB are sticky modes: keys are
 plain letters and repeat until `Esc`, and the status line names the mode.
