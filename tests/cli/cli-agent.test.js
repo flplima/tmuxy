@@ -140,9 +140,8 @@ describe('tmuxy agent', () => {
     calls = await callsAfterHook(on.log, 4);
     const recorded = inboxWrites(calls).map((c) => c[5]);
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]).toMatch(
-      new RegExp(`@tmuxy-agent-inbox '[0-9]+\\|[^|']+\\|${socketPath.replace(/\./g, '\\.')}'`),
-    );
+    expect(recorded[0]).toMatch(/@tmuxy-agent-inbox '[0-9]+\|[^|']+\|/);
+    expect(recorded[0]).toContain(`|${socketPath}'`);
     expect(JSON.stringify(calls)).not.toContain('secret-token-value');
 
     // No Claude Code process above the hook (a `ps` that names only
