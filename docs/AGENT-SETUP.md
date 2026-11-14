@@ -9,7 +9,6 @@
 | `claude` | `$CLAUDE_CONFIG_DIR/settings.json` (else `~/.claude/`) | `$CLAUDE_CONFIG_DIR/skills/tmuxy` |
 | `codex` | `$CODEX_HOME/hooks.json` (else `~/.codex/`) | `~/.agents/skills/tmuxy` |
 | `agy` | `~/.gemini/config/hooks.json` | `~/.gemini/config/skills/tmuxy` |
-
 | `opencode` | none: its hooks are JavaScript plugins | `$XDG_CONFIG_HOME/opencode/skills/tmuxy` (else `~/.config/`) |
 | `pi` | none: its hooks are TypeScript extensions | `~/.pi/agent/skills/tmuxy` |
 | `crush` | none | `$CRUSH_SKILLS_DIR/tmuxy` (else `~/.config/crush/skills/`) |
