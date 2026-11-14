@@ -60,6 +60,7 @@ export function windowMenuSpec(env: MenuEnv, state: WindowMenuState): AppMenuNod
       {
         kind: 'item',
         id: 'window-close',
+        destructive: true,
         label: 'Close Window',
         icon: 'close',
         accelerator: 'CmdOrCtrl+Shift+W',

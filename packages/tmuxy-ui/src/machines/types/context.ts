@@ -8,6 +8,7 @@ import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSetti
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { TmuxOp } from '../../domain/commands';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
+import type { PaletteMode } from '../../domain/palette/entries';
 import type {
   AppNotification,
   BottomView,
@@ -17,6 +18,7 @@ import type {
   GestureState,
   KeyboardOwner,
   LogEntry,
+  PendingGoTo,
   ResizeState,
   SidebarSide,
   SidebarState,
@@ -62,6 +64,12 @@ export interface AppMachineContext {
    * this client's, not the defaults. The state is fetched at that size.
    */
   viewportMeasured: boolean;
+  /**
+   * The size last sent to the backend as this client's, on this connection;
+   * null until one is. While another client holds the session smaller the
+   * grid never comes to match, and the same size is not sent again.
+   */
+  reportedSize: { cols: number; rows: number } | null;
   drag: DragState | null;
   resize: ResizeState | null;
   resizeActive: boolean;
@@ -287,6 +295,13 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
+  /** The command palette, while it is open: everything, or only the places to go. */
+  palette: PaletteMode | null;
+  /**
+   * A place in another session the palette was asked to go to: the session
+   * is switched first, and the tab or pane is picked once its state arrives.
+   */
+  pendingGoTo: PendingGoTo | null;
   /** The pane whose rename field is open in its header, if any. */
   renamingPaneId: PaneId | null;
   /** Base font size for terminal text in pixels */

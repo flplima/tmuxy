@@ -1,4 +1,5 @@
 use axum::extract::Request;
+use axum::serve::ListenerExt;
 use clap::{Args, Subcommand};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
@@ -8,6 +9,7 @@ use crate::dev;
 use crate::request_guard::HostPolicy;
 use crate::state::AppState;
 
+mod delivery;
 mod lifecycle;
 mod listener;
 use lifecycle::*;
@@ -326,7 +328,7 @@ async fn serve(
     }
     .with_state(state.clone());
     let password_set = password.is_some();
-    let app = with_optional_auth(app, password, listen.policy.clone());
+    let app = delivery::compressed(with_optional_auth(app, password, listen.policy.clone()));
 
     let addr = std::net::SocketAddr::new(listen.ip, port);
     match frontend {
@@ -338,7 +340,9 @@ async fn serve(
         println!("[dev] Vite proxied from port {}", dev::VITE_PORT);
     }
 
-    let listener = bind_with_retry(addr, BIND_RETRIES).await;
+    let listener = bind_with_retry(addr, BIND_RETRIES)
+        .await
+        .tap_io(delivery::send_without_delay);
 
     // `into_make_service_with_connect_info` rather than the plain router: the
     // auth layer reads the peer address to rate-limit failed passwords per

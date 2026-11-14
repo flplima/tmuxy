@@ -198,6 +198,8 @@
   /* The one cursor and the copy blink: on whatever surface holds the keyboard. */
   --z-cursor: 1250;
   --z-copy-flash: 1260;
+  /* The command palette, over the panes, the columns and the cursor. */
+  --z-palette: 1280;
   /* The connection overlay covers the whole app; the snackbar speaks over it. */
   --z-connection-overlay: 1300;
   --z-snackbar: 1400;

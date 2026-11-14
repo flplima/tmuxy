@@ -9,6 +9,7 @@ export const viewportGlobalEvents = {
   REFIT_GRID: { actions: 'viewport_refitGrid' },
   SET_PHONE_LAYOUT: { actions: 'viewport_setPhoneLayout' },
   SET_TARGET_SIZE: { actions: 'viewport_setTargetSize' },
+  CLIENT_SIZE_UNREPORTED: { actions: 'viewport_sizeUnreported' },
   SET_CONTAINER_SIZE: { actions: 'viewport_setContainerSize' },
   SET_BODY_SIZE: { actions: 'viewport_setBodySize' },
   OBSERVE_CONTAINER: { actions: 'viewport_observeContainer' },

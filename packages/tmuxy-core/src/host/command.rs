@@ -102,6 +102,11 @@ pub enum ClientCommand {
         session: String,
     },
     GetTraceSettings,
+    /// The last `last` actions of the trace, redacted for sharing: what the
+    /// Debug menu's Copy Trace previews and copies.
+    GetTraceShare {
+        last: u32,
+    },
     SetTraceEnabled {
         enabled: bool,
     },
@@ -364,6 +369,10 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             Ok(Value::Null)
         }
         ClientCommand::GetTraceSettings => to_json(requests::trace_settings(), "trace settings"),
+        ClientCommand::GetTraceShare { last } => to_json(
+            requests::trace_share(last).map_err(crate::CommandError::unavailable)?,
+            "trace share",
+        ),
         // The state in force: `false` when the kill switch refuses, and the
         // client renders the answer, never its request.
         ClientCommand::SetTraceEnabled { enabled } => {
