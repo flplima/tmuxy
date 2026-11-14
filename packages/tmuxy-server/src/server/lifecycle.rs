@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, warn};
 
+use super::delivery;
 use crate::dev;
 use crate::state::{build_response, AppState};
 
@@ -79,8 +80,11 @@ pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Res
     response
 }
 
-pub(super) async fn serve_embedded(uri: axum::http::Uri) -> Response {
-    with_app_headers(embedded_file(uri.path()), APP_CSP)
+pub(super) async fn serve_embedded(
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    with_app_headers(embedded_file(uri.path(), &headers), APP_CSP)
 }
 
 /// The user's stylesheets are the server's to serve in dev mode too: Vite
@@ -110,33 +114,45 @@ fn titled_index_html(html: &[u8], host: &str) -> Vec<u8> {
     }
 }
 
-fn embedded_file(path: &str) -> Response {
+fn embedded_file(path: &str, request: &axum::http::HeaderMap) -> Response {
     let path = path.trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
     if let Some(response) = serve_user_css(path) {
-        response
-    } else if path == "index.html" {
-        match FrontendAssets::get("index.html") {
-            Some(index) => build_response(
-                StatusCode::OK,
-                "text/html; charset=utf-8",
-                titled_index_html(&index.data, &tmuxy_core::host::server_host_name()),
-            ),
-            None => StatusCode::NOT_FOUND.into_response(),
-        }
-    } else if let Some(file) = FrontendAssets::get(path) {
-        let mime = tmuxy_core::mime::content_type_for_path(path);
-        build_response(StatusCode::OK, mime, file.data.into_owned())
-    } else if let Some(index) = FrontendAssets::get("index.html") {
-        // SPA fallback
-        build_response(
-            StatusCode::OK,
+        return response;
+    }
+    bundle_file(path, request, |name| {
+        FrontendAssets::get(name).map(|file| file.data.into_owned())
+    })
+}
+
+/// `path` from the frontend build that `get` reads, or the app's page for a
+/// route of its own.
+fn bundle_file(
+    path: &str,
+    request: &axum::http::HeaderMap,
+    get: impl Fn(&str) -> Option<Vec<u8>>,
+) -> Response {
+    // Anything that is not a file of the bundle is a route of the app's own.
+    let file = (path != "index.html").then(|| get(path)).flatten();
+    match (file, get("index.html")) {
+        // A build's file that is not in this build (a page left open across
+        // an update asking for a chunk it was built with): a 404 the page's
+        // loader can tell from a file, never the page itself as text/html.
+        (None, _) if path.starts_with("assets/") => StatusCode::NOT_FOUND.into_response(),
+        (Some(file), _) => delivery::cached(
+            path,
+            tmuxy_core::mime::content_type_for_path(path),
+            file,
+            request,
+        ),
+        (None, Some(index)) => delivery::cached(
+            "index.html",
             "text/html; charset=utf-8",
-            titled_index_html(&index.data, &tmuxy_core::host::server_host_name()),
-        )
-    } else {
-        StatusCode::NOT_FOUND.into_response()
+            titled_index_html(&index, &tmuxy_core::host::server_host_name()),
+            request,
+        ),
+        (None, None) => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -423,9 +439,30 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 #[cfg(test)]
 mod tests {
     use super::{
-        is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid, titled_index_html,
-        Server,
+        bundle_file, is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid,
+        titled_index_html, Server, StatusCode,
     };
+
+    /// A build of its own: the tests run against whatever `dist/` holds,
+    /// which on CI is an empty placeholder.
+    #[test]
+    fn a_missing_build_file_is_a_404_and_any_other_path_the_app() {
+        let build = |name: &str| {
+            matches!(name, "index.html" | "assets/index-DcgKV4k9.js").then(|| b"file".to_vec())
+        };
+        let serve = |path| bundle_file(path, &axum::http::HeaderMap::new(), build);
+        assert_eq!(
+            serve("assets/PreviewWidget-gone1234.js").status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(serve("assets/index-DcgKV4k9.js").status(), StatusCode::OK);
+        let route = serve("some/app/route");
+        assert_eq!(route.status(), StatusCode::OK);
+        assert_eq!(
+            route.headers()[axum::http::header::CONTENT_TYPE],
+            "text/html; charset=utf-8"
+        );
+    }
 
     #[test]
     fn titled_index_html_names_the_machine_when_the_host_is_plain() {

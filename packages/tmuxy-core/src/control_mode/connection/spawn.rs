@@ -43,9 +43,14 @@ pub(super) fn build_tmux_args(
     // tmux only reads `-f` when it forks a new server, so this covers the
     // create path; `sync_initial_state` source-files the same config after an
     // attach.
-    if let Some(path) = crate::session::get_config_path() {
-        tmux_args.push("-f".to_string());
-        tmux_args.push(path.to_string_lossy().into_owned());
+    // Never on the user's own server: `-f` is what a server is configured
+    // FROM, so one tmuxy had to start there would come up without their
+    // `~/.tmux.conf`.
+    if !crate::session::on_users_own_server() {
+        if let Some(path) = crate::session::get_config_path() {
+            tmux_args.push("-f".to_string());
+            tmux_args.push(path.to_string_lossy().into_owned());
+        }
     }
     if create_if_missing {
         // `-A` attaches or creates in one step: no clientless gap for the

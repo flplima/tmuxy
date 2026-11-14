@@ -35,6 +35,18 @@ export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/** Where the `agent-revive --mark` check leaves its answer on a pane. */
+const REVIVABLE_OPTION = '@tmuxy-revivable';
+
+/**
+ * The read that follows a `CheckRevive` op: the answer revive's check left
+ * on the pane, `ok` or nothing. A query only reads, so the check itself runs
+ * as an op first; tmux answers a client's commands in order.
+ */
+export function reviveCheckQuery(paneId: string): string {
+  return `show-options -pqv -t ${paneId} ${REVIVABLE_OPTION}`;
+}
+
 /**
  * What the backend must know of a script run: `settle` for a script that takes
  * several tmux steps (the clients see only where it lands), `relist-windows`
@@ -51,6 +63,14 @@ export function scriptWith(
   ...args: Array<string | number>
 ): string {
   return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+}
+
+/**
+ * A read of every pane of every session on the server, one line per pane in
+ * `format` (a query, not an op: it changes nothing).
+ */
+export function listEveryPane(format: string): string {
+  return `list-panes -a -F '${format}'`;
 }
 
 /** A shell command line as one `run-shell` argument; run-shell expands `#` first. */
@@ -187,21 +207,29 @@ export function pasteBufferInto(to: string): string {
   return `if-shell -F -t ${to} '#{pane_synchronized}' '${synced}' '${single}'`;
 }
 
-/**
- * An SGR mouse report as `send-keys -H` hex bytes — the one reliable way in:
- * tmux ≥ 3.7 consumes mouse sequences pasted through a buffer, and `-l`
- * literals are format-expanded (see docs/TMUX.md).
- */
-export function mouseReport(op: {
-  readonly paneId: PaneId;
+/** One mouse event as SGR reports it: the button code, a 1-based cell, press or release. */
+export interface MouseReport {
   readonly button: number;
   readonly x: number;
   readonly y: number;
   readonly release: boolean;
-}): string {
-  const seq = `\x1b[<${op.button};${op.x};${op.y}${op.release ? 'm' : 'M'}`;
+}
+
+/** SGR adds 32 to the button code of a report that is the pointer moving. */
+export const isMouseMotion = (report: MouseReport): boolean =>
+  !report.release && (report.button & 32) !== 0;
+
+/**
+ * SGR mouse reports as the hex bytes of one `send-keys -H`, the one reliable
+ * way in: tmux ≥ 3.7 consumes mouse sequences pasted through a buffer, and
+ * `-l` literals are format-expanded (see docs/TMUX.md).
+ */
+export function mouseReports(paneId: PaneId, reports: ReadonlyArray<MouseReport>): string {
+  const seq = reports
+    .map((r) => `\x1b[<${r.button};${r.x};${r.y}${r.release ? 'm' : 'M'}`)
+    .join('');
   const hex = Array.from(seq, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
-  return `send-keys -t ${op.paneId} -H ${hex}`;
+  return `send-keys -t ${paneId} -H ${hex}`;
 }
 
 /**

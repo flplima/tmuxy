@@ -21,6 +21,7 @@ fn a_window_whose_index_moved_is_in_the_delta() {
         float_drawer: None,
         float_bg: None,
         float_noheader: false,
+        float_minimized: false,
         sidebar_cols: None,
         sidebar_hidden: false,
         collapsible: false,
@@ -51,7 +52,7 @@ fn list_windows_carries_the_dock_rows_and_sizing_uses_them() {
     let w = agg.windows.get("@4").expect("window parsed");
     assert_eq!(w.sidebar_rows, Some(52));
     assert_eq!(w.name, "__sidebar-right");
-    let (_, sidebars) = agg.window_ids_by_sizing();
+    let (_, sidebars, _) = agg.window_ids_by_sizing();
     assert_eq!(sidebars, vec![(wid("@4"), 35, Some(52))]);
     // A row without the trailing column: the name is still the last field.
     agg.parse_list_windows_line(

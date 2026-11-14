@@ -186,6 +186,10 @@ pub enum SideEffect {
 /// rows its column holds (`tmux_options::SIDEBAR_ROWS`).
 pub type SidebarSizing = (WindowId, u32, Option<u32>);
 
+/// A float window with the grid its size tags name ([`crate::constants::float_grid::size`]):
+/// its columns and rows, `None` for a side that follows the viewport.
+pub type FloatSizing = (WindowId, Option<u32>, Option<u32>);
+
 pub struct StateAggregator {
     /// How many `list-panes` reports have been applied. A monitor sizing a
     /// window judges each `resizew` by the report that FOLLOWS it, so this is
@@ -251,6 +255,8 @@ pub struct StateAggregator {
     /// client is drawn by all of them.
     theme_rev: Option<String>,
     prev_state: Option<crate::TmuxState>,
+    /// Panes on no client's screen, sent less often (`hidden_panes`).
+    hidden_panes: hidden_panes::HiddenPanes,
     delta_seq: u64,
     /// While settling a compound command (`splitw ; breakp`), window and
     /// layout events update state without asking for an emission.
@@ -311,6 +317,7 @@ impl StateAggregator {
             theme_rev: None,
             even_out_pending: Vec::new(),
             prev_state: None,
+            hidden_panes: hidden_panes::HiddenPanes::default(),
             delta_seq: 0,
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
@@ -347,6 +354,7 @@ impl Default for StateAggregator {
 mod command_response;
 mod delta_emit;
 mod events;
+pub(crate) mod hidden_panes;
 mod markers;
 mod pane_state;
 mod parsing;
@@ -373,6 +381,8 @@ use window_state::{parse_layout_panes, LayoutPane};
 mod test_pane;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_announced_windows;
 #[cfg(test)]
 mod tests_capture;
 #[cfg(test)]

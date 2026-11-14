@@ -269,6 +269,10 @@ pub fn respawn_argv(pane: &str, path: &str, script: &std::path::Path) -> Vec<Str
 pub struct ReviveArgs {
     /// The pane, by id or label.
     pane: String,
+    /// Only say whether it can be revived: `ok`, or why not with exit 1.
+    /// What the pane menu asks before it offers the item.
+    #[arg(long)]
+    check: bool,
 }
 
 /// `pane` as tmux has it now; `None` when no such pane answers.
@@ -298,6 +302,9 @@ pub fn revive(answer: &Answer, args: ReviveArgs) {
     let jobs = pane_children(now.pid);
     if let Some(why) = refusal(&pane, &now, jobs.as_deref()) {
         answer.exit(EXIT_FAILED, &why);
+    }
+    if args.check {
+        return answer.done(&[("paneId", cli_json::string(&pane))], "ok");
     }
     let Some((kind, id)) = parse(&now.session) else {
         answer.exit(

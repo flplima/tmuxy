@@ -7,17 +7,26 @@ import { failureText } from './failureText';
 import type { PaneId } from '../../domain/ids';
 import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import type { AppRuntime } from '../../infra/runtime';
-import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/TmuxTransport';
+import { TmuxTransport } from '../../infra/transport/TmuxTransport';
+import { withTransport } from './withTransport';
 import { TransportEvent } from '../../infra/transport/events';
 import { parseThemeMode, type TraceLevel } from '../../domain/wireSettings';
-import type { PlainCall } from '../../domain/backendCalls';
+import type { PlainCall, ProfileCall } from '../../domain/backendCalls';
+import { profileCall } from './profileCall';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
-import { openExternalUrl } from '../../infra/openUrl';
-
-/** An effect against the transport the runtime provides. */
-const withTransport = <A, E>(
-  f: (transport: TmuxTransportService) => Effect.Effect<A, E>,
-): Effect.Effect<A, E, TmuxTransport> => Effect.flatMap(TmuxTransport, f);
+import {
+  openPluginLink,
+  runPluginAction,
+  type PluginEvent,
+  type PluginRunners,
+} from './pluginActions';
+import {
+  copyLastOutputOf,
+  fetchPromptMarks,
+  type PromptEvent,
+  type PromptRunners,
+} from './promptActions';
+import { LIST_ACTIVITY_COMMAND, parseActivity, type ActivityTarget } from '../../domain/activity';
 
 export type TmuxActorEvent =
   /**
@@ -32,34 +41,26 @@ export type TmuxActorEvent =
   /** The grid this client shows, for the backend to size the session to. */
   | { type: 'SET_CLIENT_SIZE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
+  | PromptEvent
+  /** Read every pane's state on the server; `go` rides along to the answer. */
+  | { type: 'FETCH_ACTIVITY'; go?: 'most-urgent' }
+  /** Put a pane in front in its own session, then move this client there. */
+  | ({ type: 'GO_TO_PANE' } & ActivityTarget)
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_TRACE_SETTINGS' }
   | { type: 'SET_TRACE_ENABLED'; enabled: boolean }
   | { type: 'SET_TRACE_LEVEL'; level: TraceLevel }
   | { type: 'OPEN_TRACE_FILE' }
   | { type: 'FETCH_THEMES_LIST' }
+  | { type: 'PROFILE_CALL'; call: ProfileCall }
   | { type: 'SWITCH_SESSION'; sessionName: string }
   | { type: 'RESTORE_SESSION'; sessionName: string }
+  /** Take the launch notice's offer: switch to the user's own tmux server. */
+  | { type: 'TAKE_OWN_TMUX_OFFER'; serverId: string; session?: string }
   | { type: 'RECONNECT_NOW' }
   /** Read the plugin inventory (`@tmuxy-plugins`) and send PLUGINS_RECEIVED. */
   | { type: 'FETCH_PLUGINS' }
-  /**
-   * Ask the server whether a plugin's link handler takes a click; launch its
-   * action, else open `fallbackUrl` (if any) in the browser.
-   */
-  | ({
-      type: 'OPEN_PLUGIN_LINK';
-      paneId: PaneId;
-      fallbackUrl: string | null;
-    } & Extract<PlainCall, { readonly cmd: 'open_link' | 'open_text' }>)
-  /** Run a plugin's action, preparing a token for the selection first. */
-  | {
-      type: 'RUN_PLUGIN_ACTION';
-      plugin: string;
-      action: string;
-      paneId: PaneId;
-      selection: string | null;
-    };
+  | PluginEvent;
 
 /** The tmux actor's event for a plain command, typed where `sendTo` is not. */
 export const invokeEvent = (call: PlainCall): TmuxActorEvent => ({ type: 'INVOKE', ...call });
@@ -86,6 +87,8 @@ export function createTmuxActor(runtime: AppRuntime) {
 
     interface RunOptions<T> {
       onSuccess?: (value: T) => void;
+      /** Called for any failure, before it is reported. */
+      onFailure?: () => void;
       /** A context label for the LOG_APPEND error entry (e.g. the command). */
       logPrefix?: string;
       /**
@@ -107,6 +110,7 @@ export function createTmuxActor(runtime: AppRuntime) {
             opts.onSuccess?.(exit.value);
             return;
           }
+          opts.onFailure?.();
           const display = failureText(exit.cause);
           if (display === null) return;
           if (opts.silentFail) {
@@ -135,6 +139,9 @@ export function createTmuxActor(runtime: AppRuntime) {
         { logPrefix: command },
       );
     };
+
+    const pluginRunners: PluginRunners = { runtime, run, runOp, logError };
+    const promptRunners: PromptRunners = { run, parent };
 
     /**
      * The in-flight scrollback fetch of each pane. A new fetch interrupts the
@@ -225,7 +232,33 @@ export function createTmuxActor(runtime: AppRuntime) {
         logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
         run(
           withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
-          { logPrefix: 'set_client_size' },
+          {
+            logPrefix: 'set_client_size',
+            // The app reports a size once; one the backend never took has
+            // to be reported again.
+            onFailure: () =>
+              parent.send({ type: 'CLIENT_SIZE_UNREPORTED', cols: event.cols, rows: event.rows }),
+          },
+        );
+      } else if (event.type === 'TAKE_OWN_TMUX_OFFER') {
+        logCommand(`connect_server ${event.serverId}`);
+        run(
+          withTransport((t) =>
+            t.call('connect_server', { id: event.serverId, session: event.session ?? null }),
+          ),
+          {
+            logPrefix: 'connect_server',
+            // Only an offer the host took is answered: one it refused (that
+            // server has gone since) is still open, here and on the host.
+            onSuccess: () => {
+              run(
+                withTransport((t) => t.call('close_own_tmux_offer', {})),
+                { logPrefix: 'close_own_tmux_offer', silentFail: true },
+              );
+              parent.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: true });
+            },
+            onFailure: () => parent.send({ type: 'OWN_TMUX_OFFER_TAKEN', taken: false }),
+          },
         );
       } else if (event.type === 'RESTORE_SESSION') {
         logCommand(`restore_session ${event.sessionName}`);
@@ -298,6 +331,42 @@ export function createTmuxActor(runtime: AppRuntime) {
 
         const fiber = runtime.runFork(program);
         scrollbackFibers.set(event.paneId, fiber);
+      } else if (event.type === 'FETCH_PROMPT_MARKS') {
+        fetchPromptMarks(event, promptRunners);
+      } else if (event.type === 'COPY_LAST_OUTPUT') {
+        copyLastOutputOf(event, promptRunners);
+      } else if (event.type === 'FETCH_ACTIVITY') {
+        run(
+          withTransport((t) => t.query(LIST_ACTIVITY_COMMAND)),
+          {
+            onSuccess: (listing) =>
+              parent.send({
+                type: 'ACTIVITY_LOADED',
+                rows: parseActivity(listing),
+                go: event.go,
+              }),
+            logPrefix: 'activity',
+            // The poll of an open inbox says nothing when it fails; a jump
+            // that was asked for does.
+            silentFail: !event.go,
+          },
+        );
+      } else if (event.type === 'GO_TO_PANE') {
+        run(
+          withTransport((t) =>
+            Effect.all(
+              [
+                t.run(TmuxOp.SelectWindow({ target: event.windowId })),
+                t.run(TmuxOp.SelectPane({ paneId: event.paneId })),
+              ],
+              { discard: true },
+            ),
+          ),
+          {
+            onSuccess: () => parent.send({ type: 'SWITCH_SESSION', sessionName: event.session }),
+            logPrefix: `go to ${event.paneId}`,
+          },
+        );
       } else if (
         event.type === 'FETCH_TRACE_SETTINGS' ||
         event.type === 'SET_TRACE_ENABLED' ||
@@ -340,66 +409,9 @@ export function createTmuxActor(runtime: AppRuntime) {
           },
         );
       } else if (event.type === 'OPEN_PLUGIN_LINK') {
-        const fallback = () => {
-          if (event.fallbackUrl) openExternalUrl(event.fallbackUrl);
-        };
-        runtime.runFork(
-          Effect.match(
-            withTransport((t) =>
-              event.cmd === 'open_link'
-                ? t.call('open_link', event.args)
-                : t.call('open_text', event.args),
-            ),
-            {
-              // The link still opens, as the fallback; the log says why it was one.
-              onFailure: (e) => {
-                logError(`${event.cmd} -> ${formatAdapterError(e)}`);
-                fallback();
-              },
-              onSuccess: (prepared) => {
-                if (!prepared) return fallback();
-                runOp(
-                  TmuxOp.PluginAction({
-                    plugin: prepared.plugin,
-                    action: prepared.action,
-                    paneId: event.paneId,
-                    token: prepared.token,
-                  }),
-                );
-              },
-            },
-          ),
-        );
+        openPluginLink(event, pluginRunners);
       } else if (event.type === 'RUN_PLUGIN_ACTION') {
-        const launch = (token: string | null) =>
-          runOp(
-            TmuxOp.PluginAction({
-              plugin: event.plugin,
-              action: event.action,
-              paneId: event.paneId,
-              token,
-            }),
-          );
-        if (event.selection === null) {
-          launch(null);
-        } else {
-          // The selected text goes to the server, which writes it into the
-          // invocation token; only the token's id rides the command.
-          run(
-            withTransport((t) =>
-              t.call('prepare_plugin_action', {
-                plugin: event.plugin,
-                action: event.action,
-                paneId: event.paneId,
-                selection: event.selection,
-              }),
-            ),
-            {
-              onSuccess: (prepared) => launch(prepared.token),
-              logPrefix: 'prepare_plugin_action',
-            },
-          );
-        }
+        runPluginAction(event, pluginRunners);
       } else if (event.type === 'OPEN_TRACE_FILE') {
         run(
           withTransport((t) => t.call('open_trace_file', {})),
@@ -421,6 +433,17 @@ export function createTmuxActor(runtime: AppRuntime) {
             onSuccess: (themes) => parent.send({ type: 'THEMES_LIST_RECEIVED', themes }),
             logPrefix: 'get_themes_list',
             silentFail: true,
+          },
+        );
+      } else if (event.type === 'PROFILE_CALL') {
+        // The list is read on connect, where a backend without profiles (the
+        // demo's) must not raise an error; a change the user asked for does.
+        run(
+          withTransport((t) => profileCall(t, event.call)),
+          {
+            onSuccess: (profiles) => parent.send({ type: 'PROFILES_RECEIVED', profiles }),
+            logPrefix: event.call.cmd,
+            silentFail: event.call.cmd === 'list_profiles',
           },
         );
       } else if (event.type === 'RECONNECT_NOW') {

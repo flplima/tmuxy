@@ -77,12 +77,29 @@ const cases: Array<[TmuxOp, string]> = [
   // typing batched the `-$` of `"line-$i"`) as flags and dropped it.
   [TmuxOp.SendText({ target: pid('%3'), text: '-$' }), "send-keys -t %3 -l -- '-$'"],
   [
-    TmuxOp.SendMouse({ paneId: pid('%3'), button: 0, x: 5, y: 2, release: false }),
+    TmuxOp.SendMouse({
+      paneId: pid('%3'),
+      reports: [{ button: 0, x: 5, y: 2, release: false }],
+    }),
     'send-keys -t %3 -H 1b 5b 3c 30 3b 35 3b 32 4d',
   ],
   [
-    TmuxOp.SendMouse({ paneId: pid('%3'), button: 64, x: 1, y: 1, release: true }),
+    TmuxOp.SendMouse({
+      paneId: pid('%3'),
+      reports: [{ button: 64, x: 1, y: 1, release: true }],
+    }),
     'send-keys -t %3 -H 1b 5b 3c 36 34 3b 31 3b 31 6d',
+  ],
+  // A press and its release in one command: the bytes of both, in order.
+  [
+    TmuxOp.SendMouse({
+      paneId: pid('%3'),
+      reports: [
+        { button: 0, x: 5, y: 2, release: false },
+        { button: 0, x: 5, y: 2, release: true },
+      ],
+    }),
+    'send-keys -t %3 -H 1b 5b 3c 30 3b 35 3b 32 4d 1b 5b 3c 30 3b 35 3b 32 6d',
   ],
   [TmuxOp.EnterCopyMode({ paneId: null }), 'copy-mode'],
   [TmuxOp.EnterCopyMode({ paneId: pid('%3') }), 'copy-mode -t %3'],

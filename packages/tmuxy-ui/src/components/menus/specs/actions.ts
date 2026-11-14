@@ -17,11 +17,16 @@ import type { WindowStyleSlug } from '../../../domain/guiWindows';
 type Send = (event: AppMachineEvent) => void;
 
 /** Something the surface showing the menu does itself: a dialog, a field, a native call. */
+/** View > Profiles' dialogs: a name to type, or a delete to confirm. */
+export type ProfileDialogKind = 'new' | 'duplicate' | 'rename' | 'delete';
+
 export type MenuLocal =
   /** Rename the pane or tab the menu is about, in the field the surface owns. */
   | { verb: 'rename' }
   | { verb: 'confirm-kill-session' }
+  | { verb: 'profile-dialog'; dialog: ProfileDialogKind }
   | { verb: 'copy-app-state' }
+  | { verb: 'copy-trace' }
   | { verb: 'copy-bug-report' }
   | { verb: 'copy-trace-path' }
   | { verb: 'quit' }
@@ -65,6 +70,11 @@ const sendEvent =
 export const MENU_COMMANDS = {
   'tab-new': { run: sendEvent({ type: 'CREATE_TAB' }), keyOp: TmuxOp.NewWindow() },
   'tab-overview': { run: sendEvent({ type: 'TOGGLE_TAB_OVERVIEW' }), clientKey: 'tab-overview' },
+  'view-activity': { run: sendEvent({ type: 'TOGGLE_ACTIVITY' }), clientKey: 'activity' },
+  'view-activity-most-urgent': {
+    run: sendEvent({ type: 'ACTIVITY_GO_MOST_URGENT' }),
+    clientKey: 'activity-most-urgent',
+  },
   // The item renames in the strip, where the name is; the binding (`prefix ,`)
   // still opens tmux's prompt, and the hint names the binding.
   'tab-rename': { run: sendEvent({ type: 'RENAME_ACTIVE_TAB' }), keyOp: renameWindowPrompt() },

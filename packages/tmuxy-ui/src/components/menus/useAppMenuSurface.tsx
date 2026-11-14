@@ -4,12 +4,12 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { Modal } from '../Modal';
 import { useAppSend, useAppActor, useAppRuntime, useAppSelector } from '../../machines/appHooks';
 import { isTauri } from '../../infra/platform';
 import { copyAppState, type ClipboardReport } from './copyAppState';
 import { copyBugReport } from './copyBugReport';
+import { CopyTraceDialog } from './CopyTraceDialog';
+import { KillSessionDialog } from './KillSessionDialog';
 import type { AppMachineContext } from '../../machines/types/context';
 import type { AppRuntime } from '../../infra/runtime';
 import { writeClipboard } from '../../infra/clipboard';
@@ -30,6 +30,7 @@ import { useMenuDispatch, type AppMenuDispatch } from './SpecMenu';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
 import { op, type AppMenuNode, type MenuLocal } from './specs/actions';
 import { TmuxOp } from '../../domain/commands';
+import { useProfileDialog } from './useProfileDialog';
 import './AppMenu.css';
 
 export interface AppMenuSurface {
@@ -60,18 +61,11 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   const tracePath = useAppSelector((c) => c.traceSettings?.path ?? null);
   const widgetItems = useWidgetMenuItems(activePaneId);
 
-  // Read on demand: other windows open and close windows, and the style is the
-  // OS's answer.
-  const [windows, setWindows] = useState<GuiWindowInfo[]>([]);
-  const [style, setStyle] = useState<WindowStyleSlug>('normal');
-  const refreshWindows = useCallback(() => {
-    if (!isTauri()) return;
-    void listGuiWindows().then(setWindows);
-    void getWindowStyle().then(setStyle);
-  }, []);
-  useEffect(refreshWindows, [refreshWindows]);
+  const { windows, style, setStyle, refreshWindows } = useGuiWindows();
 
   const [confirmKill, setConfirmKill] = useState(false);
+  const profileDialog = useProfileDialog();
+  const [copyTrace, setCopyTrace] = useState(false);
 
   const report: ClipboardReport = {
     onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
@@ -82,6 +76,10 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     switch (local.verb) {
       case 'confirm-kill-session':
         return setConfirmKill(true);
+      case 'profile-dialog':
+        return profileDialog.open(local.dialog);
+      case 'copy-trace':
+        return setCopyTrace(true);
       case 'copy-app-state':
       case 'copy-bug-report':
       case 'copy-trace-path':
@@ -109,35 +107,35 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
 
   const dialogs = (
     <>
-      {confirmKill &&
-        createPortal(
-          <Modal open title="Kill Session" width={360} onClose={() => setConfirmKill(false)}>
-            <p className="app-menu-dialog-text">
-              Kill session <strong>{sessionName}</strong>? Every window and pane in it closes, and
-              what is running in them is ended.
-            </p>
-            <div className="app-menu-dialog-actions">
-              <button type="button" onClick={() => setConfirmKill(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="is-destructive"
-                onClick={() => {
-                  setConfirmKill(false);
-                  dispatch(op(TmuxOp.KillSession({ name: null })));
-                }}
-              >
-                Kill Session
-              </button>
-            </div>
-          </Modal>,
-          document.body,
-        )}
+      {profileDialog.dialog}
+      {confirmKill && (
+        <KillSessionDialog
+          sessionName={sessionName}
+          onCancel={() => setConfirmKill(false)}
+          onKill={() => {
+            setConfirmKill(false);
+            dispatch(op(TmuxOp.KillSession({ name: null })));
+          }}
+        />
+      )}
+      {copyTrace && <CopyTraceDialog onClose={() => setCopyTrace(false)} report={report} />}
     </>
   );
 
   return { dispatch, options: { widgetItems, windowMenu }, dialogs };
+}
+
+/** The desktop's windows and window style, read on demand: other windows open and close windows, and the style is the OS's answer. */
+function useGuiWindows() {
+  const [windows, setWindows] = useState<GuiWindowInfo[]>([]);
+  const [style, setStyle] = useState<WindowStyleSlug>('normal');
+  const refreshWindows = useCallback(() => {
+    if (!isTauri()) return;
+    void listGuiWindows().then(setWindows);
+    void getWindowStyle().then(setStyle);
+  }, []);
+  useEffect(refreshWindows, [refreshWindows]);
+  return { windows, style, setStyle, refreshWindows };
 }
 
 function copyTracePath(path: string | null, report: ClipboardReport): void {

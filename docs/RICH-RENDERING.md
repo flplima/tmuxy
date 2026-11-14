@@ -16,6 +16,7 @@ This document covers what's supported, how the pipeline works, and how to test e
 | **DEC Line Sizes — DECDHL / DECDWL** | `ESC # 3`, `ESC # 4`, `ESC # 5`, `ESC # 6` | `packages/vt100` (`LineSize` per row) + `extract_cells_from_screen` (`CellStyle.size`) | `components/terminal/cellPaint.ts` (both renderers) → `.terminal-scaled` (`dwl`, `dhl-top`, `dhl-bottom`) | `ESC # 3`/`# 4` render top/bottom halves of 2×2 double-height lines; `ESC # 6` renders 2×1 double-width; `ESC # 5` resets to single width. Preserved across `capture-pane` refreshes while the row's text matches |
 | **OSC 66 — Kitty Text Sizing** | `ESC ] 66 ; s=<n>:w=<n> ; <text> ST` | `packages/vt100` (`TextSize` on the cell) + `extract_cells_from_screen` | same | `s=2` emits `dhl-top` on row `r` and mirrors `dhl-bottom` onto the blank cell below it on row `r+1`; `w=2` (`s=1:w=2`) emits `dwl`. Preserved across `capture-pane` refreshes while the cell's character matches |
 | **OSC 7501: Program Status** | `ESC ] 7501 ; state=… : … ST` | `packages/vt100` → `control_mode/osc.rs` → `control_mode/program_status.rs` → `@tmuxy-pane-state` and `@tmuxy-pane-status`, written through control mode | the pane-state mark in the tree, the tab and the pane header | See [Program status](#program-status-osc-7501) |
+| **OSC 133: Shell prompts** | `ESC ] 133 ; A` / `C` / `D ; <status> ST` | tmux keeps `A` and `C` on the line (`host/prompt_marks.rs` reads them back); `control_mode/osc.rs` reads all three | prompt marks and the jump in the scrollback, Copy Last Output, a long command's result | See [PROMPT-MARKS.md](PROMPT-MARKS.md) |
 
 **A link is an attribute of the cell its text was written to.** The vendored
 vt100 (`packages/vt100`, see `packages/vt100/PATCHES.md`) reads OSC 8 itself and writes
@@ -164,33 +165,7 @@ The pane keeps one record per `id` and shows the one that wants you most. That s
 
 ## Testing
 
-### Manual
-
-```bash
-# OSC 8 hyperlink
-printf '\e]8;;https://example.com\e\\Click me\e]8;;\e\\\n'
-ls --hyperlink=auto
-
-# iTerm2 inline image (requires `imgcat` from iTerm2 utilities, or any
-# tool that emits OSC 1337 File=…)
-imgcat path/to/image.png
-
-# Kitty graphics protocol
-kitten icat path/to/image.png   # the official client
-# or any application using zellij / ranger's kitty image preview
-
-# Sixel
-img2sixel path/to/image.png
-chafa --format sixel path/to/image.png
-```
-
-Inside a real tmuxy session, each of these renders the image inline in the pane.
-
-### Automated
-
-- **Program status**: `tmuxy-core/src/control_mode/program_status/tests.rs` holds the parser, the records and the write to tmux. `tests/21-agent-states.test.js` prints each state in a real pane and checks the mark.
-- **Rust unit tests** (`tmuxy-core/src/control_mode/images.rs`) cover the parsers and placement geometry — including chunked Kitty transfers, RGBA-to-PNG conversion, and Sixel decode.
-- **E2E** runs a real tmux session, emits each protocol with a shell command, and asserts the `<img>` shows up in the page (see `tests/`).
+How to try each protocol by hand, and the tests that hold them: [RICH-RENDERING-TESTING.md](RICH-RENDERING-TESTING.md).
 
 ## Other rich-rendering opportunities
 
@@ -198,7 +173,6 @@ These are documented because they reuse the same passthrough pipeline; whether t
 
 - **OSC 9 / OSC 777 — Desktop notifications**
 - **OSC 9;4 — ConEmu progress bars**
-- **OSC 133 — FinalTerm semantic zones** (prompt / command / output markers)
 - **OSC 7 — Working-directory hints**
 
 ## Related

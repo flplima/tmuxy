@@ -9,6 +9,11 @@
 | `claude` | `$CLAUDE_CONFIG_DIR/settings.json` (else `~/.claude/`) | `$CLAUDE_CONFIG_DIR/skills/tmuxy` |
 | `codex` | `$CODEX_HOME/hooks.json` (else `~/.codex/`) | `~/.agents/skills/tmuxy` |
 | `agy` | `~/.gemini/config/hooks.json` | `~/.gemini/config/skills/tmuxy` |
+| `opencode` | none: its hooks are JavaScript plugins | `$XDG_CONFIG_HOME/opencode/skills/tmuxy` (else `~/.config/`) |
+| `pi` | none: its hooks are TypeScript extensions | `~/.pi/agent/skills/tmuxy` |
+| `crush` | none | `$CRUSH_SKILLS_DIR/tmuxy` (else `~/.config/crush/skills/`) |
+
+OpenCode, Pi and Crush take the skill only, and `status` says their hooks are `unsupported`. Pi and Crush document no project skill folder, so a project install says `unsupported` for them rather than guess one; OpenCode's project skill goes in its .opencode/skills folder.
 
 With `--project` they go under the project instead: Claude Code's hooks in its local settings (settings.local.json, a hook names a path on this machine) and its skill in its skills folder, Codex's hooks in the project's .codex folder, Antigravity's in .agents, and the Codex and Antigravity skill in .agents/skills.
 
@@ -25,6 +30,7 @@ A skill tmuxy wrote has a `.tmuxy-version` file beside its `SKILL.md`; one witho
 | `missing` | not there |
 | `foreign` | a `tmuxy` skill tmuxy did not write |
 | `unreadable` | the settings file is not JSON, or cannot be read |
+| `unsupported` | the agent has no place for it: hooks that are code, a project folder it does not document |
 
 Hooks installed with another `--hook-command` path still count as current: the path is read back from the installed command. `--json` adds an `agents` list, each with `found` and its hooks' and skill's `path`, `state` and `why`.
 

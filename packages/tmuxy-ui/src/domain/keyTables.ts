@@ -47,6 +47,8 @@ export type ClientKey =
   | 'right-sidebar'
   | 'tab-overview'
   | 'keys-view'
+  | 'activity'
+  | 'activity-most-urgent'
   | 'tab-left'
   | 'tab-right'
   | 'command-palette'
@@ -58,6 +60,8 @@ export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
     S: 'right-sidebar',
     w: 'tab-overview',
     '?': 'keys-view',
+    A: 'activity',
+    U: 'activity-most-urgent',
     P: 'command-palette',
     g: 'go-to',
   },
@@ -69,7 +73,12 @@ export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
  * one is the user's own or a plugin's, and it wins: the client answers the
  * key only while the table has none.
  */
-const YIELDING_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set(['command-palette', 'go-to']);
+const YIELDING_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set([
+  'activity',
+  'activity-most-urgent',
+  'command-palette',
+  'go-to',
+]);
 
 /** The client key `key` of `table` runs; `bound` says the table has a binding on it. */
 export function clientKeyFor(table: string, key: string, bound: boolean): ClientKey | undefined {
