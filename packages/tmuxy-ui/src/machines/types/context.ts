@@ -1,3 +1,4 @@
+import type { ActivityRow } from '../../domain/activity';
 import type { PushState } from '../../infra/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
@@ -298,6 +299,10 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
+  /** The activity inbox is up. */
+  activityOpen: boolean;
+  /** Every pane that declared a state, most urgent first, as last read. */
+  activityRows: readonly ActivityRow[];
   /** The close of a busy pane or tab the user is being asked about, if any. */
   pendingClose: PendingClose | null;
   /** The command palette, while it is open: everything, or only the places to go. */

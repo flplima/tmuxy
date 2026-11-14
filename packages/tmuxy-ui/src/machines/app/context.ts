@@ -28,6 +28,7 @@ export type StateName =
   | 'gestures'
   | 'ask'
   | 'plugins'
+  | 'activity'
   | 'palette';
 
 /**
@@ -125,6 +126,8 @@ export const FIELD_OWNERS = {
   pendingClose: 'commandUi',
   renamingPaneId: 'commandUi',
 
+  activityOpen: 'activity',
+  activityRows: 'activity',
   palette: 'palette',
   pendingGoTo: 'palette',
 
@@ -254,6 +257,8 @@ export function createInitialContext(): AppMachineContext {
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
+    activityOpen: false,
+    activityRows: [],
     pendingClose: null,
     palette: null,
     pendingGoTo: null,
