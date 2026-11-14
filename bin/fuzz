@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# bin/fuzz [minutes]
+#
+# The parser fuzz targets (packages/tmuxy-core/tests/fuzz_parsers.rs) with
+# many cases, capped so a run cannot starve the machine it shares: the lowest
+# CPU priority, at most FUZZ_CORES cores (default 2), at most FUZZ_MEMORY of
+# address space (default 4G), and `minutes` of running (default 10). The
+# build comes first, outside the time limit, with the same cores.
+#
+#   TMUXY_FUZZ_CASES   cases per target (default 50000; `cargo test` runs 48)
+#
+# Exit 0 when every target passed or the time ran out first (cases not run
+# are not failures), 1 on a failure: its shrunk input is printed and saved to
+# packages/tmuxy-core/tests/fuzz_parsers.proptest-regressions, which replays
+# it first on every later run. Commit that file with the fix.
+set -euo pipefail
+
+minutes=${1:-10}
+cores=${FUZZ_CORES:-2}
+memory=${FUZZ_MEMORY:-4G}
+export TMUXY_FUZZ_CASES=${TMUXY_FUZZ_CASES:-50000}
+
+case "$memory" in
+  *G) kib=$((${memory%G} * 1024 * 1024)) ;;
+  *M) kib=$((${memory%M} * 1024)) ;;
+  *) kib=$memory ;;
+esac
+
+cd "$(dirname "$0")/.."
+
+command -v jq >/dev/null || {
+  echo "fuzz: needs jq, to find the test binary cargo built" >&2
+  exit 1
+}
+
+pin=()
+if command -v taskset >/dev/null; then
+  pin=(taskset -c "0-$((cores - 1))")
+fi
+
+# The test binary itself runs under the time limit, so the signal reaches it
+# and not only cargo.
+binary=$(nice -n 19 "${pin[@]}" cargo test -j "$cores" -p tmuxy-core --test fuzz_parsers --no-run \
+  --message-format=json | jq -r 'select(.executable != null and .target.name == "fuzz_parsers") | .executable')
+[ -x "$binary" ] || {
+  echo "fuzz: no fuzz_parsers test binary was built" >&2
+  exit 1
+}
+
+# Each case in a subprocess, failed after this long: a hang is a failure, and
+# a crash or an allocation the memory cap refuses is caught and shrunk too.
+export PROPTEST_TIMEOUT=${FUZZ_CASE_TIMEOUT_MS:-10000}
+
+echo "fuzz: $TMUXY_FUZZ_CASES cases per target, $minutes min, $cores cores, $memory, ${PROPTEST_TIMEOUT}ms a case"
+status=0
+log=$(mktemp)
+(
+  ulimit -v "$kib"
+  # Where `cargo test` runs it, so proptest finds its regressions file there.
+  cd packages/tmuxy-core
+  exec timeout --kill-after=30s "${minutes}m" nice -n 19 "${pin[@]}" "$binary" --test-threads "$cores"
+) 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+
+case "$status" in
+  0) echo "fuzz: every target passed" ;;
+  124)
+    echo "fuzz: the time ran out before every case ran; nothing failed"
+    status=0
+    ;;
+  137)
+    # timeout's own kill comes after --kill-after, but the kernel's out-of-
+    # memory killer sends the same signal: a finding until shown otherwise.
+    echo "fuzz: killed (SIGKILL): the time limit's last resort, or the system out of memory"
+    ;;
+  *)
+    if grep -q -i -E "memory allocation of|out of memory|capacity overflow" "$log"; then
+      echo "fuzz: a case ran out of memory under the $memory cap: a parser that grows without bound is a finding"
+    fi
+    echo "fuzz: a target failed (exit $status); its input is above and in fuzz_parsers.proptest-regressions"
+    ;;
+esac
+rm -f "$log"
+exit "$status"

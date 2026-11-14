@@ -132,6 +132,8 @@ npm run storybook -w tmuxy-ui              # Storybook dev server (required for 
 npm run test-storybook -w tmuxy-ui         # Probe all non-v86 stories
 npm run test-storybook:v86 -w tmuxy-ui     # Probe v86 stories (shared engine)
 
+bin/fuzz 10                                # Parser fuzzing, 10 min, capped to 2 cores and 4G (cargo test runs 48 cases per target)
+
 npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvfb, WebKitWebDriver: `webkitgtk-webdriver`, `webkit2gtk-driver` before Ubuntu 26.04)
 
 # Interaction latency (needs a running server; --cdp reuses the dev browser)
@@ -155,6 +157,10 @@ The suites kill panes, windows and whole servers, and they are usually started f
 To run any of them by hand from inside tmux, and a script that is none of these, give the run a tmux socket directory of its own and nothing of the shell's: `TMUX_TMPDIR` set to a short private directory (a socket's path has about a hundred characters), with `TMUX`, `TMUX_PANE`, `TMUX_BIN` and `TMUX_SOCKET` unset. No socket name then resolves to a server someone works in.
 
 A new helper that starts a child process in `tests/cli/` takes its environment from `scriptEnv()` or `sealedEnv()` (`tests/cli/helpers/env.js`); anything else throws before the child runs. `tests/cli/harness-seal.test.js` holds each refusal.
+
+### Fuzzing the parsers
+
+`packages/tmuxy-core/tests/fuzz_parsers.rs` throws random, hostile input at the parsers that read what tmux writes and what a pane's program prints: the control-mode framing, the octal escapes of pane output, terminal sequences and OSC strings through the state aggregator, and image sequences. Each target states a property (no panic, nothing grows without bound, pane output never passes for tmux's framing, every pane keeps its size and its cursor), not one input. `cargo test` runs a few dozen cases each; `bin/fuzz` and the nightly fuzz workflow run tens of thousands under a time, memory and core cap. A failure is shrunk and saved to `fuzz_parsers.proptest-regressions`, which replays it first on every later run: commit it with the fix.
 
 ## Known Gaps
 
