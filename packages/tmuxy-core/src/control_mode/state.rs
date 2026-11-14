@@ -1,5 +1,5 @@
 use super::parser::ControlModeEvent;
-use super::{images, osc};
+use super::{images, osc, program_status};
 use crate::{PaneId, WindowId};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
@@ -232,6 +232,9 @@ pub struct StateAggregator {
     /// The token this aggregator's marker lines carry, and the commands that
     /// print them (`Markers`): a marker without it is pane output.
     markers: Markers,
+    /// What the server can do, from the version it reported at attach
+    /// (`Markers::version_read_command`); every workaround on until then.
+    caps: crate::tmux_compat::TmuxCaps,
     /// Latest value of the session-scoped `@tmuxy-focus-request`, read as a
     /// column of `list-windows`: a one-shot request from a shell helper
     /// (`packages/tmuxy-cli/bin/tmuxy/nav`) for the client to move keyboard
@@ -303,6 +306,7 @@ impl StateAggregator {
             view_mode_opened: Vec::new(),
             reply_in_flight: None,
             markers: Markers::fresh(),
+            caps: crate::tmux_compat::TmuxCaps::default(),
 
             focus_request: None,
             plugins_rev: None,
@@ -330,6 +334,11 @@ impl StateAggregator {
     pub fn markers(&self) -> &Markers {
         &self.markers
     }
+
+    /// What the server in use can do, as far as its version says.
+    pub fn caps(&self) -> crate::tmux_compat::TmuxCaps {
+        self.caps
+    }
 }
 
 impl Default for StateAggregator {
@@ -355,7 +364,7 @@ pub use markers::{
     CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
 #[cfg(test)]
-pub(crate) use markers::{CLIENTS_BEGIN_MARKER, CLIENTS_END_MARKER};
+pub(crate) use markers::{CLIENTS_BEGIN_MARKER, CLIENTS_END_MARKER, VERSION_MARKER};
 pub use pane_state::PaneState;
 pub(crate) use stash_and_helpers::normalize_capture_bytes;
 use stash_and_helpers::{accepted_clipboard_write, MAX_STORED_IMAGES_PER_PANE};
@@ -376,6 +385,8 @@ mod tests_capture_cursor;
 mod tests_hyperlinks;
 #[cfg(test)]
 mod tests_panes;
+#[cfg(test)]
+mod tests_program_status;
 #[cfg(test)]
 mod tests_sidebar_and_delta;
 #[cfg(test)]

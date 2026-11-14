@@ -175,7 +175,7 @@ pub(super) fn with_a_pane(core: &mut Core, now: Instant) {
         .build();
     let events = [
         marked(core, LIST_BEGIN_MARKER, TmuxList::Panes.name()),
-        response("%0,0,0,0,80,24,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,"),
+        response("%0,0,0,0,80,24,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,,"),
         marked(core, LIST_END_MARKER, ""),
         marked(core, LIST_BEGIN_MARKER, TmuxList::Windows.name()),
         response(&window),
@@ -216,6 +216,7 @@ fn an_attach_enforces_the_settings_after_the_config_and_lists_panes_first() {
         at("set set-clipboard 'off'"),
         at("setenv -g X 1"),
         at("refresh-client -f pause-after=5"),
+        at(&core.aggregator().markers().version_read_command()),
         at(&relist[0]),
         at(&relist[1]),
         at(&relist[2]),
@@ -254,6 +255,46 @@ fn a_pane_that_keeps_printing_does_not_starve_the_metadata_sync() {
     assert_eq!(
         sent(&actions),
         relist.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+}
+
+/// A status write held back for coming too soon has a deadline of its own:
+/// a program whose last word is followed by no output, and by no listing,
+/// still ends on it.
+#[test]
+fn a_held_status_write_goes_out_when_its_interval_is_over() {
+    use crate::control_mode::program_status::MIN_WRITE_INTERVAL;
+    let (mut core, start) = core("app");
+    with_a_pane(&mut core, start);
+    let print = |core: &mut Core, bytes: &[u8]| {
+        core.step(
+            ControlModeEvent::Output {
+                pane_id: "%0".parse().unwrap(),
+                content: bytes.to_vec(),
+            },
+            start,
+        )
+    };
+    let told = print(&mut core, b"\x1b]7501;state=working\x07");
+    assert!(sent(&told).contains(&"set-option -p -t %0 @tmuxy-pane-state working"));
+    let held = print(&mut core, b"\x1b]7501;state=done\x07");
+    assert!(!sent(&held).iter().any(|c| c.contains("unread")));
+
+    let wake = core.next_deadline();
+    assert!(
+        wake <= Instant::now() + MIN_WRITE_INTERVAL,
+        "the monitor wakes for the held write, not for the next heartbeat"
+    );
+    assert_eq!(
+        sent(&core.tick(wake)),
+        [
+            "set-option -p -t %0 @tmuxy-pane-status 'state=done'",
+            "set-option -p -t %0 @tmuxy-pane-state unread",
+        ]
+    );
+    assert!(
+        core.next_deadline() > wake + MIN_WRITE_INTERVAL,
+        "and has nothing more to wake for"
     );
 }
 

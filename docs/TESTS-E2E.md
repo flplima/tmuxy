@@ -119,13 +119,15 @@ Never commit `it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, or `xdescr
 ## Interaction-Latency Tests
 
 A nightly job (`interaction-latency` in `nightly-perf.yml`, with a desktop twin) times the
-interactions a user performs constantly — typing, moving between panes,
-splitting, zooming, switching tabs — through the same real keyboard path the
+interactions a user performs constantly — typing a key and a burst of them,
+moving between panes, splitting, zooming, switching tabs — through the same real keyboard path the
 E2E suites use, and gates on how expensive each one is **relative to a single
 keystroke round trip measured in the same run**. That ratio is what survives
 runner load; absolute milliseconds are recorded as a trend only. It exists to
 catch the class of regression the functional suites pass straight through: the
-feature still works, it just costs three times what it used to.
+feature still works, it just costs three times what it used to. The web job
+runs the suite a second time over a 150 ms link (`--proxy-rtt`,
+`tests/helpers/latency-proxy.js`), where a cost counted in round trips shows.
 
 Adding an interaction means adding one entry in
 `packages/tmuxy-ui/scripts/lib/perf-harness.mjs` (how to trigger it, and the
