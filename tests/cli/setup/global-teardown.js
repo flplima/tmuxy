@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { isSocketFile } = require('../../helpers/live-socket-guard');
+const { unsealChildProcesses } = require('../helpers/seal');
 const { probeEnv, realTmux } = require('./global-setup');
 
 /** Every socket under `tmpdir` (tmux keeps them in `tmux-<uid>/`). */
@@ -51,6 +52,9 @@ function sweep(tmpdir, tmux = realTmux()) {
 }
 
 async function globalTeardown() {
+  // Run in band, the test files sealed this very process: Jest may start
+  // children of its own after this (watch mode).
+  unsealChildProcesses();
   sweep(process.env.TMUXY_CLI_SUITE_TMPDIR);
 }
 
