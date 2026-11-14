@@ -38,6 +38,8 @@ pub mod random;
 #[cfg(feature = "cli")]
 pub mod run_shell;
 #[cfg(feature = "native")]
+pub mod safe_git;
+#[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]
 pub mod session;
