@@ -24,6 +24,26 @@ export const groupsAndFloatsActions = {
     if (event.type !== 'CLOSE_FLOAT') return;
     enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.KillPane({ paneId: event.paneId }) });
   }),
+
+  /**
+   * Minimize a float to the queue, or bring it back, for every client: a tag
+   * on its window, which the store predicts so it goes on the click. Its
+   * pane keeps running. The model update then hands the keyboard on, or
+   * gives it to the float that came back (`reconcileFloats`).
+   */
+  groupsAndFloats_minimizeFloat: act(({ event, context, enqueue }) => {
+    if (event.type !== 'MINIMIZE_FLOAT') return;
+    const windowId = context.panes.find((p) => p.tmuxId === event.paneId)?.windowId;
+    if (!windowId || !context.floatPanes[event.paneId]) return;
+    enqueue.raise({
+      type: 'DISPATCH_OP' as const,
+      op: TmuxOp.SetWindowTag({
+        windowId,
+        tag: 'float-minimized',
+        value: event.minimized ? '1' : null,
+      }),
+    });
+  }),
 };
 
 /**

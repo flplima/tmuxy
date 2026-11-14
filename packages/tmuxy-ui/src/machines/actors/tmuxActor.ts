@@ -230,7 +230,13 @@ export function createTmuxActor(runtime: AppRuntime) {
         logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
         run(
           withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
-          { logPrefix: 'set_client_size' },
+          {
+            logPrefix: 'set_client_size',
+            // The app reports a size once; one the backend never took has
+            // to be reported again.
+            onFailure: () =>
+              parent.send({ type: 'CLIENT_SIZE_UNREPORTED', cols: event.cols, rows: event.rows }),
+          },
         );
       } else if (event.type === 'TAKE_OWN_TMUX_OFFER') {
         logCommand(`connect_server ${event.serverId}`);

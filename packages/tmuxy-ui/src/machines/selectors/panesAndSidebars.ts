@@ -165,9 +165,10 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
 }
 
 /**
- * The floats that belong to the tab the user is looking at, bottom-most first.
+ * The floats that belong to the tab the user is looking at, bottom-most
+ * first, drawn or minimized.
  */
-export function visibleFloats(
+function floatsOfTab(
   floatPanes: Record<PaneId, FloatPaneState>,
   windows: TmuxWindow[],
   activeWindowId: WindowId | null,
@@ -180,10 +181,28 @@ export function visibleFloats(
   });
 }
 
+/** The floats drawn over the tab the user is looking at, bottom-most first. */
+export function visibleFloats(
+  floatPanes: Record<PaneId, FloatPaneState>,
+  windows: TmuxWindow[],
+  activeWindowId: WindowId | null,
+): FloatPaneState[] {
+  return floatsOfTab(floatPanes, windows, activeWindowId).filter((float) => !float.minimized);
+}
+
 export const selectVisibleFloats = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.floatPanes, ctx.activeWindowId, ctx.windows] as const,
   (context: AppMachineContext): FloatPaneState[] =>
     visibleFloats(context.floatPanes, context.windows, context.activeWindowId),
+);
+
+/** The tab's minimized floats, in the queue at its bottom edge, oldest first. */
+export const selectMinimizedFloats = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.floatPanes, ctx.activeWindowId, ctx.windows] as const,
+  (context: AppMachineContext): FloatPaneState[] =>
+    floatsOfTab(context.floatPanes, context.windows, context.activeWindowId).filter(
+      (float) => float.minimized,
+    ),
 );
 
 export const selectVisiblePanes = createMemoizedSelector(

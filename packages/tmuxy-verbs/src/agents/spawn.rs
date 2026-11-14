@@ -48,7 +48,7 @@ pub struct SpawnArgs {
     agent: SpawnAgent,
     /// Name the pane, for `agent wait`, `-t` and the tree. Must be unused.
     #[arg(long)]
-    label: Option<String>,
+    pub(super) label: Option<String>,
     /// Start in this directory; default: the caller's.
     #[arg(long)]
     cwd: Option<PathBuf>,
@@ -324,13 +324,39 @@ fn check_label(answer: &Answer, label: &str) {
 }
 
 pub fn run(answer: &Answer, args: SpawnArgs) {
+    let Some(spawned) = spawn(answer, &args) else {
+        answer.exit(EXIT_FAILED, "the agent exited as soon as it started")
+    };
+    answer.done(
+        &[
+            ("paneId", cli_json::string(&spawned.pane)),
+            (
+                "label",
+                cli_json::string(args.label.as_deref().unwrap_or_default()),
+            ),
+            ("agent", cli_json::string(&spawned.agent)),
+        ],
+        &spawned.pane,
+    );
+}
+
+/// The pane spawn made, and the agent in it.
+pub struct Spawned {
+    pub pane: String,
+    pub agent: String,
+}
+
+/// Place, start and tag the agent; any failure ends the process under the
+/// CLI's contract. `None`: the agent exited before its pane could be
+/// tagged, and the pane went with it.
+pub fn spawn(answer: &Answer, args: &SpawnArgs) -> Option<Spawned> {
     let Some(caller) = run_shell::caller_pane() else {
         answer.exit(
             EXIT_USAGE,
             "run this inside a pane: the agent goes in that pane's tab",
         )
     };
-    let prompt = task(answer, &args);
+    let prompt = task(answer, args);
     let argv = agent_argv(
         args.agent,
         prompt.as_deref(),
@@ -375,20 +401,20 @@ pub fn run(answer: &Answer, args: SpawnArgs) {
         &layout,
         &tag_argv(&pane, &caller, &agent, args.label.as_deref()),
     ) {
+        if !pane_exists(&pane) {
+            return None;
+        }
         // An untagged pane would be one a retry cannot see: close it.
         let close = ["kill-pane", "-t", &pane].map(String::from);
         let _ = run_shell::tmux(&layout, &close);
         fail_to_run(answer, e);
     }
-    let label = args.label.as_deref().unwrap_or_default();
-    answer.done(
-        &[
-            ("paneId", cli_json::string(&pane)),
-            ("label", cli_json::string(label)),
-            ("agent", cli_json::string(&agent)),
-        ],
-        &pane,
-    );
+    Some(Spawned { pane, agent })
+}
+
+fn pane_exists(pane: &str) -> bool {
+    let read = ["display-message", "-p", "-t", pane, "#{pane_id}"].map(String::from);
+    tmuxy_core::session::tmux_output(&read).is_ok_and(|out| out.trim() == pane)
 }
 
 #[cfg(test)]

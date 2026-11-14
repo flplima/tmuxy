@@ -27,6 +27,7 @@
     "perf:interactions": "node packages/tmuxy-ui/scripts/measure-interactions.mjs",
     "perf:interactions:tauri": "node packages/tmuxy-ui/scripts/measure-interactions-tauri.mjs",
     "perf:compare": "node packages/tmuxy-ui/scripts/compare-interactions.mjs",
+    "perf:requests": "node packages/tmuxy-ui/scripts/measure-requests.mjs",
     "perf:soak": "node packages/tmuxy-ui/scripts/measure-soak.mjs",
     "lint": "bin/lint-gate check eslint",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .github || true",

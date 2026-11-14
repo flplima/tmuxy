@@ -172,6 +172,12 @@
     "cmd": "greeting"
   },
   {
+    "args": {
+      "last": 20
+    },
+    "cmd": "get_trace_share"
+  },
+  {
     "cmd": "own_tmux_offer"
   },
   {

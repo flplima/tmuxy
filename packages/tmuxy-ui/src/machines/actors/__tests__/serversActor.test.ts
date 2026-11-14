@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createActor, createMachine, type AnyActorRef, type AnyEventObject } from 'xstate';
 import { createServersActor, nextPollDelay, parseSessions } from '../serversActor';
 import { fakeTransport } from '../../../test/transport';
@@ -193,5 +193,33 @@ describe('the look for the user’s own tmux', () => {
     await settle();
     expect(asked()).toEqual([]);
     expect(heard).toEqual([]);
+  });
+});
+
+describe('the poll', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('asks nothing from a hidden tab, and asks again once the tab is looked at', async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    const transport = fakeTransport({ enumeratesSessions: true, answersQueries: true });
+    transport.setNextResult({ kind: 'ok', value: '' });
+    const parent = { send: () => {} } as unknown as AnyActorRef;
+    const treeVisible = { get: () => true, subscribe: () => () => {} };
+    const actor = createActor(createServersActor(transport.runtime), {
+      input: { parent, treeVisible },
+    }).start();
+
+    // A minute in the background, the tree open the whole time.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(transport.invocations).toEqual([]);
+
+    hidden.mockReturnValue(false);
+    await vi.advanceTimersByTimeAsync(nextPollDelay(false));
+    expect(transport.invocations.map((call) => call.cmd)).toContain('query_tmux');
+    actor.stop();
   });
 });

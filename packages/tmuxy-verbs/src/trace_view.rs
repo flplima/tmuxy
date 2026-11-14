@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use tmuxy_core::trace::share::{last_actions, parse_lines};
 
 use serde_json::{Map, Value};
 
@@ -52,6 +53,13 @@ pub struct TraceViewArgs {
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
     pub last: Option<u32>,
 
+    /// Redact what is printed or exported for sharing: session names, paths,
+    /// error text, command arguments and marker labels become placeholders
+    /// (`session-1`, `path-2`), ids, operations and timing stay. Use it on a
+    /// slice before attaching it to a bug report.
+    #[arg(long)]
+    pub redact: bool,
+
     /// Answer in JSON: `{"ok":true,"output":…}`.
     #[arg(long)]
     pub json: bool,
@@ -89,6 +97,11 @@ fn read(args: TraceViewArgs) -> Result<String, String> {
     let events = match args.last {
         Some(n) => last_actions(&events, n as usize),
         None => events,
+    };
+    let events = if args.redact {
+        tmuxy_core::trace::share::redact_for_sharing(&events)
+    } else {
+        events
     };
     if events.is_empty() {
         return Ok(format!(
@@ -158,47 +171,9 @@ fn append_marker(path: &Path, label: &str) -> Result<(), String> {
     writeln!(file, "{line}").map_err(|e| e.to_string())
 }
 
-/// The events of the last `n` actions: the `n` action ids seen last, and every
-/// event, correlated or not, from the first event of the earliest of them to
-/// the last event of any. What the server traced after them, mostly state it
-/// pushed while nobody did anything, is left out. Fewer actions than `n` are
-/// all kept; none at all leave nothing.
-fn last_actions(events: &[Map<String, Value>], n: usize) -> Vec<Map<String, Value>> {
-    let mut first_seen: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut last_seen: BTreeMap<&str, usize> = BTreeMap::new();
-    for (i, ev) in events.iter().enumerate() {
-        if let Some(id) = ev.get("action_id").and_then(Value::as_str) {
-            first_seen.entry(id).or_insert(i);
-            last_seen.insert(id, i);
-        }
-    }
-    let mut by_recency: Vec<(&str, usize)> = last_seen.into_iter().collect();
-    by_recency.sort_by_key(|&(_, i)| std::cmp::Reverse(i));
-    let kept = &by_recency[..n.min(by_recency.len())];
-    let start = kept
-        .iter()
-        .filter_map(|(id, _)| first_seen.get(id).copied())
-        .min();
-    match (start, kept.first()) {
-        (Some(start), Some(&(_, end))) => events[start..=end].to_vec(),
-        _ => Vec::new(),
-    }
-}
-
 fn load(path: &Path) -> Result<Vec<Map<String, Value>>, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(parse_lines(&content))
-}
-
-/// Lenient: a torn final line after a crash must not abort the whole load.
-fn parse_lines(content: &str) -> Vec<Map<String, Value>> {
-    content
-        .lines()
-        .filter_map(|line| match serde_json::from_str::<Value>(line.trim()) {
-            Ok(Value::Object(m)) => Some(m),
-            _ => None,
-        })
-        .collect()
 }
 
 /// Build a Chrome Trace Event Format document. Each layer becomes a thread;
