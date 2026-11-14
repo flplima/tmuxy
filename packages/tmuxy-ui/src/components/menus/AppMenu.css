@@ -27,6 +27,19 @@
   line-height: 1.5;
 }
 
+/* Copy Trace's preview: exactly the text that will be copied, scrollable. */
+.trace-share-preview {
+  margin: 0 var(--spacing-xl);
+  padding: var(--spacing-md);
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  white-space: pre;
+  color: var(--text-primary);
+  background: var(--bg-dark-alt);
+}
+
 .app-menu-dialog-actions {
   display: flex;
   justify-content: flex-end;

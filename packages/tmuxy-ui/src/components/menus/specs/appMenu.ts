@@ -120,6 +120,23 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec 
     // The demo's backend keeps no profiles.
     !env.isDemo && profilesSubmenu(ctx.profiles),
     separator,
+    {
+      kind: 'item',
+      id: 'view-activity',
+      label: 'Activity',
+      icon: 'tabs',
+      keyHint: commandHint(ctx.keybindings, 'view-activity'),
+      action: command('view-activity'),
+    },
+    {
+      kind: 'item',
+      id: 'view-activity-most-urgent',
+      label: 'Go to the Pane That Needs You',
+      icon: 'next',
+      keyHint: commandHint(ctx.keybindings, 'view-activity-most-urgent'),
+      action: command('view-activity-most-urgent'),
+    },
+    separator,
     ...LAYOUTS.map((l): AppMenuNode => {
       const layout = TmuxOp.SelectLayout({ layout: l.layout });
       return {
@@ -251,6 +268,14 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec
       icon: 'file',
       disabled: !trace?.enabled,
       action: event({ type: 'OPEN_TRACE_FILE' }),
+    },
+    {
+      kind: 'item',
+      id: 'trace-copy-share',
+      label: 'Copy Trace…',
+      icon: 'copy',
+      disabled: !trace?.path,
+      action: local({ verb: 'copy-trace' }),
     },
     {
       kind: 'item',

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/flplima/tmuxy/security/advisories/new
+    about: Privately, to the maintainer alone. Not in a public issue.
+  - name: How to report an issue
+    url: https://github.com/flplima/tmuxy/blob/main/docs/REPORTING-ISSUES.md
+    about: What to include, and how to attach a trace without sharing anything private.

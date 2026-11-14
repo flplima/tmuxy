@@ -21,6 +21,7 @@ import {
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
 import { selectFocusedFloat } from '../machines/selectors/keyboard';
 import { LogProfiler } from './renderLog';
+import { FloatQueue } from './FloatQueue';
 import { focusKeyboardInput } from '../infra/dom/mobileKeyboard';
 import { CONTAINER_PADDING_BOTTOM, containerPaddingX } from '../constants/layout';
 import type { FloatPaneState } from '../machines/types/domain';
@@ -52,6 +53,10 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
 
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
+  }, [send, floatState.paneId]);
+
+  const handleMinimize = useCallback(() => {
+    send({ type: 'MINIMIZE_FLOAT', paneId: floatState.paneId, minimized: true });
   }, [send, floatState.paneId]);
 
   const handleClick = useCallback(
@@ -150,7 +155,12 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
         data-pane-id={pane.tmuxId}
       >
         {!hideHeader && (
-          <PaneHeader paneId={floatState.paneId} isFloat onFloatClose={handleClose} />
+          <PaneHeader
+            paneId={floatState.paneId}
+            isFloat
+            onFloatClose={handleClose}
+            onFloatMinimize={handleMinimize}
+          />
         )}
         <div className="float-content" style={{ height: floatState.height }}>
           <FloatBody pane={pane} isFocused={isFocused} terminalRows={terminalRows} />
@@ -209,13 +219,12 @@ function FloatBody({
 export function FloatContainer() {
   const visibleFloats = useAppSelector(selectVisibleFloats);
 
-  if (visibleFloats.length === 0) return null;
-
   return (
     <>
       {visibleFloats.map((floatState, index) => (
         <FloatPane key={floatState.paneId} floatState={floatState} stack={1 + index} />
       ))}
+      <FloatQueue />
     </>
   );
 }

@@ -2,6 +2,7 @@
 //! keeps no copy of the files' names or formats.
 
 use tmuxy_core::paths::{Layout, FILES};
+use tmuxy_core::permissions::{self, Decision, Loaded};
 
 use crate::cli_json::{self, Answer, EXIT_FAILED};
 
@@ -19,8 +20,18 @@ enum ConfigVerb {
     /// Every file tmuxy reads or writes: owner, location, safe to edit, safe
     /// to symlink.
     Paths,
-    /// Ask every running app to re-source the config chain.
+    /// Ask every running app to re-source the config chain. Refused, with
+    /// the line, while tmux cannot parse your config: the running one is
+    /// kept.
     Reload,
+    /// What is wrong with your config, found without applying it: a line
+    /// tmux cannot parse, an option it does not have, a `source-file` whose
+    /// file is not there. Exit 1 when there is anything.
+    Check {
+        /// A config file to check, with what it sources (default: your
+        /// tmuxy.conf, and ~/.tmux.conf when it is sourced).
+        file: Option<std::path::PathBuf>,
+    },
     /// Write the starter tmuxy.conf into the config dir; refuses to
     /// overwrite one.
     Init,
@@ -37,27 +48,39 @@ enum ConfigVerb {
         #[arg(long)]
         fix: bool,
     },
+    /// What permissions.json says. With no keys: whether it reads as rules.
+    /// With keys: what typing them into another pane would get (allow, ask,
+    /// deny, or none when no rule binds the send), without sending anything.
+    Permissions {
+        /// A name the caller answers to (`claude`; repeat it for more).
+        #[arg(long)]
+        caller: Vec<String>,
+        /// The program in front in the pane typed into.
+        #[arg(long, default_value = "sh")]
+        into: String,
+        /// The text would be pasted, not typed.
+        #[arg(long)]
+        paste: bool,
+        /// The keys, as `tmuxy pane send` takes them.
+        #[arg(last = true)]
+        keys: Vec<String>,
+    },
 }
 
 pub fn run(args: ConfigArgs) {
     let layout = Layout::current();
     let answer = Answer::new(args.json);
     match args.verb {
+        ConfigVerb::Permissions {
+            caller,
+            into,
+            paste,
+            keys,
+        } => check_permissions(&answer, &caller, &into, paste, &keys),
         ConfigVerb::Paths if args.json => println!("{}", layout.report()),
         ConfigVerb::Paths => print!("{}", paths_text(&layout)),
-        ConfigVerb::Reload => {
-            if let Err(e) = tmuxy_core::session::request_reload(&layout) {
-                answer.exit(EXIT_FAILED, &format!("config reload: {e}"));
-            }
-            let conf = layout.config.join("tmuxy.conf");
-            answer.done(
-                &[("file", cli_json::string(&conf.display().to_string()))],
-                &format!(
-                    "Reloading {} — the app re-applies it within a second.",
-                    conf.display()
-                ),
-            );
-        }
+        ConfigVerb::Check { file } => std::process::exit(check(&layout, &answer, file.as_deref())),
+        ConfigVerb::Reload => reload(&layout, &answer),
         ConfigVerb::Init => match tmuxy_core::session::init_user_conf(&layout) {
             Ok(path) => {
                 let path = path.display().to_string();
@@ -104,6 +127,119 @@ pub fn run(args: ConfigArgs) {
             );
         }
     }
+}
+
+/// `tmuxy config reload`: refused, with the line, while tmux cannot parse
+/// the config; else the marker every running app watches is touched.
+fn reload(layout: &Layout, answer: &Answer) {
+    let blockers = tmuxy_core::session::reload_blockers(layout);
+    if !blockers.is_empty() {
+        let code = answer.fail_with(
+            EXIT_FAILED,
+            &format!(
+                "config reload: not reloaded, the running config is kept: {} problem(s)",
+                blockers.len()
+            ),
+            &[("problems", problems_json(&blockers))],
+        );
+        if !answer.is_json() {
+            eprintln!("{}", problems_text(&blockers));
+        }
+        std::process::exit(code);
+    }
+    if let Err(e) = tmuxy_core::session::request_reload(layout) {
+        answer.exit(EXIT_FAILED, &format!("config reload: {e}"));
+    }
+    let conf = layout.config.join("tmuxy.conf");
+    answer.done(
+        &[("file", cli_json::string(&conf.display().to_string()))],
+        &format!(
+            "Reloading {} — the app re-applies it within a second.",
+            conf.display()
+        ),
+    );
+}
+
+fn problems_json(problems: &[tmuxy_core::session::ConfigProblem]) -> String {
+    let items: Vec<String> = problems
+        .iter()
+        .map(|p| {
+            format!(
+                r#"{{"file":{},"line":{},"kind":{},"message":{}}}"#,
+                cli_json::string(&p.file.display().to_string()),
+                p.line.map_or("null".to_string(), |line| line.to_string()),
+                cli_json::string(p.kind.as_str()),
+                cli_json::string(&p.message)
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+fn problems_text(problems: &[tmuxy_core::session::ConfigProblem]) -> String {
+    problems
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `tmuxy config check [file]`, and its exit code: 0 for a config with
+/// nothing wrong (or none at all), 1 while there is a problem in it, or when
+/// tmux could not be asked.
+fn check(layout: &Layout, answer: &Answer, file: Option<&std::path::Path>) -> i32 {
+    if let Some(file) = file.filter(|file| !file.is_file()) {
+        return answer.fail(
+            EXIT_FAILED,
+            &format!("config check: {} is not a file", file.display()),
+        );
+    }
+    // A relative path is the caller's; the report names files in full.
+    let file = file.map(|file| std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf()));
+    let report = match tmuxy_core::session::check_config(layout, file.as_deref()) {
+        Ok(report) => report,
+        Err(e) => return answer.fail(EXIT_FAILED, &format!("config check: {e}")),
+    };
+    let files = format!(
+        "[{}]",
+        report
+            .files
+            .iter()
+            .map(|f| cli_json::string(&f.display().to_string()))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    if report.problems.is_empty() {
+        let text = match report.files.as_slice() {
+            [] => format!(
+                "No config to check: {} does not exist",
+                layout.user_conf().display()
+            ),
+            files => format!(
+                "{}\nNothing wrong in {} file(s)",
+                files
+                    .iter()
+                    .map(|f| f.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                files.len()
+            ),
+        };
+        answer.done(&[("files", files), ("problems", "[]".to_string())], &text);
+        return 0;
+    }
+    answer.fail_with(
+        EXIT_FAILED,
+        &format!("{} problem(s) in the config", report.problems.len()),
+        &[
+            ("files", files),
+            ("problems", problems_json(&report.problems)),
+        ],
+    );
+    if !answer.is_json() {
+        eprintln!("{}", problems_text(&report.problems));
+    }
+    EXIT_FAILED
 }
 
 /// `tmuxy config doctor [--fix]`, and its exit code: 0 for a clean file (or
@@ -223,6 +359,98 @@ fn paths_text(layout: &Layout) -> String {
         ));
     }
     out
+}
+
+/// What the file holds, for `tmuxy config permissions` with no keys.
+fn report_file(answer: &Answer, path: &std::path::Path, file: String, loaded: &Loaded) {
+    match loaded {
+        Loaded::Missing => answer.done(
+            &[("file", file), ("exists", "false".into())],
+            &format!(
+                "No {}: a send into another pane asks, as it does without the file.",
+                path.display()
+            ),
+        ),
+        Loaded::Rules(rules) => {
+            let (count, _) = rules.counts();
+            let callers = rules.callers();
+            let everyone = callers.contains(&permissions::ANY_CALLER);
+            // A caller is named by what it says it is, so only `*` holds
+            // for one that gives another name.
+            let note = match (callers.is_empty(), everyone) {
+                (true, _) => "It names no caller, so it binds nobody.".to_string(),
+                (false, true) => format!("Sections: {}.", callers.join(", ")),
+                (false, false) => format!(
+                    "Sections: {}. There is no `*` section: a caller under another name is not bound, so a rule that must hold for everyone goes under `*`.",
+                    callers.join(", ")
+                ),
+            };
+            let names: Vec<String> = callers.iter().map(|c| cli_json::string(c)).collect();
+            answer.done(
+                &[
+                    ("file", file),
+                    ("exists", "true".into()),
+                    ("rules", count.to_string()),
+                    ("callers", format!("[{}]", names.join(","))),
+                    ("bindsEveryone", everyone.to_string()),
+                ],
+                &format!("{}: {count} rule(s). {note}", path.display()),
+            );
+        }
+        Loaded::Malformed(why) => answer.exit(
+            EXIT_FAILED,
+            &format!(
+                "{} cannot be read as rules: {why}. Every send into another pane is refused until it is fixed or removed.",
+                path.display()
+            ),
+        ),
+    }
+}
+
+/// `tmuxy config permissions`: the file read as a send would read it, and
+/// what it says. Exit 1 for a file that is not rules and for a send it
+/// denies, so a script can tell either from the rest.
+fn check_permissions(
+    answer: &Answer,
+    callers: &[String],
+    into: &str,
+    paste: bool,
+    keys: &[String],
+) {
+    // The file a send would read: the tmux server's, when one is running.
+    let path = crate::permissions_file::path();
+    let file = cli_json::string(&path.display().to_string());
+    let loaded = Loaded::read(&path);
+    if keys.is_empty() {
+        return report_file(answer, &path, file, &loaded);
+    }
+    let callers: Vec<&str> = callers.iter().map(String::as_str).collect();
+    let decision = loaded.check_send(permissions::Send {
+        callers: &callers,
+        program: into,
+        keys,
+        paste,
+    });
+    let fields = [
+        ("file", file),
+        ("decision", cli_json::string(decision.word())),
+        ("reason", cli_json::string(decision.reason())),
+    ];
+    if let Decision::Deny(_) = decision {
+        std::process::exit(answer.fail_with(
+            EXIT_FAILED,
+            &format!("deny: {}", decision.reason()),
+            &fields,
+        ));
+    }
+    let note = match decision {
+        Decision::Allow(_) => " (reported only: an allow rule skips no question in this version)",
+        _ => "",
+    };
+    answer.done(
+        &fields,
+        &format!("{}: {}{note}", decision.word(), decision.reason()),
+    );
 }
 
 #[cfg(test)]

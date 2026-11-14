@@ -8,18 +8,17 @@
 //! What a host cannot do it answers `unavailable`, so the client can tell
 //! "not here" from "it failed".
 
-use std::future::Future;
-
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::host_ctx::{not_here, HostCtx};
 use super::plugins;
 use super::profiles::{self, ProfileCall};
 use super::requests::{self, to_json};
-use super::{ClientId, HostEvent, SessionRuntime};
+use super::{HostEvent, SessionRuntime};
 use crate::command_router::Route;
 use crate::constants::{OPENABLE_URL_SCHEMES, URL_FORBIDDEN_CHARS};
-use crate::session::{ConnectTarget, ManagedOption};
+use crate::session::ManagedOption;
 use crate::{CommandError, PaneId};
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +53,17 @@ pub enum ClientCommand {
         start: i64,
         #[serde(default = "default_scrollback_end")]
         end: i64,
+    },
+    /// The rows a pane's shell prompts start on (OSC 133), for the scrollback
+    /// view's marks and the jump between prompts.
+    GetPromptMarks {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+    },
+    /// What the pane's newest command printed, as text.
+    GetLastCommandOutput {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
     },
     /// A `preview` pane's document (`path` absent) or a resource it links
     /// (`path` relative to it). The pane names nothing on disk: what it may
@@ -117,6 +127,9 @@ pub enum ClientCommand {
     /// paths from the client: on the web that would let anyone reaching the
     /// server probe the filesystem.
     ListGitWorktrees,
+    /// The TCP ports each pane's programs listen on. Takes nothing from the
+    /// client: the panes and their processes come from tmux.
+    ListPanePorts,
     ListSnapshots,
     /// Rebuild a session from its latest snapshot. Refused when the session
     /// is already running.
@@ -124,6 +137,11 @@ pub enum ClientCommand {
         session: String,
     },
     GetTraceSettings,
+    /// The last `last` actions of the trace, redacted for sharing: what the
+    /// Debug menu's Copy Trace previews and copies.
+    GetTraceShare {
+        last: u32,
+    },
     SetTraceEnabled {
         enabled: bool,
     },
@@ -146,6 +164,11 @@ pub enum ClientCommand {
         session: Option<String>,
     },
     DetachClient,
+    /// What a launch tells a tmux user about their own server
+    /// (`servers::OwnTmuxOffer`), or `null` when there is nothing to tell.
+    OwnTmuxOffer,
+    /// The user closed that notice: this host does not show it again.
+    CloseOwnTmuxOffer,
     /// Write the invocation token a plugin's menu action opens with,
     /// carrying the selected text.
     PreparePluginAction {
@@ -212,48 +235,6 @@ impl ClientCommand {
             }
         }
     }
-}
-
-/// What a command needs of the host that received it.
-pub trait HostCtx: Sync {
-    fn runtime(&self) -> &SessionRuntime;
-
-    /// The client asking, when the host can vouch for it: the web only for a
-    /// connection id whose stream is open, since a size kept for an id no
-    /// stream owns would pin the session's size for every real client.
-    fn client(&self) -> Option<ClientId>;
-
-    /// Whether this host can point itself at another tmux server (the web
-    /// server serves only the socket it was started on).
-    fn switches_servers(&self) -> bool {
-        false
-    }
-
-    /// Reconnect to `target` (only called when [`Self::switches_servers`]).
-    fn connect(
-        &self,
-        _target: ConnectTarget,
-    ) -> impl Future<Output = Result<(), CommandError>> + Send {
-        async { Err(not_here("connecting to another server")) }
-    }
-
-    /// Detach this client, leaving the tmux server and every session running.
-    fn detach(&self) -> impl Future<Output = Result<(), CommandError>> + Send {
-        async { Err(not_here("detaching")) }
-    }
-
-    /// Hand a checked link to the system browser.
-    fn open_url(&self, _url: &str) -> Result<(), CommandError> {
-        Err(not_here("opening a link"))
-    }
-
-    fn open_path(&self, _path: &std::path::Path) -> Result<(), CommandError> {
-        Err(not_here("opening a file"))
-    }
-}
-
-fn not_here(what: &str) -> CommandError {
-    CommandError::unavailable(format!("{what} is not available here"))
 }
 
 /// Whether a link a pane printed may be handed to the browser: one of
@@ -333,6 +314,20 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                 "scrollback",
             )
         }
+        ClientCommand::GetPromptMarks { pane_id } => {
+            let tx = runtime.channel().await?;
+            to_json(
+                super::prompt_marks::prompt_marks(&tx, &pane_id).await?,
+                "prompt marks",
+            )
+        }
+        ClientCommand::GetLastCommandOutput { pane_id } => {
+            let tx = runtime.channel().await?;
+            to_json(
+                super::prompt_marks::last_command_output(&tx, &pane_id).await?,
+                "last output",
+            )
+        }
         ClientCommand::ReadPreview { pane_id, path } => {
             let tx = runtime.channel().await?;
             to_json(
@@ -390,6 +385,10 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             let tx = runtime.channel().await?;
             to_json(requests::git_worktrees(&tx).await?, "worktrees")
         }
+        ClientCommand::ListPanePorts => {
+            let tx = runtime.channel().await?;
+            to_json(requests::pane_ports(&tx).await?, "ports")
+        }
         ClientCommand::ListSnapshots => to_json(requests::list_snapshots().await?, "snapshots"),
         ClientCommand::RestoreSession { session } => {
             let tx = runtime.channel().await?;
@@ -397,6 +396,10 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             Ok(Value::Null)
         }
         ClientCommand::GetTraceSettings => to_json(requests::trace_settings(), "trace settings"),
+        ClientCommand::GetTraceShare { last } => to_json(
+            requests::trace_share(last).map_err(crate::CommandError::unavailable)?,
+            "trace share",
+        ),
         // The state in force: `false` when the kill switch refuses, and the
         // client renders the answer, never its request.
         ClientCommand::SetTraceEnabled { enabled } => {
@@ -461,6 +464,23 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
         }
         ClientCommand::DetachClient => {
             ctx.detach().await?;
+            Ok(Value::Null)
+        }
+        ClientCommand::OwnTmuxOffer => {
+            let can_switch = ctx.switches_servers();
+            let offer = crate::session::scoped::spawn_blocking(move || {
+                crate::servers::own_tmux_offer(can_switch)
+            })
+            .await
+            .map_err(|e| CommandError::unavailable(e.to_string()))?;
+            to_json(offer, "own tmux offer")
+        }
+        ClientCommand::CloseOwnTmuxOffer => {
+            let can_switch = ctx.switches_servers();
+            tokio::task::spawn_blocking(move || crate::servers::close_own_tmux_offer(can_switch))
+                .await
+                .map_err(|e| CommandError::unavailable(e.to_string()))?
+                .map_err(|e| CommandError::unavailable(e.to_string()))?;
             Ok(Value::Null)
         }
         ClientCommand::PreparePluginAction {

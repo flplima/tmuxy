@@ -117,6 +117,9 @@
     "cmd": "list_git_worktrees"
   },
   {
+    "cmd": "list_pane_ports"
+  },
+  {
     "cmd": "list_snapshots"
   },
   {
@@ -199,5 +202,29 @@
   },
   {
     "cmd": "greeting"
+  },
+  {
+    "args": {
+      "last": 20
+    },
+    "cmd": "get_trace_share"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_prompt_marks"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_last_command_output"
+  },
+  {
+    "cmd": "own_tmux_offer"
+  },
+  {
+    "cmd": "close_own_tmux_offer"
   }
 ]
