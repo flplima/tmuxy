@@ -138,6 +138,12 @@ pub mod tmux_options {
     /// by `tmuxy pane report`. The report counts only while this is set.
     pub const REPORT_AT: &str = "@tmuxy-report-at";
 
+    /// Pane-scoped: the state the screen rules last wrote on a pane whose
+    /// agent has no hooks (`host::socket_watch::agent_rules`). They change
+    /// [`PANE_STATE`] only while it still equals this, so a state anything
+    /// else declared is never overwritten.
+    pub const RULES_STATE: &str = "@tmuxy-rules-state";
+
     /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
     /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys
     /// are meant for. The value is base64 of a JSON object
