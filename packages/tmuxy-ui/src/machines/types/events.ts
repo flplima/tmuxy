@@ -40,6 +40,8 @@ export type AppMachineEvent =
   | { type: 'TMUX_MODEL_UPDATE'; model: TmuxClientModel }
   /** A failed command or call, as the display string the snackbar shows. */
   | { type: 'TMUX_ERROR'; error: string }
+  /** The backend answered a pane-resize command, whether or not tmux took it. */
+  | { type: 'RESIZE_ANSWERED' }
   | { type: 'TMUX_FATAL'; message: string }
   /**
    * Adapter detected the SSE/Tauri channel dropped but is retrying. Distinct
