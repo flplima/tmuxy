@@ -92,6 +92,12 @@ export const TmuxPane = Schema.mutable(
      */
     paneState: optionalFrom('pane_state', Schema.NullOr(Schema.String)),
     /**
+     * What the pane's program reported behind that state with OSC 7501
+     * (`@tmuxy-pane-status`), as a report body. Read by
+     * `domain/paneStatus.ts`; absent when the state is not a report's.
+     */
+    paneStatus: optionalFrom('pane_status', Schema.NullOr(Schema.String)),
+    /**
      * The confirmation this pane is waiting on (`@tmuxy-ask`), as the base64
      * payload `tmuxy pane send -t` wrote. Decoded by `domain/paneAsk.ts`; absent when no
      * question is pending.
@@ -161,6 +167,11 @@ export const TmuxWindow = Schema.mutable(
     floatDrawer: withDefault('float_drawer', Schema.NullOr(Schema.String), () => null),
     floatBg: withDefault('float_bg', Schema.NullOr(Schema.String), () => null),
     floatNoheader: withDefault('float_noheader', Schema.Boolean, () => false),
+    /**
+     * The user minimized this float to the queue at the bottom of its tab
+     * (`@tmuxy-float-minimized`); its pane keeps running. Absent is false.
+     */
+    floatMinimized: optionalFrom('float_minimized', Schema.Boolean),
     /**
      * The window's own active pane, from the server. `pane.active` is a
      * session-wide flag (only the current window's active pane carries it), so

@@ -194,6 +194,8 @@ export class FixtureAdapter implements TransportDriver {
         return null;
       case 'get_trace_settings':
         return { ...this.traceSettings };
+      case 'get_trace_share':
+        return { text: '', lines: 0 };
       case 'set_trace_enabled':
         this.traceSettings.enabled = call.args.enabled;
         return this.traceSettings.enabled;
