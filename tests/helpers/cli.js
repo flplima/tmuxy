@@ -3,7 +3,7 @@
  * queries go through tmuxExec in tmux-socket.js.
  */
 
-const { execFileSync, execSync } = require('child_process');
+const { execFile, execFileSync, execSync } = require('child_process');
 const path = require('path');
 
 const { WORKSPACE_ROOT, TMUXY_CLI, serverBinary } = require('./config');
@@ -84,9 +84,10 @@ function tmuxRunAsOperator(command, env = tmuxEnv()) {
  * the routing of (`tmuxy plugin install`, say).
  *
  * @param {string[]} args - The CLI's arguments
+ * @param {Record<string, string>} [extraEnv] - More environment for it
  * @returns {string} What it printed
  */
-function tmuxyCli(args) {
+function tmuxyCli(args, extraEnv = {}) {
   return execFileSync(TMUXY_CLI, args, {
     cwd: WORKSPACE_ROOT,
     encoding: 'utf-8',
@@ -94,7 +95,27 @@ function tmuxyCli(args) {
     stdio: ['ignore', 'pipe', 'pipe'],
     // The build under test, as a pane's shell gets it from the server's
     // published environment: a `tmuxy-server` on PATH is some other build.
-    env: cliEnv(),
+    // `extraEnv` adds to it: `TMUX_PANE` runs the CLI as from that pane.
+    env: { ...cliEnv(), ...extraEnv },
+  });
+}
+
+/**
+ * {@link tmuxyCli} for a verb that waits (`agent wait`), so the test can act
+ * while it does. Resolves to its exit code and output, whatever the code.
+ *
+ * @param {string[]} args - The CLI's arguments
+ * @param {Record<string, string>} [extraEnv] - More environment for it
+ * @returns {Promise<{code: number, stdout: string, stderr: string}>}
+ */
+function tmuxyCliAsync(args, extraEnv = {}) {
+  return new Promise((resolve) => {
+    execFile(
+      TMUXY_CLI,
+      args,
+      { cwd: WORKSPACE_ROOT, encoding: 'utf-8', timeout: 60000, env: { ...cliEnv(), ...extraEnv } },
+      (error, stdout, stderr) => resolve({ code: error ? (error.code ?? 1) : 0, stdout, stderr }),
+    );
   });
 }
 
@@ -102,5 +123,6 @@ module.exports = {
   tmuxRun,
   tmuxRunAsOperator,
   tmuxyCli,
+  tmuxyCliAsync,
   TMUXY_CLI,
 };

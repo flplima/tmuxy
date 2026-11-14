@@ -85,15 +85,17 @@ export const layoutModelUpdateActions = {
 
     if (transformed.panes.length === 0) return;
 
-    // The backend gives every tab `pane-border-status top` (and sidebars
-    // `off`, tmuxy-core control_mode/state/window_state.rs), so a tab's
-    // topmost pane sits at y=1 under the row its header is drawn in. A pane
-    // already on screen that a layout reports at y=0 (before the option has
-    // taken effect on its window) is drawn a row down and a row shorter, so
-    // it never slides up under its header for an update.
+    // The backend gives every tab `pane-border-status top` (and sidebars and
+    // floats `off`, tmuxy-core control_mode/state/window_state.rs), so a
+    // tab's topmost pane sits at y=1 under the row its header is drawn in. A
+    // pane already on screen that a layout reports at y=0 (before the option
+    // has taken effect on its window) is drawn a row down and a row shorter,
+    // so it never slides up under its header for an update.
     if (!context.resizeActive) {
       const borderlessWindowIds = new Set(
-        transformed.windows.filter(isSidebarWindow).map((w) => w.id),
+        transformed.windows
+          .filter((w) => isSidebarWindow(w) || w.windowType === 'float')
+          .map((w) => w.id),
       );
       transformed.panes = transformed.panes.map((np) => {
         if (np.y !== 0) return np;

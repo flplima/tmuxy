@@ -73,7 +73,7 @@ Control mode reads one command per line, so a newline inside anything written in
 
 What the server does _not_ do is interpolate a client's command into a shell of its own: every command goes down the monitor's control-mode connection as a tmux command line, reads included, so there is no `sh -c` for shell metacharacters to escape from.
 
-tmuxy runs `git` in directories the user merely stands in (the tree's branch, a diff). A directory can bring its own `.git` naming programs for git to run, so every such call goes through `tmuxy-core/src/safe_git.rs`: hooks, monitor, pager, filters, diff drivers, credential helpers and transports off, attributes read from the empty tree, a deadline. It needs git 2.31.
+tmuxy runs `git` in directories the user merely stands in (the tree's branch, a diff). A directory can bring its own `.git` naming programs for git to run, so every such call goes through `tmuxy-core/src/safe_git.rs`: hooks, monitor, pager, filters, diff drivers, credential helpers and transports off, attributes read from the empty tree (from git 2.41), a deadline. It needs git 2.31.
 
 ### 4. `--no-auth` on a Routable Address (Medium)
 

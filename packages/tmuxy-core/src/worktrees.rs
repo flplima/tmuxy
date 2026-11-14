@@ -15,6 +15,8 @@ use std::process::Command;
 use serde::Serialize;
 use thiserror::Error;
 
+pub mod guard;
+
 /// Hard limit for one discovery request. tmux provides one path per pane, so
 /// this is comfortably above normal use while bounding filesystem/Git work.
 pub const MAX_DISCOVERY_PATHS: usize = 256;

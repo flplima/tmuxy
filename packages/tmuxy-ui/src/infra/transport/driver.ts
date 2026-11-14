@@ -21,8 +21,11 @@ export interface TransportDriver<E extends DriverEvent = TransportEvent> {
    * Hand `call` to the backend and resolve with its raw answer; reject with
    * the backend's `{ error, kind }` when it refuses. `actionId` correlates
    * the request in the trace (docs/TRACING.md), where the link can carry it.
+   * `ordered` marks a call the command lane issued to a driver that
+   * `ordersSends`: it must reach the backend after every ordered call
+   * before it, though none of them has been answered yet.
    */
-  send(call: BackendCall, actionId?: string): Promise<unknown>;
+  send(call: BackendCall, actionId?: string, ordered?: boolean): Promise<unknown>;
   /** Point the connection at another session, where that is the driver's to do (the web's URL). */
   switchSession?(sessionName: string): Promise<void>;
   /**
@@ -39,12 +42,14 @@ export interface TransportDriver<E extends DriverEvent = TransportEvent> {
    */
   readonly enumeratesSessions?: boolean;
   /**
-   * Whether calls reach the backend in the order `send` is called, whatever
-   * each one waits for: an in-browser engine writes each to its one line
-   * before it awaits the answer. The lane then sends the next at once
-   * instead of after the previous answer, which over a guest's serial line
-   * would put every op behind the round trip of the one before. False for
-   * the hosts that run each request as its own task (HTTP, Tauri).
+   * Whether the lane's calls reach the backend in the order `send` is
+   * called, whatever each one waits for: an in-browser engine writes each to
+   * its one line before it awaits the answer, and the web numbers each POST
+   * for the server to run in that order (S7 in docs/INVARIANTS.md). The lane
+   * then sends the next at once instead of after the previous answer, which
+   * would put every op behind the round trip of the one before: over a link
+   * of 170 ms that is six keystrokes a second, however fast they are typed.
+   * False for Tauri, whose host runs each IPC call as its own task.
    */
   readonly ordersSends?: boolean;
   /**

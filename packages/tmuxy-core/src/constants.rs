@@ -115,10 +115,30 @@ pub mod tmux_options {
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
 
+    /// Pane-scoped: what the pane's program reported behind its state with
+    /// OSC 7501, as a report body (`state=blocked:kind=permission:msg=…`,
+    /// free text base64). Written by the host that read the report
+    /// (`control_mode/program_status.rs`), beside [`PANE_STATE`].
+    pub const PANE_STATUS: &str = "@tmuxy-pane-status";
+
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the
     /// shell scripts' `_contract`).
     pub const PANE_LABEL: &str = "@tmuxy-label";
+
+    /// Pane-scoped: the pane `tmuxy agent spawn` was run from, on the pane
+    /// it made.
+    pub const SPAWNED_BY: &str = "@tmuxy-spawned-by";
+
+    /// Pane-scoped: the agent `tmuxy agent spawn` started in the pane
+    /// (`claude`, `codex`, `gemini`, or a `cmd`'s program).
+    pub const AGENT: &str = "@tmuxy-agent";
+
+    /// Pane-scoped: the state the screen rules last wrote on a pane whose
+    /// agent has no hooks (`host::socket_watch::agent_rules`). They change
+    /// [`PANE_STATE`] only while it still equals this, so a state anything
+    /// else declared is never overwritten.
+    pub const RULES_STATE: &str = "@tmuxy-rules-state";
 
     /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
     /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys
@@ -244,6 +264,31 @@ pub mod preview_lines {
 pub const DEFAULT_SERVER_PORT: u16 = 9000;
 pub const DEV_VITE_PORT: u16 = 9001;
 
+/// The grid a float's window is sized to, from its `@tmuxy-float-*` tags.
+///
+/// The UI draws a float that many cells wide and tall over its tab, and the
+/// pane is the window's only one, so the window takes the same size: by the
+/// command list that makes the float (`crate::float`) and by the client-size
+/// pass that keeps it there (`control_mode::monitor_core::sizing`).
+pub mod float_grid {
+    /// `(cols, rows)`, with `None` for a side the viewport decides. A centred
+    /// float is its tags on both sides. A drawer (`@tmuxy-float-drawer`) runs
+    /// the length of the edge it is docked to, so only the side it docks by
+    /// is its own: the width for `left` and `right`, the height for `top` and
+    /// `bottom`.
+    pub fn size(
+        width: Option<u32>,
+        height: Option<u32>,
+        drawer: Option<&str>,
+    ) -> (Option<u32>, Option<u32>) {
+        match drawer {
+            Some("left" | "right") => (width, None),
+            Some("top" | "bottom") => (None, height),
+            _ => (width, height),
+        }
+    }
+}
+
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).
 ///
@@ -299,31 +344,7 @@ pub const STASH_SESSION: &str = "__tmuxy_stash";
 pub mod tmux_formats;
 
 /// Control-mode event prefixes as `tmux -CC` writes them on its stdout.
-pub mod control_events {
-    pub const BEGIN: &str = "%begin ";
-    pub const END: &str = "%end ";
-    pub const ERROR: &str = "%error ";
-    pub const OUTPUT: &str = "%output ";
-    pub const EXTENDED_OUTPUT: &str = "%extended-output ";
-    pub const LAYOUT_CHANGE: &str = "%layout-change ";
-    pub const WINDOW_ADD: &str = "%window-add ";
-    pub const WINDOW_CLOSE: &str = "%window-close ";
-    pub const UNLINKED_WINDOW_ADD: &str = "%unlinked-window-add ";
-    pub const UNLINKED_WINDOW_CLOSE: &str = "%unlinked-window-close ";
-    pub const WINDOW_RENAMED: &str = "%window-renamed ";
-    pub const WINDOW_PANE_CHANGED: &str = "%window-pane-changed ";
-    pub const PANE_MODE_CHANGED: &str = "%pane-mode-changed ";
-    pub const SESSION_CHANGED: &str = "%session-changed ";
-    pub const SESSION_RENAMED: &str = "%session-renamed ";
-    pub const SESSIONS_CHANGED: &str = "%sessions-changed";
-    pub const SESSION_WINDOW_CHANGED: &str = "%session-window-changed ";
-    pub const PASTE_BUFFER_CHANGED: &str = "%paste-buffer-changed ";
-    pub const SUBSCRIPTION_CHANGED: &str = "%subscription-changed ";
-    pub const PAUSE: &str = "%pause ";
-    pub const CONTINUE: &str = "%continue ";
-    pub const MESSAGE: &str = "%message ";
-    pub const EXIT: &str = "%exit";
-}
+pub mod control_events;
 
 /// Rows of emulator-side scrollback kept per pane.
 ///

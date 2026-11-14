@@ -97,6 +97,14 @@ export const MENU_ICONS = {
     ['circle', 7, 7, 4.5],
     ['path', 'M13.5 13.5l-3.3-3.3'],
   ],
+  // A list with the row that was found marked: search over everything.
+  search: [
+    ['path', 'M2.5 4h7M2.5 8h4M2.5 12h5'],
+    ['circle', 10.5, 9.5, 2.75],
+    ['path', 'M12.5 11.5l1.5 1.5'],
+  ],
+  // An arrow up to a stop: go there.
+  'go-to': [['path', 'M2.5 8h8M8 5l3 3-3 3M13.5 3v10']],
   file: [['path', 'M9.5 2H4.5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5zM9.5 2v3h3']],
   reload: [['path', 'M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3']],
   restart: [
