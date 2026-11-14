@@ -84,6 +84,11 @@ impl StateAggregator {
             return ProcessEventResult::default();
         }
 
+        if let Some(version) = self.markers.version_read(marker_line) {
+            self.caps = crate::tmux_compat::TmuxCaps::from_version(version);
+            return ProcessEventResult::default();
+        }
+
         if let Some(read) = self.markers.read_begun(marker_line) {
             if read != Read::Buffer || self.pending_buffer_reads > 0 {
                 self.armed = Some(read);
