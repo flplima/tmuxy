@@ -157,6 +157,7 @@ fn serializes_the_frontend_wire_shape_in_camel_case() {
         bare: false,
         locked: false,
         prunable: false,
+        changes: None,
     }) else {
         panic!("worktree should serialize");
     };
@@ -178,10 +179,75 @@ fn omits_branch_for_detached_or_bare_worktrees() {
         bare: false,
         locked: false,
         prunable: false,
+        changes: None,
     }) else {
         panic!("worktree should serialize");
     };
 
     assert!(value.get("branch").is_none());
     assert_eq!(value["detached"], true);
+}
+
+/// Only a checkout a pane sits in is diffed, and for a pane in a nested
+/// directory that is the checkout around it.
+#[test]
+fn changes_are_counted_for_the_checkouts_panes_sit_in_and_no_other() {
+    let main = changes::tests::repository("occupied");
+    let other = main.with_file_name(format!(
+        "{}-other",
+        main.file_name().unwrap().to_string_lossy()
+    ));
+    let _ = fs::remove_dir_all(&other);
+    // With nobody's config: the developer's own hooks stay out of it.
+    let added = git(&main, &["worktree", "add", "-q", "-b", "side"])
+        .arg(&other)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(added.status.success());
+    fs::write(main.join("notes.txt"), "one\nthree\n").unwrap();
+    fs::write(other.join("notes.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    fs::create_dir(main.join("deep")).unwrap();
+
+    let found = |pane_dirs: &[&Path]| {
+        let dirs = pane_dirs
+            .iter()
+            .map(|dir| dir.to_string_lossy().into_owned())
+            .collect();
+        let repositories = list_git_worktrees(dirs).unwrap();
+        assert_eq!(repositories.len(), 1);
+        let changes_of = |branch: &str| {
+            repositories[0]
+                .worktrees
+                .iter()
+                .find(|worktree| worktree.branch.as_deref() == Some(branch))
+                .and_then(|worktree| worktree.changes)
+        };
+        (changes_of("main"), changes_of("side"))
+    };
+    let in_main = Some(GitChanges {
+        added: 0,
+        removed: 1,
+    });
+    let in_side = Some(GitChanges {
+        added: 1,
+        removed: 0,
+    });
+    assert_eq!(found(&[&main.join("deep")]), (in_main, None));
+    assert_eq!(found(&[&other]), (None, in_side));
+    assert_eq!(found(&[&main, &other]), (in_main, in_side));
+
+    // On the wire: present where it was counted, absent elsewhere.
+    let repositories = list_git_worktrees(vec![main.to_string_lossy().into_owned()]).unwrap();
+    let wire = serde_json::to_value(&repositories).unwrap();
+    assert_eq!(
+        wire[0]["worktrees"][0]["changes"],
+        serde_json::json!({ "added": 0, "removed": 1 })
+    );
+    assert!(wire[0]["worktrees"][1].get("changes").is_none());
+
+    for dir in [other, main] {
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

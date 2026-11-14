@@ -13,6 +13,7 @@ const {
   waitForCondition,
   waitForKeyboardTarget,
   renameWindowKeyboard,
+  treeRowGit,
 } = require('./helpers/layout-helpers');
 const { tmuxPanes } = require('./helpers/tmux-read');
 
@@ -195,6 +196,29 @@ describeE2E('Scenario 6d: Sidebar Tree View', {}, (ctx) => {
     );
     expect(panesInRepo).toHaveLength(2);
     expect(rowsOnBranch).toBe(2);
+
+    // Beside the branch, what the checkout has changed since its last
+    // commit: a commit, then an edit adding two lines and removing one,
+    // typed into the pane in the repo as the `git init` was.
+    await ctx.session.runAsOperator(
+      `send-keys -t ${firstPaneId} 'printf "one\\ntwo\\nthree\\n" > notes.txt && git add notes.txt && git -c user.name=t -c user.email=t@example.invalid commit -q -m first && printf "one\\nTWO\\nthree\\nfour\\n" > notes.txt' Enter`,
+    );
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const drawn = await treeRowGit(ctx.page, firstPaneId);
+        return drawn?.name === branch && drawn.changes === '+2\u22121' && drawn.inColumn;
+      },
+      45000,
+      'the lines changed beside the branch, on the pane inside the repo',
+    );
+    // The other pane in that checkout shows them too; no other row does.
+    expect(
+      await ctx.page.evaluate(
+        () =>
+          document.querySelectorAll('.sidebar-tree-pane [data-testid="tree-git-changes"]').length,
+      ),
+    ).toBe(2);
     fs.rmSync(repoDir, { recursive: true, force: true });
 
     // Step 4: Focus the sidebar (click) so keys route to the tree.

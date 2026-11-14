@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   findPaneGitContext,
   gitBadgeText,
+  gitChangesText,
   isPathInsideWorktree,
   normalizeWorkspacePath,
   summarizeGitContexts,
@@ -85,5 +86,17 @@ describe('workspace path mapping', () => {
     expect(gitBadgeText(detached)).toBe('0123456');
     const bare = { ...main, worktree: { ...main.worktree, branch: undefined, bare: true } };
     expect(gitBadgeText(bare)).toBe('');
+  });
+
+  it('shows the lines a checkout has changed, each count only when there is one', () => {
+    const main = findPaneGitContext('/code/app/src', repositories)!;
+    const withChanges = (changes?: { added: number; removed: number }) =>
+      gitChangesText({ ...main, worktree: { ...main.worktree, changes } });
+    expect(withChanges({ added: 12, removed: 3 })).toEqual({ added: '+12', removed: '\u22123' });
+    expect(withChanges({ added: 4, removed: 0 })).toEqual({ added: '+4', removed: '' });
+    expect(withChanges({ added: 0, removed: 7 })).toEqual({ added: '', removed: '\u22127' });
+    // A clean checkout, and one the host did not count, show nothing.
+    expect(withChanges({ added: 0, removed: 0 })).toBeNull();
+    expect(withChanges(undefined)).toBeNull();
   });
 });
