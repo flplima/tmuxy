@@ -258,6 +258,7 @@ function applyPaneDelta(pane: WirePane, delta: PaneDelta): WirePane {
     ...(delta.cursor_shape !== undefined && { cursor_shape: delta.cursor_shape }),
     ...(delta.cursor_hidden !== undefined && { cursor_hidden: delta.cursor_hidden }),
     ...(delta.pane_state !== undefined && { pane_state: delta.pane_state }),
+    ...(delta.pane_status !== undefined && { pane_status: delta.pane_status }),
     ...(delta.pane_ask !== undefined && { pane_ask: delta.pane_ask }),
     ...(delta.pane_widget !== undefined && { pane_widget: delta.pane_widget }),
     ...(delta.pane_restore !== undefined && { pane_restore: delta.pane_restore }),

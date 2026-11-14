@@ -97,7 +97,9 @@ fn list_windows_carries_the_sidebar_hidden_flag() {
 #[test]
 fn list_panes_reads_the_widget_authorisation_tail() {
     let mut agg = StateAggregator::new();
-    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,bash,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,tree,,");
+    agg.parse_list_panes_line(
+        "%3,0,0,0,80,24,0,0,1,bash,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,,tree,,,",
+    );
     assert_eq!(
         agg.panes
             .get("%3")
@@ -120,7 +122,7 @@ fn list_panes_reads_the_group_position_and_a_restore_line_with_commas() {
     let mut agg = StateAggregator::new();
     // tail: alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore,plugins_rev
     agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,zsh,t,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,2,idle,,,claude --resume x%2C y,",
+        "%3,0,0,0,80,24,0,0,1,zsh,t,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,2,idle,,,claude --resume x%2C y,,",
     );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert_eq!(pane.group_id, Some(gid("g5")));
@@ -134,14 +136,14 @@ fn list_panes_reads_the_group_position_and_a_restore_line_with_commas() {
 fn list_panes_parses_group_id() {
     let mut agg = StateAggregator::new();
     // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,GID,POS,STATE,ASK,WIDGET,RESTORE,PLUGINS_REV
-    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,");
+    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,,");
     assert_eq!(
         agg.panes.get("%3").expect("pane parsed").group_id.clone(),
         Some(gid("g5"))
     );
 
     // Empty tail → no group.
-    agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,,");
+    agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,,,");
     assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
 }
 
@@ -252,7 +254,7 @@ fn a_parked_members_real_title_survives() {
 fn stash_members_emit_stubs_only_for_active_groups() {
     let mut agg = StateAggregator::new();
     // Visible member of g5 in window @4.
-    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,");
+    agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,,");
     // Hidden member of g5, plus an orphan in g6 (no visible member).
     let rows = [
         RowBuilder::<StashColumn>::new()
@@ -328,7 +330,7 @@ fn window_extent_is_one_past_the_furthest_pane_edge() {
     // id,idx,x,y,w,h,... — two panes split side by side in @1, and one
     // pane of another window that must not count towards it.
     let row = |id: &str, x: u32, y: u32, w: u32, h: u32, win: &str| {
-        format!("{id},0,{x},{y},{w},{h},0,0,1,zsh,t,0,0,0,0,{win},,0,0,0,0,0,0,100,,,,,,,")
+        format!("{id},0,{x},{y},{w},{h},0,0,1,zsh,t,0,0,0,0,{win},,0,0,0,0,0,0,100,,,,,,,,")
     };
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(&row("%1", 0, 1, 80, 49, "@1"));

@@ -1,0 +1,145 @@
+/* The command palette: a box to type in and its results, hung from the top
+   of the window over everything in it (fixed, as the snackbar and the menus
+   are: the app container is no positioned box). */
+
+.command-palette {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-palette);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: max(8px, min(12vh, 96px)) 8px 8px;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+/* Takes the press that closes it; dims nothing, so what is behind stays readable. */
+.command-palette-scrim {
+  position: absolute;
+  inset: 0;
+}
+
+.command-palette-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(72ch, 100%);
+  max-height: 100%;
+  box-sizing: border-box;
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md, 0);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--bg-black) 55%, transparent);
+  overflow: hidden;
+}
+
+.command-palette-input {
+  flex: none;
+  margin: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: 0;
+  background-color: var(--bg-black);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+  /* The app container turns selection off; this is a box to type in. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.command-palette-input:focus {
+  border-color: var(--theme-accent);
+}
+
+.command-palette-input::placeholder {
+  color: var(--text-muted);
+}
+
+.command-palette-list {
+  max-height: min(28rem, 55vh);
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.command-palette-header {
+  padding: 6px 12px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  padding: 4px 12px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+/* Under the pointer: a click runs it, Enter does not. */
+.command-palette-item:hover {
+  background-color: color-mix(in srgb, var(--bg-highlight) 45%, transparent);
+}
+
+/* The row Enter would run. */
+.command-palette-item.is-active {
+  background-color: var(--bg-highlight);
+}
+
+.command-palette-item.is-active .menu-item-lead {
+  color: inherit;
+}
+
+.command-palette-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+/* The letters the query landed on. */
+.command-palette-label mark {
+  background: none;
+  color: var(--theme-accent);
+  font-weight: bold;
+}
+
+.command-palette-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.command-palette-key {
+  flex: none;
+  margin-left: auto;
+  font: inherit;
+  color: var(--text-secondary);
+}
+
+/* Shown in place of the key: Enter was pressed once on a row that asks first. */
+.command-palette-confirm {
+  flex: none;
+  margin-left: auto;
+  color: var(--theme-accent);
+  font-weight: bold;
+}
+
+.command-palette-empty {
+  padding: 6px 12px;
+  color: var(--text-muted);
+}
+
+.command-palette-empty:empty {
+  display: none;
+}
