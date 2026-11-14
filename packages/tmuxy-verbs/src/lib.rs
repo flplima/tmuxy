@@ -17,6 +17,7 @@ mod config_cli;
 mod connect_cli;
 mod float_cli;
 mod group_cli;
+mod keymap_cli;
 #[cfg(feature = "native")]
 mod plugin_cli;
 mod run_cli;
@@ -24,7 +25,11 @@ mod send_cli;
 #[cfg(feature = "native")]
 mod session_cli;
 #[cfg(feature = "native")]
+mod state_cli;
+#[cfg(feature = "native")]
 mod trace_view;
+#[cfg(feature = "native")]
+mod worktree_cli;
 
 use clap::Subcommand;
 
@@ -50,9 +55,16 @@ pub enum Verb {
     /// Backs `tmuxy plugin` (docs/PLUGINS.md).
     #[cfg(feature = "native")]
     Plugin(plugin_cli::PluginArgs),
+    /// Remove a linked git worktree without losing work in it. Backs
+    /// `tmuxy worktree`.
+    #[cfg(feature = "native")]
+    Worktree(worktree_cli::WorktreeArgs),
     /// The config files tmuxy-core owns: `paths`, `reload`, `init`,
     /// `use-tmux-conf`, `doctor`. Backs `tmuxy config`.
     Config(config_cli::ConfigArgs),
+    /// Every key binding, and the file and line it comes from. Backs
+    /// `tmuxy keymap`.
+    Keymap(keymap_cli::KeymapArgs),
     /// Type keys, or paste text, into a pane, asking the user there first
     /// when it is not the caller's own. Backs `tmuxy pane send` and
     /// `tmuxy pane paste`, which resolve the target and the caller.
@@ -86,6 +98,11 @@ pub enum Verb {
     /// Backs `float-create` (`tmuxy pane float`).
     #[command(hide = true)]
     Float(float_cli::FloatArgs),
+    /// Where a pane's state came from, and what reads its screen. Backs
+    /// `tmuxy pane state explain`, which resolves the pane.
+    #[cfg(feature = "native")]
+    #[command(hide = true)]
+    StateExplain(state_cli::StateExplainArgs),
     /// A `capture-pane -e` screen, on stdin, as HTML. Backs
     /// `tmuxy pane capture --format html`.
     #[command(hide = true)]
@@ -110,7 +127,10 @@ pub async fn run(verb: Verb) {
         Verb::Agent(args) => agents::run(args),
         #[cfg(feature = "native")]
         Verb::Plugin(args) => plugin_cli::run(args),
+        #[cfg(feature = "native")]
+        Verb::Worktree(args) => worktree_cli::run(args),
         Verb::Config(args) => config_cli::run(args),
+        Verb::Keymap(args) => keymap_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
         Verb::SendQueue(args) => send_cli::run_queue(args).await,
         #[cfg(feature = "native")]
@@ -121,6 +141,8 @@ pub async fn run(verb: Verb) {
         Verb::Float(args) => float_cli::run(args),
         Verb::Run(args) => run_cli::run(args),
         Verb::NewTab(args) => run_cli::tab_create(args),
+        #[cfg(feature = "native")]
+        Verb::StateExplain(args) => state_cli::run(args),
         Verb::CaptureHtml => capture_cli::html(),
         #[cfg(not(feature = "native"))]
         Verb::NotHere(argv) => not_here(&argv),

@@ -111,7 +111,8 @@ verb, the built-in wins and `tmuxy plugin list` says the verb is shadowed.
 the same schema, no install and no gate, its commands relative to the config
 dir. Saving it applies it, as saving `tmuxy.conf` does (so do `tmuxy config
 reload` and the app menu's Reload Config): its actions go in the menus and
-its keys are bound.
+its keys are bound. `tmuxy keymap` lists its actions, verbs and keys, and any
+key a binding of yours holds.
 
 ## Links, keys, settings, dependencies and themes
 

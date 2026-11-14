@@ -170,5 +170,11 @@
   },
   {
     "cmd": "greeting"
+  },
+  {
+    "args": {
+      "last": 20
+    },
+    "cmd": "get_trace_share"
   }
 ]

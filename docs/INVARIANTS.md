@@ -58,6 +58,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | M10 | Resizes retry <=3 times per size after new tmux reports; new sizes reset count; unmonitored sizes re-request. | liveness | `control_mode/monitor_core/sizing.rs`, `sse.rs` | `monitor_core/tests.rs › a_window_tmux_did_not_resize…`, `› …not_asked_again…`, `› a_size_tmux_keeps_refusing…`, `› a_new_size_starts…`, `› a_window_with_no_panes…`; `host/runtime_tests.rs › a_size_that_reached_no_monitor…` |
 | M11 | UI choices re-apply after every `source-file` (connect, reload, a client's own) and win, unless the user's `tmuxy.conf` pins the option; enforced settings after both. | ordering | `control_mode/monitor_core/attach.rs`, `control_mode/monitor/sync.rs`, `session/state.rs`, `host/bindings.rs` | `enforced_settings.rs › connecting_enforces_the_settings…` (final values, every window); `monitor_core/tests.rs › an_attach_enforces_the_settings_after_the_config…` (order); `session/tests.rs › a_pinned_option_is_not_reapplied…` (the pin) |
 | M12 | A paced link (`ReadPacing::OneBatchInFlight`, the guest) has one batch of reads out; reads asked for meanwhile go once each in the next batch, after tmux answers or `REPLY_TIMEOUT`. | liveness | `control_mode/monitor_core/reads.rs` | `monitor_core/tests_reads.rs › on_a_paced_link_reads_asked_for_while_a_batch_is_out_go_once_after_it`, `› …copy_mode_poll_waits_for_its_answer`, `› …unanswered_batch_is_given_up_at_the_reply_timeout` |
+| M13 | A window is sized to the grid the UI draws it at, once `list-windows` has said what it is: a tab to the viewport, a sidebar to its column, a float to its size tags, held to the viewport (a drawer only on the side it docks by) and with no border row. Until then it is only told to stop sizing itself. | safety | `control_mode/monitor_core/sizing.rs` (`size_windows`, `float_size`), `control_mode/state/window_state.rs` (`window_ids_by_sizing`, `window_setup`), `constants/float_grid.rs` | `monitor_core/tests.rs › a_float_is_sized_to_its_tags_and_a_tab_to_the_viewport`; `tests_sidebar_and_delta.rs › a_window_only_announced_gets_no_border_row_and_no_size`, `› float_loses_the_pane_border_a_tab_gets`; `monitor/tests.rs › a_window_is_told_to_stop_sizing_itself_before_it_is_sized`; `tests/2-layout-navigation-float.test.js › a 50x12 float → its program reads 12 rows and 50 columns → what it draws on its last row is on screen, inside the float` |
 
 ## X — the tmux connection and the router
 
@@ -76,14 +77,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 
 ## S — server stream
 
-| Id | Invariant | Kind | Stated in | Enforced by |
-| --- | --- | --- | --- | --- |
-| S1 | Per-session broadcast seqs count from 1 (0 = empty) and the ring preserves concurrent broadcast order. | ordering | `tmuxy-server/src/state.rs` | `state/broadcast_tests.rs › seqs_are_monotonic…`, `› concurrent_broadcasters_keep…`, `› replay_since_returns…`, `› ring_buffer_drops_oldest…` |
-| S2 | No duplicates or fillable gaps: connect replays from `Last-Event-Id + 1`; lag replays ring tail (dropping `<= last_replayed`) or leaves one edge gap for C1. | safety | `sse.rs` | `sse/tests_errors.rs › the_first_broadcast…`, `› a_lagged_stream…`, `sse/tests_stream.rs › a_client_that_stops_reading…`, `› a_client_beyond_the_buffer…` |
-| S3 | Reconnecting beyond the ring serves no replay so the first live delta triggers a gap refetch (C1). | safety | `sse.rs` | `sse/tests_stream.rs › a_client_beyond_the_buffer…` (`can_replay_from`; connect path is —) |
-| S4 | Streams end on shutdown; the last client leaving keeps the monitor for a 2 s grace period. | liveness | `sse.rs` | `sse/tests_errors.rs › open_stream_ends…`, `sse/tests_stream.rs › the_last_client_leaving_keeps…` |
-| S5 | Monitor reconnect gives up after 5 short runs and broadcasts fatal so clients stop retrying. | liveness | `sse.rs` | — |
-| S6 | `GET /events` attaches only to a session a live monitor holds or tmux has; any other is a 404, so the client creates it with `POST /commands`, a killed session included. | liveness | `sse.rs` | `sse/tests_errors.rs › a_session_whose_monitor_ended…` |
+In [INVARIANTS-SERVER-STREAM.md](INVARIANTS-SERVER-STREAM.md), the ledger's companion.
 
 ## C, Q and P — client stream stage, command queue and input, client model
 

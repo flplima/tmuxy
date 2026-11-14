@@ -57,6 +57,7 @@ tmuxy pane queue -t <agent> [--retract <id>] # what waits in line; take a send b
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy run <tmux cmd>            # a read/arrange/close tmux command, through run-shell
 tmuxy config reload             # re-apply tmuxy.conf (and the whole config chain) to the running app
+tmuxy keymap [--table T] [key]  # every binding, with the file:line it comes from and what it replaced
 tmuxy config paths --json       # every file tmuxy reads or writes: owner, location, safe to edit/symlink
 ```
 
