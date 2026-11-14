@@ -152,6 +152,7 @@ impl StateAggregator {
         let float_drawer = row.option(WindowColumn::FloatDrawer);
         let float_bg = row.option(WindowColumn::FloatBg);
         let float_noheader = row.flag(WindowColumn::FloatNoheader);
+        let float_minimized = row.flag(WindowColumn::FloatMinimized);
         // Session-scoped, so every row carries the same value and the last one
         // parsed wins. Read from this poll rather than its own `show-options`
         // because the poll already runs; see `tmux_options::FOCUS_REQUEST`.
@@ -176,6 +177,7 @@ impl StateAggregator {
             .entry(window_id.clone())
             .or_insert_with(|| WindowState::new(window_id.clone(), index));
 
+        window.listed = true;
         window.index = index;
         window.name = name;
         window.active = active;
@@ -187,6 +189,7 @@ impl StateAggregator {
         window.float_drawer = float_drawer;
         window.float_bg = float_bg;
         window.float_noheader = float_noheader;
+        window.float_minimized = float_minimized;
         window.sidebar_cols = sidebar_cols;
         window.sidebar_hidden = sidebar_hidden;
         window.sidebar_rows = sidebar_rows;

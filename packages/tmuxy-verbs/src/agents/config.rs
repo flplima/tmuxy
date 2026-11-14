@@ -24,6 +24,10 @@ pub(super) struct Places {
     pub(super) cwd: PathBuf,
     pub(super) claude_dir: PathBuf,
     pub(super) codex_home: PathBuf,
+    /// `$XDG_CONFIG_HOME`, else `~/.config`: where OpenCode and Crush keep theirs.
+    pub(super) config_home: PathBuf,
+    /// `$CRUSH_SKILLS_DIR`, else Crush's own under `config_home`.
+    pub(super) crush_skills: PathBuf,
     pub(super) path: Option<OsString>,
 }
 
@@ -37,17 +41,21 @@ impl Places {
                 .map(PathBuf::from)
                 .unwrap_or(default)
         };
+        let config_home = env_dir("XDG_CONFIG_HOME", home.join(".config"));
         Ok(Places {
             claude_dir: env_dir("CLAUDE_CONFIG_DIR", home.join(".claude")),
             codex_home: env_dir("CODEX_HOME", home.join(".codex")),
+            crush_skills: env_dir("CRUSH_SKILLS_DIR", config_home.join("crush/skills")),
+            config_home,
             path: std::env::var_os("PATH"),
             home,
             cwd,
         })
     }
 
-    pub(super) fn hooks_file(&self, agent: Agent, scope: Scope) -> PathBuf {
-        match (agent, scope) {
+    /// Where an agent's hooks are kept; none for an agent whose hooks are code.
+    pub(super) fn hooks_file(&self, agent: Agent, scope: Scope) -> Option<PathBuf> {
+        Some(match (agent, scope) {
             (Agent::Claude, Scope::Home) => self.claude_dir.join("settings.json"),
             // A hook names a path on this machine, so it is personal: the
             // project's local settings, not the shared ones.
@@ -56,18 +64,26 @@ impl Places {
             (Agent::Codex, Scope::Project) => self.cwd.join(".codex/hooks.json"),
             (Agent::Agy, Scope::Home) => self.home.join(".gemini/config/hooks.json"),
             (Agent::Agy, Scope::Project) => self.cwd.join(".agents/hooks.json"),
-        }
+            (Agent::Opencode | Agent::Pi | Agent::Crush, _) => return None,
+        })
     }
 
-    pub(super) fn skill_dir(&self, agent: Agent, scope: Scope) -> PathBuf {
+    /// Where an agent reads the tmuxy skill from; none where it reads no
+    /// project skills tmuxy knows of.
+    pub(super) fn skill_dir(&self, agent: Agent, scope: Scope) -> Option<PathBuf> {
         let root = match (agent, scope) {
             (Agent::Claude, Scope::Home) => self.claude_dir.join("skills"),
             (Agent::Claude, Scope::Project) => self.cwd.join(".claude/skills"),
             (Agent::Codex, Scope::Home) => self.home.join(".agents/skills"),
             (Agent::Agy, Scope::Home) => self.home.join(".gemini/config/skills"),
             (Agent::Codex | Agent::Agy, Scope::Project) => self.cwd.join(".agents/skills"),
+            (Agent::Opencode, Scope::Home) => self.config_home.join("opencode/skills"),
+            (Agent::Opencode, Scope::Project) => self.cwd.join(".opencode/skills"),
+            (Agent::Pi, Scope::Home) => self.home.join(".pi/agent/skills"),
+            (Agent::Crush, Scope::Home) => self.crush_skills.clone(),
+            (Agent::Pi | Agent::Crush, Scope::Project) => return None,
         };
-        root.join("tmuxy")
+        Some(root.join("tmuxy"))
     }
 
     /// Installed on this machine: its binary is on PATH, or it has left its
@@ -77,6 +93,9 @@ impl Places {
             Agent::Claude => ("claude", self.claude_dir.clone()),
             Agent::Codex => ("codex", self.codex_home.clone()),
             Agent::Agy => ("agy", self.home.join(".gemini/antigravity-cli")),
+            Agent::Opencode => ("opencode", self.config_home.join("opencode")),
+            Agent::Pi => ("pi", self.home.join(".pi/agent")),
+            Agent::Crush => ("crush", self.config_home.join("crush")),
         };
         dir.is_dir()
             || self
@@ -106,18 +125,36 @@ fn is_ours(handler: &Value) -> bool {
 /// than report a failed hook on every event. The path is shell-quoted: the
 /// agent runs this line through a shell, and `--hook-command` may name a path
 /// with a space (`~/Library/Application Support/…`) or worse.
+#[cfg(test)]
 pub(super) fn hook_command(agent: Agent, event: &str, tmuxy: &str) -> String {
-    let tmuxy = tmuxy_core::argv::shell_word(tmuxy);
+    quoted_hook_command(agent, event, &tmuxy_core::argv::shell_word(tmuxy))
+}
+
+/// [`hook_command`] with the tmuxy command already a shell word.
+fn quoted_hook_command(agent: Agent, event: &str, tmuxy: &str) -> String {
     format!(
         "command -v {tmuxy} >/dev/null 2>&1 && {tmuxy}{HOOK_VERB}{} {event} 2>/dev/null || true",
         agent.name()
     )
 }
 
+/// The shell word an installed hook runs tmuxy with, read back from its
+/// command: what `--hook-command` was when it was installed.
+fn installed_tmuxy(command: &str) -> Option<&str> {
+    command
+        .strip_prefix("command -v ")?
+        .split_once(" >/dev/null")
+        .map(|(word, _)| word)
+}
+
 fn handler(agent: Agent, hook: &Hook, tmuxy: &str) -> Value {
+    quoted_handler(agent, hook, &tmuxy_core::argv::shell_word(tmuxy))
+}
+
+fn quoted_handler(agent: Agent, hook: &Hook, tmuxy: &str) -> Value {
     json!({
         "type": "command",
-        "command": hook_command(agent, hook.event, tmuxy),
+        "command": quoted_hook_command(agent, hook.event, tmuxy),
         "timeout": hook.timeout,
     })
 }
@@ -186,6 +223,89 @@ pub(super) fn add_hooks(
     Ok(())
 }
 
+/// tmuxy's handlers in `doc`, each with its event and matcher, in a fixed
+/// order: what two installs are compared by.
+fn our_entries(doc: &Map<String, Value>, agent: Agent) -> Vec<(String, Value, Value)> {
+    let mut entries = Vec::new();
+    let mut take = |event: &str, matcher: Value, handlers: Option<&Value>| {
+        for handler in handlers.and_then(Value::as_array).into_iter().flatten() {
+            if is_ours(handler) {
+                entries.push((event.to_string(), matcher.clone(), handler.clone()));
+            }
+        }
+    };
+    if agent.named_hooks() {
+        for (event, handlers) in doc
+            .get("tmuxy")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+        {
+            take(event, Value::Null, Some(handlers));
+        }
+    } else {
+        let events = doc.get("hooks").and_then(Value::as_object);
+        for (event, groups) in events.into_iter().flatten() {
+            for group in groups.as_array().into_iter().flatten() {
+                let matcher = group.get("matcher").cloned().unwrap_or(Value::Null);
+                take(event, matcher, group.get("hooks"));
+            }
+        }
+    }
+    entries.sort_by(|a, b| {
+        (&a.0, a.1.to_string(), a.2.to_string()).cmp(&(&b.0, b.1.to_string(), b.2.to_string()))
+    });
+    entries
+}
+
+/// How the hooks in `doc` compare with what an install writes today.
+pub(super) fn hooks_state(doc: &Map<String, Value>, agent: Agent) -> ItemState {
+    let found = our_entries(doc, agent);
+    let Some(tmuxy) = found.iter().find_map(|(_, _, h)| {
+        h.get("command")
+            .and_then(Value::as_str)
+            .and_then(installed_tmuxy)
+    }) else {
+        return if found.is_empty() {
+            ItemState::Missing
+        } else {
+            ItemState::Outdated("written in a form this tmuxy does not write".into())
+        };
+    };
+    let mut wanted = Map::new();
+    if agent.named_hooks() {
+        let mut set = Map::new();
+        for hook in agent.hooks() {
+            set.insert(
+                hook.event.into(),
+                json!([quoted_handler(agent, hook, tmuxy)]),
+            );
+        }
+        wanted.insert("tmuxy".into(), Value::Object(set));
+    } else {
+        let mut events = Map::new();
+        for hook in agent.hooks() {
+            let mut group = Map::new();
+            if let Some(matcher) = hook.matcher {
+                group.insert("matcher".into(), json!(matcher));
+            }
+            group.insert("hooks".into(), json!([quoted_handler(agent, hook, tmuxy)]));
+            events.insert(hook.event.into(), json!([group]));
+        }
+        wanted.insert("hooks".into(), Value::Object(events));
+    }
+    if found == our_entries(&wanted, agent) {
+        return ItemState::Current;
+    }
+    let hooked = hooked_events(doc, agent);
+    let all = agent.hooks().len();
+    ItemState::Outdated(if hooked < all {
+        format!("{hooked} of {all} events")
+    } else {
+        "the events or their settings changed".into()
+    })
+}
+
 pub(super) fn hooked_events(doc: &Map<String, Value>, agent: Agent) -> usize {
     let has_ours = |handlers: Option<&Value>| {
         handlers
@@ -224,7 +344,26 @@ pub(super) fn read_doc(path: &Path) -> Result<Map<String, Value>, String> {
     }
 }
 
+/// In a test, a write anywhere but the system's temp dir is a bug that would
+/// have rewritten the developer's own agent config: stop there.
+fn guard(path: &Path) {
+    if cfg!(test) {
+        let temp =
+            std::fs::canonicalize(std::env::temp_dir()).unwrap_or_else(|_| std::env::temp_dir());
+        let at = path
+            .ancestors()
+            .find_map(|p| std::fs::canonicalize(p).ok())
+            .unwrap_or_else(|| path.to_path_buf());
+        assert!(
+            at.starts_with(&temp),
+            "a test wrote outside the temp dir: {}",
+            path.display()
+        );
+    }
+}
+
 pub(super) fn write_doc(path: &Path, doc: &Map<String, Value>) -> Result<bool, String> {
+    guard(path);
     // A settings file kept in a dotfiles repo is a symlink into it: write
     // through to the file it points at, or the rename below would replace
     // the link with a copy and cut the file off from the repo.
@@ -261,6 +400,64 @@ pub(super) enum SkillState {
     Foreign,
 }
 
+/// Where one installed item stands against what an install writes today.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ItemState {
+    /// What an install would write now.
+    Current,
+    /// tmuxy's, but not what an install would write now: why, in words.
+    Outdated(String),
+    Missing,
+    /// A `tmuxy` skill tmuxy did not write.
+    Foreign,
+    /// The file could not be read: why.
+    Unreadable(String),
+    /// The agent has no such thing tmuxy can install: hooks that are code, a
+    /// project skill folder tmuxy does not know of.
+    Unsupported,
+}
+
+impl ItemState {
+    pub(super) fn word(&self) -> &'static str {
+        match self {
+            ItemState::Current => "current",
+            ItemState::Outdated(_) => "outdated",
+            ItemState::Missing => "missing",
+            ItemState::Foreign => "foreign",
+            ItemState::Unreadable(_) => "unreadable",
+            ItemState::Unsupported => "unsupported",
+        }
+    }
+
+    /// The word, and why when there is a why.
+    pub(super) fn said(&self) -> String {
+        match self {
+            ItemState::Outdated(why) | ItemState::Unreadable(why) => {
+                format!("{}: {why}", self.word())
+            }
+            ItemState::Foreign => "foreign: not written by tmuxy".into(),
+            _ => self.word().into(),
+        }
+    }
+}
+
+/// How the skill in `dir` compares with the one this tmuxy carries: by its
+/// version, and by its text, which changes between builds of one version.
+pub(super) fn skill_item(dir: &Path) -> ItemState {
+    match skill_state(dir) {
+        SkillState::Missing => ItemState::Missing,
+        SkillState::Foreign => ItemState::Foreign,
+        SkillState::Ours(version) if version != VERSION => {
+            ItemState::Outdated(format!("written by {version}, this is {VERSION}"))
+        }
+        SkillState::Ours(_) => match std::fs::read_to_string(dir.join("SKILL.md")) {
+            Ok(text) if text == SKILL => ItemState::Current,
+            Ok(_) => ItemState::Outdated("the skill's text changed".into()),
+            Err(e) => ItemState::Unreadable(e.to_string()),
+        },
+    }
+}
+
 pub(super) fn skill_state(dir: &Path) -> SkillState {
     if !dir.exists() {
         return SkillState::Missing;
@@ -272,6 +469,7 @@ pub(super) fn skill_state(dir: &Path) -> SkillState {
 }
 
 pub(super) fn write_skill(dir: &Path, force: bool) -> Result<&'static str, String> {
+    guard(dir);
     let fail = |e: std::io::Error| format!("{}: {e}", dir.display());
     match skill_state(dir) {
         SkillState::Ours(version)
@@ -302,6 +500,7 @@ pub(super) fn write_skill(dir: &Path, force: bool) -> Result<&'static str, Strin
 }
 
 pub(super) fn remove_skill(dir: &Path) -> Result<bool, String> {
+    guard(dir);
     if !matches!(skill_state(dir), SkillState::Ours(_)) {
         return Ok(false);
     }

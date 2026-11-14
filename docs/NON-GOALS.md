@@ -50,14 +50,14 @@ We do NOT predict keystrokes locally to reduce perceived latency (like mosh does
 - Adds significant complexity
 - Risk of prediction errors
 
-### 5. Binary Protocol / Compression
+### 5. Binary Protocol
 
-We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compression.
+We use JSON over SSE/HTTP, not a binary encoding (MessagePack, Protobuf). The web server does compress what it answers in transit, with gzip or brotli when the browser takes it (`tmuxy-server/src/server/delivery.rs`): the bundle, a full state, a pane's scrollback. The event stream is left as it is, since a compressor would hold a frame back.
 
 **Why?**
 
 - For local tmux, bandwidth is not the bottleneck
-- JSON is debuggable and simple
+- JSON is debuggable and simple, and stays so under `Content-Encoding`
 - Premature optimization
 
 ### 6. Unicode Width Calculation

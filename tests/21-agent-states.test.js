@@ -23,8 +23,9 @@ const {
   navigatePaneKeyboard,
   waitForPaneCount,
   waitForCondition,
+  killPaneKeyboard,
 } = require('./helpers');
-const { tmuxyCli, tmuxRunAsOperator } = require('./helpers/cli');
+const { tmuxyCli, tmuxyCliAsync, tmuxRunAsOperator } = require('./helpers/cli');
 
 /** The state mark a pane's header shows, if it shows one. */
 async function headerMark(page, paneId) {
@@ -114,6 +115,197 @@ describeE2E(
     }, 120000);
   },
 );
+
+/** The close confirmation as drawn: null unless it has a box on screen. */
+async function closeQuestion(page) {
+  return page.evaluate(() => {
+    const dialog = document.querySelector('[data-testid="close-confirm"]');
+    const box = dialog?.getBoundingClientRect();
+    if (!dialog || !box || box.width < 100 || box.height < 40) return null;
+    const inView = box.top >= 0 && box.left >= 0 && box.bottom <= innerHeight;
+    return inView ? dialog.textContent : null;
+  });
+}
+
+const paneIds = (page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.pane-layout-item[data-pane-id]')].map(
+      (el) => el.dataset.paneId,
+    ),
+  );
+
+describeE2E('Scenario: closing a pane that says it is working asks first', {}, (ctx) => {
+  test('the close keys on a working pane ask → Escape keeps it → the ✕ asks again → Enter closes it → an idle pane closes at once', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+    await waitForShellPrompt(page);
+    const busy = await page.evaluate(() => window.app?.view().activePaneId);
+
+    tmuxyCli(['pane', 'state', 'working', busy]);
+    await waitForCondition(
+      page,
+      async () => (await headerMark(page, busy)) === 'working',
+      10000,
+      () => seen(page, busy, 'the pane to show it is working'),
+    );
+
+    // The keyboard's close: held, with the question on screen.
+    await killPaneKeyboard(page);
+    await waitForCondition(
+      page,
+      async () => (await closeQuestion(page)) !== null,
+      10000,
+      'the close keys to ask before closing a working pane',
+    );
+    expect(await closeQuestion(page)).toMatch(/still working/);
+    expect(await paneIds(page)).toContain(busy);
+
+    // Escape keeps the pane, and it is still the working one.
+    await page.keyboard.press('Escape');
+    await waitForCondition(
+      page,
+      async () => (await closeQuestion(page)) === null,
+      5000,
+      'Escape to dismiss the question',
+    );
+    expect(await paneIds(page)).toHaveLength(2);
+    expect(await headerMark(page, busy)).toBe('working');
+
+    // The header's ✕ is the same close: it asks too, and Enter says yes.
+    await page.click(`[data-pane-id="${busy}"] .pane-header-close`);
+    await waitForCondition(
+      page,
+      async () => (await closeQuestion(page)) !== null,
+      10000,
+      'the ✕ to ask before closing a working pane',
+    );
+    await page.keyboard.press('Enter');
+    await waitForPaneCount(page, 1);
+    expect(await paneIds(page)).not.toContain(busy);
+    expect(await closeQuestion(page)).toBeNull();
+
+    // A pane that says nothing about itself closes at once, as it always did.
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+    await waitForShellPrompt(page);
+    await killPaneKeyboard(page);
+    await waitForPaneCount(page, 1);
+    expect(await closeQuestion(page)).toBeNull();
+  }, 120000);
+});
+
+/**
+ * An orchestrator waits on its agents' states, not their screens: a
+ * collapsed row in a stack is one line tall, and its screen says nothing.
+ * `tmuxy agent wait` reads `@tmuxy-pane-state`, which the agents' hooks set;
+ * here the test sets it, as a hook would, with `tmuxy pane state`.
+ */
+describeE2E("Scenario: an orchestrator waits on its agents' states", {}, (ctx) => {
+  test('agent wait ends when a labelled pane needs the user, --all waits for every one, and a timeout or an unknown label fails', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    const first = await page.evaluate(() => window.app?.view().activePaneId);
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+    const second = await page.evaluate(() => window.app?.view().activePaneId);
+    const label = (pane, name) =>
+      ctx.session.runAsOperator(`set-option -p -t ${pane} @tmuxy-label ${name}`);
+    label(first, 'child-a');
+    label(second, 'child-b');
+    try {
+      // Working when the wait begins. `--now` counts a pane already in a
+      // wanted state, so the wait's first read and the writes below may
+      // come in either order; that an already-settled pane does not end a
+      // plain wait is the unit tests' (agents/wait_tests.rs).
+      tmuxyCli(['pane', 'state', 'working', first]);
+      tmuxyCli(['pane', 'state', 'working', second]);
+
+      const any = tmuxyCliAsync([
+        'agent',
+        'wait',
+        'child-a',
+        'child-b',
+        '--now',
+        '--until',
+        'needs-input',
+        '--for',
+        '30s',
+        '--json',
+      ]);
+      tmuxyCli(['pane', 'state', 'needs-input', first]);
+      const answered = await any;
+      expect(answered.code).toBe(0);
+      expect(JSON.parse(answered.stdout)).toEqual({
+        ok: true,
+        panes: [{ paneId: first, label: 'child-a', state: 'needs-input' }],
+      });
+
+      const all = tmuxyCliAsync([
+        'agent',
+        'wait',
+        '--all',
+        '--now',
+        '--until',
+        'done,error',
+        first,
+        second,
+        '--for',
+        '30s',
+      ]);
+      tmuxyCli(['pane', 'state', 'error', second]);
+      tmuxyCli(['pane', 'state', 'unread', first]);
+      const both = await all;
+      expect(both.code).toBe(0);
+      expect(both.stdout.trim().split('\n').sort()).toEqual(
+        [`${first} child-a unread`, `${second} child-b error`].sort(),
+      );
+
+      const late = await tmuxyCliAsync([
+        'agent',
+        'wait',
+        'child-b',
+        '--until',
+        'idle',
+        '--for',
+        '2s',
+      ]);
+      expect(late.code).toBe(1);
+      expect(late.stderr).toContain('timed out');
+      const nobody = await tmuxyCliAsync(['agent', 'wait', 'nobody', '--for', '2s']);
+      expect(nobody.code).toBe(3);
+
+      // A pane that goes away is not a pane that finished: exit 3, unless
+      // the wait was for exactly that.
+      const gone = tmuxyCliAsync(['agent', 'wait', 'child-b', '--for', '30s']);
+      const goneAsked = tmuxyCliAsync([
+        'agent',
+        'wait',
+        'child-b',
+        '--until',
+        'exited',
+        '--for',
+        '30s',
+      ]);
+      tmuxyCli(['pane', 'kill', second]);
+      const ended = await gone;
+      expect(ended.code).toBe(3);
+      expect(ended.stderr).toContain(`${second} went away`);
+      expect((await goneAsked).code).toBe(0);
+    } finally {
+      for (const pane of [first, second]) {
+        try {
+          tmuxyCli(['pane', 'state', 'clear', pane]);
+        } catch {
+          // The test closed it.
+        }
+      }
+    }
+  }, 120000);
+});
 
 /**
  * A program can say what it is doing in its own output, with the program

@@ -223,7 +223,7 @@ pub(super) fn window_delta(
     let mut delta = crate::WindowDelta::default();
     changed_fields!(delta, prev, curr;
         index, name, active, window_type, float_parent, float_width, float_height,
-        float_drawer, float_bg, float_noheader, sidebar_cols, sidebar_hidden,
+        float_drawer, float_bg, float_noheader, float_minimized, sidebar_cols, sidebar_hidden,
         collapsible, zoomed, active_pane_id, pane_tree,
     );
     delta

@@ -10,6 +10,7 @@ import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
 import { FloatContainer } from './components/FloatPane';
+import { CloseConfirm } from './components/CloseConfirm';
 import { KeysView } from './components/KeysView';
 import { Sidebar } from './components/Sidebar';
 import { TabOverview } from './components/TabOverview';
@@ -42,6 +43,7 @@ import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/terminal/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
+import { CommandPalette } from './components/palette/CommandPalette';
 import { KeyRow } from './components/phone/KeyRow';
 import {
   useCursorInView,
@@ -182,6 +184,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
         </>
       )}
       {showLayout && <KeysView />}
+      {showLayout && <CloseConfirm />}
       {overlayMode && (
         <ConnectionOverlay
           mode={overlayMode}
@@ -269,6 +272,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           home indicator (standalone.css says why). */}
       {phone && <div className="edge-band edge-band-top" aria-hidden="true" />}
       {phone && <div className="edge-band edge-band-bottom" aria-hidden="true" />}
+      {showLayout && <CommandPalette />}
       <Snackbar />
       <SmoothCursor />
       {latencyTracker.isEnabled() && <PerfHud />}
