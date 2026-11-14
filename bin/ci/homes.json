@@ -7,7 +7,7 @@
     {
       "id": "@tmuxy-window-type",
       "why": "the option a window's kind is tagged with",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-window-type"
       ],
@@ -21,7 +21,7 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-core/src/float.rs",
         "packages/tmuxy-server/src/mcp/tmux.rs",
         "packages/tmuxy-ui/src/domain/commandHelpers.ts",
@@ -31,7 +31,7 @@
     {
       "id": "@tmuxy-sidebar-hidden",
       "why": "the option a sidebar's open state is kept in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-sidebar-hidden"
       ],
@@ -45,14 +45,14 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-core/src/tmux_compat.rs"
       ]
     },
     {
       "id": "@tmuxy-collapsible",
       "why": "the option a stack is marked with",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-collapsible"
       ],
@@ -66,14 +66,14 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-core/src/tmux_compat.rs"
       ]
     },
     {
       "id": "@tmuxy-focus-request",
       "why": "the option a focus request travels in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-focus-request"
       ],
@@ -87,14 +87,14 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-ui/src/domain/commands.ts"
       ]
     },
     {
       "id": "@tmuxy-group-id",
       "why": "the option a pane group is named by",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-group-id"
       ],
@@ -108,14 +108,14 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-ui/src/machines/actors/serversActor.ts"
       ]
     },
     {
       "id": "@tmuxy-pane-restore",
       "why": "the option a pane's restore is kept in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-pane-restore"
       ],
@@ -129,13 +129,13 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs"
+        "packages/tmuxy-core/src/constants/tmux_options.rs"
       ]
     },
     {
       "id": "@tmuxy-pane-state",
       "why": "the option a pane's agent state is kept in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-pane-state"
       ],
@@ -149,7 +149,7 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-core/src/host/socket_watch.rs",
         "packages/tmuxy-ui/src/domain/commands.ts",
         "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts"
@@ -158,7 +158,7 @@
     {
       "id": "@tmuxy-label",
       "why": "the option a pane's label is kept in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-label"
       ],
@@ -173,7 +173,7 @@
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy-cli",
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-core/src/host/socket_watch.rs",
         "packages/tmuxy-server/src/mcp/tmux.rs",
         "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts"
@@ -182,7 +182,7 @@
     {
       "id": "@tmuxy-pane-widget",
       "why": "the option a pane's widget is named in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-pane-widget"
       ],
@@ -196,14 +196,14 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-ui/src/infra/transport/drivers/guest/guestPreview.ts"
       ]
     },
     {
       "id": "@tmuxy-pane-preview",
       "why": "the option a pane's preview is kept in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-pane-preview'",
         "@tmuxy-pane-preview\"",
@@ -220,14 +220,14 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-ui/src/infra/transport/drivers/guest/guestPreview.ts"
       ]
     },
     {
       "id": "@tmuxy-pane-preview-net",
       "why": "the option a preview's network permission is kept in",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "@tmuxy-pane-preview-net"
       ],
@@ -241,7 +241,7 @@
       ],
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
-        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/constants/tmux_options.rs",
         "packages/tmuxy-ui/src/infra/transport/drivers/guest/guestPreview.ts"
       ]
     },
@@ -291,7 +291,7 @@
     {
       "id": "sidebar window types",
       "why": "the window types of the two sidebars",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "sidebar-left",
         "sidebar-right"
@@ -314,7 +314,7 @@
     {
       "id": "pane state needs-input",
       "why": "a pane state word",
-      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "home": "packages/tmuxy-core/src/constants/tmux_options.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
       "literals": [
         "needs-input"
       ],

@@ -48,6 +48,10 @@ pub struct SendArgs {
     /// send (`send_cli/queued.rs`).
     #[arg(long)]
     queue: bool,
+    /// Post the text to the agent's inbox socket instead of typing it: a
+    /// spike, off unless `@tmuxy-send-inbox` is on (docs/AGENT-INBOX.md).
+    #[arg(long)]
+    inbox: bool,
     /// The keys: literal text or key names (Enter, C-c, ...).
     #[arg(last = true)]
     keys: Vec<String>,
@@ -123,6 +127,7 @@ async fn send<T: ask::Tmux>(
         paste: args.paste,
         wait,
         also: None,
+        inbox: args.inbox,
     };
     // The caller's pane is a claim until this process is seen to run there:
     // the flag is the caller's to write, and a claim to the target pane
@@ -299,10 +304,50 @@ struct Delivery<'a> {
     wait: Option<wait::Wait>,
     /// A tmux format the guard checks too, as the keys go in.
     also: Option<String>,
+    /// Post to the agent's inbox rather than type (`send_cli/inbox.rs`).
+    inbox: bool,
 }
 
 impl Delivery<'_> {
     async fn deliver<T: ask::Tmux>(&self, tmux: &T, answer: &Answer) -> Result<(), (i32, String)> {
+        // The program in front as the keys go in: a wait ends only for it.
+        let pinned = match self.wait {
+            Some(_) => {
+                wait::refuse_busy(tmux, self.pane).await?;
+                Some(wait::occupant(tmux, self.pane).await?)
+            }
+            None => None,
+        };
+        if self.inbox {
+            inbox::post(tmux, self.pane, self.keys, self.also.as_deref()).await?;
+        } else {
+            self.type_in(tmux).await?;
+        }
+        let settled = match (self.wait, &pinned) {
+            (Some(how), Some(pinned)) => Some(wait::settle(tmux, self.pane, pinned, how).await?),
+            _ => None,
+        };
+        let mut fields = vec![
+            ("paneId", cli_json::string(self.pane.as_str())),
+            ("sent", "true".into()),
+        ];
+        if let Some(state) = &settled {
+            fields.push(("settled", cli_json::string(state)));
+        }
+        let said = match &settled {
+            Some(state) => format!(
+                "sent to {} and it finished ({state}): {}",
+                self.pane,
+                self.keys.join(" ")
+            ),
+            None => format!("sent to {}: {}", self.pane, self.keys.join(" ")),
+        };
+        answer.done(&fields, &said);
+        Ok(())
+    }
+
+    /// Type the keys, or paste them, through the guard.
+    async fn type_in<T: ask::Tmux>(&self, tmux: &T) -> Result<(), (i32, String)> {
         // Every send, the caller's own pane included, goes in through
         // `ask::deliver`, which types nothing into a pane at a prompt.
         let buffer = self.paste.then(|| {
@@ -331,14 +376,6 @@ impl Delivery<'_> {
         } else {
             ask::send_keys_argv(self.pane, self.keys)
         };
-        // The program in front as the keys go in: a wait ends only for it.
-        let pinned = match self.wait {
-            Some(_) => {
-                wait::refuse_busy(tmux, self.pane).await?;
-                Some(wait::occupant(tmux, self.pane).await?)
-            }
-            None => None,
-        };
         if let Err(refused) =
             ask::deliver_when(tmux, self.pane, command, self.also.as_deref()).await
         {
@@ -348,26 +385,6 @@ impl Delivery<'_> {
             }
             return Err((EXIT_FAILED, refused.to_string()));
         }
-        let settled = match (self.wait, &pinned) {
-            (Some(how), Some(pinned)) => Some(wait::settle(tmux, self.pane, pinned, how).await?),
-            _ => None,
-        };
-        let mut fields = vec![
-            ("paneId", cli_json::string(self.pane.as_str())),
-            ("sent", "true".into()),
-        ];
-        if let Some(state) = &settled {
-            fields.push(("settled", cli_json::string(state)));
-        }
-        let said = match &settled {
-            Some(state) => format!(
-                "sent to {} and it finished ({state}): {}",
-                self.pane,
-                self.keys.join(" ")
-            ),
-            None => format!("sent to {}: {}", self.pane, self.keys.join(" ")),
-        };
-        answer.done(&fields, &said);
         Ok(())
     }
 }
@@ -414,6 +431,7 @@ fn without_controls(text: &str) -> String {
         .collect()
 }
 
+mod inbox;
 mod queued;
 mod wait;
 

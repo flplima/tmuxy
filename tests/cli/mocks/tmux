@@ -159,6 +159,8 @@ case "${1:-}" in
       *@tmuxy-send-ask) echo "${MOCK_TMUX_SEND_ASK:-}"; exit 0 ;;
       *@tmuxy-send-allow) echo "${MOCK_TMUX_SEND_ALLOW:-}"; exit 0 ;;
       *@tmuxy-send-allow-into) echo "${MOCK_TMUX_SEND_ALLOW_INTO:-}"; exit 0 ;;
+      # The agent inbox bridge's switch (`agent-hook`).
+      *@tmuxy-send-inbox) echo "${MOCK_TMUX_SEND_INBOX:-}"; exit 0 ;;
       # The caller's window's type (`window_type`, packages/tmuxy-cli/bin/tmuxy/_lib).
       *@tmuxy-window-type) echo "${MOCK_TMUX_WINDOW_TYPE:-}"; exit 0 ;;
       # The pane's state, played from the log once the script has written

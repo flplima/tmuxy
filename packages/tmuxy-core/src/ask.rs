@@ -500,6 +500,8 @@ fn words(words: &[&str]) -> Argv {
     words.iter().map(|w| w.to_string()).collect()
 }
 
+#[cfg(unix)]
+pub mod inbox;
 pub mod queue;
 
 #[cfg(test)]

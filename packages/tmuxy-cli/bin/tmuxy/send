@@ -12,7 +12,7 @@ source "${0%/*}/_lib"
 
 usage() {
   cat <<'EOF'
-Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] [--queue] [--wait [--for 30m]] <keys...>
+Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] [--queue] [--inbox] [--wait [--for 30m]] <keys...>
 
 Type keys into a pane, as tmux send-keys does: each argument is literal text
 or a key name (Enter, Escape, C-c, ...), with nothing between them.
@@ -28,6 +28,10 @@ or not: a key there could answer it. Such a send exits 1 and types nothing.
 Options:
   -t <pane>            The pane to type into. Default: your own.
   --timeout SECONDS    Give up on an unanswered question after this long.
+  --inbox              Post the text to the agent's inbox instead of typing
+                       it: a spike, off unless set -g @tmuxy-send-inbox on
+                       (see docs/AGENT-INBOX.md in the tmuxy repository).
+                       The words are one message; a final Enter is dropped.
   --queue              Wait in line while the pane is busy (working, or at
                        a prompt), then send as above. Sends in line go one
                        turn at a time, first come first served; this prints
@@ -73,6 +77,7 @@ TARGET=""
 TIMEOUT=""
 WAIT=false
 QUEUE=false
+INBOX=false
 # `tmuxy pane queue` hands its listing and retracting here, for the same
 # target resolution.
 LIST_QUEUE=false
@@ -114,6 +119,10 @@ while [ $# -gt 0 ]; do
       ;;
     --queue)
       QUEUE=true
+      shift
+      ;;
+    --inbox)
+      INBOX=true
       shift
       ;;
     --list-queue)
@@ -196,6 +205,7 @@ send_args=(send --target "$TARGET" --caller-pane "$OWN_PANE" --caller-process "$
 [ -n "$TIMEOUT" ] && send_args+=(--timeout "$TIMEOUT")
 $PASTE && send_args+=(--paste)
 $QUEUE && send_args+=(--queue)
+$INBOX && send_args+=(--inbox)
 if $WAIT; then
   send_args+=(--wait)
   [ -n "$WAIT_FOR" ] && send_args+=(--wait-for "$WAIT_FOR")

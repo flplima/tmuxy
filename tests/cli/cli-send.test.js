@@ -98,6 +98,8 @@ describe('tmuxy pane send', () => {
       env: IN_PANE_1,
     });
     expect(verbArgs(queued.stdout)).toMatch(/ --queue -- go Enter$/);
+    const posted = runCLI(['pane', 'send', '-t', '%3', '--inbox', 'done'], { env: IN_PANE_1 });
+    expect(verbArgs(posted.stdout)).toMatch(/ --inbox -- done$/);
     const queueArgs = (stdout) => {
       const line = stdout.split('\n').find((l) => l.startsWith('mock-server-started send-queue '));
       return line ? line.slice('mock-server-started '.length) : null;
