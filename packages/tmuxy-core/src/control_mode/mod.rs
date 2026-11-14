@@ -8,6 +8,7 @@ mod log;
 mod octal;
 mod osc;
 mod parser;
+mod program_status;
 mod state;
 
 pub mod monitor_core;

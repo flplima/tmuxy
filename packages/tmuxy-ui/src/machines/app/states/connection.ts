@@ -38,6 +38,7 @@ export const connectionGlobalEvents = {
     actions: 'connection_detachClient',
   },
   SWITCH_SESSION: { actions: 'connection_switchSession' },
+  TMUX_SESSION_SWITCHED: { actions: 'connection_sessionSwitched' },
   NEW_SESSION: { actions: 'connection_newSession' },
   KEYBINDINGS_RECEIVED: { actions: 'connection_keybindingsReceived' },
 } as const;

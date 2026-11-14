@@ -30,7 +30,10 @@ pub(super) async fn watched_with(
     clients: &[u64],
 ) {
     let mut conns = SessionConnections::new(session, state);
-    conns.connections.extend_from_slice(clients);
+    for &client in clients {
+        conns.register(client);
+        state.open_command_gate(client);
+    }
     conns.runtime.connected(tx).await;
     state
         .sessions

@@ -73,14 +73,15 @@ function wdioAdapter(driver) {
     // WebKitWebDriver's `execute` is synchronous and cannot hold a pending
     // in-page promise across the keystroke, so the armer parks its answer on
     // `window` and settling polls for it.
-    arm: async (probe, arg, timeoutMs) => {
+    arm: async (probe, arg, timeoutMs, keys = 1) => {
       await driver.execute(
-        (p, a, t) => {
-          window.__perfArmStart(p, a, t);
+        (p, a, t, k) => {
+          window.__perfArmStart(p, a, t, k);
         },
         probe,
         arg,
         timeoutMs,
+        keys,
       );
       return {
         settle: async () => {
