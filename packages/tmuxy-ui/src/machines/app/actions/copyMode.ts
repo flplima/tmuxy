@@ -21,8 +21,10 @@ import {
   selectEveryRow,
   selectWordAt,
 } from './copyMode/scrollback';
+import { promptMarkActions } from './copyMode/promptMarks';
 
 export const copyModeActions = {
+  ...promptMarkActions,
   /**
    * Open tmux's copy mode: the pane really enters `in_mode`, so the client can
    * draw its cursor and run vi motions against a viewport tmux agrees is

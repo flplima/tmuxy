@@ -5,13 +5,19 @@
 //! process while a control-mode client is attached can crash tmux 3.5a
 //! (docs/TMUX.md).
 
-use super::{MonitorCommand, MonitorCommandSender};
+use super::{CommandReply, MonitorCommand, MonitorCommandSender};
 use crate::CommandError;
 
 /// Run a command on the monitor's connection and wait for what it printed. An
 /// `%error` from tmux is a `tmux` error carrying tmux's message; a monitor
 /// that is gone is `unavailable`.
 pub async fn query(tx: &MonitorCommandSender, command: &str) -> Result<String, CommandError> {
+    ask(tx, command).await?.into_result()
+}
+
+/// [`query`], for a caller that reads what a command list printed before one
+/// of its commands failed.
+pub async fn ask(tx: &MonitorCommandSender, command: &str) -> Result<CommandReply, CommandError> {
     let (reply, rx) = tokio::sync::oneshot::channel();
     tx.send(MonitorCommand::RunCommandWithReply {
         command: command.to_string(),
@@ -20,8 +26,7 @@ pub async fn query(tx: &MonitorCommandSender, command: &str) -> Result<String, C
     .await
     .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
     rx.await
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?
-        .into_result()
+        .map_err(|_| CommandError::unavailable("monitor went away before answering"))
 }
 
 /// Run a command on the monitor's connection without waiting for it. A

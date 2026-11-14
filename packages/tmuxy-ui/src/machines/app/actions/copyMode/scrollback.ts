@@ -12,6 +12,7 @@ import type { TmuxPane } from '../../../../domain/client';
 import type { CellLine } from '../../../../domain/wireCells';
 import type { PaneId } from '../../../../domain/ids';
 import { TmuxOp } from '../../../../domain/commands';
+import { shiftPromptRows } from '../../../../domain/promptMarks';
 import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 
 export function fetchNeededChunk(
@@ -157,6 +158,11 @@ export function fetchHistory(enqueue: EnqueueAction, paneId: PaneId, record: Cop
       end: record.height - 1,
     }),
   );
+  // The shell's prompt rows, for the marks beside them and the jump between
+  // them: a view opened by that jump already has them.
+  if (!record.promptRows) {
+    enqueue(sendTo('tmux', { type: 'FETCH_PROMPT_MARKS' as const, paneId }));
+  }
 }
 
 /**
@@ -257,6 +263,9 @@ export function applyScrollbackChunk(
       histDiff !== 0
         ? Math.max(0, Math.min(existing.cursorRow + histDiff, totalLines - 1))
         : existing.cursorRow,
+    ...(existing.promptRows && histDiff !== 0
+      ? { promptRows: shiftPromptRows(existing.promptRows, histDiff) }
+      : {}),
   };
 
   if (existing.pendingSelection) {

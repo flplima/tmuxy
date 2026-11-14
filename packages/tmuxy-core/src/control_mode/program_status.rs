@@ -12,6 +12,7 @@
 //! The feature-detection query (`OSC 7501 ; ?`) is a report without a state,
 //! and is dropped like one (docs/RICH-RENDERING.md says why it has no reply).
 
+use super::command_finish;
 use super::osc::StatusEvent;
 use super::state::Instant;
 use crate::PaneStateName;
@@ -387,20 +388,35 @@ pub(crate) struct Tracker {
     row_stale: bool,
     /// When a write that came too soon after the last one may go out.
     held_until: Option<Instant>,
+    /// When the shell started the command it is running (OSC 133 ; C).
+    command_began: Option<Instant>,
 }
 
 impl Tracker {
-    pub(crate) fn read(&mut self, events: Vec<StatusEvent>) {
+    /// Take in what the pane's output said, read at `now`.
+    pub(crate) fn read(&mut self, events: Vec<StatusEvent>, now: Instant) {
         for event in events {
             self.unsettled = true;
             match event {
-                StatusEvent::Report(report) => {
-                    self.reported |= matches!(report, Report::Set { .. });
-                    self.records.apply(report);
-                }
+                StatusEvent::Report(report) => self.report(report),
                 StatusEvent::PromptBegan => self.records.prompt_began(),
+                StatusEvent::CommandBegan => {
+                    self.command_began = Some(now);
+                    self.report(command_finish::began());
+                }
+                StatusEvent::CommandEnded(exit) => {
+                    let ran = self.command_began.take().map(|at| now.duration_since(at));
+                    if let Some(report) = ran.and_then(|ran| command_finish::ended(exit, ran)) {
+                        self.report(report);
+                    }
+                }
             }
         }
+    }
+
+    fn report(&mut self, report: Report) {
+        self.reported |= matches!(report, Report::Set { .. });
+        self.records.apply(report);
     }
 
     /// What the pane shows from `now` on, when that changed: `None` when

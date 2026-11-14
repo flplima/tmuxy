@@ -20,7 +20,7 @@ pub const INTERVAL: Duration = Duration::from_millis(1500);
 /// Tab-separated, the free-text fields last (a window name may hold a tab).
 pub const PANES_FORMAT: &str = "#{pane_id}\t#{session_name}\t#{@tmuxy-notify}\t\
      #{@tmuxy-pane-state}\t#{pane_current_command}\t#{@tmuxy-ask}\t#{@tmuxy-label}\t\
-     #{pane_pid}\t#{window_name}";
+     #{pane_pid}\t#{@tmuxy-pane-status}\t#{window_name}";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PaneRow {
@@ -36,7 +36,40 @@ pub struct PaneRow {
     /// The pane's first process, for finding the program an interpreter
     /// runs (`agent_rules::program`).
     pub pid: Option<u32>,
+    /// What a report said the state is about (`@tmuxy-pane-status`): empty
+    /// when no program and no shell reported it.
+    pub status: String,
     pub window: String,
+}
+
+/// Whose finished work a pane's `unread` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultFrom {
+    /// A program said `done` for itself (OSC 7501).
+    Program,
+    /// The shell's long command ended (OSC 133).
+    Shell,
+}
+
+impl PaneRow {
+    /// Whose result the pane's `unread` is. `None` when nothing reported
+    /// one: the state was set some other way (a send that skipped its
+    /// question marks the pane it typed into), and nothing finished.
+    pub fn result(&self) -> Option<ResultFrom> {
+        use crate::control_mode::{command_finish, program_status};
+        if !program_status::status_is_for(&self.status, Some(&self.state)) {
+            return None;
+        }
+        let shells = self
+            .status
+            .split(':')
+            .any(|pair| pair.strip_prefix("id=") == Some(command_finish::RECORD_ID));
+        Some(if shells {
+            ResultFrom::Shell
+        } else {
+            ResultFrom::Program
+        })
+    }
 }
 
 /// A line missing a field is skipped.
@@ -44,8 +77,9 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
     listing
         .lines()
         .filter_map(|line| {
-            let f: Vec<&str> = line.splitn(9, '\t').collect();
-            let [pane_id, session, notify, state, command, ask, label, pid, window] = f[..] else {
+            let f: Vec<&str> = line.splitn(10, '\t').collect();
+            let [pane_id, session, notify, state, command, ask, label, pid, status, window] = f[..]
+            else {
                 return None;
             };
             Some(PaneRow {
@@ -57,6 +91,7 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
                 asking: !ask.is_empty(),
                 label: label.to_string(),
                 pid: pid.parse().ok(),
+                status: status.to_string(),
                 window: window.to_string(),
             })
         })
@@ -117,9 +152,9 @@ mod tests {
     #[test]
     fn a_pane_list_row_reads_into_its_fields() {
         let rows = parse_rows(
-            "%3\twork\ton\tworking\tclaude\t\t\t4021\tmain\n\
-             %4\twork\ton\t\tzsh\t\tbuild\t\tside\twith\ttabs\n\
-             %5\twork\toff\tneeds-input\t2.1.30\tMay I?\t\t77\tmain\n\
+            "%3\twork\ton\tworking\tclaude\t\t\t4021\t\tmain\n\
+             %4\twork\ton\t\tzsh\t\tbuild\t\t\tside\twith\ttabs\n\
+             %5\twork\toff\tneeds-input\t2.1.30\tMay I?\t\t77\tstate=blocked\tmain\n\
              %6\ttoo\tshort\n",
         );
         assert_eq!(rows.len(), 3);
@@ -134,9 +169,11 @@ mod tests {
                 asking: false,
                 label: String::new(),
                 pid: Some(4021),
+                status: String::new(),
                 window: "main".into(),
             }
         );
+        assert_eq!(rows[2].status, "state=blocked");
         assert_eq!(rows[1].label, "build");
         assert_eq!(rows[1].window, "side\twith\ttabs");
         assert!(rows[2].asking);

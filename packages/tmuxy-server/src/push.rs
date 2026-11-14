@@ -1,6 +1,8 @@
-//! Web push notifications: a pane entering `needs-input` or `error` is
-//! pushed to every device that turned notifications on — a browser tab, or
-//! the app installed on a phone's home screen, open or not.
+//! Web push notifications: a pane entering `needs-input` or `error`, or one
+//! with a result (an `unread` a program or the shell reported as done) that
+//! nobody has looked at yet, is pushed to every
+//! device that turned notifications on — a browser tab, or the app installed
+//! on a phone's home screen, open or not.
 //!
 //! - The device subscribes in the page (`pushManager.subscribe`, with this
 //!   server's VAPID public key from `GET /api/push`) and hands the

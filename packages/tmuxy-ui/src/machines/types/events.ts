@@ -4,6 +4,7 @@ import type { PaneContent } from '../../domain/wireCells';
 import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../domain/wireSettings';
 import type { TabStripGeometry } from '../drag/tabStripDrop';
 import type { AskAnswer } from '../../domain/paneAsk';
+import type { PromptDirection } from '../../domain/promptMarks';
 import type { ActivityRow, ActivityTarget } from '../../domain/activity';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
@@ -257,6 +258,18 @@ export type AppMachineEvent =
       width: number;
     }
   | { type: 'COPY_MODE_CHUNK_FAILED'; paneId: PaneId }
+  /** Go to the shell's previous or next prompt in a pane's scrollback (OSC 133). */
+  | { type: 'PROMPT_JUMP'; paneId?: PaneId; direction: PromptDirection }
+  /** tmux answered with a pane's prompt rows; `jump` is the move that asked. */
+  | {
+      type: 'PROMPT_MARKS_LOADED';
+      paneId: PaneId;
+      historySize: number;
+      prompts: readonly number[];
+      jump?: PromptDirection;
+    }
+  /** Put what a pane's newest command printed on the clipboard. */
+  | { type: 'COPY_LAST_OUTPUT'; paneId?: PaneId }
   | {
       type: 'COPY_MODE_CURSOR_MOVE';
       paneId: PaneId;

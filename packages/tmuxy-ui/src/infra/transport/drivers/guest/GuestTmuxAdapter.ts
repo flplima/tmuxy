@@ -180,6 +180,12 @@ export class GuestTmuxAdapter implements TransportDriver {
         const cells = this.engine.parseScrollback(text, width);
         return { cells, historySize, start, end, width };
       }
+      // The guest's tmux is not walked for prompt marks: a pane here has
+      // none, and no last output to copy (docs/PROMPT-MARKS.md).
+      case 'get_prompt_marks':
+        return { historySize: 0, prompts: [] };
+      case 'get_last_command_output':
+        return { text: null };
       case 'read_preview':
         return readGuestPreview(
           (command) => this.engine.query(command),

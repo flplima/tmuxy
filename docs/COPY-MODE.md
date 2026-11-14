@@ -244,3 +244,4 @@ types the selection into the pane. Either closes the view.
 - [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — the `copyMode` slice and `copyModeStates` context
 - [NON-GOALS.md](NON-GOALS.md) — why client scrollback rendering is the one scrollback-like feature we implement
 - [DATA-FLOW.md](DATA-FLOW.md) — the SSE/HTTP/Tauri/v86 transports the scrollback fetch rides on
+- [PROMPT-MARKS.md](PROMPT-MARKS.md): the shell's prompts (OSC 133) in both views: marks, the jump, `[` and `]`, Copy Last Output

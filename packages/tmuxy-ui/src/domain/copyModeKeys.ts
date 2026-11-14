@@ -1,4 +1,5 @@
 import type { CopyModeState } from './copyMode';
+import { jumpToPrompt } from './promptMarks';
 import type { CellLine } from './wireCells';
 
 export type CopyModeAction = 'yank' | 'exit' | null;
@@ -262,6 +263,13 @@ export function handleCopyModeKey(
       case 'Escape':
         action = 'exit';
         break;
+
+      // The shell's previous and next prompt (OSC 133).
+      case '[':
+      case ']': {
+        const jump = jumpToPrompt(state, effectiveKey === '[' ? 'previous' : 'next');
+        return { state: jump?.kind === 'move' ? jump.state : {}, action: null };
+      }
 
       default:
         return { state: {}, action: null };

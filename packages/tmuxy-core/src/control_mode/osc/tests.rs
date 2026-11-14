@@ -57,3 +57,21 @@ fn osc_title_and_clipboard_enforce_size_caps() {
     parser.process(huge_clip.as_bytes());
     assert_eq!(parser.callbacks_mut().take_clipboard(), None);
 }
+
+#[test]
+fn the_shells_marks_are_read_in_order_with_the_exit_status() {
+    let mut p = parser();
+    p.process(b"\x1b]133;A\x07$ make\r\n\x1b]133;C\x07ok\r\n\x1b]133;D;2\x07");
+    p.process(b"\x1b]133;D\x1b\\\x1b]133;D;0;aid=7\x07\x1b]133;D;oops\x07\x1b]133;B\x07");
+    assert_eq!(
+        p.callbacks_mut().take_status(),
+        vec![
+            StatusEvent::PromptBegan,
+            StatusEvent::CommandBegan,
+            StatusEvent::CommandEnded(Some(2)),
+            StatusEvent::CommandEnded(None),
+            StatusEvent::CommandEnded(Some(0)),
+            StatusEvent::CommandEnded(None),
+        ]
+    );
+}

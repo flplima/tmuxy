@@ -375,3 +375,13 @@
   color: inherit;
   border-left: 2px solid var(--cursor-bg);
 }
+
+/* A shell prompt's row in the scrollback (OSC 133): a bar in the left edge. */
+.terminal-prompt-mark {
+  position: absolute;
+  left: 0;
+  width: 2px;
+  background: var(--theme-accent);
+  opacity: 0.7;
+  pointer-events: none;
+}

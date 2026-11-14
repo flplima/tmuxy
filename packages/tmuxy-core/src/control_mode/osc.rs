@@ -1,6 +1,7 @@
 //! What a pane's program asks of the terminal beyond drawing: a title
 //! (OSC 0 / OSC 2), a clipboard write (OSC 52) and its own status (OSC 7501,
-//! with the shell's prompt mark, OSC 133 ; A, that ends a command's). vt100
+//! with the shell's marks, OSC 133: a prompt, a command's start and its
+//! end). vt100
 //! reads the sequences (with the rest of the pane's output: hyperlinks and
 //! text sizes are cell attributes there) and calls these; the pane drains
 //! them after each write.
@@ -21,6 +22,17 @@ pub(crate) enum StatusEvent {
     Report(Report),
     /// A new shell prompt began (OSC 133 ; A).
     PromptBegan,
+    /// The shell started a command (OSC 133 ; C).
+    CommandBegan,
+    /// The command ended (OSC 133 ; D), with its exit status when the shell
+    /// gave one.
+    CommandEnded(Option<i32>),
+}
+
+/// The exit status of `OSC 133 ; D ; <status>`: the first piece after the
+/// `D`, when it is a number.
+fn exit_status(rest: &[&[u8]]) -> Option<i32> {
+    std::str::from_utf8(rest.first()?).ok()?.parse().ok()
 }
 
 /// The requests one pane's output made since they were last taken.
@@ -66,6 +78,10 @@ impl vt100::Callbacks for OscRequests {
                 }
             }
             [b"133", b"A", ..] => self.status.push(StatusEvent::PromptBegan),
+            [b"133", b"C", ..] => self.status.push(StatusEvent::CommandBegan),
+            [b"133", b"D", rest @ ..] => self
+                .status
+                .push(StatusEvent::CommandEnded(exit_status(rest))),
             _ => {}
         }
     }

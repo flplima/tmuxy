@@ -12,7 +12,14 @@ import { Schema } from 'effect';
 import { PaneId } from './ids';
 import { PreviewDocument, PreviewResource } from './preview';
 import { GitRepository, PanePorts, RestorableSession, ServerList } from './servers';
-import { type CommandFailure, ScrollbackCells, ServerState, ThemeSettings } from './wire';
+import {
+  type CommandFailure,
+  LastOutput,
+  PromptMarks,
+  ScrollbackCells,
+  ServerState,
+  ThemeSettings,
+} from './wire';
 import { ThemeInfo, TraceLevel, TraceSettings, TraceShare } from './wireSettings';
 
 interface Command<A, AI, R, RI> {
@@ -52,6 +59,8 @@ export const BACKEND_COMMANDS = {
     Schema.Struct({ paneId: PaneId, start: Schema.Number, end: Schema.Number }),
     ScrollbackCells,
   ),
+  get_prompt_marks: command(Schema.Struct({ paneId: PaneId }), PromptMarks),
+  get_last_command_output: command(Schema.Struct({ paneId: PaneId }), LastOutput),
   /** The pane's document, or (`path` given) a resource it links. */
   read_preview: command(
     Schema.Struct({ paneId: PaneId, path: optional(Schema.String) }),

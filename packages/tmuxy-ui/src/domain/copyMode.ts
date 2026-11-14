@@ -29,6 +29,11 @@ export interface CopyModeState {
   selectionAnchor: { row: number; col: number } | null;
   /** Absolute row at the top of the viewport. */
   scrollTop: number;
+  /**
+   * The rows the shell's prompts start on (OSC 133), ascending. Absent until
+   * tmux has answered; empty for a shell that marks none.
+   */
+  promptRows?: number[];
   /** Applied on the first chunk load; visible-relative row. */
   pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
   /**
