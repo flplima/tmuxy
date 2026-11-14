@@ -18,9 +18,14 @@ pub mod agent_screen;
 pub const INTERVAL: Duration = Duration::from_millis(1500);
 
 /// Tab-separated, the free-text fields last (a window name may hold a tab).
-pub const PANES_FORMAT: &str = "#{pane_id}\t#{session_name}\t#{@tmuxy-notify}\t\
-     #{@tmuxy-pane-state}\t#{pane_current_command}\t#{@tmuxy-ask}\t#{@tmuxy-label}\t\
-     #{pane_pid}\t#{@tmuxy-pane-status}\t#{window_name}";
+pub fn panes_format() -> String {
+    use crate::constants::tmux_options::{PANE_STATUS, PANE_WIDGET};
+    format!(
+        "#{{pane_id}}\t#{{session_name}}\t#{{@tmuxy-notify}}\t#{{@tmuxy-pane-state}}\t\
+         #{{pane_current_command}}\t#{{window_id}}\t#{{{PANE_WIDGET}}}\t#{{@tmuxy-ask}}\t\
+         #{{@tmuxy-label}}\t#{{pane_pid}}\t#{{{PANE_STATUS}}}\t#{{window_name}}"
+    )
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PaneRow {
@@ -40,6 +45,10 @@ pub struct PaneRow {
     /// when no program and no shell reported it.
     pub status: String,
     pub window: String,
+    /// The tab, `@N`.
+    pub window_id: String,
+    /// The widget the pane shows (`@tmuxy-pane-widget`), empty for none.
+    pub widget: String,
 }
 
 /// Whose finished work a pane's `unread` is.
@@ -77,8 +86,9 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
     listing
         .lines()
         .filter_map(|line| {
-            let f: Vec<&str> = line.splitn(10, '\t').collect();
-            let [pane_id, session, notify, state, command, ask, label, pid, status, window] = f[..]
+            let f: Vec<&str> = line.splitn(12, '\t').collect();
+            let [pane_id, session, notify, state, command, window_id, widget, ask, label, pid, status, window] =
+                f[..]
             else {
                 return None;
             };
@@ -93,6 +103,8 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
                 pid: pid.parse().ok(),
                 status: status.to_string(),
                 window: window.to_string(),
+                window_id: window_id.to_string(),
+                widget: widget.to_string(),
             })
         })
         .collect()
@@ -101,7 +113,7 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
 /// `None` when there is no tmux server to ask.
 pub fn read_panes() -> Option<Vec<PaneRow>> {
     let output = crate::session::tmux_command()
-        .args(["list-panes", "-a", "-F", PANES_FORMAT])
+        .args(["list-panes", "-a", "-F", &panes_format()])
         .output()
         .ok()?;
     output
@@ -149,12 +161,24 @@ pub fn channel() -> (watch::Sender<Arc<Vec<PaneRow>>>, Rows) {
 mod tests {
     use super::*;
 
+    /// The format asks for the fields `parse_rows` reads, in its order.
+    #[test]
+    fn the_format_has_a_field_for_each_one_a_row_reads() {
+        let format = panes_format();
+        let fields: Vec<&str> = format.split('\t').collect();
+        assert_eq!(fields.len(), 12);
+        let widget = format!("#{{{}}}", crate::constants::tmux_options::PANE_WIDGET);
+        assert_eq!((fields[5], fields[6]), ("#{window_id}", widget.as_str()));
+        let status = format!("#{{{}}}", crate::constants::tmux_options::PANE_STATUS);
+        assert_eq!(fields[10], status);
+    }
+
     #[test]
     fn a_pane_list_row_reads_into_its_fields() {
         let rows = parse_rows(
-            "%3\twork\ton\tworking\tclaude\t\t\t4021\t\tmain\n\
-             %4\twork\ton\t\tzsh\t\tbuild\t\t\tside\twith\ttabs\n\
-             %5\twork\toff\tneeds-input\t2.1.30\tMay I?\t\t77\tstate=blocked\tmain\n\
+            "%3\twork\ton\tworking\tclaude\t@1\t\t\t\t4021\t\tmain\n\
+             %4\twork\ton\t\tzsh\t@2\tdiff\t\tbuild\t\t\tside\twith\ttabs\n\
+             %5\twork\toff\tneeds-input\t2.1.30\t@1\t\tMay I?\t\t77\tstate=blocked\tmain\n\
              %6\ttoo\tshort\n",
         );
         assert_eq!(rows.len(), 3);
@@ -171,7 +195,13 @@ mod tests {
                 pid: Some(4021),
                 status: String::new(),
                 window: "main".into(),
+                window_id: "@1".into(),
+                widget: String::new(),
             }
+        );
+        assert_eq!(
+            (rows[1].window_id.as_str(), rows[1].widget.as_str()),
+            ("@2", "diff")
         );
         assert_eq!(rows[2].status, "state=blocked");
         assert_eq!(rows[1].label, "build");

@@ -29,6 +29,7 @@ const SCOPE_WORDS: Record<DiffScope, string> = {
   unstaged: 'the unstaged changes',
   staged: 'the staged changes',
   branch: "the branch's changes",
+  turn: 'the changes of your last turn',
 };
 
 /**

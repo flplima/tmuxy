@@ -25,6 +25,7 @@ control_mode -> tmux_compat
 control_mode -> trace
 diff_review -> constants
 diff_review -> control_mode
+diff_review -> paths
 diff_review -> safe_git
 float -> constants
 groups -> argv

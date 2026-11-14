@@ -5,7 +5,7 @@ use super::*;
 
 /// git for setting a repository up, as the test's own: no global or system
 /// config, a fixed author.
-fn setup(dir: &Path, args: &[&str]) {
+pub(super) fn setup(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -25,7 +25,7 @@ fn setup(dir: &Path, args: &[&str]) {
 }
 
 /// A repository of the test's own, on `main`, with one commit.
-fn repository(name: &str) -> PathBuf {
+pub(super) fn repository(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("tmuxy-diff-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -267,7 +267,21 @@ fn a_read_runs_nothing_the_repository_names() {
     }
     let _ = std::fs::remove_file(&ran);
 
-    for scope in [Scope::Unstaged, Scope::Staged, Scope::Branch] {
+    // A turn's snapshots take every file in, as git would store it.
+    turn::test_stores();
+    let root = PathBuf::from(
+        git::text(&dir, &["rev-parse", "--show-toplevel"], git::deadline())
+            .unwrap()
+            .trim(),
+    );
+    turn::begin(&root, "%9");
+    assert!(
+        !ran.exists(),
+        "a turn's snapshot ran a program the repository names"
+    );
+    std::fs::write(dir.join("notes.md"), "notes, changed in the turn\n").unwrap();
+
+    for scope in [Scope::Unstaged, Scope::Staged, Scope::Branch, Scope::Turn] {
         let read = read_in(&dir, scope).unwrap();
         assert!(
             !ran.exists(),
@@ -278,6 +292,7 @@ fn a_read_runs_nothing_the_repository_names() {
             assert!(lines(&read.files[0]).contains(&(LineKind::Added, None, Some(2), "changed")));
         }
     }
+    turn::forget(&root);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
