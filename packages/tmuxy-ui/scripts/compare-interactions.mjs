@@ -23,6 +23,7 @@
  *                                 [--summary FILE] [--update-baseline]
  */
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { compareHiddenBytes } from './lib/compare-bytes.mjs';
 import { dirname } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -93,6 +94,14 @@ if (!report) {
   console.error(`no report at ${REPORT}`);
   process.exit(2);
 }
+// A `perf:hidden-bytes` report has a budget of its own, and no baseline.
+if (report.kind === 'hidden-bytes') {
+  const { lines, failures } = compareHiddenBytes(report);
+  const out = lines.join('\n');
+  console.log(out);
+  if (SUMMARY) appendFileSync(SUMMARY, `${out}\n`);
+  process.exit(failures.length === 0 ? 0 : 1);
+}
 /**
  * Baselines are keyed by platform and target: a macOS laptop says nothing
  * about an `ubuntu-latest` runner, and the desktop app's Tauri IPC nothing
@@ -156,10 +165,11 @@ for (const item of report.interactions) {
     );
   }
 
-  // Keys typed during an attach that never arrived (`lib/attach.mjs`).
+  // Keys typed during an attach that never arrived (`lib/attach.mjs`): the
+  // page holds them until it connects, so one lost is a regression.
   if (item.load?.lostKeys > 0) {
-    if (verdict === '✅') verdict = '⚠️';
-    warnings.push(
+    verdict = '❌';
+    failures.push(
       `${item.name}: ${item.load.lostKeys} of ${item.load.typedKeys} keys typed during the attach never arrived`,
     );
   }
