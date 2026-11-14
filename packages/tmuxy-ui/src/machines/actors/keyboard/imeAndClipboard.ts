@@ -16,11 +16,15 @@ import {
   setupMobileKeyboard,
 } from '../../../infra/dom/mobileKeyboard';
 import { flashCopiedRange } from '../../../infra/dom/copyFlash';
-import { terminalSelection, terminalTextOf } from '../../../infra/dom/nativeSelection';
+import {
+  hasNativeSelection,
+  terminalSelection,
+  terminalTextOf,
+} from '../../../infra/dom/nativeSelection';
 import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
 import { noteFocus } from '../../../infra/dom/chromeTab';
 import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
-import { writeClipboard } from '../../../infra/clipboard';
+import { clipboardBlockedMessage, writeClipboard } from '../../../infra/clipboard';
 import { isModelPaneId, realId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
@@ -73,7 +77,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
    * hidden input takes it for the active pane, so typing works at once.
    */
   const reclaimKeyboard = () => {
-    if (touchIsPrimary() || primaryPointerDown || hasSelection()) return;
+    if (touchIsPrimary() || primaryPointerDown || hasNativeSelection()) return;
     if (deps.keys.get().owner.kind === 'left') return;
     // The palette's box holds the keyboard while it is open: giving it to a
     // pane's input would have what is typed, a composition above all, land
@@ -165,11 +169,6 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     flashCopiedRange(range);
   };
 
-  const hasSelection = (): boolean => {
-    const selection = window.getSelection();
-    return !!selection && !selection.isCollapsed && selection.toString().length > 0;
-  };
-
   // What the last release copied, so the same selection is not copied again
   // until it has gone and come back.
   let copiedOnSelect: string | null = null;
@@ -183,16 +182,30 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     if (selected.text === copiedOnSelect) return;
     copiedOnSelect = selected.text;
     pendingCopyText = selected.text;
-    const wrote = document.execCommand('copy');
-    if (!wrote) {
-      pendingCopyText = null;
-      void writeClipboard(selected.text, null);
-    }
     const count = [...selected.text].length;
-    deps.parent.send({
-      type: 'NOTIFY',
-      kind: 'info',
-      text: `Copied ${count} character${count === 1 ? '' : 's'}`,
+    const sayCopied = () =>
+      deps.parent.send({
+        type: 'NOTIFY',
+        kind: 'info',
+        text: `Copied ${count} character${count === 1 ? '' : 's'}`,
+      });
+    if (document.execCommand('copy')) {
+      sayCopied();
+      return;
+    }
+    // The browser took no copy command: the clipboard API is asked, and what
+    // is said waits for its answer. "Copied" over a write that was refused
+    // is how a user pastes something else.
+    pendingCopyText = null;
+    const { text } = selected;
+    void writeClipboard(text, null).then((wrote) => {
+      if (wrote) {
+        sayCopied();
+        return;
+      }
+      // Nothing was copied, so the same selection released again tries again.
+      if (copiedOnSelect === text) copiedOnSelect = null;
+      deps.parent.send({ type: 'NOTIFY', text: clipboardBlockedMessage(text, null) });
     });
   };
   const handleMouseUp = (event: MouseEvent) => {
@@ -202,11 +215,11 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   // The selection going — a key cleared it, a click collapsed it — frees the
   // same text to be copied again when it is selected again.
   const handleSelectionChange = () => {
-    if (copiedOnSelect !== null && !hasSelection()) copiedOnSelect = null;
+    if (copiedOnSelect !== null && !hasNativeSelection()) copiedOnSelect = null;
   };
 
   const restoreKeyboardFocus = (byPointer: boolean) => {
-    if (touchIsPrimary() || hasSelection()) return;
+    if (touchIsPrimary() || hasNativeSelection()) return;
     const active = document.activeElement as HTMLElement | null;
     if (byPointer && active?.matches?.('[role="tab"], [role="tablist"]')) {
       const paneId = realId(deps.keys.get().activePaneId);

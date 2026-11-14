@@ -133,6 +133,7 @@ Commands:
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TRACING.md)
   config      Re-apply tmuxy.conf (reload), check it (doctor) or change a setting
+  keymap      Every key binding, and the file and line it comes from [--table T] [key]
   plugin      Install, list, update and remove plugins; run their actions
   gui         Open the desktop GUI application
 
@@ -381,6 +382,11 @@ CEOF
   config)
     shift
     cmd_config "$@"
+    ;;
+  keymap)
+    shift
+    find_server_cmd || exit "$EXIT_FAILED"
+    exec "${SERVER_CMD[@]}" keymap "$@" ${server_json[@]+"${server_json[@]}"}
     ;;
   info)
     shift
