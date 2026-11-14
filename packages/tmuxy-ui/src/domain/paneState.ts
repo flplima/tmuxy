@@ -93,6 +93,11 @@ export function paneStateFor(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): Pan
   return readPaneState(pane.paneState);
 }
 
+/** The pane's agent waits for the user: a question on its screen, or a `pane send` there. */
+export function waitsForAnswer(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): boolean {
+  return paneStateFor(pane) === 'needs-input';
+}
+
 type StatePane = Pick<TmuxPane, 'tmuxId' | 'paneState' | 'paneAsk'>;
 
 export function aggregatePaneState(states: readonly PaneStateName[]): PaneStateName {

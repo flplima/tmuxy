@@ -33,3 +33,16 @@ The files a preview reads and the checkout a diff reads: in both, tmux decides w
 **git runs nothing the repository names** (`tmuxy-core/src/diff_review/git.rs`). No filesystem monitor, hook, pager, credential helper or transport; no external diff and no textconv; every content filter driver the config holds switched off, so a filtered file is compared as the text it is; no submodule; the variables that would point git elsewhere or add config scrubbed. The plumbing commands read the index as it is and never write it, so the user's own commit is never held up by a lock. Each read has a deadline and a cap on what it returns. A test sets a trap for each of these and checks none fires.
 
 **What git prints is drawn as text.** File names and lines are strings in the answer, put on screen as text nodes only: a line of markup is shown as written. The read returns the checkout's folder name, never its path.
+
+## A Review Types Into One Agent, Never At A Question
+
+A diff's comments go to an agent as one numbered prompt (`domain/review.ts`, `components/widgets/diff/ReviewBar.tsx`): pasted into the pane the review bar names, then Enter. Only a pane of the widget's own tab running an agent (`agent_screen::AGENT_COMMANDS`, generated into the UI) is offered; `tmuxy widget diff --to %N` only preselects one, and the script takes nothing but a pane id there.
+
+| Risk | What holds it |
+| ---- | ------------- |
+| The prompt answers a permission question | Two checks. The client's `sendRefusal` refuses while the pane reads `needs-input`. Then tmux checks again as it sends: the paste and the Enter run inside one `if-shell -F` on `agent_takes_input_format` (`commandHelpers.ts` `reviewInto`), so a dialog raised after the client looked gets no keys; the staged review is dropped, a message says so, and Restore brings the comments back. Both give way to `pane send`'s own refusal once that exists |
+| The prompt reaches a shell | A shell would run each line, and a quoted `   > code` line is a redirection that empties a file. No pane but an agent is offered, and the same `if-shell` requires an agent's process, so an agent that exited in the meantime leaves a shell that gets nothing |
+| The review's text drives the program | It goes as a paste: control characters dropped, bracketed when the program asked for it, to that pane alone even in a synchronized window |
+| The checkout's text runs as markup in the widget | A comment and the line it quotes are text nodes, as every diff line is |
+
+An agent tmuxy installs no hooks for (Gemini CLI, Aider) is never offered: nothing would say when it waits for an answer. What tmux can see is the limit: a dialog no hook has declared and the screen pass has not read yet (it reads every 1.5 s) still looks like an agent at work. Held by `tests/14-widget-diff.test.js` (a fake agent reads the prompt; then the send is held after the client's check while the agent raises a question, and nothing reaches it; then its shell is offered nothing), `tests/agent_takes_input.rs` (the format, asked of a real tmux) and `domain/__tests__/review.test.ts`.

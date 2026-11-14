@@ -54,6 +54,7 @@ export const OP_TRAITS = {
   SendKeys: NONE,
   SendText: NONE,
   PasteText: NONE,
+  SendReview: NONE,
   SendMouse: NONE,
   EnterCopyMode: NONE,
   CancelCopyMode: NONE,
