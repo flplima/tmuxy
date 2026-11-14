@@ -1,3 +1,4 @@
+import type { ActivityRow } from '../../domain/activity';
 import type { PushState } from '../../infra/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
@@ -6,6 +7,7 @@ import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
 import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
+import type { TmuxOp } from '../../domain/commands';
 import type { PendingClose } from '../../domain/closeGuard';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
@@ -25,6 +27,7 @@ import type {
 } from './domain';
 import type {
   GitRepository,
+  PanePorts,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
@@ -281,6 +284,14 @@ export interface AppMachineContext {
   themeRev: string;
   /** Whether the app container is focused (for keyboard capture gating) */
   appFocused: boolean;
+  /**
+   * What was typed or asked for before the first connection, in order:
+   * replayed the moment it lands, so a key pressed while the page attaches
+   * arrives late rather than never.
+   */
+  heldCommands: ReadonlyArray<HeldCommand>;
+  /** Held commands pushed out by the bound, to be counted in the notice. */
+  heldOverflow: number;
   /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */
   prefixActive: boolean;
   /** While the prefix is a repeat window, the only keys it still takes. */
@@ -289,6 +300,10 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
+  /** The activity inbox is up. */
+  activityOpen: boolean;
+  /** Every pane that declared a state, most urgent first, as last read. */
+  activityRows: readonly ActivityRow[];
   /** The close of a busy pane or tab the user is being asked about, if any. */
   pendingClose: PendingClose | null;
   /** The command palette, while it is open: everything, or only the places to go. */
@@ -328,6 +343,15 @@ export interface AppMachineContext {
    */
   repositories: GitRepository[];
   /**
+   * The TCP ports each pane's programs listen on, panes with none left out;
+   * refreshed by the `serversActor` poll while the tree is on screen. `[]` on
+   * the sandboxes and for SSH-backed servers.
+   */
+  panePorts: readonly PanePorts[];
+  /** The user's `@tmuxy-tree-row` as tmux holds it; `''` when unset. Read by
+   *  the `serversActor` poll while the tree is on screen. */
+  treeRowTemplate: string;
+  /**
    * Saved tmux servers (localhost plus anything added through the session
    * switcher) and which one is attached. Empty on web, which has no server
    * list of its own.
@@ -336,4 +360,10 @@ export interface AppMachineContext {
   currentServerId: string | null;
   /** Sessions a snapshot could bring back; see {@link RestorableSession}. */
   restorableSessions: RestorableSession[];
+}
+
+/** A command held while the app first connects (`heldCommands`), and when (ms since epoch). */
+export interface HeldCommand {
+  command: { type: 'SEND_TMUX_COMMAND'; command: string } | { type: 'DISPATCH_OP'; op: TmuxOp };
+  at: number;
 }

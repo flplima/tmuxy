@@ -338,6 +338,17 @@
       }
     ]
   ],
+  "list_pane_ports": [
+    [
+      {
+        "paneId": "%2",
+        "ports": [
+          5173,
+          8123
+        ]
+      }
+    ]
+  ],
   "list_servers": [
     {
       "currentId": "localhost",

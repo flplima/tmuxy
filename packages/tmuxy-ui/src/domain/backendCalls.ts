@@ -11,7 +11,7 @@
 import { Schema } from 'effect';
 import { PaneId } from './ids';
 import { PreviewDocument, PreviewResource } from './preview';
-import { GitRepository, RestorableSession, ServerList } from './servers';
+import { GitRepository, PanePorts, RestorableSession, ServerList } from './servers';
 import {
   type CommandFailure,
   LastOutput,
@@ -75,6 +75,7 @@ export const BACKEND_COMMANDS = {
   set_send_ask: command(Flag, Done),
   set_transparency: command(Flag, Done),
   list_git_worktrees: command(NoArgs, Schema.Array(GitRepository)),
+  list_pane_ports: command(NoArgs, Schema.Array(PanePorts)),
   list_snapshots: command(NoArgs, Schema.Array(RestorableSession)),
   restore_session: command(Schema.Struct({ session: Schema.String }), Done),
   get_trace_settings: command(NoArgs, TraceSettings),

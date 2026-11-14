@@ -33,7 +33,8 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 | `nightly perf / interaction-latency` | `npm run perf:interactions` + `npm run perf:compare` | Web interaction budgets (the ratio gate) |
 | `nightly perf / interaction-latency-desktop` | `(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)`, then `npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report tests/perf/interaction-report-tauri.json` | Desktop interaction budgets, against the release build |
 | `nightly perf / core-bench` | `cargo bench -p tmuxy-core --bench core_pipeline` + `node tests/perf/compare-core-bench.mjs --threshold 20` | The Axis-A pipeline bench and its ratio budget |
-| `nightly perf / soak` (nightly) and `nightly perf / interaction-baseline` (on dispatch) | `npm run perf:soak`, `npm run perf:interactions` | Report numbers for a human; none gates |
+| `nightly perf / soak` (nightly) and `nightly perf / interaction-baseline` (on dispatch) | `npm run perf:soak -- --socket <the server's own>`, `npm run perf:interactions` | Report numbers for a human; none gates. The soak needs the socket of a server started for it, and refuses the ones people work in |
+| `nightly fuzz / fuzz` | `bin/fuzz 20` (or `TMUXY_FUZZ_CASES=<n> cargo test -p tmuxy-core --test fuzz_parsers`) | The parser fuzz targets with tens of thousands of cases. The issue carries the shrunk input; the run's artifact is the regressions file to commit with the fix |
 
 ## Structure guards
 

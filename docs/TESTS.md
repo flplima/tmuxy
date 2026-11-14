@@ -38,7 +38,7 @@ Every suite runs with the browser, the server and tmux on one machine, where a r
 **Rules:**
 
 1. A latency result is only true at the input rate it was measured at. The first slow-link experiment pressed keys 400 ms apart, more than every delay it injected, so nothing ever queued and it reported the transport as free of head-of-line cost. Measure a burst faster than the link's round trip as well as a single action.
-2. When a change adds a request to something the user does repeatedly (a key, a pointer move, a resize, a model update), pin the count in a unit test: N inputs in, at most M requests out. Counts do not depend on the machine, so this gates on every push. `keyBatching.test.ts`, `clientSizeReport.test.ts` and `sizeActor.test.ts` are the pattern. `packages/tmuxy-ui/scripts/measure-requests.mjs` (`npm run perf:requests`) counts the same thing through the real app, with the bytes that came back, and fails on its budgets: a page load, a reload, typing alone and beside a smaller client, a window drag, a wheel flick over a mouse program, the first scroll-up of a long history.
+2. When a change adds a request to something the user does repeatedly (a key, a pointer move, a resize, a model update), pin the count in a unit test: N inputs in, at most M requests out. Counts do not depend on the machine, so this gates on every push. `keyBatching.test.ts`, `clientSizeReport.test.ts`, `sizeActor.test.ts` and `resizeMachine.test.ts` are the pattern. `packages/tmuxy-ui/scripts/measure-requests.mjs` (`npm run perf:requests`) counts the same thing through the real app, with the bytes that came back, and fails on its budgets: a page load, a reload, typing alone and beside a smaller client, a window drag, a wheel flick over a mouse program, the first scroll-up of a long history.
 3. When a change adds a wait for an answer before the next send, it needs a run over a delayed link before it ships ([PERFORMANCE.md](PERFORMANCE.md), Axis B).
 
 ## Test What the Feature Does, Not How It Works
@@ -123,7 +123,7 @@ See [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md) for this section: Storybook Tests.
 npm run lint                               # ESLint: tests/ and tmuxy-ui
 npm test                                   # Vitest once: the UI, and the scripts' own tests
 cargo test --workspace                     # Rust (needs tmux on PATH)
-npm run test:cli                           # CLI suite, hermetic
+npm run test:cli                           # CLI suite, hermetic: a mock tmux on a socket of its own
 
 npm run test:e2e                           # Web E2E + snapshots; starts its own server if needed
 npx jest tests/2-layout-navigation.test.js # One E2E file
@@ -131,6 +131,8 @@ npx jest tests/2-layout-navigation.test.js # One E2E file
 npm run storybook -w tmuxy-ui              # Storybook dev server (required for probes)
 npm run test-storybook -w tmuxy-ui         # Probe all non-v86 stories
 npm run test-storybook:v86 -w tmuxy-ui     # Probe v86 stories (shared engine)
+
+bin/fuzz 10                                # Parser fuzzing, 10 min, capped to 2 cores and 4G (cargo test runs 48 cases per target)
 
 npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvfb, WebKitWebDriver: `webkitgtk-webdriver`, `webkit2gtk-driver` before Ubuntu 26.04)
 
@@ -142,6 +144,24 @@ npm run perf:compare -- --report tests/perf/interaction-report.json
 npm run perf:requests -- --url http://localhost:9000
 ```
 
+### No suite touches a tmux server someone works in
+
+The suites kill panes, windows and whole servers, and they are usually started from a pane of the tmuxy being developed. The CLI suite is kept off that session by construction. The E2E and desktop suites are kept off it by the socket they are given and a list of the ones they refuse, so a server someone started under another name is still theirs to name:
+
+| Suite | Its tmux | What stops it reaching another |
+| --- | --- | --- |
+| CLI (`tests/cli/`) | A mock, never a real one | A socket name and a tmux socket directory (`TMUX_TMPDIR`) made for the run and handed to every CLI under test. No child process starts unless its environment is sealed to them: no inherited `$TMUX`, no `TMUX_BIN`, the mock first on `PATH`, never the socket names people work in (`tmuxy`, `tmuxy-dev`, `default`, `tmuxy-test`). A socket found in the run's directory afterwards fails the run. `tests/cli/helpers/seal.js`, `tests/cli/setup/` |
+| Web E2E, desktop | A real tmux on `tmuxy-test` | Every child is given the socket with `$TMUX` and `$TMUX_PANE` removed, and a `TMUX_SOCKET` that is `tmuxy`, `tmuxy-dev` or `default` (by name, or by its path in tmux's own socket directory) or the one the shell runs in is refused (`tests/helpers/tmux-socket.js`, `tests/helpers/live-socket-guard.js`) |
+| Rust | A scratch server per test binary, on a socket named after its pid | `tmuxy-core/tests/common/scratch.rs`. The server drops an inherited `TMUX_SOCKET` from its own environment, which its hooks would otherwise follow to another server |
+
+To run any of them by hand from inside tmux, and a script that is none of these, give the run a tmux socket directory of its own and nothing of the shell's: `TMUX_TMPDIR` set to a short private directory (a socket's path has about a hundred characters), with `TMUX`, `TMUX_PANE`, `TMUX_BIN` and `TMUX_SOCKET` unset. No socket name then resolves to a server someone works in.
+
+A new helper that starts a child process in `tests/cli/` takes its environment from `scriptEnv()` or `sealedEnv()` (`tests/cli/helpers/env.js`); anything else throws before the child runs. `tests/cli/harness-seal.test.js` holds each refusal.
+
+### Fuzzing the parsers
+
+`packages/tmuxy-core/tests/fuzz_parsers.rs` throws random, hostile input at the parsers that read what tmux writes and what a pane's program prints: the control-mode framing, the octal escapes of pane output, terminal sequences and OSC strings through the state aggregator, and image sequences. Each target states a property (no panic, nothing grows without bound, pane output never passes for tmux's framing, every pane keeps its size and its cursor), not one input. `cargo test` runs a few dozen cases each; `bin/fuzz` and the nightly fuzz workflow run tens of thousands under a time, memory and core cap. A failure is shrunk and saved to `fuzz_parsers.proptest-regressions`, which replays it first on every later run: commit it with the fix.
+
 ## Known Gaps
 
 | Gap | Evidence |
@@ -150,7 +170,7 @@ npm run perf:requests -- --url http://localhost:9000
 | The packaged macOS app is only tested after merge | The Linux desktop smoke test runs on PRs (`desktop` in `lint-and-tests.yml`), but `build-app.yml` — which builds the macOS app and runs the sparse-PATH test — triggers only on tags, a daily cron and manual dispatch. Dispatch it before tagging when a change touches the desktop app or packaging. |
 | Firefox runs in no suite | The E2E matrix drives Chromium and one suite drives Playwright's WebKit (`tests/11-webkit.test.js`); nothing drives Gecko. A drag over a pane selected and copied nothing in Firefox, and a clipboard write the browser refused was announced as copied in Firefox and Safari, until both were found by hand with real Firefox (geckodriver) and WebKitGTK (WebKitWebDriver). Their unit tests pin the two conditions; a Gecko E2E shard would catch the next one. |
 | macOS WKWebView gets no functional desktop suite | `tests/tauri/` is Linux-only (`tests/tauri/helpers/xvfb.js`, `tests/tauri/helpers/tauri-driver.js`); macOS only gets `tests/smoke/smoke-test.js`, post-merge. |
-| Almost nothing runs over a slow link | The E2E matrix, the story probes and the interaction gate all sit on loopback ([The Loopback Trap](#the-loopback-trap)). Request counts are pinned by unit tests; time over a delayed link is not measured on a push ([PERFORMANCE.md](PERFORMANCE.md), Axis B). A divider drag (a `resize-pane` every 80 ms, however slow the link) and the HTML preview (one request per resource, in a row) are known and not yet bounded. |
+| Almost nothing runs over a slow link | The E2E matrix, the story probes and the interaction gate all sit on loopback ([The Loopback Trap](#the-loopback-trap)). Request counts are pinned by unit tests; time over a delayed link is not measured on a push ([PERFORMANCE.md](PERFORMANCE.md), Axis B). The HTML preview (one request per resource, in a row) is known and not yet bounded. |
 | Output flood tests are light | The heaviest is `tests/5-stress-stability.test.js` Scenario 17: `yes \| head -500` and `seq 1 2000`. No sustained, multi-megabyte or backpressure test exists, and the latency gate measures no output throughput. |
 | Uncovered crates and scripts | The `packages/tmuxy-demo` site has no tests (only its agent-docs build script does) and `deploy-demo.yml` deploys without testing. |
 | `deltaProtocol.ts` is largely untested in substance | A one-off Stryker run scored it at 24.96% (285 surviving mutants, 175 lines with no coverage) despite unit and property tests existing for it; most survivors were the conditional-spread guards the property tests exercise without asserting on. |

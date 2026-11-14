@@ -41,6 +41,28 @@ function resizeSteps(
 /** Minimum ms between resize command batches during a drag (see ResizeState.lastSentAt). */
 export const RESIZE_SEND_INTERVAL_MS = 80;
 
+/**
+ * `resize` after sending what the drag has moved since its last command, and
+ * that command's steps: none while the last one is unanswered, the interval
+ * has not passed, or the edge has not crossed a cell.
+ */
+function sendDue(resize: ResizeState, now: number): { resize: ResizeState; steps: ResizeStep[] } {
+  if (resize.awaitingAnswer || now - resize.lastSentAt < RESIZE_SEND_INTERVAL_MS) {
+    return { resize, steps: [] };
+  }
+  const steps = resizeSteps(
+    resize.paneId,
+    resize.handle,
+    resize.delta.cols - resize.lastSentDelta.cols,
+    resize.delta.rows - resize.lastSentDelta.rows,
+  );
+  if (steps.length === 0) return { resize, steps };
+  return {
+    resize: { ...resize, lastSentDelta: resize.delta, lastSentAt: now, awaitingAnswer: true },
+    steps,
+  };
+}
+
 export const resizeMachine = setup({
   types: {
     context: {} as ResizeMachineContext,
@@ -112,6 +134,7 @@ export const resizeMachine = setup({
                 delta: { cols: 0, rows: 0 },
                 lastSentDelta: { cols: 0, rows: 0 },
                 lastSentAt: 0,
+                awaitingAnswer: false,
               };
               return {
                 resize,
@@ -141,7 +164,7 @@ export const resizeMachine = setup({
             if (!context.resize) return;
 
             const { charWidth, charHeight } = context;
-            const { handle, lastSentDelta, lastSentAt, paneId, limits } = context.resize;
+            const { limits } = context.resize;
 
             const pixelDeltaX = event.clientX - context.resize.startX;
             const pixelDeltaY = event.clientY - context.resize.startY;
@@ -150,47 +173,40 @@ export const resizeMachine = setup({
             // that the divider simply stops: tmux would refuse the command,
             // and drawing the move anyway is what let the preview run away
             // from the layout.
-            const deltaCols = clampDelta(Math.round(pixelDeltaX / charWidth), limits);
-            const deltaRows = clampDelta(Math.round(pixelDeltaY / charHeight), limits);
-
-            const colsChanged = deltaCols !== lastSentDelta.cols;
-            const rowsChanged = deltaRows !== lastSentDelta.rows;
-
-            // At most one command batch per interval (ResizeState.lastSentAt).
-            const now = Date.now();
-            const throttleOpen = now - lastSentAt >= RESIZE_SEND_INTERVAL_MS;
-
-            const needsCommand =
-              throttleOpen &&
-              (((handle === 'e' || handle === 'w') && colsChanged) ||
-                ((handle === 's' || handle === 'n') && rowsChanged));
-
-            let newLastSentDelta = lastSentDelta;
-            let newLastSentAt = lastSentAt;
-
-            if (needsCommand) {
-              const incrementalCols = deltaCols - lastSentDelta.cols;
-              const incrementalRows = deltaRows - lastSentDelta.rows;
-
-              const steps = resizeSteps(paneId, handle, incrementalCols, incrementalRows);
-              if (steps.length > 0) {
-                enqueue(
-                  sendParent({ type: 'DISPATCH_OP' as const, op: TmuxOp.ResizePanes({ steps }) }),
-                );
-                newLastSentDelta = { cols: deltaCols, rows: deltaRows };
-                newLastSentAt = now;
-              }
-            }
-
-            const newResize = {
+            const moved: ResizeState = {
               ...context.resize,
               pixelDelta: { x: pixelDeltaX, y: pixelDeltaY },
-              delta: { cols: deltaCols, rows: deltaRows },
-              lastSentDelta: newLastSentDelta,
-              lastSentAt: newLastSentAt,
+              delta: {
+                cols: clampDelta(Math.round(pixelDeltaX / charWidth), limits),
+                rows: clampDelta(Math.round(pixelDeltaY / charHeight), limits),
+              },
             };
-            enqueue(assign({ resize: newResize }));
-            enqueue(sendParent({ type: 'RESIZE_STATE_UPDATE' as const, resize: newResize }));
+            const { resize, steps } = sendDue(moved, Date.now());
+            if (steps.length > 0) {
+              enqueue(
+                sendParent({ type: 'DISPATCH_OP' as const, op: TmuxOp.ResizePanes({ steps }) }),
+              );
+            }
+            enqueue(assign({ resize }));
+            enqueue(sendParent({ type: 'RESIZE_STATE_UPDATE' as const, resize }));
+          }),
+        },
+        // The pointer may have stopped while the command was out: what it
+        // moved in the meantime goes now, not at the next move.
+        RESIZE_ANSWERED: {
+          actions: enqueueActions(({ context, enqueue }) => {
+            if (!context.resize) return;
+            const { resize, steps } = sendDue(
+              { ...context.resize, awaitingAnswer: false },
+              Date.now(),
+            );
+            if (steps.length > 0) {
+              enqueue(
+                sendParent({ type: 'DISPATCH_OP' as const, op: TmuxOp.ResizePanes({ steps }) }),
+              );
+            }
+            enqueue(assign({ resize }));
+            enqueue(sendParent({ type: 'RESIZE_STATE_UPDATE' as const, resize }));
           }),
         },
         RESIZE_END: {

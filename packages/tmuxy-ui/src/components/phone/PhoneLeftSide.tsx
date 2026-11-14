@@ -1,7 +1,7 @@
 /**
  * PhoneLeftSide — the column left of the terminal on a phone held sideways:
- * the menu's button at the top, as the desktop has it, and the tabs/panes
- * tree under it. The button puts the app menu in the tree's place, as the
+ * the menu's button at the top, as the desktop has it (with the link's round
+ * trip beside it when it is slow), and the tabs/panes tree under it. The button puts the app menu in the tree's place, as the
  * phone's page list (PhoneMenu) — the desktop's dropdown hangs its submenus
  * to the side and runs taller than a sideways phone — and again puts the tree
  * back. Which is shown is the phone's bottom view (the `phone` slice): the
@@ -13,6 +13,7 @@ import { memo } from 'react';
 import { SidebarTree } from '../SidebarTree';
 import { PhoneMenu } from './PhoneMenu';
 import { MenuGlyph } from '../menus/AppMenu';
+import { LinkLatencyBadge } from '../LinkLatencyBadge';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
 import { selectPhoneBottomView } from '../../machines/selectors/layout';
 
@@ -31,6 +32,7 @@ export const PhoneLeftSide = memo(function PhoneLeftSide() {
         >
           <MenuGlyph />
         </button>
+        <LinkLatencyBadge explainOnTap />
       </div>
       {menu ? (
         <PhoneMenu />

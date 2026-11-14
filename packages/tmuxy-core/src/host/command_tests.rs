@@ -12,6 +12,7 @@ fn unit_variant_accepts_empty_args_object() {
         "get_theme_settings",
         "get_themes_list",
         "list_git_worktrees",
+        "list_pane_ports",
         "greeting",
     ] {
         let body = serde_json::to_vec(&json!({ "cmd": cmd_name, "args": {} })).unwrap();

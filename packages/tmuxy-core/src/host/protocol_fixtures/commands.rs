@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 33;
+const COMMANDS: usize = 34;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -53,8 +53,9 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::OpenText { .. } => 28,
         C::Greeting => 29,
         C::GetTraceShare { .. } => 30,
-        C::GetPromptMarks { .. } => 31,
-        C::GetLastCommandOutput { .. } => 32,
+        C::ListPanePorts => 31,
+        C::GetPromptMarks { .. } => 32,
+        C::GetLastCommandOutput { .. } => 33,
     }
 }
 
@@ -106,6 +107,7 @@ fn every_request() -> Vec<ClientCommand> {
         C::SetSendAsk { enabled: false },
         C::SetTransparency { enabled: true },
         C::ListGitWorktrees,
+        C::ListPanePorts,
         C::ListSnapshots,
         C::RestoreSession { session: s("work") },
         C::GetTraceSettings,
@@ -269,7 +271,15 @@ fn every_command_answer_matches_its_fixture() {
                     bare: false,
                     locked: false,
                     prunable: false,
+                    changes: None,
                 }],
+            }]),
+        ),
+        (
+            "list_pane_ports",
+            json(&vec![crate::ports::PanePorts {
+                pane_id: "%2".to_string(),
+                ports: vec![5173, 8123],
             }]),
         ),
         (
