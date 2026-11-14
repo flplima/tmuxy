@@ -138,6 +138,10 @@ pub mod tmux_options {
     /// (`claude`, `codex`, `gemini`, or a `cmd`'s program).
     pub const AGENT: &str = "@tmuxy-agent";
 
+    /// Pane-scoped: the agent session the pane runs, `<agent>:<uuid>`, from
+    /// its hooks; `tmuxy agent revive` resumes it. Never a command line.
+    pub const AGENT_SESSION: &str = "@tmuxy-agent-session";
+
     /// Pane-scoped: the state the screen rules last wrote on a pane whose
     /// agent has no hooks (`host::socket_watch::agent_rules`). They change
     /// [`PANE_STATE`] only while it still equals this, so a state anything
