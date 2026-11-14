@@ -1,5 +1,5 @@
 use super::attach::enforced_settings;
-use super::sizing::{needs_resize, resize_command, MAX_RESIZE_ATTEMPTS};
+use super::sizing::{float_size, needs_resize, resize_command, MAX_RESIZE_ATTEMPTS};
 use super::*;
 use crate::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};
 use crate::control_mode::state::{
@@ -451,6 +451,100 @@ fn a_session_event_about_another_session_changes_nothing() {
     assert!(emits(&core.step(renamed("$0", "app2"), now)));
     assert!(!emits(&core.step(changed("other", "$1"), now)));
     assert_eq!(core.aggregator_mut().to_tmux_state().session_name, "app2");
+}
+
+/// A tab and three floats over it, as the lists report them.
+fn with_floats(core: &mut Core, now: Instant) {
+    let window = |id: &str, index: u32, kind: &str| {
+        RowBuilder::<WindowColumn>::new()
+            .set(WindowColumn::WindowId, id)
+            .set(WindowColumn::Index, index)
+            .set(WindowColumn::Active, u8::from(index == 0))
+            .set(WindowColumn::WindowType, kind)
+            .set(WindowColumn::Zoomed, 0)
+            .set(WindowColumn::Name, kind)
+    };
+    let float = |id: &str, index: u32, (cols, rows): (u32, u32)| {
+        window(id, index, "float")
+            .set(WindowColumn::FloatWidth, cols)
+            .set(WindowColumn::FloatHeight, rows)
+    };
+    // Each pane still the 200x50 its window was made at.
+    let panes = [("%0", "@0"), ("%1", "@1"), ("%2", "@2"), ("%3", "@3")]
+        .map(|(id, window)| {
+            format!("{id},0,0,0,200,50,0,0,1,sleep,,0,,,,{window}, ,0,0,0,,,,0,,,,,,,")
+        })
+        .join("\n");
+    let windows = [
+        window("@0", 0, "tab"),
+        float("@1", 1, (60, 15)),
+        // Wider than any screen it will be shown on.
+        float("@2", 2, (500, 15)),
+        float("@3", 3, (40, 10)).set(WindowColumn::FloatDrawer, "right"),
+    ]
+    .map(|row| row.build())
+    .join("\n");
+    let events = [
+        marked(core, LIST_BEGIN_MARKER, TmuxList::Panes.name()),
+        response(&panes),
+        marked(core, LIST_END_MARKER, ""),
+        marked(core, LIST_BEGIN_MARKER, TmuxList::Windows.name()),
+        response(&windows),
+        marked(core, LIST_END_MARKER, ""),
+    ];
+    for event in events {
+        core.step(event, now);
+    }
+}
+
+/// The UI draws a float at the size its tags name, over a tab the size of
+/// the viewport. Its window is sized to the tags too: sized to the viewport,
+/// as it was, the pane behind a 60x15 float was the whole screen's, and fzf,
+/// an editor or anything else full-screen drew for a grid nobody could see
+/// most of. A float never outgrows the viewport, and a drawer takes the
+/// viewport's side along the edge it is docked to.
+#[test]
+fn a_float_is_sized_to_its_tags_and_a_tab_to_the_viewport() {
+    let (mut core, now) = core("app");
+    with_floats(&mut core, now);
+
+    let actions = core.set_client_size(120, 40);
+    let mut resizes = sent(&actions);
+    resizes.sort_unstable();
+    assert_eq!(
+        resizes,
+        [
+            "resizew -t @0 -x 120 -y 40",
+            "resizew -t @1 -x 60 -y 15",
+            "resizew -t @2 -x 120 -y 15",
+            "resizew -t @3 -x 40 -y 40",
+        ]
+    );
+
+    // A narrower screen: the tab follows it, and so does a float too wide
+    // for it. The float that still fits is asked for nothing new.
+    let actions = core.set_client_size(50, 12);
+    let mut resizes = sent(&actions);
+    resizes.sort_unstable();
+    assert_eq!(
+        resizes,
+        [
+            "resizew -t @0 -x 50 -y 12",
+            "resizew -t @1 -x 50 -y 12",
+            "resizew -t @2 -x 50 -y 12",
+            "resizew -t @3 -x 40 -y 12",
+        ]
+    );
+}
+
+#[test]
+fn a_float_size_is_its_tags_within_the_viewport() {
+    assert_eq!(float_size((Some(60), Some(15)), (120, 40)), (60, 15));
+    assert_eq!(float_size((Some(60), None), (120, 40)), (60, 40));
+    assert_eq!(float_size((None, Some(15)), (120, 40)), (120, 15));
+    assert_eq!(float_size((Some(500), Some(99)), (120, 40)), (120, 40));
+    // A tag of nothing, or a viewport of nothing, is still a cell.
+    assert_eq!(float_size((Some(0), Some(15)), (120, 0)), (1, 1));
 }
 
 #[test]

@@ -79,6 +79,10 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   const reclaimKeyboard = () => {
     if (touchIsPrimary() || primaryPointerDown || hasNativeSelection()) return;
     if (deps.keys.get().owner.kind === 'left') return;
+    // The palette's box holds the keyboard while it is open: giving it to a
+    // pane's input would have what is typed, a composition above all, land
+    // in the pane the palette is drawn over.
+    if (deps.keys.get().paletteOpen) return;
     const active = document.activeElement as HTMLElement | null;
     if (active === getMobileInput()) return;
     if (isRealFormControl(active) || active?.tagName === 'IFRAME') return;

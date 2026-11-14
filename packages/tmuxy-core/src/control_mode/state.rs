@@ -186,6 +186,10 @@ pub enum SideEffect {
 /// rows its column holds (`tmux_options::SIDEBAR_ROWS`).
 pub type SidebarSizing = (WindowId, u32, Option<u32>);
 
+/// A float window with the grid its size tags name ([`crate::constants::float_grid::size`]):
+/// its columns and rows, `None` for a side that follows the viewport.
+pub type FloatSizing = (WindowId, Option<u32>, Option<u32>);
+
 pub struct StateAggregator {
     /// How many `list-panes` reports have been applied. A monitor sizing a
     /// window judges each `resizew` by the report that FOLLOWS it, so this is

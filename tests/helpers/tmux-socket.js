@@ -66,6 +66,11 @@ const DEVELOPER_ENV = [
   'APPDIR',
   'ARGV0',
   'OWD',
+  // Where the agent verbs read and write an agent's config, ahead of HOME: a
+  // developer's own would point a test's install at their real one.
+  'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
+  'CRUSH_SKILLS_DIR',
 ];
 
 /** `process.env` without {@link DEVELOPER_ENV}. */
