@@ -7,6 +7,7 @@ import {
   type PaneGitContext,
 } from './gitContext';
 import type { TmuxPane, TmuxWindow, PaneGroup } from '../domain/client';
+import type { PaneField } from '../domain/paneMeta';
 import type { selectSessions, selectRepositories } from '../machines/selectors/ui';
 import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 import { inGridOrder } from './gridOrder';
@@ -100,6 +101,21 @@ export const isPlaceholderPane = (p: TmuxPane) => isPlaceholderId(p.tmuxId);
 
 export function rowKey(r: Row): string {
   return r.kind === 'tab' ? r.window.id : r.pane.tmuxId;
+}
+
+/** The fields each pane of `sessionName` shows on its row (`tmuxy pane meta`). */
+export function fieldsByPane(
+  sessions: ReturnType<typeof selectSessions>,
+  sessionName: string,
+): Map<PaneId, PaneField[]> {
+  const byPane = new Map<PaneId, PaneField[]>();
+  for (const session of sessions) {
+    if (session.sessionName !== sessionName) continue;
+    for (const pane of session.panes) {
+      if (pane.fields.length > 0) byPane.set(pane.id, pane.fields);
+    }
+  }
+  return byPane;
 }
 
 /** What a row shows of its checkout: the branch, and its uncommitted lines. */
