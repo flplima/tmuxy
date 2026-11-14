@@ -140,7 +140,7 @@ cmd_pane_run() {
       _wait_done "$pane_id" "${status:-1}"
     fi
     rc=0
-    _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
+    _pane_read "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
     _exit_if_no_server "$rc"
     if [ "$rc" -ne 0 ]; then
       rm -rf "$dir"
@@ -181,7 +181,7 @@ EOF
   fi
   local pane_id rc=0
   pane_id="$(_resolve_target "$target")" || exit $?
-  _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
+  _pane_read "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
   _exit_if_no_server "$rc"
   [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $target"
   # Kept open once the program exits, or its status would die with it.
@@ -189,7 +189,7 @@ EOF
 
   local line dead status
   while :; do
-    line=$(_tmux_read display-message -p -t "$pane_id" $'#{pane_dead}\t#{pane_dead_status}' 2>/dev/null) \
+    line=$(_pane_read "$pane_id" $'#{pane_dead}\t#{pane_dead_status}' 2>/dev/null) \
       || _fail "$EXIT_FAILED" "$pane_id went away"
     IFS=$'\t' read -r dead status <<<"$line"
     if [ "$dead" = 1 ]; then

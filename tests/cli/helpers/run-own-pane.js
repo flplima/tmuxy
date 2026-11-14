@@ -2,7 +2,8 @@
  * Run `verified_own_pane` (packages/tmuxy-cli/bin/tmuxy/_contract) with the
  * process ancestry stubbed, as `/proc` (`_parent_of`) and `ps`
  * (`_process_table`) would give it, and tmux answering that pane `%3`'s
- * process is 4242. `ME` is the checking shell's pid.
+ * process is 4242, after the pane's own id, as `_pane_read` asks. `ME` is
+ * the checking shell's pid.
  */
 
 const { spawnSync } = require('child_process');
@@ -23,7 +24,7 @@ function ownPane({ parents = '', table = '', trust = false }) {
     ME=$$
     _tmux() {
       case "$*" in
-        *pane_pid*) echo 4242 ;;
+        *pane_pid*) printf '%s\\t%s\\n' %3 4242 ;;
         *trust-pane-claims*) ${trust ? 'echo on' : ':'} ;;
       esac
     }

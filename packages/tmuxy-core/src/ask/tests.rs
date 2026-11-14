@@ -48,12 +48,18 @@ impl Tmux for Fake {
         let mut p = self.0.lock().unwrap();
         p.log.push(argv.clone());
         let format = argv.last().cloned().unwrap_or_default();
-        Ok(match format.as_str() {
+        // `pane_read` asks for the pane's id first, as real tmux answers it.
+        let (id, format) = match format.strip_prefix("#{pane_id}\t") {
+            Some(rest) => (format!("{}\t", argv[3]), rest.to_string()),
+            None => (String::new(), format),
+        };
+        let said = match format.as_str() {
             "#{@tmuxy-ask}" => p.ask.clone(),
             "#{@tmuxy-ask-answer}" => p.answer.clone(),
             "#{@tmuxy-pane-state}" => p.state.clone(),
             _ => p.rules.clone(),
-        })
+        };
+        Ok(id + &said)
     }
 
     async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {

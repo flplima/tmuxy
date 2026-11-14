@@ -150,11 +150,16 @@ fn describe_pane(pane: &str) -> Result<(Target, PaneInfo)> {
         "-p".into(),
         "-t".into(),
         pane.into(),
-        "#{window_id}\t#{session_id}\t#{window_width}\t#{window_height}\t#{session_name}\t#{pane_current_command}\t#{pane_current_path}".into(),
+        "#{pane_id}\t#{window_id}\t#{session_id}\t#{window_width}\t#{window_height}\t#{session_name}\t#{pane_current_command}\t#{pane_current_path}".into(),
     ])
     .map_err(|_| PluginError::NotFound(format!("no pane {pane}")))?;
     let line = out.lines().next().unwrap_or_default();
-    let f: Vec<&str> = line.splitn(7, '\t').collect();
+    // The pane's own answer only: tmux answers a closed pane's read for its
+    // default pane, or for none.
+    let f: Vec<&str> = match line.split_once('\t') {
+        Some((id, rest)) if id == pane => rest.splitn(7, '\t').collect(),
+        _ => Vec::new(),
+    };
     if f.len() < 7 || !f[0].starts_with('@') {
         return Err(PluginError::NotFound(format!("no pane {pane}")));
     }

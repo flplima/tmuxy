@@ -196,6 +196,9 @@ async fn open_float(
     let pane_out = tmux
         .read(&control_line(&Spot::pane_read(Some(anchor.id.as_str()))))
         .await?;
+    if !Spot::answered_by(&pane_out, anchor.id.as_str()) {
+        return Err(CommandError::tmux(format!("{} is gone", anchor.id)));
+    }
     let windows = tmux
         .read(&control_line(&Spot::windows_read(&pane_out)))
         .await?;

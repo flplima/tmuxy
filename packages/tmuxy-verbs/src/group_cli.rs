@@ -127,13 +127,23 @@ pub fn run(args: GroupArgs) {
         Err(Outcome::Fail(message)) => {
             answer.exit(EXIT_FAILED, &format!("pane-group {name}: {message}"))
         }
+        Err(Outcome::Gone(pane)) => answer.exit(
+            EXIT_TARGET,
+            &format!("pane-group {name}: no such pane: {pane}"),
+        ),
     }
 }
 
 enum Outcome {
     Fail(String),
+    /// The pane named is not there (exit 3).
+    Gone(String),
     /// `--no-wrap` with no member that way.
     NothingThatWay,
+}
+
+fn gone(pane: &str) -> Outcome {
+    Outcome::Gone(pane.to_string())
 }
 
 impl From<tmuxy_core::TmuxError> for Outcome {
@@ -334,9 +344,13 @@ fn size_of(pane: &PaneId) -> Result<(u32, u32), Outcome> {
         "-p".to_string(),
         "-t".to_string(),
         pane.to_string(),
-        "#{pane_width} #{pane_height}".to_string(),
+        "#{pane_id} #{pane_width} #{pane_height}".to_string(),
     ])?;
     let mut cells = output.split_whitespace();
+    // tmux answers a gone pane's read for another pane, or none.
+    if cells.next() != Some(pane.as_str()) {
+        return Err(gone(pane.as_str()));
+    }
     Ok((
         number(cells.next().unwrap_or_default(), "width")?,
         number(cells.next().unwrap_or_default(), "height")?,
@@ -389,6 +403,11 @@ fn resolve_pane(target: &str) -> Result<PaneId, Outcome> {
     }
     argv.push("#{pane_id}".to_string());
     let output = tmux(&argv)?;
+    // A pane id that names a gone pane must not resolve to another one: tmux
+    // answers that read for its default pane, or for none.
+    if target.starts_with('%') && output.trim() != target {
+        return Err(gone(target));
+    }
     Ok(PaneId::parse(output.trim())?)
 }
 

@@ -33,17 +33,23 @@ nav_horizontal() {
   # flag, in one process spawn on every Ctrl+h / Ctrl+l. The always-present
   # edge flag goes last: `$( )` strips trailing newlines, so an option that
   # happens to be unset must never be the final field.
-  local probe current_type gid at_edge
-  probe=$(_tmux display-message -t "$PANE_ID" -p "#{$OPT_WINDOW_TYPE}
+  # The pane's id comes first: tmux answers a gone pane's read for another
+  # pane or none (`_pane_read` in _contract, inline here to keep this hot
+  # path to one spawn), and a gone pane has nowhere to move from.
+  local probe answered current_type gid at_edge
+  probe=$(_tmux display-message -t "$PANE_ID" -p "#{pane_id}
+#{$OPT_WINDOW_TYPE}
 #{$OPT_GROUP_ID}
 #{pane_at_$edge_dir}")
   {
+    IFS= read -r answered || true
     IFS= read -r current_type || true
     IFS= read -r gid || true
     IFS= read -r at_edge || true
   } <<EOF
 $probe
 EOF
+  [ "$answered" = "$PANE_ID" ] || return 0
 
   # The CALLER's pane decides this, not the session's current pane: run from
   # the dock's shell, `display-message` with no target names the tab's active
