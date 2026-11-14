@@ -248,6 +248,30 @@
   color: var(--theme-accent);
 }
 
+/* The ports a pane's programs listen on: after the process, before the id,
+   and never what a narrow row cuts first. */
+.sidebar-tree-ports {
+  display: inline-flex;
+  flex: none;
+  gap: 0.5ch;
+  margin-left: 1ch;
+}
+
+.sidebar-tree-port {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-green);
+  cursor: pointer;
+}
+
+.sidebar-tree-port:hover {
+  text-decoration: underline;
+}
+
 .sidebar-tree-id {
   flex: 0 0 auto;
   margin-left: auto;

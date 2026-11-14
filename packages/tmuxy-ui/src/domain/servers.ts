@@ -55,6 +55,14 @@ export const GitRepository = Schema.Struct({
 });
 export type GitRepository = Schema.Schema.Type<typeof GitRepository>;
 
+/** The TCP ports one pane's programs listen on, lowest first
+ *  (`list_pane_ports`, `tmuxy-core/src/ports.rs`). */
+export const PanePorts = Schema.Struct({
+  paneId: Schema.String,
+  ports: Schema.Array(Schema.Number),
+});
+export type PanePorts = Schema.Schema.Type<typeof PanePorts>;
+
 /**
  * SSH details for a remote tmux server — the wire shape of
  * `tmuxy-core/src/servers.rs`.

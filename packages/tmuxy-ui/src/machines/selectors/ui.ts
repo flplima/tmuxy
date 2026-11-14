@@ -1,6 +1,6 @@
 import type { AppMachineContext } from '../types/context';
 import type { LogEntry } from '../types/domain';
-import type { GitRepository, SessionTreeNode } from '../../domain/servers';
+import type { GitRepository, PanePorts, SessionTreeNode } from '../../domain/servers';
 import type { KeyBindings } from '../../domain/wire';
 import type { WindowId } from '../../domain/ids';
 import { selectVisibleWindows } from './panesAndSidebars';
@@ -11,6 +11,10 @@ export function selectSessions(context: AppMachineContext): SessionTreeNode[] {
 
 export function selectRepositories(context: AppMachineContext): GitRepository[] {
   return context.repositories;
+}
+
+export function selectPanePorts(context: AppMachineContext): readonly PanePorts[] {
+  return context.panePorts;
 }
 
 export function selectError(context: AppMachineContext): string | null {

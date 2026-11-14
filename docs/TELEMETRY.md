@@ -31,8 +31,9 @@ treat it as a bug and open an issue.
 | A plugin's source | `tmuxy plugin install` and `tmuxy plugin update` | `https://github.com/<owner>/<repo>.git`, through your own `git` (`tmuxy-core/src/plugins/source.rs`, `tmuxy-core/src/plugins/fetch.rs`), at exactly the commit the install gate showed | A `git fetch`; your git config applies | Install from a local directory with `--path DIR`, or set `TMUXY_PLUGIN_GIT_BASE` to another base URL. Nothing is fetched without an install or update you ran |
 
 What stays on the machine and is easy to mistake for a connection: the git
-branch badges in the tree run `git` locally on the panes' directories and
-return nothing for an SSH server; session snapshots, the theme files and the
+branch badges in the tree run `git` locally on the panes' directories, and
+its port marks read the local process table, both returning nothing for an
+SSH server; session snapshots, the theme files and the
 saved-servers list are local files.
 
 ### Updates

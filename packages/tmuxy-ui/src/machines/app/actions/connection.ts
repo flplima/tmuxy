@@ -11,6 +11,7 @@ import { TmuxOp } from '../../../domain/commands';
 import { invokeEvent } from '../../actors/tmuxActor';
 import { memorableSessionName } from '../../../domain/sessionNames';
 import { isTauri } from '../../../infra/platform';
+import type { PanePorts } from '../../../domain/servers';
 
 function fetchThemes(enqueue: EnqueueAction): void {
   enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
@@ -80,6 +81,14 @@ export const connectionActions = {
 
   connection_gitRepositoriesUpdated: assignCtx(({ event }) =>
     event.type === 'GIT_REPOSITORIES_UPDATED' ? { repositories: event.repositories } : {},
+  ),
+
+  // The poll answers every few seconds and almost always the same: the old
+  // list is kept then, so nothing that reads it draws again.
+  connection_panePortsUpdated: assignCtx(({ context, event }) =>
+    event.type === 'PANE_PORTS_UPDATED' && !samePanePorts(context.panePorts, event.panePorts)
+      ? { panePorts: event.panePorts }
+      : {},
   ),
 
   connection_serversUpdated: assignCtx(({ event }) =>
@@ -302,3 +311,15 @@ export const connectionActions = {
     event.type === 'TMUX_ERROR' ? { error: event.error } : {},
   ),
 };
+
+function samePanePorts(a: readonly PanePorts[], b: readonly PanePorts[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (entry, i) =>
+        entry.paneId === b[i].paneId &&
+        entry.ports.length === b[i].ports.length &&
+        entry.ports.every((port, j) => port === b[i].ports[j]),
+    )
+  );
+}
