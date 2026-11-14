@@ -1,11 +1,6 @@
 /**
  * `tmuxy open`: a local markdown document or page in a pane, following the
  * file as it changes, through the real CLI, server and frame.
- *
- * What a preview may read is the file it was opened on and the resources
- * beside it, decided by tmux (`@tmuxy-pane-preview`), and a page runs in a
- * sandboxed frame, offline: so besides drawing the right thing, each test
- * checks what a document could NOT reach.
  */
 
 const fs = require('fs');
@@ -27,8 +22,8 @@ const {
   waitForPrefixConsumed,
 } = require('./helpers');
 const { tmuxPanes } = require('./helpers/tmux-read');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
-/** A 1×1 PNG. */
 const PIXEL = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
@@ -36,7 +31,6 @@ const PIXEL = Buffer.from(
 
 const lines = (n) => Array.from({ length: n }, (_, i) => `Line ${i + 1}`).join('\n\n');
 
-/** The active pane's preview, as the user sees it. */
 function activePreview(page) {
   return page.evaluate(() => {
     const { activePaneId } = window.app.view();
@@ -59,7 +53,6 @@ function activePreview(page) {
       imageWidth: img?.naturalWidth ?? 0,
       frontMatter: frontMatter?.innerText ?? null,
       frontMatterBox: box(frontMatter),
-      // CommonMark alone draws front matter as a rule and a heading.
       strays: md ? md.querySelectorAll('hr, h2').length : 0,
       scrollTop: md?.scrollTop ?? 0,
       frame: frame
@@ -70,16 +63,10 @@ function activePreview(page) {
   });
 }
 
-/** The frame the preview page runs in, found afresh: each reload is a new URL. */
 function previewFrame(page) {
   return page.frames().find((f) => f.url().includes('/api/preview/')) ?? null;
 }
 
-/**
- * The prefix, then `key`, typed wherever the keyboard is: the preview itself,
- * or the page in its frame. Not `sendPrefixCommand`, which clicks a terminal
- * first and so would take the keyboard off the preview.
- */
 async function pressPrefixed(page, key) {
   const prefix = await getPrefixKey(page);
   await page.keyboard.press(prefix.modifier ? `${prefix.modifier}+${prefix.key}` : prefix.key);
@@ -88,7 +75,6 @@ async function pressPrefixed(page, key) {
   await waitForPrefixConsumed(page);
 }
 
-/** A pane's row in the tree: its icon, name and title, and whether it shows. */
 function treeRow(page, paneId) {
   return page.evaluate((id) => {
     const el = document.querySelector(`[data-testid="tree-pane-${id}"]`);
@@ -104,15 +90,10 @@ function treeRow(page, paneId) {
   }, paneId);
 }
 
-/** The panes tmux holds in the tab on screen. */
 async function tabPaneCount(page) {
   return tmuxPanes(await page.evaluate(() => window.app.view().activeTabId)).length;
 }
 
-/**
- * tmux's bindings work over the preview: `prefix -` splits its pane. The new
- * shell's `exit` closes it again and hands the keyboard back to the preview.
- */
 async function splitFromPreview(ctx, previewPaneId) {
   const before = await tabPaneCount(ctx.page);
   await pressPrefixed(ctx.page, '-');
@@ -159,7 +140,13 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     const write = (title) =>
       fs.writeFileSync(
         doc,
-        `---\ntitle: ${title}\ntags: [notes]\n---\n\n# ${title}\n\n![logo](img/logo.png)\n\n\`\`\`mermaid\ngraph TD\n  A --> B\n\`\`\`\n\n${lines(80)}\n`,
+        `---\ntitle: ${title}\ntags: [notes]\n---\n\n# ${title}\n\n` +
+          `<details open><summary>Tweaks</summary><kbd>Ctrl</kbd> ` +
+          `<input type="text" name="label" value=""> ` +
+          `<input type="range" name="radius" min="0" max="24" value="8"> ` +
+          `<input type="color" name="accent" value="#112233"></details>\n\n` +
+          `<script>window.mdScriptRan = true;</script>\n\n` +
+          `![logo](img/logo.png)\n\n\`\`\`mermaid\ngraph TD\n  A --> B\n\`\`\`\n\n${lines(80)}\n`,
       );
     write('Doc One');
     await openPreview(ctx, doc);
@@ -180,7 +167,52 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     expect(shown.frontMatterBox.height).toBeGreaterThan(0);
     expect(shown.strays).toBe(0);
 
-    // Read down it, then change the file: the preview follows and stays put.
+    // Safe HTML tags and interactive inputs render visibly; scripts are stripped.
+    const htmlControls = await ctx.page.evaluate(() => {
+      const md = document.querySelector('.pane-wrapper .preview-markdown');
+      const h = (sel) => md?.querySelector(sel)?.getBoundingClientRect()?.height ?? 0;
+      return {
+        heights: [
+          'details[open] summary',
+          'kbd',
+          'input[name="label"]',
+          'input[name="radius"]',
+          'input[name="accent"]',
+        ].map(h),
+        scriptRan: Boolean(window.mdScriptRan),
+      };
+    });
+    expect(htmlControls.heights.every((h) => h > 0)).toBe(true);
+    expect(htmlControls.scriptRan).toBe(false);
+
+    await ctx.page.click('.preview-markdown input[name="label"]');
+    await ctx.page.keyboard.type('jk');
+    await ctx.page.evaluate(() => {
+      const set = (sel, val) => {
+        const el = document.querySelector(`.preview-markdown ${sel}`);
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, val);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set('input[name="radius"]', '18');
+      set('input[name="accent"]', '#ff5500');
+    });
+    await ctx.page.keyboard.press('Escape');
+    expect((await activePreview(ctx.page)).scrollTop).toBe(0);
+
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const out = tmuxExec(`capture-pane -p -t '${shown.paneId}'`);
+        return (
+          out.includes('{"input":"label","type":"text","value":"jk"}') &&
+          out.includes('{"input":"radius","type":"range","value":18}') &&
+          out.includes('{"input":"accent","type":"color","value":"#ff5500"}')
+        );
+      },
+      10000,
+      'preview pane console to print input JSON lines',
+    );
+
     const md = await ctx.page.$('.pane-wrapper .preview-markdown');
     const box = await md.boundingBox();
     await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -204,10 +236,7 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     );
     expect(Math.abs(shown.scrollTop - readTo)).toBeLessThanOrEqual(2);
 
-    // A preview has no copy mode: `prefix [` leaves it as it is, still drawn
-    // and still scrolled where the reader left it.
     await pressPrefixed(ctx.page, '[');
-    // Whatever the key set off has come back once the app has caught up.
     await waitForSettled(ctx.page);
     const afterCopyKey = await ctx.page.evaluate(
       (paneId) => ({
@@ -224,8 +253,6 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     expect(stillShown.headingBox.height).toBeGreaterThan(0);
     expect(Math.abs(stillShown.scrollTop - readTo)).toBeLessThanOrEqual(2);
 
-    // The tree names the pane by what it shows, as its header does: the
-    // preview, its document icon and the file — not the shell under it.
     if (!(await sidebarShown(ctx.page, 'left'))) {
       await pressPrefixed(ctx.page, 's');
     }
@@ -243,7 +270,6 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
 
     await splitFromPreview(ctx, shown.paneId);
 
-    // Ctrl+C is the way out, and the pane's read goes with the preview.
     await ctx.page.keyboard.press('Control+c');
     await waitForCondition(
       ctx.page,
@@ -252,8 +278,6 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
       'the preview to close',
     );
     await waitForShellPrompt(ctx.page);
-    // The shell it hands back still takes Ctrl+C: were it ignored, the sleep
-    // would hold the shell and the echo after it would never run.
     await typeInTerminal(ctx.page, 'sleep 600');
     await pressEnter(ctx.page);
     await ctx.page.keyboard.press('Control+c');
@@ -273,15 +297,6 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     expect(refused.body.kind).toBe('forbidden');
   }, 120000);
 
-  /**
-   * Pele draws a ```mermaid or ```pele fence from its text; mermaid, which
-   * drew them all before and still draws what pele refuses, lays a diagram
-   * out by drawing it into a document. That document was the app's own: an `<img>` in a label loaded from there — telling its host the file
-   * was read, with no `--net` — and anything else in it ran with the app's
-   * access to the API. A `$$…$$` formula was measured in the app's document
-   * too, with the rest of its line. Each kind is drawn here, gitGraph among
-   * them because it looks its SVG up in the app's document.
-   */
   test('a diagram is drawn away from the app: what its labels hold reaches neither the page nor the network', async () => {
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);

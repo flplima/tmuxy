@@ -229,6 +229,136 @@
   font-style: italic;
 }
 
+.preview-markdown [align='center'] {
+  text-align: center;
+}
+
+.preview-markdown [align='right'] {
+  text-align: right;
+}
+
+.preview-markdown [align='left'] {
+  text-align: left;
+}
+
+.preview-markdown [align='justify'] {
+  text-align: justify;
+}
+
+.preview-markdown kbd {
+  background: var(--bg-medium);
+  border: 1px solid var(--border-medium);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--text-primary);
+}
+
+.preview-markdown details {
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  margin: 0 0 12px;
+  background: var(--bg-dark-alt);
+}
+
+.preview-markdown summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.preview-markdown details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.preview-markdown mark {
+  background: color-mix(in srgb, var(--theme-accent) 28%, transparent);
+  color: var(--text-primary);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+}
+
+.preview-markdown ins,
+.preview-markdown u {
+  text-decoration: underline;
+}
+
+.preview-markdown sub,
+.preview-markdown sup {
+  font-size: 0.75em;
+  line-height: 0;
+}
+
+.preview-markdown dl {
+  margin: 0 0 12px;
+}
+
+.preview-markdown dt {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 8px;
+}
+
+.preview-markdown dd {
+  margin: 2px 0 8px 20px;
+}
+
+.preview-markdown fieldset {
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  margin: 0 0 12px;
+}
+
+.preview-markdown legend {
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+.preview-markdown label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 12px 4px 0;
+  color: var(--text-primary);
+}
+
+.preview-markdown
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+.preview-markdown select,
+.preview-markdown textarea {
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.preview-markdown input[type='range'],
+.preview-markdown input[type='checkbox'],
+.preview-markdown input[type='radio'] {
+  accent-color: var(--theme-accent);
+  cursor: pointer;
+}
+
+.preview-markdown input[type='color'] {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  width: 36px;
+  height: 26px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
 /* The message in the readable text colour; the red is the edge that says
    what it is (a red on the panel would not read at 4.5:1 on every theme). */
 .preview-markdown-error {

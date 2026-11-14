@@ -54,7 +54,7 @@ _run_safe "set-option -p -t $PANE $OPT_PANE_WIDGET $(shquote "$COMPONENT")"
 # result. `_run_safe` builds its line from those, so the ESC ] 2 ; BEL ended
 # the command in the middle, and its `echo $? >…status` wrote a file named
 # ESC ] 2 into whatever directory the pane had started in.
-trap 'trap "" INT; ( printf "\033]2;\007" ) 2>/dev/null; _run_safe "set-option -p -u -t $PANE $OPT_PANE_WIDGET"; clear; trap - INT; if { : </dev/tty; } 2>/dev/null; then exec "${SHELL:-bash}" </dev/tty; fi' EXIT
+trap 'trap "" INT; ( printf "\033]2;\007" ) 2>/dev/null; _run_safe "set-option -p -u -t $PANE $OPT_PANE_WIDGET"; clear; trap - INT; if { : </dev/tty; } 2>/dev/null; then stty echo </dev/tty 2>/dev/null || true; exec "${SHELL:-bash}" </dev/tty; fi' EXIT
 
 # A widget's own title normally comes from the UI, but a pane PARKED in a
 # group's stash streams no content, so the only thing a group's tab strip has

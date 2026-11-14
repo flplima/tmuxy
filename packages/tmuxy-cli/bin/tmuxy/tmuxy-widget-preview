@@ -79,10 +79,13 @@ PANE="$(shquote "$TMUX_PANE")"
 # takes `@tmuxy-pane-widget` with it, which alone stops the preview being
 # read — and this script ends once the pane's shell does.
 cleanup() {
+  stty echo </dev/tty 2>/dev/null || true
   _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW" || true
   _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW_NET" || true
 }
 trap cleanup EXIT
+
+stty -echo 2>/dev/null || true
 
 _run_safe "set-option -p -t $PANE $OPT_PANE_PREVIEW $(shquote "$ABS")"
 if [ -n "$NET" ]; then
@@ -111,16 +114,39 @@ settle() {
 }
 
 watch_file() {
-  if [ -z "$THEME" ]; then echo "$PREVIEW_NO_THEME"; fi
-  echo "${PREVIEW_FILE}${NAME}"
-  local last="" now
+  local last="" now line max
+  local -a inputs=()
+  redraw() {
+    printf '\033[H\033[2J%s\n' "${WIDGET_MARKER}preview"
+    if [ -z "$THEME" ]; then echo "$PREVIEW_NO_THEME"; fi
+    echo "${PREVIEW_FILE}${NAME}"
+    echo "${PREVIEW_REV}${last}"
+    for line in ${inputs[@]+"${inputs[@]}"}; do
+      printf '%s\n' "$line"
+    done
+  }
   while :; do
     now="$(fingerprint)"
     if [ "$now" != "$last" ]; then
       last="$now"
-      printf '\r\033[K%s%s' "$PREVIEW_REV" "$now"
+      redraw
     fi
-    settle
+    if [ -t 0 ]; then
+      if IFS= read -r -t 1 line; then
+        case "$line" in
+          \{*\})
+            inputs+=("$line")
+            max=$(( (${LINES:-24} > 12 ? ${LINES:-24} : 12) - 5 ))
+            if [ "${#inputs[@]}" -gt "$max" ]; then
+              inputs=("${inputs[@]:1}")
+            fi
+            redraw
+            ;;
+        esac
+      fi
+    else
+      settle
+    fi
   done
 }
 
