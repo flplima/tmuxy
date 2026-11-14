@@ -531,12 +531,12 @@ fn status_in_json_names_each_items_path_state_and_why() {
     );
 }
 
-/// The guard that keeps a test off the developer's own agent config.
+/// The guard that keeps a test off the developer's own agent config. The path
+/// is outside the temp dir wherever the checkout is, and nothing can be
+/// written there even by root: `/dev/null` is not a directory.
 #[test]
 #[should_panic(expected = "a test wrote outside the temp dir")]
 fn a_test_cannot_write_outside_the_temp_dir() {
-    let outside = std::env::current_dir()
-        .unwrap()
-        .join("not-a-real-settings.json");
-    let _ = write_doc(&outside, &serde_json::Map::new());
+    let outside = std::path::Path::new("/dev/null/not-a-real-settings.json");
+    let _ = write_doc(outside, &serde_json::Map::new());
 }
