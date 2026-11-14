@@ -207,6 +207,21 @@ impl StateAggregator {
     pub fn to_tmux_state(&mut self) -> TmuxState {
         let active_window = self.active_window_id.as_ref();
 
+        // A window only a notification has announced is held back, with its
+        // panes, until list-windows reports its tags. A sidebar or a float is
+        // made by `split-window ; break-pane -d ; set-option` and announced
+        // by `%window-add` and `%window-renamed` before any list could read
+        // the tag the same command set: shown then, it was drawn as a tab,
+        // its column still "starting…" (A16). The session's current window
+        // is shown whatever: a chrome window is always made in the
+        // background, so a current one is a tab, the one the user is on.
+        let held: HashSet<&WindowId> = self
+            .windows
+            .values()
+            .filter(|w| w.awaiting_list && active_window != Some(&w.id))
+            .map(|w| &w.id)
+            .collect();
+
         // Every window's panes go out: the frontend filters them
         // (`selectVisiblePanes`), and holding them is what lets a tab switch
         // render before the server answers. tmux keeps an active pane per
@@ -215,6 +230,7 @@ impl StateAggregator {
         let mut panes: Vec<TmuxPane> = self
             .panes
             .values_mut()
+            .filter(|p| p.window_id.as_ref().is_none_or(|w| !held.contains(w)))
             .filter_map(|p| {
                 let mut pane = p.build_tmux_pane()?;
                 pane.active = pane.active && active_window == Some(&pane.window_id);
@@ -238,7 +254,12 @@ impl StateAggregator {
             panes.push(stash_member_stub(pane_id, member));
         }
 
-        let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
+        let windows: Vec<TmuxWindow> = self
+            .windows
+            .values()
+            .filter(|w| !held.contains(&w.id))
+            .map(|w| w.to_tmux_window())
+            .collect();
 
         // The grid's size is the ACTIVE window's extent, what the client sizes
         // its viewport against. A max over every window (hidden group

@@ -107,6 +107,20 @@ export function summarizeGitContexts(
   return { kind: 'mixed', contexts: [...contexts.values()], unmatchedCount };
 }
 
+/**
+ * A checkout's uncommitted lines as the row shows them: `+12` and `−3`, each
+ * left out when it is zero, and nothing at all for a clean checkout or one
+ * the host did not count.
+ */
+export function gitChangesText(context: PaneGitContext): { added: string; removed: string } | null {
+  const changes = context.worktree.changes;
+  if (!changes || (changes.added === 0 && changes.removed === 0)) return null;
+  return {
+    added: changes.added > 0 ? `+${changes.added}` : '',
+    removed: changes.removed > 0 ? `\u2212${changes.removed}` : '',
+  };
+}
+
 /** Empty for a bare repository. */
 export function gitBadgeText(context: PaneGitContext): string {
   const { worktree } = context;

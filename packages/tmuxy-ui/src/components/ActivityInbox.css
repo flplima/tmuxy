@@ -1,0 +1,104 @@
+/* The activity inbox (`prefix A`). */
+
+.activity-inbox {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-keys-view);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+.activity-inbox-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--term-background) 55%, transparent);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.activity-inbox-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(96ch, 100%);
+  max-height: 100%;
+  margin-top: 8vh;
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+}
+
+.activity-inbox-filter {
+  margin: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: 0;
+  background-color: var(--bg-black);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.activity-inbox-filter:focus {
+  border-color: var(--theme-accent);
+}
+
+.activity-inbox-filter::placeholder {
+  color: var(--text-muted);
+}
+
+.activity-inbox-list {
+  max-height: min(32rem, 60vh);
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.activity-inbox-row {
+  display: flex;
+  align-items: baseline;
+  gap: 1ch;
+  padding: 4px 12px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+/* The row Enter would pick; hover moves it, so there is one highlight. */
+.activity-inbox-row.is-active {
+  background-color: var(--bg-highlight);
+}
+
+.activity-inbox-mark {
+  flex: 0 0 2ch;
+  text-align: center;
+}
+
+.activity-inbox-name {
+  flex: 0 1 auto;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* What the program said: the part that is cut when the row is too long. */
+.activity-inbox-said {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.activity-inbox-place {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.activity-inbox-empty {
+  padding: 8px 12px;
+  color: var(--text-muted);
+}

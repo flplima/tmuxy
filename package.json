@@ -27,6 +27,7 @@
     "perf:interactions": "node packages/tmuxy-ui/scripts/measure-interactions.mjs",
     "perf:interactions:tauri": "node packages/tmuxy-ui/scripts/measure-interactions-tauri.mjs",
     "perf:compare": "node packages/tmuxy-ui/scripts/compare-interactions.mjs",
+    "perf:hidden-bytes": "node packages/tmuxy-ui/scripts/measure-hidden-bytes.mjs",
     "perf:requests": "node packages/tmuxy-ui/scripts/measure-requests.mjs",
     "perf:soak": "node packages/tmuxy-ui/scripts/measure-soak.mjs",
     "lint": "bin/lint-gate check eslint",

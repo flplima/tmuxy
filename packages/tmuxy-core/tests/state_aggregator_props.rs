@@ -92,15 +92,12 @@ proptest! {
             agg.step(ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() });
         }
         let added: HashSet<&str> = adds.iter().copied().collect();
-        prop_assert_eq!(agg.to_tmux_state().windows.len(), added.len());
+        prop_assert_eq!(agg.window_ids().len(), added.len());
         for w in &closes {
             agg.step(ControlModeEvent::WindowClose { window_id: w.parse().unwrap() });
         }
         let closed: HashSet<&str> = closes.iter().copied().collect();
-        prop_assert_eq!(
-            agg.to_tmux_state().windows.len(),
-            added.difference(&closed).count()
-        );
+        prop_assert_eq!(agg.window_ids().len(), added.difference(&closed).count());
     }
 
     /// Settling is a sticky state — arming it and then clearing it must
