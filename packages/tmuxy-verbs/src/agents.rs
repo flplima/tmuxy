@@ -16,6 +16,7 @@ use serde_json::Value;
 
 mod config;
 mod spawn;
+mod start;
 mod wait;
 pub(crate) use config::SKILL;
 use config::*;
@@ -244,7 +245,10 @@ enum AgentVerb {
     Wait(wait::WaitArgs),
     /// Start an agent in a new pane of your own tab, with its task: a row of
     /// a collapsible stack by default, focus staying with you.
-    Spawn(spawn::SpawnArgs),
+    Spawn(Box<spawn::SpawnArgs>),
+    /// Spawn an agent by name and return once it is ready: once its pane
+    /// has a state, from its hooks, the screen rules or the program itself.
+    Start(Box<start::StartArgs>),
     /// The pane state an agent event means (backs `tmuxy agent hook`). Reads
     /// the event's JSON on stdin.
     #[command(hide = true)]
@@ -270,7 +274,8 @@ pub fn run(args: AgentArgs) {
     let answer = Answer::new(args.json);
     let verb = match args.verb {
         AgentVerb::Wait(wait) => return wait::run(&answer, wait),
-        AgentVerb::Spawn(spawn) => return spawn::run(&answer, spawn),
+        AgentVerb::Spawn(spawn) => return spawn::run(&answer, *spawn),
+        AgentVerb::Start(start) => return start::run(&answer, *start),
         verb => verb,
     };
     let places = match Places::from_env() {
@@ -292,7 +297,10 @@ pub fn run(args: AgentArgs) {
             fields.push(("agents", Value::Array(agents).to_string()));
             Ok(())
         }
-        AgentVerb::State { .. } | AgentVerb::Wait(_) | AgentVerb::Spawn(_) => Ok(()),
+        AgentVerb::State { .. }
+        | AgentVerb::Wait(_)
+        | AgentVerb::Spawn(_)
+        | AgentVerb::Start(_) => Ok(()),
     };
     // What was done before a failure is still said.
     if !answer.is_json() {

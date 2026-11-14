@@ -1,7 +1,8 @@
 /**
  * Sub-agents in panes: an orchestrator spawns an agent into its own tab
  * (`tmuxy agent spawn`), as an agent or a script would, through the CLI
- * against a real tmux, and the agent reports back with `tmuxy pane report`.
+ * against a real tmux; `tmuxy agent start` waits for it to be ready, and
+ * the agent reports back with `tmuxy pane report`.
  * Waiting on their states is in 21-agent-states.
  */
 
@@ -146,6 +147,67 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
         }
       }
       fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 120000);
+
+  test('agent start returns once the agent has a state, fails when it exits first, and gives up on --for', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    const caller = await page.evaluate(() => window.app?.view().activePaneId);
+    const asCaller = { TMUX_PANE: caller };
+    const started = [];
+    try {
+      // The "agent" declares its state a second in, as a hook does when a
+      // session starts.
+      const before = Date.now();
+      const ready = await tmuxyCliAsync(
+        ['agent', 'start', 'starter', '--json', '--agent', 'cmd', '--', 'bash', '-c'].concat([
+          `sleep 1; "${TMUXY_CLI}" pane state idle; exec sleep 600`,
+        ]),
+        asCaller,
+      );
+      expect(ready.code).toBe(0);
+      const answer = JSON.parse(ready.stdout);
+      started.push(answer.paneId);
+      expect(answer).toMatchObject({ ok: true, label: 'starter', agent: 'bash', state: 'idle' });
+      expect(Date.now() - before).toBeGreaterThanOrEqual(1000);
+
+      // It exits a second in, after spawn has tagged its pane: tmux then
+      // answers a read of the gone pane with another pane's, which must not
+      // pass for this one still starting.
+      const exited = await tmuxyCliAsync(
+        ['agent', 'start', 'quitter', '--for', '20s', '--agent', 'cmd', '--', 'sleep', '1'],
+        asCaller,
+      );
+      expect(exited.code).toBe(1);
+      expect(exited.stderr).toContain('quitter exited before it was ready');
+
+      const slow = await tmuxyCliAsync(
+        ['agent', 'start', 'sleeper', '--for', '2s', '--agent', 'cmd', '--', 'sleep', '600'],
+        asCaller,
+      );
+      expect(slow.code).toBe(1);
+      expect(slow.stderr).toContain('sleeper was not ready within 2s; it is still running in %');
+      const still = slow.stderr.match(/still running in (%\d+)/)[1];
+      started.push(still);
+      expect(
+        tmuxyCli(['run', 'display-message', '-p', '-t', still, '#{@tmuxy-label}']).trim(),
+      ).toBe('sleeper');
+
+      const twice = await tmuxyCliAsync(
+        ['agent', 'start', 'x', '--label', 'y', '--agent', 'cmd', '--', 'true'],
+        asCaller,
+      );
+      expect(twice.code).toBe(2);
+    } finally {
+      for (const pane of started) {
+        try {
+          tmuxyCli(['pane', 'kill', pane]);
+        } catch {
+          // Already gone.
+        }
+      }
     }
   }, 120000);
 

@@ -25,6 +25,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | `@tmuxy-float-drawer` | window | `top` \| `bottom` \| `left` \| `right` \| unset | drawer-style floats |
 | `@tmuxy-float-bg` | window | `blur` \| `dim` \| unset | floats with a backdrop |
 | `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
+| `@tmuxy-float-minimized` | window | `1` \| unset | a float in the queue at its tab's bottom edge; its pane runs on |
 | `@tmuxy-group-id` | pane | `g<n>`, e.g. `g5` | every member of a pane group |
 | `@tmuxy-group-pos` | pane | integer (0 is first) \| unset | a member's place in its group, once the group was reordered or joined; members without one follow, by pane id |
 | `@tmuxy-group-rev` | global | opaque \| unset | bumped by the group scripts after a change tmux does not announce, so the pane-metadata subscription fires (every pane inherits it) |

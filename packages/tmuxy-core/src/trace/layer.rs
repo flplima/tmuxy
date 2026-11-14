@@ -102,11 +102,17 @@ fn rotate(path: &Path) -> Option<(File, u64)> {
     Some((file, 0))
 }
 
-fn open_append(path: &Path) -> std::io::Result<File> {
+pub(super) fn open_append(path: &Path) -> std::io::Result<File> {
     // The state dir is created here rather than when the path is resolved, so
     // resolving a path for the UI leaves nothing behind while tracing is off.
     if let Some(dir) = path.parent() {
-        crate::private_files::create_dir_all(dir)?;
+        match crate::private_files::create_dir_all(dir) {
+            Ok(()) => {}
+            // A directory someone else owns (`--trace /tmp/run.ndjson`)
+            // cannot be made owner-only; the file in it still is.
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && dir.is_dir() => {}
+            Err(e) => return Err(e),
+        }
     }
     crate::private_files::open_append(path)
 }
