@@ -221,9 +221,11 @@ fn check_values(name: &str, profile: &Profile) -> Result<(), ProfileError> {
     Ok(())
 }
 
-/// Write `profile` as `name`, made or replaced.
+/// Write `profile` as `name`, made or replaced: checked as a read is, so
+/// nothing is saved that would be refused on the next load.
 pub fn save(dir: &Path, name: &str, profile: &Profile) -> Result<(), ProfileError> {
     let path = file(dir, name)?;
+    check_values(name, profile)?;
     let text = serde_json::to_string_pretty(profile)
         .map_err(|e| ProfileError::Unreadable(e.to_string()))?;
     crate::private_files::write(&path, format!("{text}\n"))
@@ -291,6 +293,22 @@ pub fn session_commands(
             ))
         })
         .collect()
+}
+
+/// Set the field behind the tmux option `option` to `value` (`on` or `off`
+/// for a switch), as a menu change in a session on this profile does. False
+/// for an option no profile holds, which stays the global one it always was:
+/// asking before a send is never a profile's.
+pub fn set_field(profile: &mut Profile, option: &str, value: &str) -> bool {
+    let on = value == "on";
+    match option {
+        tmux_options::THEME => profile.theme = Some(value.to_string()),
+        tmux_options::THEME_MODE => profile.theme_mode = Some(value.to_string()),
+        tmux_options::CURSOR_BLINK => profile.cursor_blink = Some(on),
+        tmux_options::TRANSPARENCY => profile.transparency = Some(on),
+        _ => return false,
+    }
+    true
 }
 
 /// The commands that move `session` to the profile `name`: every option a
