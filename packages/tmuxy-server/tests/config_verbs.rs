@@ -195,11 +195,14 @@ fn config_check_passes_a_clean_config_a_named_file_and_no_config_at_all() {
     );
     let named = h.verb(&["config", "check", &other.display().to_string()]);
     assert_eq!(named.status.code(), Some(1));
+    // The report names the file by its real path: macOS's temp dir is under
+    // /var, a link to /private/var.
+    let real = std::fs::canonicalize(&other).unwrap();
     assert_eq!(
         stderr(&named).lines().collect::<Vec<_>>(),
         [
             "Error: 1 problem(s) in the config".to_string(),
-            format!("{}:2: invalid option: history-limt", other.display()),
+            format!("{}:2: invalid option: history-limt", real.display()),
         ]
     );
 
