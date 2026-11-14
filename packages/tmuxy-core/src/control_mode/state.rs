@@ -365,6 +365,8 @@ mod test_pane;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_announced_windows;
+#[cfg(test)]
 mod tests_capture;
 #[cfg(test)]
 mod tests_capture_cursor;

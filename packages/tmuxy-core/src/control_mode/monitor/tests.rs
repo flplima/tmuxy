@@ -254,10 +254,32 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             window_id: "@0".parse().unwrap(),
             pane_id: "%0".parse().unwrap(),
         },
-        // Adopt, then the window re-list, then the emission.
+        // Adopt, then the window re-list; nothing is emitted, as a window
+        // only announced is not shown (A15) until the list names it.
         ControlModeEvent::WindowAdd {
             window_id: "@1".parse().unwrap(),
         },
+        marked(&markers, LIST_BEGIN_MARKER, TmuxList::Windows.name()),
+        response(&format!(
+            "{}\n{}\n",
+            RowBuilder::<WindowColumn>::new()
+                .set(WindowColumn::WindowId, "@0")
+                .set(WindowColumn::Index, 0)
+                .set(WindowColumn::Active, 1)
+                .set(WindowColumn::WindowType, "tab")
+                .set(WindowColumn::Zoomed, 0)
+                .set(WindowColumn::Name, "shell")
+                .build(),
+            RowBuilder::<WindowColumn>::new()
+                .set(WindowColumn::WindowId, "@1")
+                .set(WindowColumn::Index, 1)
+                .set(WindowColumn::Active, 0)
+                .set(WindowColumn::WindowType, "tab")
+                .set(WindowColumn::Zoomed, 0)
+                .set(WindowColumn::Name, "two")
+                .build()
+        )),
+        marked(&markers, LIST_END_MARKER, ""),
         // A reply block: resolved in the monitor, nothing sent.
         marked(&markers, REPLY_BEGIN_MARKER, &id),
         response("ok\n"),
@@ -324,10 +346,11 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
     // Each multi-effect step, named, so the check above is not vacuous.
     let ranks_of = |step: &[&String]| step.iter().map(|c| rank(c)).collect::<Vec<_>>();
     // Steps are numbered by event: the window focus change is the 8th,
-    // the pane focus change the 18th, the window add the 19th, the reply's
-    // three blocks the 20th to 22nd, the image the 23rd, the OSC 52 the
-    // 24th, the title change the 25th, the pause the 26th, the yank the 27th
-    // and its read the 28th to 30th, the window close the 31st.
+    // the pane focus change the 18th, the window add the 19th and its
+    // list-windows the 20th to 22nd, the reply's three blocks the 23rd to
+    // 25th, the image the 26th, the OSC 52 the 27th, the title change the
+    // 28th, the pause the 29th, the yank the 30th and its read the 31st to
+    // 33rd, the window close the 34th.
     let window_add = &steps[19];
     let first_list = window_add
         .iter()
@@ -337,12 +360,17 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         first_list > 0 && rank(window_add[0]) == 0,
         "the tags should go out before the re-list: {window_add:?}"
     );
-    assert_eq!(
-        window_add.last().map(|c| c.as_str()),
-        Some("<emit>"),
-        "the window add should emit after its re-list: {window_add:?}"
+    assert!(
+        !window_add.iter().any(|c| c.as_str() == "<emit>"),
+        "a window only announced should not be shown: {window_add:?}"
     );
-    for reply_step in &steps[20..23] {
+    assert_eq!(
+        steps[21].last().map(|c| c.as_str()),
+        Some("<emit>"),
+        "the list that names the window should show it: {:?}",
+        steps[21]
+    );
+    for reply_step in &steps[23..26] {
         assert!(reply_step.is_empty(), "a reply block sent {reply_step:?}");
     }
     let reply = reply_rx
@@ -350,41 +378,41 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         .expect("the reply block resolved its waiter");
     assert_eq!((reply.output.as_str(), reply.error), ("ok\n", None));
     assert_eq!(
-        steps[23].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+        steps[26].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
         ["<images>"],
         "an inline image should reach the emitter alone, its emission deferred"
     );
     assert_eq!(
-        steps[24].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+        steps[27].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
         ["<clipboard %0 hello world>"],
         "an OSC 52 write should reach the emitter with the pane that asked"
     );
-    let refresh = &steps[25];
+    let refresh = &steps[28];
     assert_eq!(
         ranks_of(refresh),
         [3, 3, 4],
         "the pane refresh should re-list before it captures: {refresh:?}"
     );
-    let pause = &steps[26];
+    let pause = &steps[29];
     assert_eq!(
         ranks_of(pause),
         [5],
         "a pause should answer with the resume alone: {pause:?}"
     );
-    let yank = &steps[27];
+    let yank = &steps[30];
     assert!(
         ranks_of(yank) == [2] && yank[0].contains("show-buffer"),
         "a yank should send the buffer read alone: {yank:?}"
     );
     assert_eq!(
-        steps[28..31]
+        steps[31..34]
             .iter()
             .map(|s| s.iter().map(|c| c.as_str()).collect::<Vec<_>>())
             .collect::<Vec<_>>(),
         [vec![], vec!["<clipboard buffer yanked>"], vec![]],
         "the buffer read should hand its content to the clipboard, once"
     );
-    let window_close = &steps[31];
+    let window_close = &steps[34];
     assert_eq!(
         window_close.last().map(|c| c.as_str()),
         Some("<emit>"),

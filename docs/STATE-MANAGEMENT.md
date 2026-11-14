@@ -92,7 +92,7 @@ Adding a transport means writing a sink and its `Host` policy, nothing else.
 
 Three timing policies the monitor applies on top of the aggregator's effects. All are about _when_ to flush state, not _what_ the state contains.
 
-- **Settling** suppresses intermediate window/layout emissions while a compound command (`splitw ; breakp ; set-option ...`) is mid-flight. The aggregator owns the suppression flag and its deadline, disarmed by its `tick`; the monitor sleeps until `MonitorCore::next_deadline` to run it.
+- **Settling** suppresses intermediate window/layout emissions while a script tagged to settle (`TMUXY_EFFECT=settle`, `tmux_compat::SETTLE_TAG`) runs its steps as separate tmux commands. A single command list (`splitw ; breakp ; set-option ...`) needs none: tmux sends its notifications after the whole list, and a window they announce is held back until listed (A15 in [INVARIANTS.md](INVARIANTS.md)). The aggregator owns the suppression flag and its deadline, disarmed by its `tick`; the monitor sleeps until `MonitorCore::next_deadline` to run it.
 - **Adaptive throttling** caps state emissions during high-frequency output (rate-window hysteresis with a ~60fps ceiling) so terminal-output bursts don't drown the SSE channel. Below the threshold, emissions are immediate for low-latency typing feedback.
 - **Layout debounce** coalesces rapid layout changes (e.g., zoom-out cascades) into a single emission.
 
