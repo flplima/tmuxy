@@ -169,19 +169,31 @@ harness writes the frames into the panes' terminals itself, so the load is
 exactly that and stops with the run). Its ratio to `key-echo` is what other
 panes' output costs a keystroke.
 
-The web harness then measures **attach** (`scripts/lib/attach.mjs`): it gives
-the focused pane 10,000 lines of history and reloads the page, timing from
-navigation start `attach-paint`, the focused pane showing its prompt, and
-`attach-interactive`, the first key echoed, typing a fresh token every 100 ms
+The web harness then measures **attach** (`scripts/lib/attach.mjs`): in a tab
+of its own whose pane holds 10,000 lines of history, it reloads the page and
+times from navigation start `attach-paint`, the focused pane showing its text,
+and `attach-interactive`, the first key echoed, typing a fresh token every 100 ms
 from the moment the app exists. The tokens that never show are reported as
 `lostKeys`, and `attach-scroll`, a first wheel scroll over that history to every
 row in view loaded (~100 ms here since history comes newest first; ~450 ms when
 the whole of it came at once). `perf:compare` fails on any lost key: a key typed
 during an attach arrives late, never not at all (the app holds what is typed
 before its first connection and sends it, in order, the moment it lands;
-`heldCommands`). Measured on a loaded dev machine: ~400–630 ms to paint (~11× a
-keystroke), ~580–900 ms to the first echo (~17×). Before keys were held, about a
-fifth of those typed meanwhile were lost. `--only attach` runs that alone.
+`heldCommands`). Before keys were held a fifth were lost. It also records
+`entryScriptBytes`, what the page's entry script cost the link on a first load,
+and `perf:compare` fails on one over 400 KB, on any machine. `--only attach`
+runs that alone.
+
+What attach costs is mostly the page itself: the server answers the event stream
+in ~10 ms and the initial state in ~40 ms (it waits for the window to take the
+browser's size), and sends only the visible screens. So the entry script holds
+only what the terminal view needs (the preview widget, with its markdown and
+diagram renderers, loads when a pane first shows one), and the server compresses
+its answers and lets the browser keep the hashed `assets/` for a year
+(`tmuxy-server/src/server/delivery.rs`): the entry went from 1.13 MB on the wire
+on every load to ~250 KB once. Measured on a loaded dev machine, before and after
+interleaved: paint ~330–470 ms → ~200–220 ms, first echo ~515–675 ms →
+~375–420 ms.
 
 **Two targets, one suite.** The same interactions are measured against the web
 app and against the desktop app, because they reach the same Rust core over
@@ -232,62 +244,7 @@ leaves the absolute column blank and rides on the ratio gate.
 
 ### Running it
 
-**Only against a throwaway server.** The harness splits panes, types, opens
-tabs and closes the ones it made; pointed at the server you work in, it would
-do that to your session. So `--url` has no default, and the run refuses any
-server whose tmux socket is not named for one (`tmuxy-perf`, or
-`tmuxy-perf-<anything>`; the E2E suite's `tmuxy-test` is let through too)
-before it touches anything (`scripts/lib/throwaway.mjs`). Start one on its own
-`tmuxy-perf…` socket, port and `TMUX_TMPDIR`, with the environment the E2E
-suites use (`tests/helpers/server-env.js`); CI's perf jobs set
-`TMUX_SOCKET: tmuxy-perf`.
-
-```
-npm run perf:interactions -- --url http://localhost:9000 --samples 12 \
-                             --label local --out tests/perf/interaction-report.json
-npm run perf:compare -- --report tests/perf/interaction-report.json
-```
-
-Add `--cdp http://localhost:9222` to attach to the Chrome the dev environment
-already runs instead of launching one (the devcontainer deliberately does not
-install Playwright's browsers; CI is the reverse and launches). Refresh the
-committed baseline for a platform with `npm run perf:compare -- --report … --update-baseline`
-and commit the result. For the Linux platforms, run the `nightly perf`
-workflow (`.github/workflows/nightly-perf.yml`, `interaction-baseline` job)
-instead: it measures on a runner, with more samples than the gate job takes,
-and opens a PR with the refreshed file. Either way a baseline change lands
-through review — CI never writes one straight to `main`.
-
-That job is on demand, not scheduled, and a PR rather than a commit, for one
-reason: a baseline that refreshes itself ratchets to whatever the runner did
-last, which is the opposite of a baseline. A nightly run of it wrote artifacts
-nobody opened, and the file it exists to feed was never once refreshed from
-one — because the review used to mean downloading an artifact and copying a
-file over by hand. The PR keeps the review and removes the chore; read the
-milliseconds before merging, since a runner having a bad night produces a
-baseline that hides real regressions for as long as it stands.
-
-The desktop equivalent needs the app built first, and takes the binary rather
-than a URL:
-
-```
-(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)
-npm run perf:interactions:tauri -- --samples 12 --label local \
-                                   --out tests/perf/interaction-report-tauri.json
-npm run perf:compare -- --report tests/perf/interaction-report-tauri.json
-```
-
-CI runs both nightly, in `nightly-perf.yml` (`nightly perf`), uploading
-the report as an artifact; the ratio budgets fail the run there, so a
-regression shows as a red nightly the next morning:
-
-| Job | Measures | Builds |
-| --- | --- | --- |
-| `interaction-latency` | Axis C, web | the frontend and the release server |
-| `interaction-latency-desktop` | Axis C, desktop | the release Tauri binary, under Xvfb |
-| `core-bench` | Axis A bench | tmuxy-core under the bench (release) profile |
-
-`workflow_dispatch` with `gates` checked runs all three on demand.
+In [PERFORMANCE-RUNNING.md](PERFORMANCE-RUNNING.md), this doc's companion: the throwaway server the harness insists on, the commands and their flags.
 
 ### Measured
 

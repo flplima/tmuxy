@@ -1,14 +1,14 @@
 import type { WidgetDefinition } from '../registry';
 import { event } from '../../menus/specs/actions';
 import { TmuxOp } from '../../../domain/commands';
-import { PreviewWidget } from './PreviewWidget';
+import { PreviewWidgetLoader } from './PreviewWidgetLoader';
 import { parsePreviewLines } from '../../../domain/preview';
 
 /**  nf-fa-file_text_o — a document. */
 const DOCUMENT_ICON = '';
 
 export const previewWidget: WidgetDefinition = {
-  component: PreviewWidget,
+  component: PreviewWidgetLoader,
   icon: DOCUMENT_ICON,
   selectTitle: (_context, _paneId, lines) => parsePreviewLines(lines).file || undefined,
   selectMenuItems: (_context, paneId) => [
