@@ -116,6 +116,136 @@ pub fn create(path: &Path, branch: &str, base: Option<&str>) -> Result<Created, 
     })
 }
 
+/// The commit the worktree `path` is on: what a copy of it starts from.
+pub fn head(path: &Path) -> Result<String, GuardError> {
+    read(
+        path,
+        "rev-parse",
+        &["rev-parse", "--verify", "HEAD^{commit}"],
+    )
+    .map(|s| s.trim().to_string())
+}
+
+/// What [`carry`] brought over.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Carried {
+    /// Tracked files with changes not committed yet, copied or deleted.
+    pub changed: Vec<String>,
+    /// Untracked files copied, when asked for.
+    pub untracked: Vec<String>,
+    /// Entries left behind: not regular files, or paths that would leave
+    /// the worktree.
+    pub skipped: Vec<String>,
+}
+
+/// A path git listed, as a path inside a worktree: `None` for one that
+/// would leave it.
+fn inside(name: &str) -> Option<&Path> {
+    let relative = Path::new(name);
+    relative
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
+        .then_some(relative)
+}
+
+fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// Where `relative` goes in `to`, with any symlink already there removed,
+/// or `None` when a directory on the way there is a symlink: writing
+/// through it would land outside the worktree.
+fn target_in(to: &Path, relative: &Path) -> Option<std::path::PathBuf> {
+    let mut dir = to.to_path_buf();
+    for part in relative.parent().into_iter().flat_map(Path::components) {
+        dir.push(part);
+        if is_symlink(&dir) {
+            return None;
+        }
+    }
+    let target = to.join(relative);
+    if is_symlink(&target) && std::fs::remove_file(&target).is_err() {
+        return None;
+    }
+    Some(target)
+}
+
+/// Copy `name` from `from` to `to` when it is a regular file inside the
+/// worktree, never through a symlink; whether it was.
+fn copy_file(from: &Path, to: &Path, name: &str) -> bool {
+    let Some(relative) = inside(name) else {
+        return false;
+    };
+    let source = from.join(relative);
+    if !std::fs::symlink_metadata(&source).is_ok_and(|m| m.file_type().is_file()) {
+        return false;
+    }
+    let Some(target) = target_in(to, relative) else {
+        return false;
+    };
+    target
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::copy(&source, &target))
+        .is_ok()
+}
+
+/// Bring `from`'s uncommitted changes to tracked files into `to`, a new
+/// worktree on the same commit; with `untracked`, its untracked files too.
+/// `from` may be any directory of that worktree: the whole worktree is carried.
+///
+/// Each changed file's content is copied as it is now, and a deleted one is
+/// deleted: on the same commit that is the same state, and no `git apply`
+/// runs, so no attribute or filter the repository names comes into it.
+/// Only regular files inside the worktree are copied; anything else (a
+/// symlink, a path that would leave it) is left behind and listed in
+/// `skipped`. Nothing in `from` changes.
+pub fn carry(from: &Path, to: &Path, untracked: bool) -> Result<Carried, GuardError> {
+    // The pane may sit in a subdirectory: git names the changes from the top
+    // of the worktree, and `ls-files` from where it runs, so both run there.
+    let top = read(from, "rev-parse", &["rev-parse", "--show-toplevel"])?;
+    let from = Path::new(top.trim_end_matches('\n'));
+    let mut carried = Carried::default();
+    // diff-index compares by file stat and hashes nothing, so no clean
+    // filter the repository names (in .gitattributes or .git/info/attributes)
+    // runs. A file only touched is listed too, and copied unchanged.
+    let changes = read(
+        from,
+        "diff-index",
+        &["diff-index", "--name-status", "--no-renames", "-z", "HEAD"],
+    )?;
+    let mut fields = changes.split('\0').filter(|f| !f.is_empty());
+    while let (Some(status), Some(name)) = (fields.next(), fields.next()) {
+        let done = if status == "D" {
+            inside(name)
+                .and_then(|relative| target_in(to, relative))
+                .is_some_and(|target| !target.exists() || std::fs::remove_file(target).is_ok())
+        } else {
+            copy_file(from, to, name)
+        };
+        if done {
+            carried.changed.push(name.to_string());
+        } else {
+            carried.skipped.push(name.to_string());
+        }
+    }
+    if untracked {
+        let listed = read(
+            from,
+            "ls-files",
+            &["ls-files", "--others", "--exclude-standard", "-z"],
+        )?;
+        for name in listed.split('\0').filter(|l| !l.is_empty()) {
+            if copy_file(from, to, name) {
+                carried.untracked.push(name.to_string());
+            } else {
+                carried.skipped.push(name.to_string());
+            }
+        }
+    }
+    Ok(carried)
+}
+
 #[cfg(test)]
 #[path = "create_tests.rs"]
 mod tests;

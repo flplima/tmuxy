@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 34;
+const COMMANDS: usize = 44;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -53,10 +53,31 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::OpenText { .. } => 28,
         C::Greeting => 29,
         C::GetTraceShare { .. } => 30,
-        C::ReadDiff { .. } => 31,
-        C::ChangeHunk { .. } => 32,
-        C::UndoRevert { .. } => 33,
+        C::ListPanePorts => 31,
+        C::GetPromptMarks { .. } => 32,
+        C::GetLastCommandOutput { .. } => 33,
+        C::OwnTmuxOffer => 34,
+        C::CloseOwnTmuxOffer => 35,
+        C::ListProfiles => 36,
+        C::UseProfile { .. } => 37,
+        C::CreateProfile { .. } => 38,
+        C::RenameProfile { .. } => 39,
+        C::DeleteProfile { .. } => 40,
+        C::ReadDiff { .. } => 41,
+        C::ChangeHunk { .. } => 42,
+        C::UndoRevert { .. } => 43,
     }
+}
+
+fn profiles() -> Vec<serde_json::Value> {
+    vec![serde_json::to_value(crate::profiles::ProfilesInfo {
+        active: "Reading".to_string(),
+        names: vec![
+            crate::profiles::DEFAULT_PROFILE.to_string(),
+            "Reading".to_string(),
+        ],
+    })
+    .unwrap()]
 }
 
 fn pane() -> PaneId {
@@ -119,10 +140,22 @@ fn every_request() -> Vec<ClientCommand> {
         },
         C::SetThemeMode { mode: s("light") },
         C::GetThemesList,
+        C::ListProfiles,
+        C::UseProfile { name: s("Reading") },
+        C::CreateProfile {
+            name: s("Reading copy"),
+            from: Some(s("Reading")),
+        },
+        C::RenameProfile {
+            from: s("Reading copy"),
+            to: s("Night"),
+        },
+        C::DeleteProfile { name: s("Night") },
         C::SetCursorBlink { enabled: true },
         C::SetSendAsk { enabled: false },
         C::SetTransparency { enabled: true },
         C::ListGitWorktrees,
+        C::ListPanePorts,
         C::ListSnapshots,
         C::RestoreSession { session: s("work") },
         C::GetTraceSettings,
@@ -163,6 +196,10 @@ fn every_request() -> Vec<ClientCommand> {
         },
         C::Greeting,
         C::GetTraceShare { last: 20 },
+        C::GetPromptMarks { pane_id: pane() },
+        C::GetLastCommandOutput { pane_id: pane() },
+        C::OwnTmuxOffer,
+        C::CloseOwnTmuxOffer,
     ]
 }
 
@@ -208,7 +245,10 @@ fn every_command_request_matches_its_fixture() {
 /// reads it with.
 #[test]
 fn every_command_answer_matches_its_fixture() {
-    use crate::host::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings, TraceShare};
+    use crate::host::{
+        LastOutput, PluginToken, PromptMarks, ScrollbackCells, SnapshotInfo, TraceSettings,
+        TraceShare,
+    };
     let null = || vec![serde_json::Value::Null];
     let json = |v: &dyn erased::Json| vec![v.to_json()];
     let server = crate::servers::Server {
@@ -323,6 +363,11 @@ fn every_command_answer_matches_its_fixture() {
                 modes: vec!["dark", "light"],
             }]),
         ),
+        ("list_profiles", profiles()),
+        ("use_profile", profiles()),
+        ("create_profile", profiles()),
+        ("rename_profile", profiles()),
+        ("delete_profile", profiles()),
         ("set_cursor_blink", null()),
         ("set_send_ask", null()),
         ("set_transparency", null()),
@@ -341,7 +386,15 @@ fn every_command_answer_matches_its_fixture() {
                     bare: false,
                     locked: false,
                     prunable: false,
+                    changes: None,
                 }],
+            }]),
+        ),
+        (
+            "list_pane_ports",
+            json(&vec![crate::ports::PanePorts {
+                pane_id: "%2".to_string(),
+                ports: vec![5173, 8123],
             }]),
         ),
         (
@@ -413,6 +466,35 @@ fn every_command_answer_matches_its_fixture() {
                 HostEvent::KeyBindings(canonical_bindings()),
             ]),
         ),
+        (
+            "get_prompt_marks",
+            json(&PromptMarks {
+                history_size: 1234,
+                prompts: vec![1190, 1240],
+            }),
+        ),
+        (
+            "get_last_command_output",
+            vec![
+                erased::Json::to_json(&LastOutput {
+                    text: Some("ok\n".to_string()),
+                }),
+                erased::Json::to_json(&LastOutput { text: None }),
+            ],
+        ),
+        (
+            "own_tmux_offer",
+            vec![
+                erased::Json::to_json(&Some(crate::servers::OwnTmuxOffer {
+                    server_id: crate::servers::MY_TMUX_ID,
+                    sessions: 3,
+                    session: Some("work".to_string()),
+                    can_switch: true,
+                })),
+                serde_json::Value::Null,
+            ],
+        ),
+        ("close_own_tmux_offer", null()),
     ];
     let answered: BTreeSet<String> = answers.iter().map(|(name, _)| name.to_string()).collect();
     assert_eq!(

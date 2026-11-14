@@ -274,8 +274,32 @@ function jumpProblem(series) {
   return null;
 }
 
+/**
+ * What a pane's row in the sidebar tree draws of its checkout: the branch,
+ * the lines changed beside it (`+2−1`), and whether both are drawn inside
+ * the column with the numbers after the name: they are never what a narrow
+ * column cuts off. `null` until the row shows both.
+ */
+async function treeRowGit(page, paneId) {
+  return page.evaluate((id) => {
+    const row = document.querySelector(`[data-testid="tree-pane-${id}"]`);
+    const changes = row?.querySelector('[data-testid="tree-git-changes"]');
+    const name = row?.querySelector('.sidebar-tree-git-name');
+    if (!changes || !name) return null;
+    const column = document.querySelector('.sidebar-column-left').getBoundingClientRect();
+    const c = changes.getBoundingClientRect();
+    const n = name.getBoundingClientRect();
+    return {
+      name: name.textContent,
+      changes: changes.textContent,
+      inColumn: n.width > 0 && c.width > 0 && c.left >= n.right && c.right <= column.right,
+    };
+  }, paneId);
+}
+
 module.exports = {
   ...require('./index'),
+  treeRowGit,
   verifyFloatVisible,
   waitForFloatModal,
   waitForNoModal,

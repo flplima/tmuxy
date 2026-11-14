@@ -4,8 +4,29 @@
       "revert": "1794452507000-0"
     }
   ],
+  "close_own_tmux_offer": [
+    null
+  ],
   "connect_server": [
     null
+  ],
+  "create_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
+  "delete_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
   ],
   "detach_client": [
     null
@@ -161,6 +182,23 @@
       ]
     }
   ],
+  "get_last_command_output": [
+    {
+      "text": "ok\n"
+    },
+    {
+      "text": null
+    }
+  ],
+  "get_prompt_marks": [
+    {
+      "historySize": 1234,
+      "prompts": [
+        1190,
+        1240
+      ]
+    }
+  ],
   "get_scrollback_cells": [
     {
       "cells": [
@@ -200,6 +238,7 @@
         "activeTextOpacity": 1.0,
         "animations": true,
         "blur": true,
+        "confirmClose": true,
         "cursorBlink": true,
         "gesturePinchOverview": true,
         "gesturePinchZoom": true,
@@ -325,6 +364,26 @@
       }
     ]
   ],
+  "list_pane_ports": [
+    [
+      {
+        "paneId": "%2",
+        "ports": [
+          5173,
+          8123
+        ]
+      }
+    ]
+  ],
+  "list_profiles": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
   "list_servers": [
     {
       "currentId": "localhost",
@@ -365,6 +424,15 @@
     null
   ],
   "open_url": [
+    null
+  ],
+  "own_tmux_offer": [
+    {
+      "canSwitch": true,
+      "serverId": "my-tmux",
+      "session": "work",
+      "sessions": 3
+    },
     null
   ],
   "prepare_plugin_action": [
@@ -440,6 +508,15 @@
   "record_trace": [
     null
   ],
+  "rename_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
+  ],
   "restore_session": [
     null
   ],
@@ -475,5 +552,14 @@
   ],
   "undo_revert": [
     null
+  ],
+  "use_profile": [
+    {
+      "active": "Reading",
+      "names": [
+        "Default Profile",
+        "Reading"
+      ]
+    }
   ]
 }

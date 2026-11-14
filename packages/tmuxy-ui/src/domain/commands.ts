@@ -178,6 +178,16 @@ export type TmuxOp = Data.TaggedEnum<{
   GroupAdd: { readonly pane: SizedPane | null };
   GroupClose: { readonly paneId: PaneId };
   /**
+   * Bring the agent that exited in `paneId` back into the same conversation:
+   * `tmuxy agent revive`, whose own checks decide (`agent-revive` script).
+   */
+  ReviveAgent: { readonly paneId: PaneId };
+  /**
+   * Ask revive's own check about `paneId` and leave the answer on the pane
+   * for a query to read (`reviveCheckQuery`): the pane menu's question.
+   */
+  CheckRevive: { readonly paneId: PaneId };
+  /**
    * Swap a parked member into the visible slot `visiblePaneId` holds. Without
    * a visible member there is nothing to predict; the script still runs.
    */
@@ -349,6 +359,10 @@ export function toTmuxCommand(op: TmuxOp): string {
           );
     case 'GroupClose':
       return scriptWith('settle', 'pane-group', 'close', op.paneId);
+    case 'ReviveAgent':
+      return script('agent-revive', op.paneId);
+    case 'CheckRevive':
+      return script('agent-revive', '--mark', op.paneId);
     case 'GroupSwitch':
       return scriptWith('settle', 'pane-group', 'switch', op.clickedPaneId);
     case 'GroupStep':

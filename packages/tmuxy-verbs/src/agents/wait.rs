@@ -245,6 +245,15 @@ impl Waiter {
     }
 }
 
+/// One target, a pane id or a label, as the pane id it names: exit code and
+/// message when it names none, or several.
+pub(crate) fn resolve_one(target: &str) -> Result<String, (i32, String)> {
+    let panes = listing()?;
+    resolve(&[target.to_string()], &panes)
+        .map(|mut found| found.remove(0))
+        .map_err(|e| (EXIT_TARGET, e))
+}
+
 fn listing() -> Result<HashMap<String, Seen>, (i32, String)> {
     let argv = [
         "list-panes".into(),
@@ -309,7 +318,9 @@ pub fn run(answer: &Answer, args: WaitArgs) {
     let panes = counted
         .iter()
         .map(|c| {
-            serde_json::json!({ "paneId": c.pane, "label": c.label, "state": c.state }).to_string()
+            let report = crate::report_cli::read(&c.pane).map(|(text, _)| text);
+            serde_json::json!({ "paneId": c.pane, "label": c.label, "state": c.state, "report": report })
+                .to_string()
         })
         .collect::<Vec<_>>()
         .join(",");

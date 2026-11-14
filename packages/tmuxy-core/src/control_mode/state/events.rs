@@ -77,11 +77,9 @@ impl StateAggregator {
                 // an index read out of the id is wrong once ids and indices
                 // diverge (e.g. `tmuxy tab create` makes @1 at index 2).
                 let provisional_index = self.next_window_index();
-                self.windows
-                    .entry(window_id.clone())
-                    .or_insert_with(|| WindowState::new(window_id.clone(), provisional_index));
-                // `%window-add` carries no name: the window is emitted once a
-                // rename or `list-windows` names it, so no tab flashes unnamed.
+                self.windows.entry(window_id.clone()).or_insert_with(|| {
+                    WindowState::announced(window_id.clone(), provisional_index)
+                });
                 ProcessEventResult::default()
             }
 
@@ -100,10 +98,9 @@ impl StateAggregator {
             ControlModeEvent::WindowRenamed { window_id, name } => {
                 // A rename can arrive before the add.
                 let provisional_index = self.next_window_index();
-                let window = self
-                    .windows
-                    .entry(window_id.clone())
-                    .or_insert_with(|| WindowState::new(window_id.clone(), provisional_index));
+                let window = self.windows.entry(window_id.clone()).or_insert_with(|| {
+                    WindowState::announced(window_id.clone(), provisional_index)
+                });
                 window.name = name;
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,

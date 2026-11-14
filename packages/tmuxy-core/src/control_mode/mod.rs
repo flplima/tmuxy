@@ -3,12 +3,13 @@
 //! `capture-pane`.
 
 // Sans-IO, so these also build for wasm.
+pub(crate) mod command_finish;
 pub mod images;
 mod log;
 mod octal;
 mod osc;
 mod parser;
-mod program_status;
+pub(crate) mod program_status;
 mod state;
 
 pub mod monitor_core;
@@ -21,7 +22,7 @@ mod connection;
 mod monitor;
 
 #[cfg(feature = "native")]
-pub use channel::{query, run};
+pub use channel::{ask, query, run};
 #[cfg(all(feature = "native", target_os = "linux"))]
 pub use connection::{global_env_cleanup, leave_appimage_mount};
 #[cfg(feature = "native")]
