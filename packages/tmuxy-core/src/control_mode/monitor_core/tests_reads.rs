@@ -4,7 +4,7 @@ use super::tests::{core, marked, response, sent, with_a_pane, Core};
 use super::*;
 use crate::constants::tmux_formats::TmuxList;
 use crate::control_mode::state::{
-    LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER, VERSION_MARKER,
 };
 
 fn paced(now: Instant, copy_mode: bool) -> Core {
@@ -13,7 +13,7 @@ fn paced(now: Instant, copy_mode: bool) -> Core {
     if copy_mode {
         for event in [
             marked(&core, LIST_BEGIN_MARKER, TmuxList::Panes.name()),
-            response("%0,0,0,0,80,24,0,0,1,sleep,,1,,,,@0, ,0,0,0,,,,0,,,,,,,"),
+            response("%0,0,0,0,80,24,0,0,1,sleep,,1,,,,@0, ,0,0,0,,,,0,,,,,,,,"),
             marked(&core, LIST_END_MARKER, ""),
         ] {
             core.step(event, now);
@@ -115,4 +115,33 @@ fn on_a_paced_link_an_unanswered_batch_is_given_up_at_the_reply_timeout() {
     assert!(core.next_deadline() <= start + REPLY_TIMEOUT);
     let given_up = core.tick(start + REPLY_TIMEOUT);
     assert_eq!(batches(&core, &given_up).len(), 1);
+}
+
+/// The version the server reports at attach decides what is re-listed
+/// behind a command: a swap on 3.2, which announces none, and not on a
+/// later tmux, whose `%layout-change` brings it. Before the answer, and
+/// after a line that only looks like it, every workaround stays on.
+#[test]
+fn the_version_the_server_reports_decides_what_is_re_listed() {
+    let swap_relists = |answer: Option<&str>| {
+        let (mut core, now) = core("app");
+        let ask = core.aggregator().markers().version_read_command();
+        assert!(core
+            .attach_commands((80, 24), AttachConfig::default())
+            .contains(&ask));
+        if let Some(answer) = answer {
+            let event = marked(&core, VERSION_MARKER, answer);
+            core.step(event, now);
+        }
+        !core.command("swap-pane -D", None, now).relists.is_empty()
+    };
+    assert!(swap_relists(None), "not answered yet");
+    assert!(swap_relists(Some("3.2a")));
+    assert!(!swap_relists(Some("3.6a")));
+    assert!(!swap_relists(Some("next-3.8")));
+
+    // A pane can print the marker's word, never its token.
+    let (mut core, now) = core("app");
+    core.step(response(&format!("{VERSION_MARKER} 0000 3.6a")), now);
+    assert!(!core.command("swap-pane -D", None, now).relists.is_empty());
 }
