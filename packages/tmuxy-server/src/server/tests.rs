@@ -179,7 +179,11 @@ fn served_app(password: Option<&str>) -> axum::Router {
     let app = crate::state::api_routes(loopback(vec![]))
         .fallback(serve_embedded)
         .with_state(Arc::new(AppState::default()));
-    with_optional_auth(app, password.map(str::to_string), loopback(vec![]))
+    delivery::compressed(with_optional_auth(
+        app,
+        password.map(str::to_string),
+        loopback(vec![]),
+    ))
 }
 
 /// Every path a password is meant to cover — the API, the SSE stream and

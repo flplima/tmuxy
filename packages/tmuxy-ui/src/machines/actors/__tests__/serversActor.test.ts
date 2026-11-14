@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { nextPollDelay, parseSessions } from '../serversActor';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createActor, type AnyActorRef } from 'xstate';
+import { createServersActor, nextPollDelay, parseSessions } from '../serversActor';
+import { fakeTransport } from '../../../test/transport';
 import { createInitialContext } from '../../app/context';
 import { selectTreeVisible } from '../../selectors/panesAndSidebars';
 import type { AppMachineContext } from '../../types/context';
@@ -119,5 +121,33 @@ describe('the poll’s gate and cadence', () => {
   it('looks again soon until a listing comes back, then at the steady cadence', () => {
     expect(nextPollDelay(false)).toBeLessThan(nextPollDelay(true));
     expect(nextPollDelay(false)).toBeLessThanOrEqual(250);
+  });
+});
+
+describe('the poll', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('asks nothing from a hidden tab, and asks again once the tab is looked at', async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    const transport = fakeTransport({ enumeratesSessions: true, answersQueries: true });
+    transport.setNextResult({ kind: 'ok', value: '' });
+    const parent = { send: () => {} } as unknown as AnyActorRef;
+    const treeVisible = { get: () => true, subscribe: () => () => {} };
+    const actor = createActor(createServersActor(transport.runtime), {
+      input: { parent, treeVisible },
+    }).start();
+
+    // A minute in the background, the tree open the whole time.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(transport.invocations).toEqual([]);
+
+    hidden.mockReturnValue(false);
+    await vi.advanceTimersByTimeAsync(nextPollDelay(false));
+    expect(transport.invocations.map((call) => call.cmd)).toContain('query_tmux');
+    actor.stop();
   });
 });

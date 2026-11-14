@@ -18,9 +18,10 @@ const LONG_PRESS_MOVE_THRESHOLD = 10;
 interface PaneHeaderProps {
   paneId: PaneId;
   titleOverride?: string;
-  /** In a float, ✕ calls onFloatClose. */
+  /** In a float, ✕ calls onFloatClose, and a minimize button calls onFloatMinimize. */
   isFloat?: boolean;
   onFloatClose?: () => void;
+  onFloatMinimize?: () => void;
 }
 
 interface ContextMenuState {
@@ -37,7 +38,13 @@ function markedTooltip(keybindings: KeyBindings | null): string {
   return keys ? `Marked pane — ${keys}` : 'Marked pane';
 }
 
-export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: PaneHeaderProps) {
+export function PaneHeader({
+  paneId,
+  titleOverride,
+  isFloat,
+  onFloatClose,
+  onFloatMinimize,
+}: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
@@ -368,6 +375,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
               ⋮
             </button>
           </Tooltip>
+          <FloatMinimizeButton onMinimize={isFloat ? onFloatMinimize : undefined} />
           <Tooltip label="Close pane">
             <button
               className="pane-header-close"
@@ -393,5 +401,24 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
         />
       )}
     </div>
+  );
+}
+
+/** A float's minimize button, sending it to the queue at its tab's bottom edge; none elsewhere. */
+function FloatMinimizeButton({ onMinimize }: { onMinimize: (() => void) | undefined }) {
+  if (!onMinimize) return null;
+  return (
+    <Tooltip label="Minimize">
+      <button
+        className="pane-header-minimize"
+        onClick={(e) => {
+          e.stopPropagation();
+          onMinimize();
+        }}
+        aria-label="Minimize float"
+      >
+        {'\u2212'}
+      </button>
+    </Tooltip>
   );
 }

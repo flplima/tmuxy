@@ -89,17 +89,15 @@ doctor` lists them and exits 1 while there are any, and `tmuxy config doctor
 --fix` comments each one out in place behind a `# tmuxy config doctor:`
 mark, keeping the file as it was beside it as `tmuxy.conf.bak-<date>`.
 
-`tmuxy config check` says what is wrong with your config, with file and line,
-without applying it: a line tmux cannot parse, an option it does not have, a
-`source-file` whose file is not there. It reads your `tmuxy.conf`, your
-`~/.tmux.conf` when it is sourced, and the files they source, or the file you
-name, and exits 1 while there is anything to fix.
+`tmuxy config check` says what is wrong with your config, by file and line,
+without applying it: a line tmux cannot parse, an unknown option, a missing
+`source-file`. It reads your `tmuxy.conf` and every file it sources (or the
+file you name), and exits 1 if anything is.
 
 While tmux cannot parse your files, `tmuxy config reload`, Reload Config and a
-saved `tmuxy.conf` change nothing and say which line, and a restarted app
-leaves a running server's config alone, tmuxy's own defaults included after
-an upgrade: a reload puts those back first, so a typo used to take your prefix
-with it. An unknown option or a missing file does not stop a reload.
+saved `tmuxy.conf` change nothing and name the line, and a restarted app keeps
+the running config (a reload puts tmuxy's defaults back first, so a typo would
+take your prefix). Only a parse error stops a reload.
 
 ## Config beats menu state
 
@@ -187,6 +185,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-send-ask`               | on       | `tmuxy pane send` into another pane asks there first.                                                                                                                                                               |
 | `@tmuxy-send-allow`             | —        | Callers (`claude,codex`) and panes (`%3,%5`) that never ask.                                                                                                                                                        |
 | `@tmuxy-send-allow-into`        | —        | Programs (`claude,agy`) whose panes a send into never asks for: an agent's prompt.                                                                                                                                  |
+| `@tmuxy-confirm-close`          | on       | Closing a pane or tab asks first while a pane in it is working or waiting for you.                                                                                                                                  |
 | `@tmuxy-notify`                 | on       | Push a notification to the devices that turned them on when a pane needs you or errors.                                                                                                                             |
 | `@tmuxy-tab-overview-cols`      | 3        | Cards per row in the "all tabs" view, 1–12.                                                                                                                                                                         |
 | `@tmuxy-gesture-swipe-tabs`     | on       | Two-finger slide left/right switches tabs, whatever macOS's swipe setting.                                                                                                                                          |
