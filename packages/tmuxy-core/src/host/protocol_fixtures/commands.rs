@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 42;
+const COMMANDS: usize = 44;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -64,6 +64,8 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::RenameProfile { .. } => 39,
         C::DeleteProfile { .. } => 40,
         C::ReadDiff { .. } => 41,
+        C::ChangeHunk { .. } => 42,
+        C::UndoRevert { .. } => 43,
     }
 }
 
@@ -114,6 +116,18 @@ fn every_request() -> Vec<ClientCommand> {
         C::ReadDiff {
             pane_id: pane(),
             scope: crate::diff_review::Scope::Branch,
+        },
+        C::ChangeHunk {
+            pane_id: pane(),
+            scope: crate::diff_review::Scope::Unstaged,
+            path: s("src/main.rs"),
+            hunk: 1,
+            token: s("5f0c1e2d3a4b6c7d"),
+            action: crate::diff_review::hunk::HunkAction::Revert,
+        },
+        C::UndoRevert {
+            pane_id: pane(),
+            id: s("1794452507000-0"),
         },
         C::StagePreview {
             pane_id: pane(),
@@ -292,6 +306,7 @@ fn every_command_answer_matches_its_fixture() {
                     mode_change: Some("100644 → 100755".to_string()),
                     hunks: vec![crate::diff_review::Hunk {
                         header: "@@ -1,2 +1,2 @@".to_string(),
+                        raw: Vec::new(),
                         lines: vec![
                             crate::diff_review::DiffLine {
                                 kind: crate::diff_review::LineKind::Context,
@@ -319,6 +334,9 @@ fn every_command_answer_matches_its_fixture() {
                             },
                         ],
                     }],
+                    token: "5f0c1e2d3a4b6c7d".to_string(),
+                    raw_header: Vec::new(),
+                    raw_path: String::new(),
                 }],
                 untracked: vec!["notes.txt".to_string()],
                 untracked_more: 0,
@@ -327,6 +345,13 @@ fn every_command_answer_matches_its_fixture() {
             }),
         ),
         ("stage_preview", null()),
+        (
+            "change_hunk",
+            json(&crate::diff_review::hunk::HunkChanged {
+                revert: Some("1794452507000-0".to_string()),
+            }),
+        ),
+        ("undo_revert", null()),
         ("get_theme_settings", json(&canonical_theme_settings())),
         ("set_theme", null()),
         ("set_theme_mode", null()),

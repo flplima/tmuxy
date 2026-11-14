@@ -83,4 +83,19 @@ async function waitForDiff(page, what, holds) {
   return shown;
 }
 
-module.exports = { shownDiff, checkout, openDiff, waitForDiff };
+/** Waits for a notice on screen that holds `text`. */
+async function waitForNotice(page, text) {
+  const notices = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.snackbar-text')].map((n) => n.textContent ?? ''),
+    );
+  await waitForCondition(
+    page,
+    async () => (await notices()).some((n) => n.includes(text)),
+    10000,
+    async () =>
+      `a notice saying ${JSON.stringify(text)} (on screen: ${JSON.stringify(await notices())})`,
+  );
+}
+
+module.exports = { shownDiff, checkout, openDiff, waitForDiff, waitForNotice };

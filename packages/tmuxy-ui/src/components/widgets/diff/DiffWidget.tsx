@@ -14,6 +14,7 @@ import { selectPhoneLayout } from '../../../machines/selectors/layout';
 import { useSwallowedTyping } from '../useSwallowedTyping';
 import { DiffFileView, type FileReview } from './DiffFileView';
 import { ReviewBar } from './ReviewBar';
+import { useHunks, type HunkControls } from './useHunks';
 import type { ReviewComment } from '../../../domain/review';
 import { useDiffRead } from './diffSource';
 import './diff.css';
@@ -109,11 +110,13 @@ function DiffFiles({
   closed,
   onToggle,
   review,
+  hunks,
 }: {
   read: DiffRead;
   closed: ReadonlySet<string>;
   onToggle: (path: string) => void;
   review: FileReview;
+  hunks: HunkControls;
 }) {
   return (
     <div className="diff-files">
@@ -128,6 +131,7 @@ function DiffFiles({
           open={!closed.has(file.path)}
           onToggle={onToggle}
           review={review}
+          hunks={hunks}
         />
       ))}
       <Names title="Not tracked by git" names={read.untracked} more={read.untrackedMore} />
@@ -189,6 +193,7 @@ export function DiffWidget({ paneId, lines }: WidgetProps) {
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const review = useReview();
   const diff = useDiffRead(paneId, scope);
+  const hunks = useHunks(paneId, scope, diff.refresh);
   const active = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const phone = useAppSelector(selectPhoneLayout);
   useSwallowedTyping(active);
@@ -208,7 +213,17 @@ export function DiffWidget({ paneId, lines }: WidgetProps) {
       <DiffBar scope={scope} onScope={setScope} read={read} onRefresh={diff.refresh} />
       {diff.error && <div className="diff-error">{diff.error}</div>}
       {!read && !diff.error && <div className="diff-message">Reading the changes…</div>}
-      {read && <DiffFiles read={read} closed={closed} onToggle={toggle} review={review} />}
+      {hunks.lastRevert && (
+        <div className="diff-undo" data-diff-undo="">
+          <span>Reverted a hunk of {hunks.lastRevert.path}</span>
+          <button type="button" onClick={hunks.undo}>
+            Undo
+          </button>
+        </div>
+      )}
+      {read && (
+        <DiffFiles read={read} closed={closed} onToggle={toggle} review={review} hunks={hunks} />
+      )}
       <ReviewBar
         paneId={paneId}
         lines={lines}

@@ -23,7 +23,13 @@ const {
   waitForPaneCount,
 } = require('./helpers');
 const { tmuxyCli } = require('./helpers/cli');
-const { shownDiff, checkout, openDiff, waitForDiff } = require('./helpers/diff-widget');
+const {
+  shownDiff,
+  checkout,
+  openDiff,
+  waitForDiff,
+  waitForNotice,
+} = require('./helpers/diff-widget');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
 describeE2E('Scenario: tmuxy widget diff shows a checkout’s changes', {}, (ctx) => {
@@ -186,21 +192,6 @@ function fakeAgent(dir) {
     ].join('\n'),
   );
   return { agent, script };
-}
-
-/** Waits for a notice on screen that holds `text`. */
-async function waitForNotice(page, text) {
-  const notices = () =>
-    page.evaluate(() =>
-      [...document.querySelectorAll('.snackbar-text')].map((n) => n.textContent ?? ''),
-    );
-  await waitForCondition(
-    page,
-    async () => (await notices()).some((n) => n.includes(text)),
-    10000,
-    async () =>
-      `a notice saying ${JSON.stringify(text)} (on screen: ${JSON.stringify(await notices())})`,
-  );
 }
 
 /** The review bar's pane choice, as the user reads it. */

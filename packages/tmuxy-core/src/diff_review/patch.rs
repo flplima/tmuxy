@@ -46,6 +46,10 @@ pub struct Hunk {
     /// The `@@ -a,b +c,d @@ …` line, as git printed it.
     pub header: String,
     pub lines: Vec<DiffLine>,
+    /// The hunk as git printed it, its `@@` line first: what a hunk action
+    /// hands back to git (`hunk`). Never sent to the client.
+    #[serde(skip)]
+    pub(crate) raw: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -63,12 +67,27 @@ pub struct DiffFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode_change: Option<String>,
     pub hunks: Vec<Hunk>,
+    /// Names this file's patch as read: a hunk action is refused unless the
+    /// client hands back the token of the patch it drew, so a file changed
+    /// since is never acted on unseen.
+    pub token: String,
+    /// The lines from `diff --git` to the first hunk, as git printed them.
+    #[serde(skip)]
+    pub(crate) raw_header: Vec<String>,
+    /// Its path as git names it, before control characters are drawn.
+    #[serde(skip)]
+    pub(crate) raw_path: String,
 }
 
 /// A path as git prints it: `"…"` C-quoted when it holds a character git
 /// will not print bare, then the `a/`/`b/` prefix, and a tab git adds after
 /// a name with a space. `None` for `/dev/null`.
 fn path_of(raw: &str, prefix: &str) -> Option<String> {
+    raw_path_of(raw, prefix).map(|path| visible(&path))
+}
+
+/// [`path_of`], its control characters left as they are.
+fn raw_path_of(raw: &str, prefix: &str) -> Option<String> {
     let raw = raw.strip_suffix('\t').unwrap_or(raw);
     let raw = if raw.starts_with('"') {
         unquote(raw)?
@@ -78,7 +97,7 @@ fn path_of(raw: &str, prefix: &str) -> Option<String> {
     if raw == "/dev/null" {
         return None;
     }
-    Some(visible(raw.strip_prefix(prefix).unwrap_or(&raw)))
+    Some(raw.strip_prefix(prefix).unwrap_or(&raw).to_string())
 }
 
 /// A file name with every control character shown as its picture (`\t` as
@@ -167,6 +186,9 @@ fn new_file(header: &str) -> DiffFile {
         binary: false,
         mode_change: None,
         hunks: Vec::new(),
+        token: String::new(),
+        raw_header: vec![header.to_string()],
+        raw_path: String::new(),
     }
 }
 
@@ -197,11 +219,25 @@ fn header_line(file: &mut DiffFile, line: &str, old_mode: &mut Option<String>) {
             file.status = FileStatus::Added;
         }
     } else if let Some(new) = line.strip_prefix("+++ ") {
-        match path_of(new, "b/") {
-            Some(path) => file.path = path,
+        match raw_path_of(new, "b/") {
+            Some(raw) => {
+                file.path = visible(&raw);
+                file.raw_path = raw;
+            }
             None => file.status = FileStatus::Deleted,
         }
     }
+}
+
+/// `file`'s token: a name for its patch as read, header and hunks.
+fn token(file: &DiffFile) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    file.raw_header.hash(&mut hasher);
+    for hunk in &file.hunks {
+        hunk.raw.hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
 }
 
 /// `patch`'s files, in the order git printed them. A file whose path could
@@ -227,11 +263,13 @@ pub fn parse(patch: &str) -> Vec<DiffFile> {
                 current.hunks.push(Hunk {
                     header: line.to_string(),
                     lines: Vec::new(),
+                    raw: vec![line.to_string()],
                 });
             }
             continue;
         }
         let Some(hunk) = current.hunks.last_mut() else {
+            current.raw_header.push(line.to_string());
             header_line(current, line, &mut old_mode);
             continue;
         };
@@ -243,6 +281,7 @@ pub fn parse(patch: &str) -> Vec<DiffFile> {
             Some('\\') => (LineKind::Note, None, None),
             _ => continue,
         };
+        hunk.raw.push(line.to_string());
         if old_no.is_some() {
             *old += 1;
         }
@@ -263,5 +302,8 @@ pub fn parse(patch: &str) -> Vec<DiffFile> {
     }
     files.extend(file);
     files.retain(|file| !file.path.is_empty());
+    for file in &mut files {
+        file.token = token(file);
+    }
     files
 }

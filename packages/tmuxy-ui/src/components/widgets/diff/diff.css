@@ -316,3 +316,64 @@
 .diff-widget.is-phone .diff-comment-actions button {
   min-height: 36px;
 }
+
+/* Hunk actions on a hunk's header, the revert's confirm under it, and the
+   undo of the last revert above the files. */
+.diff-hunk-header {
+  display: flex;
+  gap: 1ch;
+  align-items: center;
+}
+
+.diff-hunk-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-hunk-action,
+.diff-undo button {
+  flex: none;
+  padding: 0 1ch;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.diff-revert-confirm {
+  margin: 2px 1ch 4px;
+  padding: 4px 1ch;
+  border-left: 2px solid var(--term-red, var(--theme-accent));
+  background-color: var(--bg-medium);
+  white-space: normal;
+}
+
+.diff-revert-hunk {
+  margin: 4px 0;
+  overflow-x: auto;
+  font: inherit;
+  white-space: pre;
+}
+
+.diff-revert-yes {
+  border-color: var(--term-red, var(--theme-accent));
+  color: var(--term-red, var(--theme-accent));
+}
+
+.diff-undo {
+  display: flex;
+  flex: none;
+  gap: 1ch;
+  align-items: center;
+  padding: 4px 1ch;
+  border-bottom: 1px solid var(--border-medium);
+}
+
+.diff-widget.is-phone .diff-hunk-action,
+.diff-widget.is-phone .diff-undo button {
+  min-height: 32px;
+}

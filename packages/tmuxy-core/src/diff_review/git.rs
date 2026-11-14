@@ -120,3 +120,24 @@ pub fn patch(
     said.success
         .then(|| (String::from_utf8_lossy(&said.stdout).into_owned(), said.cut))
 }
+
+/// `git apply <args>` in `root`, every content filter off (a file written
+/// back to the working tree is written as it is): whether it applied.
+pub fn apply(root: &Path, args: &[&str], deadline: Instant) -> bool {
+    let Some(mut settings) = safe_git::filters_off(root, deadline) else {
+        return false;
+    };
+    settings.push(unquoted());
+    let mut all = vec!["apply"];
+    all.extend_from_slice(args);
+    let mut apply = command(root, &settings, &all, None);
+    // git 2.56's `apply` to the working tree crashes (SIGSEGV) whenever
+    // attributes are read from a tree (`attr.tree`, GIT_ATTR_SOURCE), which
+    // safe_git sets after every caller's settings: here the checkout's own
+    // attribute files are read instead. They can name a filter (switched off
+    // above) but run nothing else; the rest only change line endings or an
+    // encoding.
+    safe_git::with_setting(&mut apply, "attr.tree", "");
+    apply.env_remove("GIT_ATTR_SOURCE");
+    safe_git::run(apply, deadline, TEXT_CAP).is_some_and(|said| said.success)
+}

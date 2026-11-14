@@ -10,7 +10,7 @@
 
 import { Schema } from 'effect';
 import { PaneId } from './ids';
-import { DiffRead, DiffScope } from './diff';
+import { DiffRead, DiffScope, HunkAction } from './diff';
 import { PreviewDocument, PreviewResource } from './preview';
 import { GitRepository, OwnTmuxOffer, PanePorts, RestorableSession, ServerList } from './servers';
 import {
@@ -70,6 +70,18 @@ export const BACKEND_COMMANDS = {
   stage_preview: command(Schema.Struct({ paneId: PaneId, html: Schema.String }), Done),
   /** A `diff` pane's changes; the checkout is the pane's own, never the client's to name. */
   read_diff: command(Schema.Struct({ paneId: PaneId, scope: DiffScope }), DiffRead),
+  change_hunk: command(
+    Schema.Struct({
+      paneId: PaneId,
+      scope: DiffScope,
+      path: Schema.String,
+      hunk: Schema.Number,
+      token: Schema.String,
+      action: HunkAction,
+    }),
+    Schema.Struct({ revert: optional(Schema.String) }),
+  ),
+  undo_revert: command(Schema.Struct({ paneId: PaneId, id: Schema.String }), Done),
   get_theme_settings: command(NoArgs, ThemeSettings),
   set_theme: command(Schema.Struct({ name: Schema.String, mode: optional(Schema.String) }), Done),
   set_theme_mode: command(Schema.Struct({ mode: Schema.String }), Done),

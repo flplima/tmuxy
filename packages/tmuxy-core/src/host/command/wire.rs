@@ -76,6 +76,23 @@ pub enum ClientCommand {
         pane_id: PaneId,
         scope: crate::diff_review::Scope,
     },
+    /// One hunk of a `diff` pane's checkout staged, unstaged or reverted
+    /// (`crate::diff_review::hunk`): authorised as `ReadDiff` is.
+    ChangeHunk {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+        scope: crate::diff_review::Scope,
+        path: String,
+        hunk: usize,
+        token: String,
+        action: crate::diff_review::hunk::HunkAction,
+    },
+    /// A revert `ChangeHunk` made, undone in the pane's own checkout.
+    UndoRevert {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+        id: String,
+    },
     GetThemeSettings,
     SetTheme {
         name: String,

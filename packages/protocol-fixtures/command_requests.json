@@ -49,6 +49,24 @@
   },
   {
     "args": {
+      "action": "revert",
+      "hunk": 1,
+      "paneId": "%2",
+      "path": "src/main.rs",
+      "scope": "unstaged",
+      "token": "5f0c1e2d3a4b6c7d"
+    },
+    "cmd": "change_hunk"
+  },
+  {
+    "args": {
+      "id": "1794452507000-0",
+      "paneId": "%2"
+    },
+    "cmd": "undo_revert"
+  },
+  {
+    "args": {
       "html": "<p>hi</p>",
       "paneId": "%2"
     },
