@@ -128,6 +128,11 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 .core
                 .next_deadline()
                 .saturating_duration_since(Instant::now());
+            // A hidden pane's last frame, held back (`state::hidden_panes`).
+            let hidden_due = self.core.aggregator().hidden_panes_due();
+            let hidden_sleep = hidden_due.map_or(LONG_SLEEP, |due| {
+                due.saturating_duration_since(Instant::now())
+            });
 
             let running = tokio::select! {
                 event = self.connection.recv() => match event {
@@ -153,6 +158,11 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 }
 
                 _ = tokio::time::sleep_until(layout_deadline), if rs.layout_emit_at.is_some() => {
+                    self.flush(emitter, &mut rs);
+                    true
+                }
+
+                _ = tokio::time::sleep(hidden_sleep), if hidden_due.is_some() => {
                     self.flush(emitter, &mut rs);
                     true
                 }

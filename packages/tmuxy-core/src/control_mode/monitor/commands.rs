@@ -37,7 +37,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         if self.pending_state_requests.is_empty() || !self.core.aggregator().initial_state_ready() {
             return;
         }
-        let state = self.core.aggregator_mut().to_tmux_state();
+        let state = self.core.aggregator_mut().to_client_state();
         for reply in self.pending_state_requests.drain(..) {
             let _ = reply.send(state.clone());
         }
