@@ -126,6 +126,20 @@ pub mod tmux_options {
     /// shell scripts' `_contract`).
     pub const PANE_LABEL: &str = "@tmuxy-label";
 
+    /// Pane-scoped: the pane `tmuxy agent spawn` was run from, on the pane
+    /// it made.
+    pub const SPAWNED_BY: &str = "@tmuxy-spawned-by";
+
+    /// Pane-scoped: the agent `tmuxy agent spawn` started in the pane
+    /// (`claude`, `codex`, `gemini`, or a `cmd`'s program).
+    pub const AGENT: &str = "@tmuxy-agent";
+
+    /// Pane-scoped: the state the screen rules last wrote on a pane whose
+    /// agent has no hooks (`host::socket_watch::agent_rules`). They change
+    /// [`PANE_STATE`] only while it still equals this, so a state anything
+    /// else declared is never overwritten.
+    pub const RULES_STATE: &str = "@tmuxy-rules-state";
+
     /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
     /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys
     /// are meant for. The value is base64 of a JSON object
