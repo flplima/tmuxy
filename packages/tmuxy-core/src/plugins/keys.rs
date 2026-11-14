@@ -112,8 +112,9 @@ pub fn user_binding(table: KeyTable, key: &str) -> Option<String> {
 
 /// The keys every plugin asks for, and which of them can be bound: the first
 /// plugin to ask (install order) gets a key, a user binding keeps it.
-/// `taken` is what holds a key now, from a user binding.
-fn plan_with(
+/// `taken` is what holds a key now, from a user binding. Public for
+/// `tmuxy keymap`, which answers `taken` from the config files.
+pub fn plan_with(
     registry: &Registry,
     taken: impl Fn(KeyTable, &str) -> Option<String>,
 ) -> Vec<Planned> {

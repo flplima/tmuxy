@@ -128,6 +128,7 @@ Commands:
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
   mcp         Show the MCP endpoint that lets an AI agent drive this session
   run         Run any tmux command safely
+  worktree    Remove a git worktree, refused while it holds unsaved work (remove)
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
@@ -368,6 +369,11 @@ CEOF
     shift
     find_server_cmd
     exec "${SERVER_CMD[@]}" "$@" ${server_json[@]+"${server_json[@]}"}
+    ;;
+  worktree)
+    shift
+    find_server_cmd || exit "$EXIT_FAILED"
+    exec "${SERVER_CMD[@]}" worktree "$@" ${server_json[@]+"${server_json[@]}"}
     ;;
   trace)
     shift
