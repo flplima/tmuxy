@@ -45,6 +45,10 @@ const UPDATE = has('--update-baseline');
  */
 const RATIO_BUDGETS = {
   'key-echo': 1.5, // the reference, compared against itself
+  // The last key of 30 typed 60 ms apart. Keys that queue behind one another
+  // put it a round trip further back per key: over a 150 ms link, with each
+  // POST waiting for the answer to the one before it, this measured 15×.
+  'key-burst': 3, // measured ~1×, on the bare link and over 150 ms
   // 3× leaves room for noise while still failing loudly if navigation ever
   // loses its optimistic prediction again — un-predicted, it measured 12×.
   'pane-nav-keyboard': 3, // measured ~0.3×
