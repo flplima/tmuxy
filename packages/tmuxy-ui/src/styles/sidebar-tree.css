@@ -248,6 +248,48 @@
   color: var(--theme-accent);
 }
 
+/* The fields a script set on the pane: one line under its title, cut at the
+   column's edge like the title. */
+.sidebar-tree-fields {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.sidebar-tree-field + .sidebar-tree-field {
+  margin-left: 1.5ch;
+}
+
+.sidebar-tree-field-key {
+  color: var(--text-dimmed);
+}
+
+/* The ports a pane's programs listen on: after the process, before the id,
+   and never what a narrow row cuts first. */
+.sidebar-tree-ports {
+  display: inline-flex;
+  flex: none;
+  gap: 0.5ch;
+  margin-left: 1ch;
+}
+
+.sidebar-tree-port {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-green);
+  cursor: pointer;
+}
+
+.sidebar-tree-port:hover {
+  text-decoration: underline;
+}
+
 .sidebar-tree-id {
   flex: 0 0 auto;
   margin-left: auto;
@@ -412,13 +454,37 @@
 }
 
 .sidebar-tree-git {
+  display: flex;
+  justify-content: flex-end;
   flex: 0 0 30%;
   box-sizing: border-box;
   padding-left: var(--spacing-xs);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: right;
+}
+
+/* The branch gives way before its numbers do: a long name is cut, `+12 −3`
+   is not. */
+.sidebar-tree-git-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-tree-git-changes {
+  display: flex;
+  flex: none;
+  gap: 0.5ch;
+  margin-left: 1ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-tree-git-changes > .is-added {
+  color: var(--accent-green);
+}
+
+.sidebar-tree-git-changes > .is-removed {
+  color: var(--error-light);
 }
 
 .sidebar-tree-git.is-empty::before {

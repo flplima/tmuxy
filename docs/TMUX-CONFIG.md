@@ -45,7 +45,7 @@ A "server" in the desktop app is a tmux server tmuxy drives — the local machin
 
 The live state the app holds is single-session, and the left column's tree draws exactly that: the attached session's tabs and panes. The socket's other sessions are listed in the session switcher (`components/SessionMenu.tsx`); a poll (`serversActor`, see [STATE-MANAGEMENT-ACTORS.md](STATE-MANAGEMENT-ACTORS.md)) reads `list-windows -a` / `list-panes -a` through `query` while a tree is on screen and feeds the switcher, the tree's pane cwds and its git badges. The column itself is in [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md).
 
-The git badges come from the `list_git_worktrees` command (`tmuxy-core/src/worktrees.rs`, both transports). The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`), never from the request, so a web client cannot point git at a directory of its choosing; discovery is read-only, scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, and returns nothing for an SSH-backed server, whose pane paths are remote. `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root.
+The git badges come from the `list_git_worktrees` command (`tmuxy-core/src/worktrees.rs`, both transports). The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`), never from the request, so a web client cannot point git at a directory of its choosing; discovery is read-only, scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, and returns nothing for an SSH-backed server, whose pane paths are remote. `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root. A row also shows its checkout's lines changed against `HEAD`, counted with every program the repository names switched off (`tmuxy-core/src/worktrees/changes.rs`). Its `:8123` marks are the TCP ports its programs listen on, read from the process table (`tmuxy-core/src/ports.rs`). What a row shows, and on which lines, is the user's `@tmuxy-tree-row` (`tmuxy-ui/src/domain/rowTemplate.ts`).
 
 ## Session groups: two GUI windows over one session
 
@@ -89,7 +89,7 @@ The app builds the chain itself (`entry_conf` in `tmuxy-core/src/session/config.
 
 The entry file is rebuilt right before every use — the `-f` of a new server, the `source-file` of every connect, reload and Reload Config — from the `use-tmux-conf` choice and the user's file, so it never goes stale. Being built from this machine's state and this process's config dir, it lives in the state dir: two tmuxy processes with their own dirs (a test server beside the app) never rewrite each other's. Reload Config sends `source-file $TMUXY_ENTRY_CONF`, which a tmuxy process swaps for its own path.
 
-A `source-file` in `tmuxy.conf` whose target is missing stops tmux at that line. The config doctor (`tmuxy-core/src/session/doctor.rs`) finds those lines; `host::prepare` logs each as a warning and the web server prints them once at start. `tmuxy config doctor` lists them and exits 1; `--fix` comments each out in place and keeps a dated backup beside the file.
+A `source-file` in `tmuxy.conf` whose target is missing stops tmux at that line. The config doctor (`tmuxy-core/src/session/doctor.rs`) finds those lines; `host::prepare` logs each as a warning and the web server prints them once at start. `tmuxy config doctor` lists them and exits 1; `--fix` comments each out in place and keeps a dated backup beside the file. `tmuxy config check` (`tmuxy-core/src/session/check.rs`) lists those with what tmux cannot parse and options it does not have; while tmux cannot parse a file, a reload is refused and a reconnect leaves a running server's config alone.
 
 Before any layer it publishes `TMUXY_DATA_DIR` (the data dir) and `TMUXY_ENTRY_CONF` (itself) into tmux's global environment. Every bundled script is named `$TMUXY_DATA_DIR/bin/tmuxy/…` — the essentials' aliases, the client's script commands, a restored sidebar — which tmux's parser expands in double quotes or a bare word, and a shell in single quotes, from that environment. So a data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves every script path, and the mirror is the same bytes anywhere. It comes first because tmux expands an alias's variable when a binding names it. `${VAR:-default}` is not used: tmux's parser rejects it in double quotes, and fish knows it nowhere.
 
@@ -171,7 +171,7 @@ whichever table they belong to: `prefix s` / `S` (open a sidebar over the
 panes; the same key again while it is open docks it, and again frees it — the
 prefix stays armed for that one key, tmux's repeat, and any other key goes on
 as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
-`prefix ?` (the keys view), and TAB's `<` / `>` (move the tab along the strip,
+`prefix ?` (the keys view), `prefix A` / `U` (the activity inbox and the jump to the pane that needs you, [ACTIVITY.md](ACTIVITY.md)), and TAB's `<` / `>` (move the tab along the strip,
 which skips the windows floats and sidebars occupy where a relative
 `swap-window` would not). `prefix P` (the command palette, also
 `ctrl+shift+p`) and `prefix g` (the palette on sessions, tabs and panes alone)

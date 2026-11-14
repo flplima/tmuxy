@@ -7,45 +7,46 @@ run unless you ask (`tmuxy plugin install` records what it installed in
 `plugins.json`). Edits there apply to the running app — a saved file is picked up within a
 second, no restart and no page reload.
 
-| Directory | Default                                                                                 | Owner | Rule                                                                      |
-| --------- | --------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------- |
-| config    | `~/.config/tmuxy` (`$XDG_CONFIG_HOME/tmuxy`)                                            | you   | Written once, on the very first run. Safe to edit, safe to symlink.       |
-| data      | `~/.local/share/tmuxy` (`$XDG_DATA_HOME/tmuxy`, `TMUXY_DATA_DIR`)                       | tmuxy | Mirrored from the app on every launch, read-only. Read, copy, never edit. |
-| state     | `~/.local/state/tmuxy`, macOS `~/Library/Application Support/tmuxy` (`TMUXY_STATE_DIR`) | tmuxy | This machine's state. Not config: do not share it between machines.       |
+| Directory | Default | Owner | Rule |
+| --- | --- | --- | --- |
+| config | `~/.config/tmuxy` (`$XDG_CONFIG_HOME/tmuxy`) | you | Written once, on the very first run. Safe to edit, safe to symlink. |
+| data | `~/.local/share/tmuxy` (`$XDG_DATA_HOME/tmuxy`, `TMUXY_DATA_DIR`) | tmuxy | Mirrored from the app on every launch, read-only. Read, copy, never edit. |
+| state | `~/.local/state/tmuxy`, macOS `~/Library/Application Support/tmuxy` (`TMUXY_STATE_DIR`) | tmuxy | This machine's state. Not config: do not share it between machines. |
 
 `tmuxy config paths` prints every file below with its real location on this
 machine (`--json` for a script).
 
 ## The files, and who owns them
 
-| File                    | Dir    | Owner | Safe to edit | Safe to symlink | What it is                                                                                               |
-| ----------------------- | ------ | ----- | ------------ | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `tmuxy.conf`            | config | you   | yes          | yes             | Your overrides. tmuxy sources its defaults before it and its essentials after it.                        |
-| `custom.css`            | config | you   | yes          | yes             | Your CSS, loaded last. Create it to tweak anything the themes do not cover.                              |
-| `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme.                   |
-| `icons/<name>.svg`      | config | you   | yes          | yes             | SVG icons an `@tmuxy-icon-<process>` option names (`claude.svg`).                                        |
-| `tmuxy-plugin.toml`     | config | you   | yes          | yes             | Your own actions and verbs: the `user` plugin (see Plugins below).                                       |
-| `plugins.json`          | config | you   | yes          | yes             | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
-| `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's `settings.toml` (`tmuxy plugin config`) and credentials; kept unless `remove --purge`.     |
-| `tmuxy.defaults.conf`   | data   | tmuxy | no           | no              | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults.                                   |
-| `tmuxy.essentials.conf` | data   | tmuxy | no           | no              | The settings tmuxy cannot work without, sourced first and last.                                          |
-| `tmuxy.conf.example`    | data   | tmuxy | no           | no              | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir.                             |
-| `themes/<built-in>.css` | data   | tmuxy | no           | no              | The bundled themes, to read or copy.                                                                     |
-| `bin/`                  | data   | tmuxy | no           | no              | The `tmuxy` CLI and its helper scripts.                                                                  |
-| `README.md`             | data   | tmuxy | no           | no              | This file.                                                                                               |
-| `tmuxy.entry.conf`      | state  | tmuxy | no           | no              | The chain tmux starts with, built from your files and this machine's choices.                            |
-| `tmuxy.adopted.conf`    | state  | tmuxy | no           | no              | The chain for your own tmux server when tmuxy attaches to it: only what tmuxy cannot work without.       |
-| `tmuxy.state.json`      | state  | tmuxy | no           | no              | Choices made in the app's menus (theme, mode, cursor blink, `use-tmux-conf`).                            |
-| `servers.json`          | state  | tmuxy | yes          | no              | The servers `tmuxy session connect` saved; ssh hosts as this machine reaches them.                       |
-| `trace.json`            | state  | tmuxy | yes          | no              | The Debug menu's trace switch.                                                                           |
-| `trace.ndjson`          | state  | tmuxy | no           | no              | The action trace, written only while tracing is on (`tmuxy trace` reads it).                             |
-| `tmuxy.log`             | state  | tmuxy | no           | no              | The desktop app's log: what a bug report attaches (Help ▸ Reveal Log File).                              |
-| `launcher`              | state  | tmuxy | no           | no              | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs.                                     |
-| `tmuxy-<port>.pid`      | state  | tmuxy | no           | no              | The pid of the web server on that port.                                                                  |
-| `config-reload`         | state  | tmuxy | no           | no              | Touched by `tmuxy config reload`; the app re-sources the chain when it changes.                          |
-| `plugins/`              | state  | tmuxy | no           | no              | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens.                       |
-| `sessions/`             | state  | tmuxy | no           | no              | Session snapshots, one directory per tmux socket; a restart restores the latest.                         |
-| `push/`                 | state  | tmuxy | no           | no              | The web server's push key and the devices subscribed to its notifications.                               |
+| File | Dir | Owner | Safe to edit | Safe to symlink | What it is |
+| --- | --- | --- | --- | --- | --- |
+| `tmuxy.conf` | config | you | yes | yes | Your overrides. tmuxy sources its defaults before it and its essentials after it. |
+| `custom.css` | config | you | yes | yes | Your CSS, loaded last. Create it to tweak anything the themes do not cover. |
+| `themes/<name>.css` | config | you | yes | yes | Your themes. A name of a built-in replaces that built-in; any other name adds a theme. |
+| `icons/<name>.svg` | config | you | yes | yes | SVG icons an `@tmuxy-icon-<process>` option names (`claude.svg`). |
+| `permissions.json` | config | you | yes | yes | Rules for what a caller may type into another pane's shell. Absent until you write it. |
+| `tmuxy-plugin.toml` | config | you | yes | yes | Your own actions and verbs: the `user` plugin (see Plugins below). |
+| `plugins.json` | config | you | yes | yes | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
+| `plugins/<name>/` | config | you | yes | yes | Each plugin's `settings.toml` (`tmuxy plugin config`) and credentials; kept unless `remove --purge`. |
+| `tmuxy.defaults.conf` | data | tmuxy | no | no | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults. |
+| `tmuxy.essentials.conf` | data | tmuxy | no | no | The settings tmuxy cannot work without, sourced first and last. |
+| `tmuxy.conf.example` | data | tmuxy | no | no | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir. |
+| `themes/<built-in>.css` | data | tmuxy | no | no | The bundled themes, to read or copy. |
+| `bin/` | data | tmuxy | no | no | The `tmuxy` CLI and its helper scripts. |
+| `README.md` | data | tmuxy | no | no | This file. |
+| `tmuxy.entry.conf` | state | tmuxy | no | no | The chain tmux starts with, built from your files and this machine's choices. |
+| `tmuxy.adopted.conf` | state | tmuxy | no | no | The chain for your own tmux server when tmuxy attaches to it: only what tmuxy cannot work without. |
+| `tmuxy.state.json` | state | tmuxy | no | no | Choices made in the app's menus (theme, mode, cursor blink, `use-tmux-conf`). |
+| `servers.json` | state | tmuxy | yes | no | The servers `tmuxy session connect` saved; ssh hosts as this machine reaches them. |
+| `trace.json` | state | tmuxy | yes | no | The Debug menu's trace switch. |
+| `trace.ndjson` | state | tmuxy | no | no | The action trace, written only while tracing is on (`tmuxy trace` reads it). |
+| `tmuxy.log` | state | tmuxy | no | no | The desktop app's log: what a bug report attaches (Help ▸ Reveal Log File). |
+| `launcher` | state | tmuxy | no | no | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs. |
+| `tmuxy-<port>.pid` | state | tmuxy | no | no | The pid of the web server on that port. |
+| `config-reload` | state | tmuxy | no | no | Touched by `tmuxy config reload`; the app re-sources the chain when it changes. |
+| `plugins/` | state | tmuxy | no | no | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens. |
+| `sessions/` | state | tmuxy | no | no | Session snapshots, one directory per tmux socket; a restart restores the latest. |
+| `push/` | state | tmuxy | no | no | The web server's push key and the devices subscribed to its notifications. |
 
 ## Plugins
 
@@ -89,6 +90,16 @@ about each such line (file, line and target) as it starts; `tmuxy config
 doctor` lists them and exits 1 while there are any, and `tmuxy config doctor
 --fix` comments each one out in place behind a `# tmuxy config doctor:`
 mark, keeping the file as it was beside it as `tmuxy.conf.bak-<date>`.
+
+`tmuxy config check` says what is wrong with your config, by file and line,
+without applying it: a line tmux cannot parse, an unknown option, a missing
+`source-file`. It reads your `tmuxy.conf` and every file it sources (or the
+file you name), and exits 1 if anything is.
+
+While tmux cannot parse your files, `tmuxy config reload`, Reload Config and a
+saved `tmuxy.conf` change nothing and name the line, and a restarted app keeps
+the running config (a reload puts tmuxy's defaults back first, so a typo would
+take your prefix). Only a parse error stops a reload.
 
 ## Config beats menu state
 
@@ -160,32 +171,33 @@ wins — which is why `custom.css` wants the selector above.
 Set these in `tmuxy.conf` with `set -g`, then `tmuxy config reload` (or just
 save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 
-| Option                          | Default  | What it does                                                                                                                                                                                                        |
-| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@tmuxy-theme`                  | default  | The theme's file stem under `themes/`.                                                                                                                                                                              |
-| `@tmuxy-theme-mode`             | dark     | `dark`, `light` or `auto` (follow the OS).                                                                                                                                                                          |
-| `@tmuxy-opacity`                | 0.7      | Window chrome: title bar, sidebar, the gaps between panes.                                                                                                                                                          |
-| `@tmuxy-active-pane-opacity`    | 1        | The active pane's background.                                                                                                                                                                                       |
-| `@tmuxy-inactive-pane-opacity`  | 0.7      | Every other pane's background.                                                                                                                                                                                      |
-| `@tmuxy-active-text-opacity`    | 1        | The active pane's header and text.                                                                                                                                                                                  |
-| `@tmuxy-inactive-text-opacity`  | 0.7      | Every other pane's header and text — the focus cue.                                                                                                                                                                 |
-| `@tmuxy-blur`                   | on       | Native blur behind the window (macOS; ignored elsewhere).                                                                                                                                                           |
-| `@tmuxy-transparency`           | on       | Off: opaque window, no blur (View ▸ Enable Window Transparency).                                                                                                                                                    |
-| `@tmuxy-animations`             | on       | Layout animations: pane morphs, swaps, resizes, float keyframes.                                                                                                                                                    |
-| `@tmuxy-cursor-blink`           | on       | Blinking cursor, unless an application asks for a steady one.                                                                                                                                                       |
-| `@tmuxy-send-ask`               | on       | `tmuxy pane send` into another pane asks there first.                                                                                                                                                               |
-| `@tmuxy-send-allow`             | —        | Callers (`claude,codex`) and panes (`%3,%5`) that never ask.                                                                                                                                                        |
-| `@tmuxy-send-allow-into`        | —        | Programs (`claude,agy`) whose panes a send into never asks for: an agent's prompt.                                                                                                                                  |
-| `@tmuxy-confirm-close`          | on       | Closing a pane or tab asks first while a pane in it is working or waiting for you.                                                                                                                                  |
-| `@tmuxy-notify`                 | on       | Push a notification to the devices that turned them on when a pane needs you or errors.                                                                                                                             |
-| `@tmuxy-tab-overview-cols`      | 3        | Cards per row in the "all tabs" view, 1–12.                                                                                                                                                                         |
-| `@tmuxy-gesture-swipe-tabs`     | on       | Two-finger slide left/right switches tabs, whatever macOS's swipe setting.                                                                                                                                          |
-| `@tmuxy-gesture-pinch-zoom`     | on       | Pinch out zooms a pane, pinch in unzooms it.                                                                                                                                                                        |
-| `@tmuxy-gesture-pinch-overview` | on       | Pinch in on an unzoomed tab opens the "all tabs" view.                                                                                                                                                              |
-| `@tmuxy-native-menus`           | on       | Desktop app: native menu bar and popups; off keeps the in-app menus.                                                                                                                                                |
-| `@tmuxy-size`                   | smallest | Grid size across clients: `smallest`, `largest`, `latest`, or a fixed `COLSxROWS` (`80x25`). Every size but `smallest` scales each client's grid to fit; a fixed one also keeps its cols/rows when a sidebar opens. |
-| `@tmuxy-css-<variable>`         | —        | One CSS variable, see above.                                                                                                                                                                                        |
-| `@tmuxy-icon-<process>`         | —        | The icon a pane running `<process>` wears: one or two ASCII characters (`'$'`, `'>_'`) or an SVG in `icons/` (`claude.svg`), drawn in the text's colour. Claude Code, Antigravity and Codex have their own.         |
+| Option | Default | What it does |
+| --- | --- | --- |
+| `@tmuxy-theme` | default | The theme's file stem under `themes/`. |
+| `@tmuxy-theme-mode` | dark | `dark`, `light` or `auto` (follow the OS). |
+| `@tmuxy-opacity` | 0.7 | Window chrome: title bar, sidebar, the gaps between panes. |
+| `@tmuxy-active-pane-opacity` | 1 | The active pane's background. |
+| `@tmuxy-inactive-pane-opacity` | 0.7 | Every other pane's background. |
+| `@tmuxy-active-text-opacity` | 1 | The active pane's header and text. |
+| `@tmuxy-inactive-text-opacity` | 0.7 | Every other pane's header and text — the focus cue. |
+| `@tmuxy-blur` | on | Native blur behind the window (macOS; ignored elsewhere). |
+| `@tmuxy-transparency` | on | Off: opaque window, no blur (View ▸ Enable Window Transparency). |
+| `@tmuxy-animations` | on | Layout animations: pane morphs, swaps, resizes, float keyframes. |
+| `@tmuxy-cursor-blink` | on | Blinking cursor, unless an application asks for a steady one. |
+| `@tmuxy-send-ask` | on | `tmuxy pane send` into another pane asks there first. |
+| `@tmuxy-send-allow` | — | Callers (`claude,codex`) and panes (`%3,%5`) that never ask. |
+| `@tmuxy-send-allow-into` | — | Programs (`claude,agy`) whose panes a send into never asks for: an agent's prompt. |
+| `@tmuxy-confirm-close` | on | Closing a pane or tab asks first while a pane in it is working or waiting for you. |
+| `@tmuxy-notify` | on | Push a notification to the devices that turned them on when a pane needs you or errors. |
+| `@tmuxy-tab-overview-cols` | 3 | Cards per row in the "all tabs" view, 1–12. |
+| `@tmuxy-gesture-swipe-tabs` | on | Two-finger slide left/right switches tabs, whatever macOS's swipe setting. |
+| `@tmuxy-gesture-pinch-zoom` | on | Pinch out zooms a pane, pinch in unzooms it. |
+| `@tmuxy-gesture-pinch-overview` | on | Pinch in on an unzoomed tab opens the "all tabs" view. |
+| `@tmuxy-native-menus` | on | Desktop app: native menu bar and popups; off keeps the in-app menus. |
+| `@tmuxy-size` | smallest | Grid size across clients: `smallest`, `largest`, `latest`, or a fixed `COLSxROWS` (`80x25`). Every size but `smallest` scales each client's grid to fit; a fixed one also keeps its cols/rows when a sidebar opens. |
+| `@tmuxy-css-<variable>` | — | One CSS variable, see above. |
+| `@tmuxy-icon-<process>` | — | The icon a pane running `<process>` wears: one or two ASCII characters (`'$'`, `'>_'`) or an SVG in `icons/` (`claude.svg`), drawn in the text's colour. Claude Code, Antigravity and Codex have their own. |
+| `@tmuxy-tree-row` | — | What a pane's row in the sidebar tree shows, by line: `process ports id / cwd branch / title / fields`. Also `field:<key>`; a word it does not know keeps the default. |
 
 ## Your own `~/.tmux.conf`
 
@@ -201,12 +213,12 @@ tmuxy connects to its tmux server.
 
 ## Applying a change
 
-| You changed                       | What applies it                                                           |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| a file in `themes/`, `custom.css` | nothing — saving the file repaints every open window                      |
-| `tmuxy.conf`                      | saving the file, or `tmuxy config reload` — the whole chain is re-sourced |
-| the theme or mode                 | the Theme menu, or `set -g @tmuxy-theme <name>` in `tmuxy.conf` (a pin)   |
-| `use-tmux-conf`                   | the next connect to tmuxy's tmux server                                   |
+| You changed | What applies it |
+| --- | --- |
+| a file in `themes/`, `custom.css` | nothing — saving the file repaints every open window |
+| `tmuxy.conf` | saving the file, or `tmuxy config reload` — the whole chain is re-sourced |
+| the theme or mode | the Theme menu, or `set -g @tmuxy-theme <name>` in `tmuxy.conf` (a pin) |
+| `use-tmux-conf` | the next connect to tmuxy's tmux server |
 
 ## Starting over
 

@@ -316,4 +316,88 @@ describeE2E('Scenario 31: Personalizing tmuxy from its config dir', {}, (ctx) =>
       async () => `Reload Config to source ~/.tmux.conf; tmux has "${fromTmuxConf()}"`,
     );
   });
+  // A reload starts by putting tmuxy's defaults back. With a file tmux then
+  // cannot read, the user's own prefix and bindings were gone from the
+  // session they were working in, and nothing said why.
+  test('a tmuxy.conf saved with a typo is refused with its file and line → the running config is kept, through a new connection too → the fixed file loads', async () => {
+    unsetConfigVariable();
+    stopServer = await startConfigServer();
+    const page = ctx.page;
+    const other = `${ctx.session.name}-b`;
+    const elsewhere = await ctx.browser.newPage();
+    const conf = path.join(CONFIG_DIR, 'tmuxy.conf');
+    const prefix = () => tmuxExec('show-options -gv prefix');
+    const mark = () => tmuxExec('show-options -gqv @tmuxy-e2e-mark');
+    const loaded = (value) =>
+      waitForCondition(
+        page,
+        async () => mark() === value,
+        10000,
+        async () => `the saved tmuxy.conf to load; its mark is "${mark()}", wanted "${value}"`,
+      );
+    const refusal = page.locator('[data-testid="snackbar-item"]', {
+      hasText: 'unknown command: bindd',
+    });
+    try {
+      await openSession(page, ctx.session.name, CONFIG_URL);
+      await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
+
+      // 1. A good save applies: the user's prefix replaces tmuxy's.
+      fs.writeFileSync(conf, 'set -g prefix C-x\nset -g @tmuxy-e2e-mark one\n');
+      await loaded('one');
+      expect(prefix()).toBe('C-x');
+
+      // 2. A save with a typo. The app says where it is, on screen.
+      fs.writeFileSync(conf, 'set -g prefix C-x\nset -g @tmuxy-e2e-mark two\nbindd y display hi\n');
+      await refusal.waitFor({ state: 'visible', timeout: 15000 });
+      const text = await refusal.innerText();
+      expect(text).toContain(`${conf}:3: unknown command: bindd`);
+      expect(text).toContain('config not reloaded');
+      expect(text).toContain('tmuxy config check');
+      const box = await refusal.boundingBox();
+      expect(box.width).toBeGreaterThan(100);
+      expect(box.height).toBeGreaterThan(10);
+      // None of the file was applied, and tmuxy's defaults were not put back
+      // over what was running: the prefix is still the user's.
+      expect(mark()).toBe('one');
+      expect(prefix()).toBe('C-x');
+
+      // 3. Reload Config from the menu is refused the same way. The first
+      //    notice is closed first, so the one waited for is this click's.
+      await refusal.getByRole('button', { name: 'Dismiss notification' }).click();
+      await refusal.waitFor({ state: 'detached', timeout: 5000 });
+      await clickMenuItem(page, ['Reload Config']);
+      await refusal.waitFor({ state: 'visible', timeout: 15000 });
+      expect(mark()).toBe('one');
+      expect(prefix()).toBe('C-x');
+
+      // 4. A new connection sources the chain as it attaches: another
+      //    session opened on the same server, as an app that was restarted
+      //    would. With the typo still in place the running config stays.
+      await openSession(elsewhere, other, CONFIG_URL);
+      await elsewhere.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
+      expect(mark()).toBe('one');
+      expect(prefix()).toBe('C-x');
+
+      // 5. The typo fixed, the file loads.
+      fs.writeFileSync(
+        conf,
+        'set -g prefix C-x\nset -g @tmuxy-e2e-mark three\nset -g @tmuxy-e2e-fixed yes\n',
+      );
+      await loaded('three');
+      expect(prefix()).toBe('C-x');
+    } finally {
+      await elsewhere.close();
+      // Global options outlive the test on the shared server, and every
+      // other suite types tmuxy's own prefix.
+      ctx.session.runAsOperator('set-option -g prefix C-a');
+      ctx.session.runAsOperator('set-option -gu @tmuxy-e2e-mark');
+      ctx.session.runAsOperator('set-option -gu @tmuxy-e2e-fixed');
+      try {
+        ctx.session.runAsOperator(`kill-session -t ${other}`);
+      } catch {
+        // Never opened is the state wanted.
+      }
+    }
+  }, 120000);
 });

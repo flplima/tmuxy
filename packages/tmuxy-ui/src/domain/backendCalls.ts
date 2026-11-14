@@ -11,8 +11,15 @@
 import { Schema } from 'effect';
 import { PaneId } from './ids';
 import { PreviewDocument, PreviewResource } from './preview';
-import { GitRepository, OwnTmuxOffer, RestorableSession, ServerList } from './servers';
-import { type CommandFailure, ScrollbackCells, ServerState, ThemeSettings } from './wire';
+import { GitRepository, OwnTmuxOffer, PanePorts, RestorableSession, ServerList } from './servers';
+import {
+  type CommandFailure,
+  LastOutput,
+  PromptMarks,
+  ScrollbackCells,
+  ServerState,
+  ThemeSettings,
+} from './wire';
 import { ThemeInfo, TraceLevel, TraceSettings, TraceShare } from './wireSettings';
 
 interface Command<A, AI, R, RI> {
@@ -52,6 +59,8 @@ export const BACKEND_COMMANDS = {
     Schema.Struct({ paneId: PaneId, start: Schema.Number, end: Schema.Number }),
     ScrollbackCells,
   ),
+  get_prompt_marks: command(Schema.Struct({ paneId: PaneId }), PromptMarks),
+  get_last_command_output: command(Schema.Struct({ paneId: PaneId }), LastOutput),
   /** The pane's document, or (`path` given) a resource it links. */
   read_preview: command(
     Schema.Struct({ paneId: PaneId, path: optional(Schema.String) }),
@@ -66,6 +75,7 @@ export const BACKEND_COMMANDS = {
   set_send_ask: command(Flag, Done),
   set_transparency: command(Flag, Done),
   list_git_worktrees: command(NoArgs, Schema.Array(GitRepository)),
+  list_pane_ports: command(NoArgs, Schema.Array(PanePorts)),
   list_snapshots: command(NoArgs, Schema.Array(RestorableSession)),
   restore_session: command(Schema.Struct({ session: Schema.String }), Done),
   get_trace_settings: command(NoArgs, TraceSettings),

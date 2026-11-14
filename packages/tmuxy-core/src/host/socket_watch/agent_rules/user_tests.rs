@@ -43,6 +43,12 @@ fn a_bad_file_is_refused_with_why() {
     assert!(refused("[[rule]]\nmatch = 'a'\nstate = \"done\"\n").contains("is not one of"));
     assert!(refused("[[rule]]\nmatch = '('\nstate = \"idle\"\n").starts_with("rule 1:"));
     assert!(refused("colour = 1\n").contains("unknown field"));
+    assert!(parse("my agent", "")
+        .unwrap_err()
+        .starts_with("name the file with"));
+    assert!(parse("a;b", "")
+        .unwrap_err()
+        .starts_with("name the file with"));
     assert!(parse("x", "command = \"node\"\n")
         .unwrap_err()
         .contains("is an interpreter"));

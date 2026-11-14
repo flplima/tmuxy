@@ -48,12 +48,18 @@ impl Tmux for Fake {
         let mut p = self.0.lock().unwrap();
         p.log.push(argv.clone());
         let format = argv.last().cloned().unwrap_or_default();
-        Ok(match format.as_str() {
+        // `pane_read` asks for the pane's id first, as real tmux answers it.
+        let (id, format) = match format.strip_prefix("#{pane_id}\t") {
+            Some(rest) => (format!("{}\t", argv[3]), rest.to_string()),
+            None => (String::new(), format),
+        };
+        let said = match format.as_str() {
             "#{@tmuxy-ask}" => p.ask.clone(),
             "#{@tmuxy-ask-answer}" => p.answer.clone(),
             "#{@tmuxy-pane-state}" => p.state.clone(),
             _ => p.rules.clone(),
-        })
+        };
+        Ok(id + &said)
     }
 
     async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {
@@ -67,6 +73,14 @@ impl Tmux for Fake {
                 ["set-option", "-pu", "-t", _, "@tmuxy-pane-state"] => p.state.clear(),
                 ["set-option", "-p", "-t", _, "@tmuxy-pane-state", value] => {
                     p.state = value.to_string()
+                }
+                // The unread mark, as tmux decides it: only on a quiet pane.
+                ["if-shell", "-F", "-t", _, _, mark]
+                    if mark.ends_with("'@tmuxy-pane-state' 'unread'") =>
+                {
+                    if p.state.is_empty() || p.state == "idle" {
+                        p.state = "unread".into();
+                    }
                 }
                 ["set-option", "-p", "-t", _, "@tmuxy-ask", value] => {
                     p.ask = value.to_string();

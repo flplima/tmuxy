@@ -270,6 +270,10 @@ pub const USER_THEMES: File = File::config(
 );
 pub const USER_ICONS: File =
     File::config("icons/", "SVG icons an @tmuxy-icon-<process> option names.");
+pub const PERMISSIONS: File = File::config(
+    "permissions.json",
+    "Rules for what a caller may type into another pane's shell (docs/PERMISSIONS.md). Absent until you write it.",
+);
 pub const USER_PLUGIN_MANIFEST: File = File::config(
     PLUGIN_MANIFEST_FILE,
     "Your own actions and verbs: the `user` plugin, re-read by `tmuxy config reload`.",
@@ -363,6 +367,7 @@ pub const FILES: &[File] = &[
     CUSTOM_CSS,
     USER_THEMES,
     USER_ICONS,
+    PERMISSIONS,
     USER_PLUGIN_MANIFEST,
     LOCKFILE,
     PLUGIN_CONFIG,
@@ -421,6 +426,10 @@ impl Layout {
 
     pub fn user_conf(&self) -> PathBuf {
         self.path(&USER_CONF)
+    }
+
+    pub fn permissions(&self) -> PathBuf {
+        self.path(&PERMISSIONS)
     }
 
     pub fn user_plugin_manifest(&self) -> PathBuf {

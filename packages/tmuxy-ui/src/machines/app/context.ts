@@ -28,6 +28,7 @@ export type StateName =
   | 'gestures'
   | 'ask'
   | 'plugins'
+  | 'activity'
   | 'palette';
 
 /**
@@ -51,8 +52,12 @@ export const FIELD_OWNERS = {
   serverHostname: 'connection',
   keybindings: 'connection',
   appFocused: 'connection',
+  heldCommands: 'connection',
+  heldOverflow: 'connection',
   sessions: 'connection',
   repositories: 'connection',
+  panePorts: 'connection',
+  treeRowTemplate: 'connection',
   servers: 'connection',
   currentServerId: 'connection',
   restorableSessions: 'connection',
@@ -124,6 +129,8 @@ export const FIELD_OWNERS = {
   pendingClose: 'commandUi',
   renamingPaneId: 'commandUi',
 
+  activityOpen: 'activity',
+  activityRows: 'activity',
   palette: 'palette',
   pendingGoTo: 'palette',
 
@@ -200,6 +207,8 @@ export function createInitialContext(): AppMachineContext {
     bodyWidth: 0,
     sessions: [],
     repositories: [],
+    panePorts: [],
+    treeRowTemplate: '',
     servers: [],
     currentServerId: null,
     restorableSessions: [],
@@ -248,10 +257,14 @@ export function createInitialContext(): AppMachineContext {
     pluginsRev: '',
     themeRev: '',
     appFocused: true,
+    heldCommands: [],
+    heldOverflow: 0,
     prefixActive: false,
     prefixRepeatOnly: null,
     keyTable: null,
     keysViewOpen: false,
+    activityOpen: false,
+    activityRows: [],
     pendingClose: null,
     palette: null,
     pendingGoTo: null,

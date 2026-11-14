@@ -303,7 +303,16 @@ fn the_chain_is_in_the_state_dir_and_publishes_the_data_dir_first() {
             crate::tmux_quote(crate::session::tmux_path())
         )
     );
-    assert!(lines[4].starts_with("source-file ") && lines[4].ends_with("tmuxy.essentials.conf'"));
+    // Where a send reads the user's permissions file from: the directory
+    // this app was given, not one the sender's environment names.
+    assert_eq!(
+        lines[4],
+        format!(
+            "set-option -g @tmuxy-config-dir '{}'",
+            a.layout.config.display()
+        )
+    );
+    assert!(lines[5].starts_with("source-file ") && lines[5].ends_with("tmuxy.essentials.conf'"));
 }
 
 /// On the user's own tmux server the chain is the essentials and nothing of

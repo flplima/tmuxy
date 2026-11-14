@@ -44,6 +44,12 @@ pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 /// and shell-quotes when the key is pressed.
 pub const CLI_OPTION: &str = "@tmuxy-cli";
 
+/// The global tmux option naming the config directory of the app that
+/// configured this tmux server. A send reads the user's permissions file from
+/// it (`tmuxy-verbs/src/permissions_file.rs`): the caller's own environment
+/// (`XDG_CONFIG_HOME`) would let the caller choose a directory with no rules.
+pub const CONFIG_DIR_OPTION: &str = "@tmuxy-config-dir";
+
 /// The tmux binary this process resolved ([`super::tmux_path`]), set beside
 /// [`DATA_DIR_ENV`] so a script tmux runs drives the same tmux — a GUI app's
 /// PATH may not have it, and a side-installed one would otherwise be passed
@@ -222,12 +228,14 @@ fn conf_preamble(layout: &Layout, chain: &Path, tmux: &str) -> String {
          set-environment -g {DATA_DIR_ENV} {data}\n\
          set-environment -g {ENTRY_CONF_ENV} {chain}\n\
          set-option -g {CLI_OPTION} {cli}\n\
-         set-environment -g {TMUX_BIN_ENV} {tmux}\n",
+         set-environment -g {TMUX_BIN_ENV} {tmux}\n\
+         set-option -g {CONFIG_DIR_OPTION} {config}\n",
         header = CONF_HEADER,
         data = quote(&layout.data),
         chain = quote(chain),
         cli = quote(&layout.cli()),
         tmux = crate::tmux_quote(tmux),
+        config = quote(&layout.config),
     )
 }
 
