@@ -18,6 +18,8 @@ pub struct WindowState {
     /// `@tmuxy-sidebar-hidden` — the user closed this sidebar column; its
     /// pane stays alive but no client draws it.
     pub sidebar_hidden: bool,
+    /// `@tmuxy-float-minimized` — the user minimized this float to the queue.
+    pub float_minimized: bool,
     /// Rows the dock's pane is sized to (@tmuxy-sidebar-rows); None = the viewport's.
     pub sidebar_rows: Option<u32>,
     /// Only the active pane's first-level row is expanded (@tmuxy-collapsible).
@@ -47,6 +49,12 @@ pub struct WindowState {
     /// From the `Z` layout flag and list-windows.
     pub zoomed: bool,
 
+    /// Known only from `%window-add` or `%window-renamed`, which carry no
+    /// tags: whether it is a tab, a sidebar or a float is unknown until
+    /// list-windows reports it, so no client is shown it before then
+    /// (`to_tmux_state`).
+    pub awaiting_list: bool,
+
     /// A `list-windows` row has described it. A window known only from
     /// `%window-add` is not yet known to be a tab, a float or a sidebar: the
     /// re-list behind every add says which, and until it has, the window is
@@ -69,6 +77,7 @@ impl WindowState {
             window_type: None,
             sidebar_cols: None,
             sidebar_hidden: false,
+            float_minimized: false,
             sidebar_rows: None,
             collapsible: false,
             float_parent: None,
@@ -79,7 +88,17 @@ impl WindowState {
             float_noheader: false,
             active_pane_id: None,
             zoomed: false,
+            awaiting_list: false,
             listed: false,
+        }
+    }
+
+    /// A window a notification announced: shown once list-windows has told
+    /// what it is.
+    pub fn announced(id: WindowId, index: u32) -> Self {
+        Self {
+            awaiting_list: true,
+            ..Self::new(id, index)
         }
     }
 
@@ -98,6 +117,7 @@ impl WindowState {
             float_drawer: self.float_drawer.clone(),
             float_bg: self.float_bg.clone(),
             float_noheader: self.float_noheader,
+            float_minimized: self.float_minimized,
             sidebar_cols: self.sidebar_cols,
             sidebar_hidden: self.sidebar_hidden,
             collapsible: self.collapsible,

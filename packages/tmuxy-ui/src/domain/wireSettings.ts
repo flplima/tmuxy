@@ -46,3 +46,11 @@ export const TraceSettings = Schema.Struct({
   locked: Schema.Boolean,
 });
 export type TraceSettings = Schema.Schema.Type<typeof TraceSettings>;
+
+/** The last actions of the trace, redacted for sharing (`get_trace_share`). */
+export const TraceShare = Schema.Struct({
+  /** NDJSON, one redacted event a line: exactly what Copy Trace copies. */
+  text: Schema.String,
+  lines: Schema.Number,
+});
+export type TraceShare = Schema.Schema.Type<typeof TraceShare>;

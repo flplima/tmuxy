@@ -13,6 +13,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { SidebarTree } from '../SidebarTree';
 import { PhoneMenu } from './PhoneMenu';
 import { PhoneDock } from './PhoneDock';
+import { LinkLatencyBadge } from '../LinkLatencyBadge';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
 import { selectPhoneBottomView } from '../../machines/selectors/layout';
 import type { BottomView } from '../../machines/types/domain';
@@ -204,7 +205,7 @@ function TabIcon({ view }: { view: BottomView }) {
   );
 }
 
-/** The tab bar over the views: an icon beside a name for each, the one in front underlined. */
+/** The tab bar over the views: an icon beside a name for each, the one in front underlined; after them, the link's round trip when it is slow. */
 function PhoneTabs({ view, onPick }: { view: BottomView; onPick: (view: BottomView) => void }) {
   return (
     <div className="phone-tabs" role="tablist" aria-label="Views">
@@ -222,6 +223,7 @@ function PhoneTabs({ view, onPick }: { view: BottomView; onPick: (view: BottomVi
           <span className="phone-tab-label">{TAB_LABELS[v]}</span>
         </button>
       ))}
+      <LinkLatencyBadge explainOnTap />
     </div>
   );
 }

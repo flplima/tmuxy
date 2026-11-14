@@ -5,7 +5,7 @@ fn judged(screens: &[&str]) -> Vec<Option<&'static str>> {
     let mut track = None;
     screens
         .iter()
-        .map(|screen| judge(&mut track, screen).map(PaneStateName::as_str))
+        .map(|screen| judge(&mut track, screen).map(|(state, _)| state.as_str()))
         .collect()
 }
 
@@ -45,23 +45,35 @@ fn a_dialog_on_screen_is_needs_input_at_once() {
 #[test]
 fn the_rules_write_only_over_their_own_state_or_none() {
     use PaneStateName::{Idle, NeedsInput, Working};
+    let set = |state: &'static str, why: Why| Some(Change::Set(state, why.token()));
     // Unset: the rules may write.
     assert_eq!(
-        decide("", "", Some(Working), false),
-        Some(Change::Set("working"))
+        decide("", "", Some((Working, Why::Changed)), false),
+        set("working", Why::Changed)
     );
     // Their own, and the screen says something else: they change it.
     assert_eq!(
-        decide("working", "working", Some(Idle), false),
-        Some(Change::Set("idle"))
+        decide("working", "working", Some((Idle, Why::Still)), false),
+        set("idle", Why::Still)
     );
     // Their own and unchanged: nothing to write.
-    assert_eq!(decide("idle", "idle", Some(Idle), false), None);
+    assert_eq!(
+        decide("idle", "idle", Some((Idle, Why::Still)), false),
+        None
+    );
     // A hook declared it (it is not what the rules last wrote): hands off.
-    assert_eq!(decide("needs-input", "working", Some(Working), false), None);
-    assert_eq!(decide("error", "", Some(Idle), false), None);
+    assert_eq!(
+        decide(
+            "needs-input",
+            "working",
+            Some((Working, Why::Changed)),
+            false
+        ),
+        None
+    );
+    assert_eq!(decide("error", "", Some((Idle, Why::Still)), false), None);
     // A send is asking on the pane: its question owns the state.
-    assert_eq!(decide("", "", Some(NeedsInput), true), None);
+    assert_eq!(decide("", "", Some((NeedsInput, Why::Dialog)), true), None);
     // No sign yet: nothing.
     assert_eq!(decide("", "", None, false), None);
 }
@@ -82,7 +94,7 @@ fn only_the_agents_without_hooks_are_read() {
 
 #[test]
 fn a_write_happens_only_while_the_state_still_reads_what_the_pass_read() {
-    let set = guarded_command("%5", "working", &Change::Set("idle")).unwrap();
+    let set = guarded_command("%5", "working", &Change::Set("idle", "still".into())).unwrap();
     assert_eq!(
         set,
         [
@@ -91,19 +103,24 @@ fn a_write_happens_only_while_the_state_still_reads_what_the_pass_read() {
             "-t",
             "%5",
             "#{==:#{@tmuxy-pane-state},working}",
-            "set-option -p -t %5 @tmuxy-pane-state idle ; set-option -p -t %5 @tmuxy-rules-state idle",
+            "set-option -p -t %5 @tmuxy-pane-state idle ; set-option -p -t %5 @tmuxy-rules-state idle ; \
+             set-option -p -t %5 @tmuxy-rules-why still",
         ]
     );
     let clear = guarded_command("%5", "", &Change::Clear).unwrap();
     assert_eq!(clear[4], "#{==:#{@tmuxy-pane-state},}");
     assert_eq!(
         clear[5],
-        "set-option -pu -t %5 @tmuxy-pane-state ; set-option -pu -t %5 @tmuxy-rules-state"
+        "set-option -pu -t %5 @tmuxy-pane-state ; set-option -pu -t %5 @tmuxy-rules-state ; \
+         set-option -pu -t %5 @tmuxy-rules-why"
     );
 }
 
 #[test]
 fn a_state_that_is_not_a_state_word_is_never_put_in_the_condition() {
     assert_eq!(guarded_command("%5", "idle},1}", &Change::Clear), None);
-    assert_eq!(guarded_command("%5", "busy", &Change::Set("idle")), None);
+    assert_eq!(
+        guarded_command("%5", "busy", &Change::Set("idle", "still".into())),
+        None
+    );
 }

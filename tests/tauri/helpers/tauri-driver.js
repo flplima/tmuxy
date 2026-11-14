@@ -22,17 +22,23 @@ const driverProcesses = new Map();
  * rather than fought with.
  *
  * @param {number} [port] - defaults to {@link DRIVER_PORT}
+ * @param {Object} [options]
+ * @param {Object} [options.env] - the environment of the driver, and so of the
+ *   app it launches (default: {@link driverEnv})
+ * @param {number} [options.nativePort] - the port of the WebKitWebDriver it
+ *   runs; a second driver beside the suite's needs one of its own
  * @returns {Promise<{started: boolean, port: number}>} `started` is false when
  *   an existing driver was adopted, which is how the caller knows not to stop it.
  */
-async function startTauriDriver(port = DRIVER_PORT) {
+async function startTauriDriver(port = DRIVER_PORT, { env = driverEnv(), nativePort = null } = {}) {
   if (driverProcesses.has(port)) return { started: false, port };
 
   if (await driverResponds(port)) return { started: false, port };
 
-  const driverProcess = spawn('tauri-driver', ['--port', String(port)], {
+  const native = nativePort === null ? [] : ['--native-port', String(nativePort)];
+  const driverProcess = spawn('tauri-driver', ['--port', String(port), ...native], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: driverEnv(),
+    env,
   });
   driverProcesses.set(port, driverProcess);
 

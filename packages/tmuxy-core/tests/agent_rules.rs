@@ -10,9 +10,25 @@
 use std::time::Duration;
 
 use tmuxy_core::host::socket_watch::{
-    agent_rules::{program, Rules},
+    agent_rules::{
+        explain::{explain, Facts, Source},
+        program, Rules,
+    },
     read_panes,
 };
+
+/// `tmuxy pane state explain`'s answer for `pane`, against `rules`.
+fn explained(
+    rules: &Rules,
+    pane: &str,
+) -> tmuxy_core::host::socket_watch::agent_rules::explain::Explanation {
+    let facts = Facts::read(pane).expect("the pane answers");
+    explain(
+        &facts,
+        &program::program(facts.pid, &facts.command),
+        rules.user(),
+    )
+}
 
 mod common;
 
@@ -36,7 +52,7 @@ async fn passes_until(rules: &mut Rules, pane: &str, want: &str, within: Duratio
 }
 
 #[tokio::test]
-async fn an_agent_without_hooks_is_working_then_idle_and_a_declared_state_wins() {
+async fn agents_without_hooks_get_their_state_from_the_screen() {
     let _server = common::ScratchServer::process_wide("agent-rules");
     let dir = std::env::temp_dir().join(format!("tmuxy-agent-rules-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -73,7 +89,7 @@ async fn an_agent_without_hooks_is_working_then_idle_and_a_declared_state_wins()
         .trim()
         .to_string();
 
-    let mut rules = Rules::default();
+    let mut rules = Rules::with_dir(dir.join("rules"));
     passes_until(&mut rules, &pane, "working", Duration::from_secs(20)).await;
     assert_eq!(option(&pane, "@tmuxy-rules-state"), "working");
     let command = common::tmux(&[
@@ -100,6 +116,13 @@ async fn an_agent_without_hooks_is_working_then_idle_and_a_declared_state_wins()
 
     std::fs::remove_file(&flag).unwrap();
     passes_until(&mut rules, &pane, "idle", Duration::from_secs(20)).await;
+    let why = explained(&rules, &pane);
+    assert_eq!(why.source, Source::ScreenRules);
+    assert_eq!(
+        why.rule.as_deref(),
+        Some("the screen held still for 3 passes")
+    );
+    assert_eq!(why.program, "gemini");
 
     // A hook declares a state: the rules leave it, printing or not.
     common::tmux(&[
@@ -117,7 +140,70 @@ async fn an_agent_without_hooks_is_working_then_idle_and_a_declared_state_wins()
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
     assert_eq!(option(&pane, "@tmuxy-pane-state"), "needs-input");
+    assert_eq!(explained(&rules, &pane).source, Source::Declared);
 
+    a_user_rule_names_an_agent_and_its_text_gives_the_state().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A user's rules file names an agent the built-in rules do not know, and
+/// its text on screen gives the state, ahead of the generic signs. Runs on
+/// the caller's server: `process_wide` sets the socket for the whole process.
+async fn a_user_rule_names_an_agent_and_its_text_gives_the_state() {
+    let dir = std::env::temp_dir().join(format!("tmuxy-agent-rules-user-{}", std::process::id()));
+    let rules_dir = dir.join("rules");
+    std::fs::create_dir_all(&rules_dir).unwrap();
+    std::fs::write(
+        rules_dir.join("helper.toml"),
+        "command = \"my-helper\"\n[[rule]]\nmatch = 'Waiting for your reply'\nstate = \"needs-input\"\n",
+    )
+    .unwrap();
+    // A Node program, as Gemini CLI or Amp is: tmux names the pane `node`,
+    // and the rules find it by its script. It prints its question once,
+    // then holds still: without the rule it would read as idle.
+    let agent = dir.join("my-helper.js");
+    std::fs::write(
+        &agent,
+        "console.log('working');\nconsole.log('Waiting for your reply');\nsetInterval(() => {}, 1000);\n",
+    )
+    .unwrap();
+    let node = which("node").expect("node on PATH, to host the fake agent");
+    common::tmux(&[
+        "new-session",
+        "-d",
+        "-s",
+        "helper",
+        "-x",
+        "80",
+        "-y",
+        "24",
+        &format!("exec {} {}", node.display(), agent.display()),
+    ])
+    .unwrap();
+    let pane = common::tmux(&["display-message", "-p", "-t", "helper", "#{pane_id}"])
+        .unwrap()
+        .trim()
+        .to_string();
+    let mut rules = Rules::with_dir(rules_dir);
+    passes_until(&mut rules, &pane, "needs-input", Duration::from_secs(20)).await;
+    assert_eq!(
+        explained(&rules, &pane).rule.as_deref(),
+        Some("helper.toml rule 1 matched 'Waiting for your reply'")
+    );
+    let command = common::tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &pane,
+        "#{pane_current_command}",
+    ])
+    .unwrap();
+    assert_eq!(command.trim(), "node", "tmux names the interpreter");
+    assert!(
+        rules.user().problems.is_empty(),
+        "{:?}",
+        rules.user().problems
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

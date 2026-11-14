@@ -1,9 +1,10 @@
-//! The preview widget's lines for the UI and the CLI, and the dev loop's
-//! ports and the session size a fresh connection starts at for the CLI.
+//! The preview widget's lines for the UI and the CLI, the pane options the
+//! UI reads for itself, and the dev loop's ports and the session size a fresh
+//! connection starts at for the CLI.
 
 use std::fmt::Write as _;
 
-use tmuxy_core::constants::{preview_lines, DEFAULT_SERVER_PORT, DEV_VITE_PORT};
+use tmuxy_core::constants::{preview_lines, tmux_options, DEFAULT_SERVER_PORT, DEV_VITE_PORT};
 use tmuxy_core::control_mode::{INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 
 use super::quoted;
@@ -16,6 +17,14 @@ pub fn typescript(out: &mut String) {
         quoted(preview_lines::NO_THEME),
         quoted(preview_lines::FILE),
         quoted(preview_lines::REV)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The pane options of a pane's state, its program's words and its label (`tmux_options`). */\n\
+         export const PANE_OPTIONS = {{\n  state: {},\n  status: {},\n  label: {},\n}} as const;",
+        quoted(tmux_options::PANE_STATE),
+        quoted(tmux_options::PANE_STATUS),
+        quoted(tmux_options::PANE_LABEL)
     );
 }
 

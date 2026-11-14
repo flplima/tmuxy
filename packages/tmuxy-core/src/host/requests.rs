@@ -97,6 +97,19 @@ pub async fn git_worktrees(
     Ok(repositories)
 }
 
+/// The ports each pane's programs listen on, for the sidebar tree. The panes
+/// and their processes come from tmux, never from the request, and the
+/// process table is read off the async runtime.
+pub async fn pane_ports(
+    tx: &MonitorCommandSender,
+) -> Result<Vec<crate::ports::PanePorts>, CommandError> {
+    use crate::ports::{listening_ports, pane_pids, LIST_PANE_PIDS_CMD};
+    let listing = query(tx, LIST_PANE_PIDS_CMD).await?;
+    tokio::task::spawn_blocking(move || listening_ports(&pane_pids(&listing)))
+        .await
+        .map_err(|e| CommandError::unavailable(format!("port discovery task failed: {e}")))
+}
+
 /// Everything the Debug menu needs to render itself (docs/TRACING.md).
 pub fn trace_settings() -> TraceSettings {
     TraceSettings {
@@ -105,6 +118,20 @@ pub fn trace_settings() -> TraceSettings {
         path: crate::trace::trace_path().display().to_string(),
         locked: crate::trace::is_locked_off(),
     }
+}
+
+/// A slice of the trace, redacted for sharing (`trace::share`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TraceShare {
+    /// NDJSON, one redacted event a line.
+    pub text: String,
+    pub lines: usize,
+}
+
+/// The last `last` actions (at most 200) of the trace, redacted for sharing.
+pub fn trace_share(last: u32) -> Result<TraceShare, String> {
+    let (text, lines) = crate::trace::share::shared_slice(last.clamp(1, 200) as usize)?;
+    Ok(TraceShare { text, lines })
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -169,7 +196,12 @@ where
     };
     let sourced = is_source_file(&routed);
     let routed = if sourced {
-        source_with_entry(routed, crate::session::get_config_path().as_deref())
+        let entry = crate::session::get_config_path();
+        // Reload Config: the same check a saved file gets.
+        if entry.is_some() && routed.trim() == bindings::SOURCE_ENTRY_CONF {
+            bindings::refuse_broken_config().await?;
+        }
+        source_with_entry(routed, entry.as_deref())
     } else {
         routed
     };
