@@ -203,21 +203,38 @@ describe('tmuxActor — the shell prompts', () => {
     actor.stop();
   });
 
-  it('COPY_LAST_OUTPUT puts the text on the clipboard and says how much', async () => {
-    const { runtime } = fakeTransport({
-      send: async ({ cmd }) => (cmd === 'get_last_command_output' ? { text: 'ok\nfine' } : null),
-    });
-    const { actor, events } = spawnTmuxActor(runtime);
-    actor.getSnapshot().children.tmux!.send({ type: 'COPY_LAST_OUTPUT', paneId: '%1' });
+  /** Copy the last output with a system clipboard whose write does `writeText`. */
+  async function copyLastOutput(writeText: (text: string) => Promise<void>) {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      const { runtime } = fakeTransport({
+        send: async ({ cmd }) => (cmd === 'get_last_command_output' ? { text: 'ok\nfine' } : null),
+      });
+      const { actor, events } = spawnTmuxActor(runtime);
+      actor.getSnapshot().children.tmux!.send({ type: 'COPY_LAST_OUTPUT', paneId: '%1' });
+      await waitFor(() => events.some((e) => e.type === 'NOTIFY'));
+      actor.stop();
+      return events.find((e) => e.type === 'NOTIFY');
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  }
 
-    await waitFor(() => events.some((e) => e.type === 'NOTIFY'));
-    expect(events.find((e) => e.type === 'NOTIFY')?.text).toBe(
-      'Copied the last output: 7 characters',
-    );
-    const copied = (globalThis as { __tmuxyLastClipboard?: { paneId: string; text: string } })
-      .__tmuxyLastClipboard;
-    expect(copied).toEqual({ paneId: '%1', text: 'ok\nfine' });
-    actor.stop();
+  it('COPY_LAST_OUTPUT puts the text on the clipboard and says how much', async () => {
+    const written: string[] = [];
+    const notice = await copyLastOutput(async (text) => {
+      written.push(text);
+    });
+
+    expect(written).toEqual(['ok\nfine']);
+    expect(notice).toMatchObject({ kind: 'info', text: 'Copied the last output: 7 characters' });
+  });
+
+  // A browser may refuse a write that comes a round trip after the click.
+  it('says the copy failed when the clipboard refused it, not that it copied', async () => {
+    const notice = await copyLastOutput(() => Promise.reject(new Error('NotAllowedError')));
+
+    expect(notice).toMatchObject({ kind: 'error', text: 'Clipboard write failed' });
   });
 
   it('a shell that marks no output copies nothing and says why', async () => {

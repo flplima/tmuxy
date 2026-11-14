@@ -326,9 +326,20 @@ export function createTmuxActor(runtime: AppRuntime) {
         run(
           withTransport((t) => t.call('get_last_command_output', { paneId: event.paneId })),
           {
+            // The copy is said once the clipboard took it: a browser can
+            // refuse a write that comes this long after the click.
             onSuccess: ({ text }) => {
-              if (text) void writeClipboard(text, event.paneId);
-              parent.send({ type: 'NOTIFY', kind: 'info', text: lastOutputNotice(text) });
+              if (!text) {
+                parent.send({ type: 'NOTIFY', kind: 'info', text: lastOutputNotice(text) });
+                return;
+              }
+              void writeClipboard(text, event.paneId).then((copied) =>
+                parent.send(
+                  copied
+                    ? { type: 'NOTIFY', kind: 'info', text: lastOutputNotice(text) }
+                    : { type: 'NOTIFY', kind: 'error', text: 'Clipboard write failed' },
+                ),
+              );
             },
             logPrefix: 'get_last_command_output',
           },
