@@ -76,11 +76,11 @@
     },
     {
       "name": "services",
-      "path": "tests/(19-mcp|20-push|23-kindle)\\.test\\.js"
+      "path": "tests/(19-mcp|20-push|23-kindle|28-trace-replay)\\.test\\.js"
     },
     {
       "name": "agents",
-      "path": "tests/2[125]-(agent-states|process-icons|agent-lifecycle)\\.test\\.js"
+      "path": "tests/2[125]-(agent-states|agent-spawn|process-icons|agent-lifecycle)\\.test\\.js"
     },
     {
       "name": "session-snapshot",

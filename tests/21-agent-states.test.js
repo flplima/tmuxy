@@ -20,6 +20,7 @@ const {
   pressEnter,
   waitForShellPrompt,
   splitPaneKeyboard,
+  navigatePaneKeyboard,
   waitForPaneCount,
   waitForCondition,
 } = require('./helpers');
@@ -225,135 +226,108 @@ describeE2E("Scenario: an orchestrator waits on its agents' states", {}, (ctx) =
 });
 
 /**
- * `tmuxy agent spawn` puts an agent in the caller's own tab with its task.
- * The "agent" is `--agent cmd`: a shell that prints its task and waits, so
- * no real agent runs; the adapters' command lines are the unit tests'
- * (agents/spawn_tests.rs).
+ * A program can say what it is doing in its own output, with the program
+ * status protocol (OSC 7501): nothing is installed and no hook runs. The
+ * "program" here is the shell's `printf`, which is all a build script or a
+ * deploy tool needs to report.
  */
-describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (ctx) => {
-  test("agent spawn adds a tagged row to the caller's tab, keeps the focus, hands over the task, refuses a taken label and keeps #() in a label or path as text", async () => {
-    const { page } = ctx;
-    await ctx.setupPage();
-    await waitForShellPrompt(page);
-    const caller = await page.evaluate(() => window.app?.view().activePaneId);
-    const asCaller = { TMUX_PANE: caller };
-    let child = null;
-    let second = null;
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-e2e-spawn-'));
-    try {
-      const out = tmuxyCli(
-        [
-          'agent',
-          'spawn',
-          '--json',
-          '--agent',
-          'cmd',
-          '--label',
-          'child-x',
-          '--',
-          'bash',
-          '-c',
-          'echo "task: $1"; exec sleep 600',
-          '_',
-          "it's #{a} task",
-        ],
-        asCaller,
-      );
-      const answer = JSON.parse(out);
-      expect(answer).toMatchObject({ ok: true, label: 'child-x', agent: 'bash' });
-      child = answer.paneId;
+describeE2E(
+  'Scenario: a program reports its status in its output and its pane shows it',
+  {},
+  (ctx) => {
+    test('each reported state marks the pane, a new prompt ends a working one, and a result waits to be seen', async () => {
+      const { page } = ctx;
+      await ctx.setupPage();
+      await waitForShellPrompt(page);
+      const first = await page.evaluate(() => window.app?.view().activePaneId);
+      // Two panes, so each has a header that shows its state.
+      await splitPaneKeyboard(page, 'horizontal');
       await waitForPaneCount(page, 2);
+      await waitForShellPrompt(page);
+      const paneId = await page.evaluate(() => window.app?.view().activePaneId);
+      expect(paneId).not.toBe(first);
 
-      const read = (format) =>
-        tmuxyCli(['run', 'display-message', '-p', '-t', child, format]).trim();
-      expect(read('#{window_id}')).toBe(
-        tmuxyCli(['run', 'display-message', '-p', '-t', caller, '#{window_id}']).trim(),
-      );
-      expect(read('#{@tmuxy-collapsible}')).toBe('1');
-      expect(read('#{@tmuxy-spawned-by} #{@tmuxy-agent} #{@tmuxy-label}')).toBe(
-        `${caller} bash child-x`,
-      );
+      /** Print one OSC sequence from the pane in front, to its own terminal or `to` another. */
+      const print = async (body, to = '') => {
+        await typeInTerminal(page, `printf '\\033]${body}\\033\\\\'${to}`, {
+          target: `[data-pane-id="${paneId}"] [role="log"]`,
+        });
+        await pressEnter(page);
+      };
+      const shows = (pane, mark, waitingFor) =>
+        waitForCondition(
+          page,
+          async () => (await headerMark(page, pane)) === mark,
+          10000,
+          () => seen(page, pane, waitingFor),
+        );
 
-      // The focus stays with the caller; the new row shows as a header.
-      expect(await page.evaluate(() => window.app?.view().activePaneId)).toBe(caller);
-      await waitForCondition(
-        page,
-        () =>
-          page.evaluate((id) => {
-            const header = document.querySelector(`[data-pane-tab="${id}"]`);
-            const box = header?.getBoundingClientRect();
-            return (
-              !!box && box.width > 0 && box.height > 0 && header.textContent.includes('child-x')
-            );
-          }, child),
-        15000,
-        "the spawned row's header, named child-x, to be drawn",
-      );
+      try {
+        await print('7501;state=working:app=make');
+        await shows(paneId, 'working', 'the pane to show its program is working');
 
-      // The task reached the agent as one argument, quotes and #{} intact.
-      const screen = await waitForCondition(
-        page,
-        () => {
-          // A collapsed row is one line tall: the line is in its history.
-          const text = tmuxyCli(['run', 'capture-pane', '-p', '-S', '-', '-t', child]);
-          return text.includes('task: ') && text;
-        },
-        15000,
-        'the agent to print its task',
-      );
-      expect(screen).toContain("task: it's #{a} task");
+        // "Apply 3 to add?", as the protocol carries free text: base64.
+        await print('7501;state=blocked:kind=permission:msg=QXBwbHkgMyB0byBhZGQ/');
+        await shows(paneId, 'needs-input', 'a blocked program to mark the pane needs-input');
+        // Pointing at the mark says what the program is waiting for.
+        await page.hover(`[data-pane-tab="${paneId}"] .pane-state-mark`);
+        await waitForCondition(
+          page,
+          () =>
+            page.evaluate(() => {
+              const tip = document.querySelector('[data-testid="tooltip"]');
+              const box = tip?.getBoundingClientRect();
+              return (
+                !!box && box.width > 0 && tip.textContent === 'Needs your approval: Apply 3 to add?'
+              );
+            }),
+          10000,
+          async () =>
+            `the mark's tooltip to say what the program asked; it says ${JSON.stringify(
+              await page.evaluate(
+                () => document.querySelector('[data-testid="tooltip"]')?.textContent ?? null,
+              ),
+            )}`,
+        );
 
-      const taken = await tmuxyCliAsync(
-        ['agent', 'spawn', '--agent', 'cmd', '--label', 'child-x', '--', 'true'],
-        asCaller,
-      );
-      expect(taken.code).not.toBe(0);
-      expect(taken.stderr).toContain('already labelled child-x');
+        // tmux holds the text beside the state, for whatever reads the pane
+        // without having seen its output: another host, another session's.
+        const heldText = () =>
+          ctx.session.runCommand(`display-message -p -t ${paneId} '#{@tmuxy-pane-status}'`).trim();
+        expect(heldText()).toBe('state=blocked:kind=permission:msg=QXBwbHkgMyB0byBhZGQ/');
 
-      // A label or a directory holding `#(…)` reaches tmux as text: tmux
-      // expands formats in a pane's title and start directory, where an
-      // unescaped one would run the command as the server. Ending in `;`,
-      // each stays one argument, rather than ending tmux's command there.
-      const marker = path.join(scratch, 'ran');
-      const hostile = `#(touch ${marker});`;
-      const cwd = path.join(scratch, hostile);
-      fs.mkdirSync(cwd, { recursive: true });
-      second = JSON.parse(
-        tmuxyCli(
-          [
-            'agent',
-            'spawn',
-            '--json',
-            '--agent',
-            'cmd',
-            '--place',
-            'split',
-            '--label',
-            hostile,
-          ].concat(['--cwd', cwd, '--', 'sleep', '600']),
-          asCaller,
-        ),
-      ).paneId;
-      const readSecond = (format) =>
-        tmuxyCli(['run', 'display-message', '-p', '-t', second, format]).trim();
-      await waitForCondition(
-        page,
-        () => readSecond('#{pane_current_path}') === cwd,
-        15000,
-        () => `the second agent to start in ${cwd}, not ${readSecond('#{pane_current_path}')}`,
-      );
-      expect(readSecond('#{pane_title}')).toBe(hostile);
-      expect(readSecond('#{@tmuxy-label}')).toBe(hostile);
-      expect(fs.existsSync(marker)).toBe(false);
-    } finally {
-      for (const pane of [child, second].filter(Boolean)) {
-        try {
-          tmuxyCli(['pane', 'kill', pane]);
-        } catch {
-          // Already gone.
-        }
+        await print('7501;state=error');
+        await shows(paneId, 'error', 'a failed program to mark the pane');
+
+        await print('7501;state=clear');
+        await shows(paneId, null, 'a cleared status to take the mark off');
+        expect(heldText()).toBe('');
+
+        // The shell's prompt mark ends a command that was still working.
+        await print('7501;state=working');
+        await shows(paneId, 'working', 'the pane to show its program is working again');
+        await print('133;A');
+        await shows(paneId, null, 'a new prompt to end the working state');
+
+        // A result is for the pane the user is not looking at: reported on
+        // the other pane's terminal, it waits there until that pane is in front.
+        const tty = ctx.session.runCommand(`display-message -p -t ${first} '#{pane_tty}'`).trim();
+        expect(tty).toMatch(/^\/dev\//);
+        await print('7501;state=done', ` > ${tty}`);
+        await shows(first, 'unread', 'a finished program to leave its result on the other pane');
+
+        await navigatePaneKeyboard(page, 'next');
+        await waitForCondition(
+          page,
+          async () => (await page.evaluate(() => window.app?.view().activePaneId)) === first,
+          10000,
+          'the first pane to come in front',
+        );
+        await shows(first, null, 'the result to be taken as seen once its pane is in front');
+      } finally {
+        tmuxyCli(['pane', 'state', 'clear', paneId]);
+        tmuxyCli(['pane', 'state', 'clear', first]);
       }
-      fs.rmSync(scratch, { recursive: true, force: true });
-    }
-  }, 120000);
-});
+    }, 120000);
+  },
+);
