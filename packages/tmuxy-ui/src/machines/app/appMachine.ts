@@ -73,6 +73,7 @@ const relayState = { actions: 'relayState' } as const;
 const commandEntry = {
   SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
   DISPATCH_OP: { actions: 'dispatch_op' },
+  CONFIRM_CLOSE: { actions: 'dispatch_confirmedClose' },
 } as const;
 
 export const appMachine = setup({

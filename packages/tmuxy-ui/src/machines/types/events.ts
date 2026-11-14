@@ -7,6 +7,7 @@ import type { AskAnswer } from '../../domain/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
 import type { TmuxOp } from '../../domain/commands';
+import type { PendingClose } from '../../domain/closeGuard';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
 import type {
@@ -149,6 +150,10 @@ export type AppMachineEvent =
   | { type: 'SEND_TMUX_COMMAND'; command: string }
   /** An intent the client issues itself, routed and dispatched through the store. */
   | { type: 'DISPATCH_OP'; op: TmuxOp }
+  /** A close that would end a busy pane, held until the user answers (`domain/closeGuard.ts`). */
+  | { type: 'REQUEST_CLOSE_CONFIRM'; pending: PendingClose }
+  | { type: 'CONFIRM_CLOSE' }
+  | { type: 'CANCEL_CLOSE' }
   | { type: 'COPY_SELECTION' }
   /** `paneId` null: the pane the keyboard is in (a focused float, else the active pane). */
   | { type: 'CLOSE_PANE'; paneId: PaneId | null }

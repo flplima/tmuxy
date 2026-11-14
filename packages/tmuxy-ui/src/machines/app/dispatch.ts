@@ -19,6 +19,8 @@ import { selectWindowTarget, stripTabs } from '../../domain/windows';
 import { isMultiStep } from '../../domain/opTraits';
 import { realId, type PaneId, type WindowId } from '../../domain/ids';
 import { parseCommandToOp, tabPosition } from '../../domain/store/parseCommand';
+import { busyPanesClosedBy, type GuardModel } from '../../domain/closeGuard';
+import { selectKeyFocusPane } from '../selectors/keyboard';
 import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
 
 /**
@@ -119,10 +121,49 @@ function routeSidebarNav(direction: 'L' | 'R', context: Ctx, enqueue: Enqueue): 
 }
 
 /**
+ * What a close is checked against. A close that names no pane acts on the one
+ * the keyboard is in: the pane a binding was pinned to when its key was
+ * pressed (a float or the dock pins its own), else the keyboard's pane now.
+ */
+function guardModel(wire: string | undefined, context: Ctx): GuardModel {
+  const pinned = wire ? /(?:^|;\s*)select-pane -t (%\d+)\s*\\?;/.exec(wire)?.[1] : undefined;
+  // tmux resolves a pinned binding's window from the pinned pane's.
+  const pinnedWindow = context.panes.find((p) => p.tmuxId === pinned)?.windowId;
+  return {
+    panes: context.panes,
+    sessionName: context.sessionName,
+    focusPaneId:
+      (pinned as PaneId | undefined) ?? selectKeyFocusPane(context) ?? context.activePaneId,
+    activeWindowId: pinnedWindow ?? context.activeWindowId,
+    typed: wire !== undefined,
+  };
+}
+
+/**
  * Route `op`. `wire` is the exact string to send instead of the op's own form,
  * when the op was parsed from one (a binding keeps its pin and its flags).
+ * `confirmed` is the user's yes to a close that was held.
  */
-function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: Enqueue) {
+function routeOp(
+  op: TmuxOp,
+  wire: string | undefined,
+  context: Ctx,
+  enqueue: Enqueue,
+  confirmed = false,
+) {
+  // A close that would end a pane still at work waits for the user's yes:
+  // every way to close arrives here (a button, a menu, a binding, the prompt).
+  const held =
+    !confirmed && context.confirmClose ? busyPanesClosedBy(op, guardModel(wire, context)) : null;
+  if (held) {
+    enqueue.raise({ type: 'REQUEST_CLOSE_CONFIRM', pending: { op, wire, ...held } });
+    return;
+  }
+  routeFreeOp(op, wire, context, enqueue);
+}
+
+/** Route an op nothing holds back: to the client's own handling, or the store. */
+function routeFreeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: Enqueue) {
   switch (op._tag) {
     case 'EnterCopyMode': {
       const paneId = op.paneId ?? context.activePaneId;
@@ -223,6 +264,15 @@ export const dispatchActions = {
   dispatch_op: act(({ event, context, enqueue }) => {
     if (event.type !== 'DISPATCH_OP') return;
     routeOp(bindActiveTargets(event.op, context), undefined, context, enqueue);
+  }),
+
+  /** The user said yes to the close being held: it goes on as it was issued. */
+  dispatch_confirmedClose: act(({ event, context, enqueue }) => {
+    if (event.type !== 'CONFIRM_CLOSE' || !context.pendingClose) return;
+    const { op, wire } = context.pendingClose;
+    routeOp(op, wire, context, enqueue, true);
+    // Answered: the command UI drops the question.
+    enqueue.raise({ type: 'CANCEL_CLOSE' });
   }),
 
   /**
