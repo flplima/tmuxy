@@ -7,7 +7,13 @@ const { tmuxSocket } = require('../helpers/tmux-socket');
 const { MOCKS_DIR, SOCKET, scriptEnv, sealedEnv } = require('./helpers/env');
 const { runCLI } = require('./helpers/run-cli');
 const { startChild, startChildPromised } = require('./helpers/start-child');
-const { MOCK_TMUX, sealChildProcesses, sealProblem, suite } = require('./helpers/seal');
+const {
+  MOCK_TMUX,
+  sealChildProcesses,
+  sealProblem,
+  suite,
+  unsealChildProcesses,
+} = require('./helpers/seal');
 const { realTmux, serverAnswers, suiteSocketProblem } = require('./setup/global-setup');
 const globalTeardown = require('./setup/global-teardown');
 
@@ -207,7 +213,11 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
     expect(sealChildProcesses(fake)).toBe(unseal);
     fake.spawn('tmux', ['list-panes'], { env });
     expect(calls).toHaveLength(2);
-    unseal();
+    // The global teardown's way back is that one, and does nothing to a
+    // module nobody sealed.
+    unsealChildProcesses(fake);
+    expect(fake).toEqual(before);
+    unsealChildProcesses(fake);
     expect(fake).toEqual(before);
 
     // The promise form of exec and execFile goes through the seal as well.
