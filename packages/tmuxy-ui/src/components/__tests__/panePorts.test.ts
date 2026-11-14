@@ -18,5 +18,8 @@ describe('a pane’s ports', () => {
     expect(portUrl(80, '192.168.0.9')).toBe('http://192.168.0.9:80/');
     // An IPv6 host goes in brackets, or the port would read as part of it.
     expect(portUrl(8123, '::1')).toBe('http://[::1]:8123/');
+    // As a page opened at http://[::1]:9000 reads its own host.
+    const pageHost = new URL('http://[::1]:9000/').hostname;
+    expect(portUrl(8123, pageHost)).toBe('http://[::1]:8123/');
   });
 });
