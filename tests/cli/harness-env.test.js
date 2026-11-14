@@ -1,6 +1,8 @@
+const fs = require('fs');
 const os = require('os');
+const path = require('path');
 const { tmuxEnv } = require('../helpers/tmux-socket');
-const { scriptEnv } = require('./helpers/env');
+const { scriptEnv, withScratchDir } = require('./helpers/env');
 const { runCLI } = require('./helpers/run-cli');
 const { driverEnv } = require('../tauri/helpers/tauri-driver');
 
@@ -60,6 +62,19 @@ describe('the environment a test hands its children', () => {
     const { exitCode, tmuxCalls } = runCLI(['pane', 'list']);
     expect(exitCode).toBe(0);
     expect(tmuxCalls.map((call) => call.args[0])).toEqual(['list-panes']);
+  });
+
+  // A CLI that exits at once, input unread (the agent hook outside a tmuxy
+  // pane), made the write of that input fail with EPIPE, and the harness took
+  // the error for a CLI that never exited: a flake, whichever won the race.
+  // The input here is far past a pipe's buffer, so the write always fails.
+  test('a CLI that exits without reading its input still has its exit status', () => {
+    withScratchDir('tmuxy-cli-unread-', (dir) => {
+      const cli = path.join(dir, 'exits-at-once');
+      fs.writeFileSync(cli, '#!/bin/sh\nexit 3\n', { mode: 0o755 });
+      const { exitCode } = runCLI([], { cli, input: 'x'.repeat(1 << 20) });
+      expect(exitCode).toBe(3);
+    });
   });
 
   // The server under test snapshots its sessions into its state dir and

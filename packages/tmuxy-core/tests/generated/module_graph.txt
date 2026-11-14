@@ -1,6 +1,8 @@
 # Which tmuxy-core module uses which (packages/tmuxy-core/tests/module_graph.rs).
 # A new edge is a design change: rewrite this with
 # UPDATE_GENERATED=1 cargo test -p tmuxy-core --test module_graph
+agent_dialog -> program
+ask -> agent_dialog
 ask -> constants
 ask -> program
 ask -> random
@@ -24,6 +26,7 @@ control_mode -> trace
 float -> constants
 groups -> argv
 groups -> constants
+host -> agent_dialog
 host -> argv
 host -> client_size
 host -> command_router
@@ -35,7 +38,6 @@ host -> paths
 host -> plugins
 host -> ports
 host -> preview
-host -> program
 host -> servers
 host -> session
 host -> session_snapshot
@@ -61,6 +63,9 @@ ports -> session
 preview -> constants
 preview -> control_mode
 preview -> mime
+profiles -> constants
+profiles -> paths
+profiles -> private_files
 run_shell -> argv
 run_shell -> paths
 run_shell -> private_files
@@ -75,6 +80,7 @@ session -> constants
 session -> error
 session -> paths
 session -> private_files
+session -> profiles
 session -> stamp
 session -> tmux_command
 session_snapshot -> argv
@@ -96,6 +102,7 @@ theme -> paths
 theme -> plugins
 theme -> session
 tmux_check -> session
+tmux_check -> tmux_compat
 tmux_compat -> tmux_command
 trace -> paths
 trace -> private_files

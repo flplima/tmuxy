@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import words from '../../../../tmuxy-cli/bin/tmuxy/session-names.json';
-import { memorableSessionName } from '../sessionNames';
+import { memorableSessionName, sessionNameFrom } from '../sessionNames';
 
 const PAIRS = words.adjectives.flatMap((adjective) =>
   words.nouns.map((noun) => `${adjective}-${noun}`),
@@ -36,5 +36,24 @@ describe('memorableSessionName', () => {
       expect(new Set(list).size).toBe(list.length);
       for (const word of list) expect(word).toMatch(/^[a-z]+$/);
     }
+  });
+});
+
+describe('sessionNameFrom', () => {
+  it('keeps a name the server takes as typed', () => {
+    expect(sessionNameFrom('work')).toBe('work');
+    expect(sessionNameFrom('  api_v2+test@home  ')).toBe('api_v2+test@home');
+  });
+
+  it('turns what the server refuses into dashes, and never starts with one', () => {
+    expect(sessionNameFrom('my project')).toBe('my-project');
+    expect(sessionNameFrom('a.b:c')).toBe('a-b-c');
+    expect(sessionNameFrom('--flag')).toBe('flag');
+    expect(sessionNameFrom("x'; kill-server #")).toBe('x-kill-server');
+  });
+
+  it('makes no name of nothing', () => {
+    expect(sessionNameFrom('')).toBeNull();
+    expect(sessionNameFrom(' . : ')).toBeNull();
   });
 });

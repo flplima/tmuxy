@@ -58,11 +58,26 @@ cmd_pane() {
       # exactly as written by the UI, the push notification and the screen
       # corrector alike, so a near-miss is refused here instead of reading as
       # `idle` everywhere.
+      if [ "${1:-}" = explain ]; then
+        shift
+        # Where the state came from: Rust reads the pane and the rules.
+        local pane="${TMUX_PANE:-}"
+        case "${1:-}" in
+          --help|-h) echo "Usage: tmuxy pane state explain [target] [--json]"; return ;;
+          "") ;;
+          *) pane="$(_resolve_target "$1")" || exit $? ;;
+        esac
+        [ -n "$pane" ] || _die_usage "no pane to explain (pass a target or run inside a pane)"
+        find_server_cmd || exit "$EXIT_FAILED"
+        # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
+        exec "${SERVER_CMD[@]}" state-explain "$pane" ${server_json[@]+"${server_json[@]}"}
+      fi
       local value="" target=""
       for arg in "$@"; do
         case "$arg" in
           --help|-h)
             echo "Usage: tmuxy pane state <$PANE_STATE_WORDS|clear> [target]"
+            echo "       tmuxy pane state explain [target] [--json]"
             return
             ;;
           *) if [ -z "$value" ]; then value="$arg"; else target="$arg"; fi ;;
@@ -222,6 +237,25 @@ cmd_pane() {
     send)
       [ -n "${1:-}" ] || _die_usage "keys required"
       JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/send" "$@"
+      ;;
+
+    queue)
+      local args=()
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --help|-h)
+            echo "Usage: tmuxy pane queue [-t <target>] [--retract <id>]"
+            echo
+            echo "The sends waiting in line for a pane (tmuxy pane send --queue), first"
+            echo "first; --retract takes one back before any of it is sent."
+            return
+            ;;
+          -t) args+=(-t "${2:?-t needs a pane}"); shift 2 ;;
+          --retract) args+=(--retract "${2:?--retract needs an id}"); shift 2 ;;
+          *) _die_usage "unknown argument '$1'" ;;
+        esac
+      done
+      JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/send" --list-queue ${args[@]+"${args[@]}"}
       ;;
 
     paste)

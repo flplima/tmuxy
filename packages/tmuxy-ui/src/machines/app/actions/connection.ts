@@ -2,7 +2,11 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { takeKeyboard } from '../helpers';
 import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
-import { writeClipboard, clipboardWriteMessage } from '../../../infra/clipboard';
+import {
+  writeClipboard,
+  clipboardBlockedMessage,
+  clipboardWriteMessage,
+} from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import { invokeEvent } from '../../actors/tmuxActor';
 import { memorableSessionName } from '../../../domain/sessionNames';
@@ -30,6 +34,15 @@ function fetchStateAtViewport(context: Ctx, enqueue: EnqueueAction): void {
     );
   }
 }
+
+/** The most keys and commands held while the page first connects. */
+export const MAX_HELD_COMMANDS = 512;
+
+/** A held key older than this when the connection lands is dropped, not sent. */
+export const HELD_MAX_AGE_MS = 5000;
+
+const keysWord = (n: number) => (n === 1 ? '1 key' : `${n} keys`);
+const was = (n: number) => (n === 1 ? 'was' : 'were');
 
 export const connectionActions = {
   connection_logAppend: assignCtx(({ context, event }) => {
@@ -84,12 +97,18 @@ export const connectionActions = {
       : {},
   ),
 
-  connection_tmuxClipboard: act(({ event, enqueue }) => {
+  // Announced once the browser has answered, and as what happened: a write no
+  // key or click came just before is one Firefox and Safari turn down.
+  connection_tmuxClipboard: act(({ event, enqueue, self }) => {
     if (event.type !== 'TMUX_CLIPBOARD') return;
-    enqueue(() => void writeClipboard(event.text, event.paneId));
-    enqueue.raise({
-      type: 'SHOW_STATUS_MESSAGE' as const,
-      text: clipboardWriteMessage(event.text, event.paneId),
+    const { text, paneId } = event;
+    enqueue(() => {
+      void writeClipboard(text, paneId).then((copied) =>
+        self.send({
+          type: 'SHOW_STATUS_MESSAGE',
+          text: (copied ? clipboardWriteMessage : clipboardBlockedMessage)(text, paneId),
+        }),
+      );
     });
   }),
 
@@ -141,15 +160,19 @@ export const connectionActions = {
   // web the switch reconnects with ?session=<name>, and the server's attach
   // creates the session if the create has not landed yet; on Tauri the create
   // must precede switch-client, which the two raised events keep in order. The
-  // name is one no session in the last poll has, nor the attached one, nor a
-  // snapshot the switcher offers to restore (a session made under a snapshot's
-  // name would be saved over it).
-  connection_newSession: act(({ context, enqueue }) => {
-    const sessionName = memorableSessionName([
-      context.sessionName,
-      ...context.sessions.map((session) => session.sessionName),
-      ...context.restorableSessions.map((session) => session.name),
-    ]);
+  // name is the one the user typed (the palette offers it only when no session
+  // has it), else one no session in the last poll has, nor the attached one,
+  // nor a snapshot the switcher offers to restore (a session made under a
+  // snapshot's name would be saved over it).
+  connection_newSession: act(({ context, event, enqueue }) => {
+    const typed = event.type === 'NEW_SESSION' ? event.name : undefined;
+    const sessionName =
+      typed ??
+      memorableSessionName([
+        context.sessionName,
+        ...context.sessions.map((session) => session.sessionName),
+        ...context.restorableSessions.map((session) => session.name),
+      ]);
     enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.NewSession({ name: sessionName }) });
     enqueue.raise({ type: 'SWITCH_SESSION' as const, sessionName });
   }),
@@ -191,13 +214,70 @@ export const connectionActions = {
     });
   }),
 
+  // A switch that opened a new stream fetches the state, as a reconnect does:
+  // a monitor the server just attached broadcasts it, but one that was still
+  // up (the session was left less than its grace period ago, or another client
+  // watches it) has nothing new to say, and the panes cleared for the switch
+  // stayed cleared. The desktop's switch-client is not waited on, so a fetch
+  // there could answer with the session it was leaving.
+  connection_sessionSwitched: act(({ context, enqueue }) => {
+    fetchStateAtViewport(context, enqueue);
+  }),
+
   // The size actor answers RESEND_SIZE by sending the target size again, and
   // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
   // the client measured).
-  connection_onConnected: act(({ enqueue }) => {
-    enqueue(assign({ connected: true, error: null, fatalError: null }));
+  connection_onConnected: act(({ context, enqueue }) => {
+    enqueue(
+      assign({ connected: true, error: null, fatalError: null, heldCommands: [], heldOverflow: 0 }),
+    );
     enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
     fetchThemes(enqueue);
+    // Typed while the page attached: sent now, in the order typed, ahead of
+    // anything typed after (a raised event goes before the next one in). All
+    // of it or none: if the oldest waited longer than HELD_MAX_AGE_MS, or the
+    // bound pushed some out, the rest is a line's tail, and an Enter in it
+    // would run that tail as a command.
+    const held = context.heldCommands;
+    const stale = held.length > 0 && Date.now() - held[0].at > HELD_MAX_AGE_MS;
+    if (stale || context.heldOverflow > 0) {
+      const dropped = held.length + context.heldOverflow;
+      enqueue.raise({
+        type: 'NOTIFY' as const,
+        text: `${keysWord(dropped)} typed while connecting took too long to send and ${was(dropped)} dropped`,
+      });
+      return;
+    }
+    for (const command of held) enqueue.raise(command.command);
+  }),
+
+  /**
+   * A key or command before the first connection is held, not dropped: the
+   * page takes keys from its first frame, the session arrives a moment later.
+   * Past {@link MAX_HELD_COMMANDS} the oldest go and are counted (and then
+   * nothing is sent: `connection_onConnected`): a page that never connects
+   * does not grow without end.
+   */
+  connection_holdCommand: act(({ context, event, enqueue }) => {
+    if (event.type !== 'DISPATCH_OP' && event.type !== 'SEND_TMUX_COMMAND') return;
+    const all = [...context.heldCommands, { command: event, at: Date.now() }];
+    const over = Math.max(0, all.length - MAX_HELD_COMMANDS);
+    enqueue(assign({ heldCommands: all.slice(over), heldOverflow: context.heldOverflow + over }));
+  }),
+
+  /**
+   * The first connection failed: what was typed meanwhile is dropped, never
+   * sent when a later one succeeds (an Enter in it could run a command the
+   * user has given up on). A notice says how much.
+   */
+  connection_dropHeld: act(({ context, enqueue }) => {
+    const dropped = context.heldCommands.length + context.heldOverflow;
+    if (dropped === 0) return;
+    enqueue(assign({ heldCommands: [], heldOverflow: 0 }));
+    enqueue.raise({
+      type: 'NOTIFY' as const,
+      text: `${keysWord(dropped)} typed before the connection failed ${was(dropped)} not sent`,
+    });
   }),
 
   // A reconnect fetches the state too: the stream that came back may belong
