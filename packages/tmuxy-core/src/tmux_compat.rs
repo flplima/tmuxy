@@ -32,6 +32,12 @@
 //! - the JSON `#{window_layout}` of 3.8 read back into the classic string:
 //!   `layout::parse_json`;
 //! - the version floor itself (3.2): `tmux_check`.
+//!
+//! What depends on the version of the server in use is a [`TmuxCaps`].
+
+mod caps;
+
+pub use caps::{parse_version, TmuxCaps};
 
 use std::sync::LazyLock;
 
@@ -55,6 +61,8 @@ pub struct Silent {
     pub commands: &'static [&'static TmuxCommand],
     /// A further condition on the command — its flags, the option it names.
     pub when: fn(&Command) -> bool,
+    /// Whether this server announces it after all; `None` on every version.
+    pub announced: Option<fn(TmuxCaps) -> bool>,
 }
 
 const fn always(_: &Command) -> bool {
@@ -92,6 +100,7 @@ pub const SILENT_COMMANDS: &[Silent] = &[
         relist: Relist::Windows,
         commands: &[&SET_OPTION, &SET_WINDOW_OPTION],
         when: names_tmuxy_option,
+        announced: None,
     },
     // The stack script writes @tmuxy-collapsible from inside run-shell, and the re-list is what
     // turns the flag into a relayout (every version).
@@ -99,6 +108,7 @@ pub const SILENT_COMMANDS: &[Silent] = &[
         relist: Relist::Windows,
         commands: &[&RUN_SHELL],
         when: runs_a_relisting_script,
+        announced: None,
     },
     // A reorder renumbers every window past the moved one and tmux announces none of them; the
     // tab strip would show two tabs at one index (every version).
@@ -106,12 +116,14 @@ pub const SILENT_COMMANDS: &[Silent] = &[
         relist: Relist::Windows,
         commands: &[&MOVE_WINDOW, &SWAP_WINDOW],
         when: always,
+        announced: None,
     },
     // #{pane_marked} changes without a notification (every version).
     Silent {
         relist: Relist::Panes,
         commands: &[&SELECT_PANE],
         when: marks_a_pane,
+        announced: None,
     },
     // A pane-scoped @tmuxy-* write changes list-panes and nothing else: answering a `tmuxy pane
     // send -t` clears @tmuxy-ask, and the question would stay on screen until the next event
@@ -120,13 +132,14 @@ pub const SILENT_COMMANDS: &[Silent] = &[
         relist: Relist::Panes,
         commands: &[&SET_OPTION],
         when: names_pane_scoped_tmuxy_option,
+        announced: None,
     },
-    // No %layout-change follows a swap; on later versions the re-list only repeats what the
-    // notification brought (3.2).
+    // No %layout-change follows a swap on 3.2; from 3.3 the notification brings it.
     Silent {
         relist: Relist::Panes,
         commands: &[&SWAP_PANE],
         when: always,
+        announced: Some(TmuxCaps::announces_pane_swaps),
     },
 ];
 
@@ -139,14 +152,16 @@ pub struct Relists {
 /// Which lists `list` leaves stale. Each command of it counts, inside a
 /// block or not, under any name tmux runs it by — and one that names a
 /// command-alias of tmuxy's own counts as the alias's body. A word anywhere
-/// else is an argument, a key sent to a shell.
-pub fn relists_after(list: &CommandList) -> Relists {
+/// else is an argument, a key sent to a shell. `caps` is the server's: what
+/// its version announces after all is not re-listed.
+pub fn relists_after(list: &CommandList, caps: TmuxCaps) -> Relists {
     let mut relists = Relists::default();
     each_command(list, &mut |command| {
         for silent in SILENT_COMMANDS {
             let applies =
                 silent.commands.is_empty() || silent.commands.iter().any(|c| command.runs(c));
-            if applies && (silent.when)(command) {
+            let announced = silent.announced.is_some_and(|announced| announced(caps));
+            if applies && !announced && (silent.when)(command) {
                 match silent.relist {
                     Relist::Windows => relists.windows = true,
                     Relist::Panes => relists.panes = true,
@@ -274,7 +289,7 @@ mod tests {
     use super::*;
 
     fn relists(command: &str) -> Relists {
-        relists_after(&tmux_command::parse(command))
+        relists_after(&tmux_command::parse(command), TmuxCaps::default())
     }
 
     fn windows(command: &str) -> bool {
@@ -307,6 +322,26 @@ mod tests {
         assert!(panes("select-pane -t %3 \\; swapp -s %1 -t %2"));
         assert!(!panes("select-pane -t %3"));
         assert!(!panes("send-keys -t %1 swap-pane Enter"));
+    }
+
+    /// From 3.3 a swap is announced, and its re-list would only repeat the
+    /// `%layout-change`: a server that said its version skips it. What no
+    /// version announces is re-listed on every one.
+    #[test]
+    fn what_the_server_announces_after_all_is_not_re_listed() {
+        let on = |version, command| {
+            relists_after(
+                &tmux_command::parse(command),
+                TmuxCaps::from_version(version),
+            )
+        };
+        assert!(on("3.2a", "swap-pane -D").panes);
+        assert!(!on("3.3a", "swap-pane -D").panes);
+        assert!(!on("master", "swap-pane -D").panes);
+        for version in ["3.2a", "3.8", "master"] {
+            assert!(on(version, "select-pane -m -t %1").panes, "{version}");
+            assert!(on(version, "set -w @tmuxy-x 1").windows, "{version}");
+        }
     }
 
     #[test]

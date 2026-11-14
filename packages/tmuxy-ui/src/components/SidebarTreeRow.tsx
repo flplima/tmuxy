@@ -3,6 +3,7 @@ import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
 import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor, type tabPaneStates } from '../domain/paneState';
+import { paneStateLabel } from '../domain/paneStatus';
 import { Tooltip } from './Tooltip';
 import { isModelPaneId, type PaneId, type WindowId } from '../domain/ids';
 import type { useReorderDrag } from './useReorderDrag';
@@ -262,7 +263,11 @@ export function SidebarTreeRow({
             </Tooltip>
           )}
           {state !== 'idle' ? (
-            <PaneStateMark state={state} className="sidebar-tree-icon sidebar-tree-state" />
+            <PaneStateMark
+              state={state}
+              label={paneStateLabel(state, row.pane)}
+              className="sidebar-tree-icon sidebar-tree-state"
+            />
           ) : (
             <PaneIcon pane={row.pane} className="sidebar-tree-icon" />
           )}

@@ -171,12 +171,24 @@ pub(super) async fn open_client(
 }
 
 pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) {
+    // The client may not know its stream is gone yet, and goes on posting
+    // numbered commands under this id until it does.
+    let gates = Arc::clone(state);
+    let shutdown = state.shutdown.clone();
+    state
+        .spawn(async move {
+            tokio::select! {
+                () = tokio::time::sleep(super::GATE_GRACE) => gates.close_command_gate(conn_id),
+                () = shutdown.cancelled() => {}
+            }
+        })
+        .await;
     let (runtime, last_left) = {
         let mut sessions = state.sessions.write().await;
         let Some(conns) = sessions.get_mut(session) else {
             return;
         };
-        conns.connections.retain(|&id| id != conn_id);
+        conns.unregister(conn_id);
         (Arc::clone(&conns.runtime), conns.connections.is_empty())
     };
     runtime.client_left(conn_id).await;
