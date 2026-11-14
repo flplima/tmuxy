@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 31;
+const COMMANDS: usize = 34;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -53,6 +53,9 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::OpenText { .. } => 28,
         C::Greeting => 29,
         C::GetTraceShare { .. } => 30,
+        C::ListPanePorts => 31,
+        C::GetPromptMarks { .. } => 32,
+        C::GetLastCommandOutput { .. } => 33,
     }
 }
 
@@ -104,6 +107,7 @@ fn every_request() -> Vec<ClientCommand> {
         C::SetSendAsk { enabled: false },
         C::SetTransparency { enabled: true },
         C::ListGitWorktrees,
+        C::ListPanePorts,
         C::ListSnapshots,
         C::RestoreSession { session: s("work") },
         C::GetTraceSettings,
@@ -144,6 +148,8 @@ fn every_request() -> Vec<ClientCommand> {
         },
         C::Greeting,
         C::GetTraceShare { last: 20 },
+        C::GetPromptMarks { pane_id: pane() },
+        C::GetLastCommandOutput { pane_id: pane() },
     ]
 }
 
@@ -189,7 +195,10 @@ fn every_command_request_matches_its_fixture() {
 /// reads it with.
 #[test]
 fn every_command_answer_matches_its_fixture() {
-    use crate::host::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings, TraceShare};
+    use crate::host::{
+        LastOutput, PluginToken, PromptMarks, ScrollbackCells, SnapshotInfo, TraceSettings,
+        TraceShare,
+    };
     let null = || vec![serde_json::Value::Null];
     let json = |v: &dyn erased::Json| vec![v.to_json()];
     let server = crate::servers::Server {
@@ -262,7 +271,15 @@ fn every_command_answer_matches_its_fixture() {
                     bare: false,
                     locked: false,
                     prunable: false,
+                    changes: None,
                 }],
+            }]),
+        ),
+        (
+            "list_pane_ports",
+            json(&vec![crate::ports::PanePorts {
+                pane_id: "%2".to_string(),
+                ports: vec![5173, 8123],
             }]),
         ),
         (
@@ -333,6 +350,22 @@ fn every_command_answer_matches_its_fixture() {
                 }),
                 HostEvent::KeyBindings(canonical_bindings()),
             ]),
+        ),
+        (
+            "get_prompt_marks",
+            json(&PromptMarks {
+                history_size: 1234,
+                prompts: vec![1190, 1240],
+            }),
+        ),
+        (
+            "get_last_command_output",
+            vec![
+                erased::Json::to_json(&LastOutput {
+                    text: Some("ok\n".to_string()),
+                }),
+                erased::Json::to_json(&LastOutput { text: None }),
+            ],
         ),
     ];
     let answered: BTreeSet<String> = answers.iter().map(|(name, _)| name.to_string()).collect();

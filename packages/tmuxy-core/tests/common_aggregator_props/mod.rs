@@ -1,3 +1,5 @@
+// Shared by several test files, each using part of it.
+#![allow(dead_code)]
 use proptest::prelude::*;
 use tmuxy_core::control_mode::{
     Batch, ControlModeEvent, Notice, SideEffect, StateAggregator, BUFFER_BEGIN_MARKER,

@@ -119,7 +119,27 @@ function tmuxyCliAsync(args, extraEnv = {}) {
   });
 }
 
+/**
+ * An agent's hook event as `tmuxy agent hook` hands it to the binary: the
+ * event's JSON on stdin, run as from `pane`. Prints the state it means.
+ *
+ * @param {string} agent - `claude`, `codex` or `agy`
+ * @param {string} event - The hook event (`SessionStart`, …)
+ * @param {object} payload - The event's JSON
+ * @param {string} pane - The pane the hook runs in
+ * @returns {string} What it printed
+ */
+function agentHookEvent(agent, event, payload, pane) {
+  return execFileSync(serverBinary(), ['agent', 'state', agent, event], {
+    input: JSON.stringify(payload),
+    encoding: 'utf-8',
+    timeout: 30000,
+    env: { ...cliEnv(), TMUX_PANE: pane },
+  });
+}
+
 module.exports = {
+  agentHookEvent,
   tmuxRun,
   tmuxRunAsOperator,
   tmuxyCli,

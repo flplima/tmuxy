@@ -10,9 +10,25 @@
 use std::time::Duration;
 
 use tmuxy_core::host::socket_watch::{
-    agent_rules::{program, Rules},
+    agent_rules::{
+        explain::{explain, Facts, Source},
+        program, Rules,
+    },
     read_panes,
 };
+
+/// `tmuxy pane state explain`'s answer for `pane`, against `rules`.
+fn explained(
+    rules: &Rules,
+    pane: &str,
+) -> tmuxy_core::host::socket_watch::agent_rules::explain::Explanation {
+    let facts = Facts::read(pane).expect("the pane answers");
+    explain(
+        &facts,
+        &program::program(facts.pid, &facts.command),
+        rules.user(),
+    )
+}
 
 mod common;
 
@@ -100,6 +116,13 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
 
     std::fs::remove_file(&flag).unwrap();
     passes_until(&mut rules, &pane, "idle", Duration::from_secs(20)).await;
+    let why = explained(&rules, &pane);
+    assert_eq!(why.source, Source::ScreenRules);
+    assert_eq!(
+        why.rule.as_deref(),
+        Some("the screen held still for 3 passes")
+    );
+    assert_eq!(why.program, "gemini");
 
     // A hook declares a state: the rules leave it, printing or not.
     common::tmux(&[
@@ -117,6 +140,7 @@ async fn agents_without_hooks_get_their_state_from_the_screen() {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
     assert_eq!(option(&pane, "@tmuxy-pane-state"), "needs-input");
+    assert_eq!(explained(&rules, &pane).source, Source::Declared);
 
     a_user_rule_names_an_agent_and_its_text_gives_the_state().await;
     let _ = std::fs::remove_dir_all(&dir);
@@ -162,6 +186,10 @@ async fn a_user_rule_names_an_agent_and_its_text_gives_the_state() {
         .to_string();
     let mut rules = Rules::with_dir(rules_dir);
     passes_until(&mut rules, &pane, "needs-input", Duration::from_secs(20)).await;
+    assert_eq!(
+        explained(&rules, &pane).rule.as_deref(),
+        Some("helper.toml rule 1 matched 'Waiting for your reply'")
+    );
     let command = common::tmux(&[
         "display-message",
         "-p",

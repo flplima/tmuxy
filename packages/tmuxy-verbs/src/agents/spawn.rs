@@ -271,7 +271,7 @@ fn agent_name(agent: SpawnAgent, argv: &[String]) -> String {
 
 /// A private directory for the wrapper, readable by the user only: the
 /// task may be anything the caller wrote.
-fn wrapper_dir() -> std::io::Result<PathBuf> {
+pub(super) fn wrapper_dir() -> std::io::Result<PathBuf> {
     let base = std::env::temp_dir();
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

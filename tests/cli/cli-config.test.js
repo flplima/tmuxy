@@ -29,7 +29,15 @@ describe('CLI config commands', () => {
   test('config --help lists every verb', () => {
     const { stdout, exitCode } = runCLI(['config', '--help']);
     expect(exitCode).toBe(0);
-    for (const verb of ['reload', 'check', 'use-tmux-conf', 'init', 'paths', 'doctor']) {
+    for (const verb of [
+      'reload',
+      'check',
+      'use-tmux-conf',
+      'init',
+      'paths',
+      'doctor',
+      'permissions',
+    ]) {
       expect(stdout).toContain(verb);
     }
   });
@@ -54,6 +62,17 @@ describe('CLI config commands', () => {
     [['config', 'check', 'my.conf', '--json'], 'config check my.conf --json'],
     [['config', 'doctor'], 'config doctor'],
     [['config', 'doctor', '--fix', '--json'], 'config doctor --fix --json'],
+    [['config', 'permissions'], 'config permissions'],
+    // --json goes ahead of the verb: after `--` it would be one of the keys.
+    [['config', 'permissions', '--json'], 'config --json permissions'],
+    [
+      ['config', 'permissions', '--caller', 'claude', '--into', 'zsh', '--', 'rm -rf x', 'Enter'],
+      'config permissions --caller claude --into zsh -- rm -rf x Enter',
+    ],
+    [
+      ['--json', 'config', 'permissions', '--', '--json', 'Enter'],
+      'config --json permissions -- --json Enter',
+    ],
   ])('%j is the config verb %p, and sends tmux nothing', (args, verb) => {
     const { stdout, exitCode, tmuxCalls } = runCLI(args, { env });
     expect(exitCode).toBe(0);

@@ -88,6 +88,9 @@
     "cmd": "list_git_worktrees"
   },
   {
+    "cmd": "list_pane_ports"
+  },
+  {
     "cmd": "list_snapshots"
   },
   {
@@ -176,5 +179,17 @@
       "last": 20
     },
     "cmd": "get_trace_share"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_prompt_marks"
+  },
+  {
+    "args": {
+      "paneId": "%2"
+    },
+    "cmd": "get_last_command_output"
   }
 ]
