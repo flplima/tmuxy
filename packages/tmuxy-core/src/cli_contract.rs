@@ -10,6 +10,11 @@ pub const EXIT_USAGE: i32 = 2;
 /// A target not found, or a label naming more than one pane.
 pub const EXIT_TARGET: i32 = 3;
 pub const EXIT_NO_SERVER: i32 = 4;
+/// Keys were sent, and what was waited for after them did not happen
+/// (`tmuxy pane send --wait`: stalled, stopped at a prompt, an error, another
+/// program in the pane, out of time). Never for a send that typed nothing,
+/// so a script that retries on a failure never sends twice.
+pub const EXIT_SENT: i32 = 5;
 
 /// A failure under `--json`, as a `printf` format: the error message (a JSON
 /// string literal), then the exit code.

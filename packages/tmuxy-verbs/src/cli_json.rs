@@ -3,7 +3,7 @@
 
 use tmuxy_core::cli_contract::{json_failure, json_ok};
 pub use tmuxy_core::cli_contract::{
-    json_string as string, EXIT_FAILED, EXIT_NO_SERVER, EXIT_TARGET, EXIT_USAGE,
+    json_string as string, EXIT_FAILED, EXIT_NO_SERVER, EXIT_SENT, EXIT_TARGET, EXIT_USAGE,
 };
 
 pub struct Answer {

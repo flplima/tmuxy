@@ -1,3 +1,4 @@
+pub mod agent_dialog;
 pub mod argv;
 #[cfg(feature = "cli")]
 pub mod ask;

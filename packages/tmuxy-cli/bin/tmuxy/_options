@@ -16,6 +16,7 @@ EXIT_FAILED=1
 EXIT_USAGE=2
 EXIT_TARGET=3
 EXIT_NO_SERVER=4
+EXIT_SENT=5
 JSON_FAILURE_FORMAT='{"ok":false,"error":%s,"code":%s}'
 
 # What tmux says when there is no server on the socket (`session::NO_SERVER_SIGNS`).

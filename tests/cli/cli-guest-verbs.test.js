@@ -66,7 +66,11 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     });
     expect(exitCode).toBe(0);
     const sent = tmuxCalls.filter((c) => c.args[0] === 'run-shell').map((c) => c.args[1]);
-    expect(sent).toEqual([expect.stringMatching(/send-keys -t %5 .*echo/)]);
+    // Through the guard tmux checks as it types: nothing goes into a pane
+    // at a prompt (`ask::deliver`).
+    expect(sent).toEqual([
+      expect.stringMatching(/if-shell -F -t %5 .*send-keys.*'\\''%5'\\''.*echo/),
+    ]);
   });
 
   test('config paths answers the files', () => {

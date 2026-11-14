@@ -75,6 +75,9 @@ fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
                         output += &format!("{id}{}\n", p.ask);
                     } else if part.contains("#{@tmuxy-pane-state}") {
                         output += &format!("{id}{}\n", p.state);
+                    } else if part.contains("#{@tmuxy-send-held") {
+                        // No send is ever held back here.
+                        output += &format!("{id}\n");
                     }
                 }
                 output
@@ -109,7 +112,13 @@ async fn keys_land_only_after_the_user_allows_them_and_the_question_is_down() {
     let taken_down = position("set-option -pu -t %3 @tmuxy-ask ;").expect("and came down");
     let typed = position("send-keys").expect("the keys were sent");
     assert!(asked < taken_down && taken_down < typed, "{:?}", p.log);
-    assert_eq!(p.log[typed], "send-keys -t %3 -- \"npm test\" Enter");
+    // Through the guard tmux checks as it types (`ask::deliver`).
+    assert!(
+        p.log[typed].contains("if-shell -F -t %3 "),
+        "{}",
+        p.log[typed]
+    );
+    assert!(p.log[typed].contains("npm test"), "{}", p.log[typed]);
     assert!(p.ask.is_empty());
 }
 
@@ -153,7 +162,10 @@ async fn a_send_into_an_allowed_program_asks_nothing() {
         "{:?}",
         p.log
     );
-    assert!(p.log.iter().any(|c| c.starts_with("send-keys -t %3")));
+    assert!(p
+        .log
+        .iter()
+        .any(|c| c.contains("if-shell -F -t %3 ") && c.contains("send-keys")));
     assert!(p.log.iter().any(|c| c.contains("@tmuxy-pane-state unread")));
 }
 
@@ -217,4 +229,40 @@ async fn a_client_that_hangs_up_takes_its_question_down() {
         p.log
     );
     assert!(!p.log.iter().any(|c| c.contains("send-keys")));
+}
+
+/// An MCP client is no exception: a pane waiting at a prompt is sent
+/// nothing and asked nothing, allowed client or not.
+#[tokio::test]
+async fn a_pane_at_a_prompt_gets_nothing_from_an_mcp_client() {
+    for rules in ["\t\t\tclaude\t", "on\tmcp\t\tclaude\t"] {
+        let (tmux, pane) = fake_monitor(Some("yes"));
+        {
+            let mut p = pane.lock().unwrap();
+            p.rules = rules.into();
+            p.state = "needs-input".into();
+        }
+        let id = PaneId::parse("%3").unwrap();
+        let refused = ask::send_keys(&tmux, &id, &keys(), "cursor", Duration::from_secs(5))
+            .await
+            .unwrap_err();
+        assert!(
+            refused.error.contains("waiting at a prompt"),
+            "{}",
+            refused.error
+        );
+        let p = pane.lock().unwrap();
+        assert!(
+            !p.log.iter().any(|c| c.contains("send-keys")),
+            "{:?}",
+            p.log
+        );
+        assert!(
+            !p.log
+                .iter()
+                .any(|c| c.contains("set-option -p -t %3 @tmuxy-ask ")),
+            "{:?}",
+            p.log
+        );
+    }
 }

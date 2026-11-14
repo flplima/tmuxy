@@ -12,7 +12,7 @@ source "${0%/*}/_lib"
 
 usage() {
   cat <<'EOF'
-Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] <keys...>
+Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] [--wait [--for 30m]] <keys...>
 
 Type keys into a pane, as tmux send-keys does: each argument is literal text
 or a key name (Enter, Escape, C-c, ...), with nothing between them.
@@ -21,9 +21,22 @@ Into your own pane (no -t) the keys go at once. Into another pane they go
 only once the user allows it there: the pane shows who wants to send what,
 and this blocks until they answer.
 
+Nothing is ever typed into a pane waiting at a prompt for the user (its
+state says it needs the user, or its screen shows an approval dialog), asked
+or not: a key there could answer it. Such a send exits 1 and types nothing.
+
 Options:
   -t <pane>            The pane to type into. Default: your own.
   --timeout SECONDS    Give up on an unanswered question after this long.
+  --wait               Then wait for the agent in the pane to take the keys
+                       up and finish (it needs tmuxy's hooks: tmuxy agent
+                       install). Exits 5 if it has not started working
+                       within --stall-after seconds (stalled), stops at a
+                       prompt, reports an error, or another program takes
+                       its place.
+  --for DURATION       With --wait: how long it may work (30s, 10m, 2h).
+                       Default 30m.
+  --stall-after SECS   With --wait: default 5.
   --                   Everything after it is keys, even one starting with -.
 
 Skipping the question:
@@ -32,7 +45,11 @@ Skipping the question:
   set -g @tmuxy-send-allow-into claude,agy
                                         don't ask into panes running these
 
-Exit status: 0 sent, 1 declined or timed out, 2 bad usage, 3 no such pane.
+Exit status: 0 sent (and, with --wait, finished); 1 nothing sent (declined,
+unanswered, at a prompt, or --wait into an agent already working); 2 bad
+usage; 3 no such pane; 5 sent, but with --wait it stalled, stopped at a
+prompt, reported an error, was replaced, or ran out of time. Under --json a
+5 says "sent": true. Only a 1 is safe to retry.
 
 Examples:
   tmuxy pane send ls Enter
@@ -44,6 +61,9 @@ EOF
 
 TARGET=""
 TIMEOUT=""
+WAIT=false
+WAIT_FOR=""
+STALL_AFTER=""
 KEYS=()
 # `tmuxy pane paste` hands its text here (`--paste`), to be pasted rather than
 # typed once the same question is answered.
@@ -72,6 +92,18 @@ while [ $# -gt 0 ]; do
     --paste)
       PASTE=true
       shift
+      ;;
+    --wait)
+      WAIT=true
+      shift
+      ;;
+    --for)
+      WAIT_FOR="${2:?--for needs a duration}"
+      shift 2
+      ;;
+    --stall-after)
+      STALL_AFTER="${2:?--stall-after needs seconds}"
+      shift 2
       ;;
     --)
       shift
@@ -129,5 +161,12 @@ find_server_cmd || exit "$EXIT_FAILED"
 send_args=(send --target "$TARGET" --caller-pane "$OWN_PANE" --caller-process "$CALLER_PROCESS")
 [ -n "$TIMEOUT" ] && send_args+=(--timeout "$TIMEOUT")
 $PASTE && send_args+=(--paste)
+if $WAIT; then
+  send_args+=(--wait)
+  [ -n "$WAIT_FOR" ] && send_args+=(--wait-for "$WAIT_FOR")
+  [ -n "$STALL_AFTER" ] && send_args+=(--stall-after "$STALL_AFTER")
+elif [ -n "$WAIT_FOR$STALL_AFTER" ]; then
+  _die_usage "--for and --stall-after go with --wait"
+fi
 [ "$JSON_OUT" = true ] && send_args+=(--json)
 exec "${SERVER_CMD[@]}" "${send_args[@]}" -- "${KEYS[@]}"
