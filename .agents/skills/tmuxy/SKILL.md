@@ -55,6 +55,7 @@ tmuxy session save [name]       # snapshot a session; also restore <name>, snaps
 tmuxy run <tmux cmd>            # a read/arrange/close tmux command, through run-shell
 tmuxy config reload             # re-apply tmuxy.conf (and the whole config chain) to the running app
 tmuxy config check [file]       # what is wrong with the config, with file:line, without applying it (exit 1 if any)
+tmuxy keymap [--table T] [key]  # every binding, with the file:line it comes from and what it replaced
 tmuxy config paths --json       # every file tmuxy reads or writes: owner, location, safe to edit/symlink
 ```
 

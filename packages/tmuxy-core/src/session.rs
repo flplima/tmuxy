@@ -7,6 +7,7 @@ mod assets;
 mod check;
 mod config;
 mod doctor;
+pub mod keymap;
 mod launcher;
 #[cfg(feature = "native")]
 pub mod scoped;
@@ -418,6 +419,8 @@ mod tests;
 mod tests_check;
 #[cfg(test)]
 mod tests_doctor;
+#[cfg(test)]
+mod tests_keymap;
 #[cfg(test)]
 mod tests_layout;
 #[cfg(test)]
