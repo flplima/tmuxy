@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkDocPaths } from './doc-paths.mjs';
+import { checkFeaturesCatalog } from './features-catalog.mjs';
 import { checkFileTokenLimit } from './file-token-limit.mjs';
 import { checkInvariantEnforcers } from './invariant-enforcers.mjs';
 import { checkHomes } from './homes.mjs';
@@ -393,6 +394,7 @@ checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
 checkFileTokenLimit(root, addError);
 checkInvariantEnforcers(root, addError);
+checkFeaturesCatalog(root, addError);
 checkHomes(root, addError);
 checkImportCycles(root, addError);
 checkDuplication(root, addError);
