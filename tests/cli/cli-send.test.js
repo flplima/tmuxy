@@ -93,6 +93,24 @@ describe('tmuxy pane send', () => {
     expect(verbArgs(stray.stdout)).toBeNull();
   });
 
+  test('passes on --queue, and pane queue lists or takes back through the queue verb', () => {
+    const queued = runCLI(['pane', 'send', '-t', '%3', '--queue', 'go', 'Enter'], {
+      env: IN_PANE_1,
+    });
+    expect(verbArgs(queued.stdout)).toMatch(/ --queue -- go Enter$/);
+    const queueArgs = (stdout) => {
+      const line = stdout.split('\n').find((l) => l.startsWith('mock-server-started send-queue '));
+      return line ? line.slice('mock-server-started '.length) : null;
+    };
+    const listed = runCLI(['--json', 'pane', 'queue', '-t', '%3'], { env: IN_PANE_1 });
+    expect(queueArgs(listed.stdout)).toBe('send-queue --target %3 --json');
+    const taken = runCLI(['pane', 'queue', '-t', '%3', '--retract', '1-2'], { env: IN_PANE_1 });
+    expect(queueArgs(taken.stdout)).toBe('send-queue --target %3 --retract 1-2');
+    const stray = runCLI(['pane', 'queue', 'extra'], { env: IN_PANE_1 });
+    expect(stray.exitCode).toBe(2);
+    expect(queueArgs(stray.stdout)).toBeNull();
+  });
+
   describe('refusals', () => {
     test('needs keys to send', () => {
       const { exitCode, stderr } = send(['-t', '%3']);

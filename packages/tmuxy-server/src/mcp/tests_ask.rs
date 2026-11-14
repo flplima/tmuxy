@@ -166,7 +166,9 @@ async fn a_send_into_an_allowed_program_asks_nothing() {
         .log
         .iter()
         .any(|c| c.contains("if-shell -F -t %3 ") && c.contains("send-keys")));
-    assert!(p.log.iter().any(|c| c.contains("@tmuxy-pane-state unread")));
+    assert!(p.log.iter().any(|c| c.contains("if-shell")
+        && c.contains("@tmuxy-pane-state")
+        && c.contains("unread")));
 }
 
 /// `@tmuxy-send-allow mcp` allows every MCP client, whatever it calls itself.

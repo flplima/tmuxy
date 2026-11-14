@@ -1,8 +1,9 @@
-//! `ask::deliver_when` against a real tmux: the sender's own condition is
-//! checked by tmux in the same step as the pane's state. Keys go in while it
-//! holds; when it does not, nothing is typed, the send is refused as held and
+//! The send guard's checks against a real tmux. `ask::deliver_when`: the
+//! sender's own condition is checked by tmux in the same step as the pane's
+//! state. Keys go in while it holds; when it does not, nothing is typed, the send is refused as held and
 //! no mark is left; a pane at a prompt is refused as at a prompt whatever the
-//! condition says.
+//! condition says. `SendRules::mark_unread`: decided by tmux as it marks,
+//! so it never covers an agent that started working meanwhile.
 //!
 //! Needs a `tmux` binary; the socket is unique per process and no
 //! control-mode client is attached.
@@ -99,4 +100,39 @@ async fn the_senders_condition_is_checked_as_the_keys_go_in() {
 
     let options = s.tmux(&["show-options", "-p", "-t", &pane]);
     assert!(!options.contains("@tmuxy-send-held"), "{options}");
+}
+
+/// A send that skipped the question marks the pane unread only if it is
+/// still quiet as tmux marks it: an agent that already took the keys up and
+/// says it is working stays working.
+#[tokio::test]
+async fn unread_never_covers_an_agent_that_started_working() {
+    let s = scratch::ScratchServer::with_session(
+        &format!("mark-unread-{}", std::process::id()),
+        100,
+        30,
+    );
+    let pane = s.tmux(&["display-message", "-p", "-t", "work:0.0", "#{pane_id}"]);
+    let id = PaneId::parse(&pane).unwrap();
+    let tmux = Real(&s);
+    let state = || s.tmux(&["show-options", "-pqv", "-t", &pane, "@tmuxy-pane-state"]);
+
+    // Read while the pane was quiet; the agent starts working before the mark.
+    let rules = ask::SendRules::read(&tmux, &id).await.unwrap();
+    s.tmux(&[
+        "set-option",
+        "-p",
+        "-t",
+        &pane,
+        "@tmuxy-pane-state",
+        "working",
+    ]);
+    rules.mark_unread(&tmux, &id).await.unwrap();
+    assert_eq!(state(), "working");
+
+    // Still quiet as the mark goes on: unread.
+    s.tmux(&["set-option", "-pu", "-t", &pane, "@tmuxy-pane-state"]);
+    let rules = ask::SendRules::read(&tmux, &id).await.unwrap();
+    rules.mark_unread(&tmux, &id).await.unwrap();
+    assert_eq!(state(), "unread");
 }

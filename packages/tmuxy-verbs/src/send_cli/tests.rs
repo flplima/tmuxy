@@ -168,6 +168,7 @@ fn args(caller_pane: Option<&str>) -> SendArgs {
         wait: false,
         stall_after: 1,
         wait_for: "30s".into(),
+        queue: false,
         keys: vec!["make".into(), "Enter".into()],
     }
 }

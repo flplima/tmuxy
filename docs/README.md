@@ -106,6 +106,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [TESTS-E2E.md](TESTS-E2E.md) | The browser + tmux suites, what their helpers guarantee, the latency gate and the Tauri suite | Writing or fixing an E2E test |
 | [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md) | The deterministic and v86 Storybook probes, quarantine, accessibility | Writing or fixing a story |
 | [INVARIANTS.md](INVARIANTS.md) | The ledger of cross-layer promises — effect ordering, stream sequencing, predictions, read-only gating — each with the test that holds it | Fixing a bug on a seam; adding a test for ordering or a race |
+| [INVARIANTS-SERVER-STREAM.md](INVARIANTS-SERVER-STREAM.md) | The ledger's `S` rows: the server's event stream (seqs, the replay ring, reconnects) | Fixing a bug in `GET /events`, replay or a reconnect |
 | [INVARIANTS-UI-LIFECYCLE.md](INVARIANTS-UI-LIFECYCLE.md) | The ledger's `U` and `L` rows: UI-mode records, session lifecycle | Fixing a bug in copy mode, resize preview, or restore |
 | [INVARIANTS-CLIENT-MODEL.md](INVARIANTS-CLIENT-MODEL.md) | The ledger's client rows: `C` (stream stage), `Q` (command queue and input), `P` (predictions and reconcile) | Fixing a bug in the client's stream, its command queue or keyboard batching, an optimistic op, a placeholder id, or a focus prediction |
 | [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each | Benchmarking, profiling, or investigating latency |

@@ -70,6 +70,10 @@ pub enum Verb {
     /// `tmuxy pane paste`, which resolve the target and the caller.
     #[command(hide = true)]
     Send(send_cli::SendArgs),
+    /// List the sends waiting in line for a pane, or take one back. Backs
+    /// `tmuxy pane queue`.
+    #[command(hide = true)]
+    SendQueue(send_cli::QueueArgs),
     /// Ask the desktop app to reconnect to another tmux server. Backs
     /// `tmuxy connect <socket>`.
     #[cfg(feature = "native")]
@@ -128,6 +132,7 @@ pub async fn run(verb: Verb) {
         Verb::Config(args) => config_cli::run(args),
         Verb::Keymap(args) => keymap_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
+        Verb::SendQueue(args) => send_cli::run_queue(args).await,
         #[cfg(feature = "native")]
         Verb::Connect(args) => connect_cli::run(args),
         #[cfg(feature = "native")]
