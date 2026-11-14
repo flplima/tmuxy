@@ -393,7 +393,7 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
     respond: (command: string) => Promise<unknown> = () =>
       Promise.resolve({ ok: true, json: () => Promise.resolve({ result: null }) }),
   ) => {
-    const posted: Array<{ command: string; connectionId: string }> = [];
+    const posted: Array<{ command: string; connectionId: string; seq?: string }> = [];
     const transport = openTransport();
     const connected = transport.call((t) => t.connect);
     (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
@@ -405,7 +405,11 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
         .mockImplementation(
           (_url: string, init: { body: string; headers: Record<string, string> }) => {
             const command = JSON.parse(init.body).args.command as string;
-            posted.push({ command, connectionId: init.headers['X-Connection-Id'] });
+            posted.push({
+              command,
+              connectionId: init.headers['X-Connection-Id'],
+              seq: init.headers['X-Command-Seq'],
+            });
             return respond(command);
           },
         ),
@@ -413,26 +417,21 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
     return { transport, posted };
   };
 
-  it('runs every tmux op through the serial lane in issue order', async () => {
-    // Each POST resolves only when the test releases it, so the second op
-    // cannot complete before the first unless the lane reordered them.
-    const releases: Array<() => void> = [];
-    const { transport, posted } = await connectedTransport(
-      () =>
-        new Promise((resolve) => {
-          releases.push(() => resolve({ ok: true, json: () => Promise.resolve({ result: null }) }));
-        }),
+  it('posts every tmux op in issue order, numbered, without waiting for an answer', async () => {
+    // No POST is ever answered, so the second can only leave if the lane
+    // does not wait for the first; the numbers are what keep them in order
+    // on the server (S7 in docs/INVARIANTS.md).
+    const { transport, posted } = await connectedTransport(() => new Promise(() => {}));
+
+    void transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'first' })));
+    void transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'second' })));
+
+    await vi.waitFor(() =>
+      expect(posted.map((p) => [p.seq, p.command])).toEqual([
+        ['1', 'first'],
+        ['2', 'second'],
+      ]),
     );
-
-    const r1 = transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'first' })));
-    const r2 = transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'second' })));
-
-    // Only the first POST has left the browser; the second waits behind it.
-    await vi.waitFor(() => expect(posted.map((p) => p.command)).toEqual(['first']));
-    releases[0]();
-    await vi.waitFor(() => expect(posted.map((p) => p.command)).toEqual(['first', 'second']));
-    releases[1]();
-    await Promise.all([r1, r2]);
     await transport.close();
   });
 
@@ -452,8 +451,8 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
     MockEventSource.instances[1].emit('connection-info', { data: { connection_id: 2 } });
     await split;
     expect(posted).toEqual([
-      { command: "send-keys -t %1 -l -- 'x'", connectionId: '2' },
-      { command: 'split-window -h', connectionId: '2' },
+      { command: "send-keys -t %1 -l -- 'x'", connectionId: '2', seq: '1' },
+      { command: 'split-window -h', connectionId: '2', seq: '2' },
     ]);
     await transport.close();
   });

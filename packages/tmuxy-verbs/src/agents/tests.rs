@@ -2,20 +2,43 @@ use serde_json::json;
 
 use super::*;
 
-fn scratch(name: &str) -> Places {
+/// Every place an agent's config is read from or written to, under one
+/// fresh directory in the system's temp dir: never the developer's own
+/// `~/.claude`, `~/.codex` or `~/.agents`, which every agent on the machine
+/// is reading right now. `write_doc` and the skill writes refuse anything
+/// outside the temp dir in a test as well.
+pub(super) fn scratch(name: &str) -> Places {
     let root = std::env::temp_dir().join(format!("tmuxy-agents-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    Places {
+    let places = Places {
         claude_dir: root.join("home/.claude"),
         codex_home: root.join("home/.codex"),
+        config_home: root.join("home/.config"),
+        crush_skills: root.join("home/.config/crush/skills"),
         home: root.join("home"),
         cwd: root.join("project"),
         path: None,
+    };
+    for dir in [
+        &places.claude_dir,
+        &places.codex_home,
+        &places.config_home,
+        &places.crush_skills,
+        &places.home,
+        &places.cwd,
+    ] {
+        assert!(
+            dir.starts_with(&root),
+            "{} is outside {}",
+            dir.display(),
+            root.display()
+        );
     }
+    places
 }
 
-fn which(agents: &[Agent]) -> Which {
+pub(super) fn which(agents: &[Agent]) -> Which {
     Which {
         agents: agents.to_vec(),
         hooks_only: false,
@@ -87,7 +110,7 @@ fn every_installed_event_means_something() {
 #[test]
 fn install_keeps_the_users_settings_and_hooks_and_uninstall_restores_them() {
     let places = scratch("claude");
-    let path = places.hooks_file(Agent::Claude, Scope::Home);
+    let path = places.hooks_file(Agent::Claude, Scope::Home).unwrap();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let original = r#"{
   "theme": "dark",
@@ -161,7 +184,7 @@ fn install_keeps_the_users_settings_and_hooks_and_uninstall_restores_them() {
 #[test]
 fn antigravity_gets_a_named_hook_set_beside_the_users() {
     let places = scratch("agy");
-    let path = places.hooks_file(Agent::Agy, Scope::Home);
+    let path = places.hooks_file(Agent::Agy, Scope::Home).unwrap();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(
         &path,
@@ -209,7 +232,7 @@ fn codex_hooks_go_in_hooks_json_and_session_end_fits_its_limit() {
         hook_command(Agent::Codex, "PermissionRequest", "tmuxy")
     );
     assert_eq!(
-        places.skill_dir(Agent::Codex, Scope::Home),
+        places.skill_dir(Agent::Codex, Scope::Home).unwrap(),
         places.home.join(".agents/skills/tmuxy")
     );
 }
@@ -217,7 +240,7 @@ fn codex_hooks_go_in_hooks_json_and_session_end_fits_its_limit() {
 #[test]
 fn a_skill_tmuxy_did_not_write_is_left_alone_unless_forced() {
     let places = scratch("skill");
-    let dir = places.skill_dir(Agent::Claude, Scope::Home);
+    let dir = places.skill_dir(Agent::Claude, Scope::Home).unwrap();
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("SKILL.md"), "mine").unwrap();
     let skill_only = Which {
@@ -255,7 +278,7 @@ fn a_skill_tmuxy_did_not_write_is_left_alone_unless_forced() {
 #[test]
 fn a_settings_file_that_is_a_symlink_stays_one() {
     let places = scratch("symlink");
-    let path = places.hooks_file(Agent::Claude, Scope::Home);
+    let path = places.hooks_file(Agent::Claude, Scope::Home).unwrap();
     let real = places.home.join("dotfiles/claude-settings.json");
     std::fs::create_dir_all(real.parent().unwrap()).unwrap();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -280,7 +303,7 @@ fn a_settings_file_that_is_a_symlink_stays_one() {
 #[test]
 fn a_file_that_is_not_json_is_refused_untouched() {
     let places = scratch("broken");
-    let path = places.hooks_file(Agent::Claude, Scope::Home);
+    let path = places.hooks_file(Agent::Claude, Scope::Home).unwrap();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, "{ not json").unwrap();
     assert!(install(
@@ -319,7 +342,7 @@ fn a_hook_command_quotes_the_tmuxy_path() {
 #[cfg(feature = "native")]
 #[test]
 fn every_hooked_agent_is_one_the_screen_watches() {
-    for agent in ALL {
+    for agent in ALL.into_iter().filter(|agent| !agent.hooks().is_empty()) {
         assert!(
             tmuxy_core::host::socket_watch::agent_screen::is_agent(agent.name()),
             "{}",

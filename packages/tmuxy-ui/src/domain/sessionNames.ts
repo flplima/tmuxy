@@ -34,3 +34,16 @@ export function memorableSessionName(
   while (used.has(`${base}-${n}`)) n++;
   return `${base}-${n}`;
 }
+
+/**
+ * `text` as a session name the server takes (letters, digits and `_ - @ +`,
+ * not starting with a dash: `SessionName::parse` in tmuxy-core): what is
+ * outside that alphabet becomes a dash. Null when nothing of it is left.
+ */
+export function sessionNameFrom(text: string): string | null {
+  const name = text
+    .trim()
+    .replace(/[^A-Za-z0-9_@+-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return name === '' ? null : name;
+}

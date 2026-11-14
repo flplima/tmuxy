@@ -31,6 +31,13 @@ pub const CLIENTS_END_MARKER: &str = "TMUXY_CLI_END";
 pub const LIST_BEGIN_MARKER: &str = "TMUXY_LS_BEGIN";
 pub const LIST_END_MARKER: &str = "TMUXY_LS_END";
 
+/// Printed with the server's `#{version}` after it, once, when the monitor
+/// attaches ([`Markers::version_read_command`]): the [`TmuxCaps`] of the
+/// server in use, a remote one included.
+///
+/// [`TmuxCaps`]: crate::tmux_compat::TmuxCaps
+pub const VERSION_MARKER: &str = "TMUXY_VERSION";
+
 /// The `list-clients` format of [`Markers::clients_read_command`]: whether
 /// the client is a control client, and the group and name of its session.
 pub const LIST_CLIENTS_FORMAT: &str = "#{client_control_mode},#{session_group},#{session_name}";
@@ -225,6 +232,17 @@ impl Markers {
         ];
         commands.extend(queued.iter().map(|pane| self.capture_command(pane)));
         commands
+    }
+
+    /// The line whose answer carries the server's version: the marker's
+    /// tag, then `#{version}` expanded by the server itself.
+    pub fn version_read_command(&self) -> String {
+        self.print(VERSION_MARKER, Some("#{version}".to_string()))
+    }
+
+    /// The version a [`Self::version_read_command`] answer carries.
+    pub(super) fn version_read<'a>(&self, line: &'a str) -> Option<&'a str> {
+        self.after(line, VERSION_MARKER)
     }
 
     pub(super) fn buffer_read_command(&self, buffer_name: &str) -> String {
