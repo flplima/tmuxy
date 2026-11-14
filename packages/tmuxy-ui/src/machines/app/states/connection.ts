@@ -39,7 +39,7 @@ export const connectionGlobalEvents = {
   },
   // The palette's slice forgets a place it was on its way to in another session.
   SWITCH_SESSION: { actions: ['connection_switchSession', 'palette_leave'] },
-  SESSION_STREAM_OPENED: { actions: 'connection_onSessionStreamOpened' },
+  TMUX_SESSION_SWITCHED: { actions: 'connection_sessionSwitched' },
   NEW_SESSION: { actions: 'connection_newSession' },
   KEYBINDINGS_RECEIVED: { actions: 'connection_keybindingsReceived' },
 } as const;

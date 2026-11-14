@@ -186,12 +186,13 @@ export const connectionActions = {
     });
   }),
 
-  // The stream of the session just switched to is up. Its state is asked for,
-  // as after a reconnect: a session whose monitor is already synced (another
-  // tab is on it, or this client left it a moment ago and came back inside the
-  // server's grace) sends nothing while it is idle, and the page stayed empty
-  // until something in it changed.
-  connection_onSessionStreamOpened: act(({ context, enqueue }) => {
+  // A switch that opened a new stream fetches the state, as a reconnect does:
+  // a monitor the server just attached broadcasts it, but one that was still
+  // up (the session was left less than its grace period ago, or another client
+  // watches it) has nothing new to say, and the panes cleared for the switch
+  // stayed cleared. The desktop's switch-client is not waited on, so a fetch
+  // there could answer with the session it was leaving.
+  connection_sessionSwitched: act(({ context, enqueue }) => {
     fetchStateAtViewport(context, enqueue);
   }),
 

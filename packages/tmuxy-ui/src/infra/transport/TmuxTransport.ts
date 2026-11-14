@@ -76,8 +76,8 @@ export interface TmuxTransportService {
    * Move this client to another session. True when that opened a new stream
    * (the web reconnects under the session's name): a new stream starts with
    * no state, and its caller has to ask for one. False when the one client
-   * moved (the desktop's `switch-client`), whose monitor reports the session
-   * it lands in.
+   * moved (the desktop's `switch-client`, sent and not waited on), whose
+   * monitor reports the session it lands in.
    */
   readonly switchSession: (sessionName: string) => Effect.Effect<boolean, AdapterError>;
   /** Retry a dropped connection now rather than at the next backoff tick. */

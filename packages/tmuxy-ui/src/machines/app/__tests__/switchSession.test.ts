@@ -62,22 +62,21 @@ describe('SWITCH_SESSION', () => {
   });
 });
 
-describe('SESSION_STREAM_OPENED', () => {
-  // The session switched to may be one whose monitor is already synced and
-  // idle (another tab is on it, or this client left it a moment ago): it
-  // sends nothing on its own, and the page showed no panes until it did.
-  it('asks for the state of the session switched to, at the viewport', () => {
+describe('TMUX_SESSION_SWITCHED', () => {
+  // A session left less than the monitor's grace period ago still has its
+  // monitor, which broadcasts nothing when the client comes back: the panes
+  // cleared for the switch stayed cleared until something in tmux changed.
+  it('asks the session switched to for its state, at the viewport', () => {
     const { actor, sent } = recordingApp();
     actor.send({ type: 'TMUX_CONNECTED' });
     actor.send({ type: 'SET_TARGET_SIZE', cols: 100, rows: 30 });
     actor.send(oneTab(100, 30));
+
     actor.send({ type: 'SWITCH_SESSION', sessionName: 'other' });
+    expect(actor.getSnapshot().context.panes).toEqual([]);
     sent.length = 0;
 
-    // The switch alone asks for nothing: the stream is not up yet.
-    expect(initialFetches(sent)).toEqual([]);
-    actor.send({ type: 'SESSION_STREAM_OPENED' });
-
+    actor.send({ type: 'TMUX_SESSION_SWITCHED' });
     expect(initialFetches(sent)).toEqual([{ type: 'FETCH_INITIAL_STATE', cols: 100, rows: 30 }]);
     actor.stop();
   });
