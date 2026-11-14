@@ -1,5 +1,6 @@
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
+const { SOCKET } = require('./helpers/env');
 const {
   LIST_WINDOWS_OUTPUT,
   LIST_WINDOWS_JSON,
@@ -94,13 +95,13 @@ describe('CLI tab subcommands', () => {
     test('kills current tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'kill']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L tmuxy killw \\; ${GC}`]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} killw \\; ${GC}`]);
     });
 
     test('kills specific tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'kill', '@2']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L tmuxy killw -t '@2' \\; ${GC}`]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} killw -t '@2' \\; ${GC}`]);
     });
   });
 
@@ -108,13 +109,13 @@ describe('CLI tab subcommands', () => {
     test('selects tab by index', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'select', '2']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy select-window -t '2'"]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} select-window -t '2'`]);
     });
 
     test('selects tab by @id', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'select', '@1']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy select-window -t '@1'"]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} select-window -t '@1'`]);
     });
 
     test('errors with no argument', () => {
@@ -128,7 +129,7 @@ describe('CLI tab subcommands', () => {
     test('goes to next tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'next']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy next-window']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} next-window`]);
     });
   });
 
@@ -136,7 +137,7 @@ describe('CLI tab subcommands', () => {
     test('goes to previous tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'prev']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy previous-window']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} previous-window`]);
     });
   });
 
@@ -144,7 +145,10 @@ describe('CLI tab subcommands', () => {
     test('renames current tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'rename', 'new-name']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy rename-window 'new-name'"]);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        `tmux -L ${SOCKET} rename-window 'new-name'`,
+      ]);
     });
 
     test('errors with no name', () => {
@@ -159,7 +163,7 @@ describe('CLI tab subcommands', () => {
       // became a stray argument.
       const { exitCode, tmuxCalls } = runCLI(['tab', 'rename', 'my tab']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy rename-window 'my tab'"]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} rename-window 'my tab'`]);
     });
 
     test('escapes quotes and doubles # in a name', () => {
@@ -169,7 +173,7 @@ describe('CLI tab subcommands', () => {
       expect(exitCode).toBe(0);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        "tmux -L tmuxy rename-window 'it'\\''s ##1'",
+        `tmux -L ${SOCKET} rename-window 'it'\\''s ##1'`,
       ]);
     });
   });
@@ -178,19 +182,19 @@ describe('CLI tab subcommands', () => {
     test('defaults to next layout', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'layout']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy next-layout']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} next-layout`]);
     });
 
     test('selects specific layout', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'layout', 'even-h']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy select-layout 'even-h'"]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} select-layout 'even-h'`]);
     });
 
     test('uses next layout explicitly', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'layout', 'next']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy next-layout']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} next-layout`]);
     });
   });
 

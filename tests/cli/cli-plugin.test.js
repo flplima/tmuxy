@@ -11,8 +11,9 @@
 const fs = require('fs');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
+const { SOCKET } = require('./helpers/env');
 
-const IN_PANE_7 = { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' };
+const IN_PANE_7 = { TMUX_PANE: '%7' };
 
 describe('tmuxy plugin', () => {
   test('with no verb it prints its usage', () => {

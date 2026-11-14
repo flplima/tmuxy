@@ -9,6 +9,7 @@
  */
 
 const { execFileSync } = require('child_process');
+const { sealedEnv } = require('./env');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -40,7 +41,7 @@ function runReaper(psOutput, args = ['--dry-run']) {
     fs.writeFileSync(stub, `#!/bin/sh\ncat <<'PSEOF'\n${psOutput}\nPSEOF\n`, { mode: 0o755 });
     return execFileSync('bash', [REAPER, ...args], {
       encoding: 'utf-8',
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      env: sealedEnv({ PATH: `${dir}:${sealedEnv().PATH}` }),
     }).trim();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

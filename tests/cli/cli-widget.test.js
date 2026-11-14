@@ -74,7 +74,6 @@ describe('CLI widget subcommands', () => {
         fs.symlinkSync(target, link);
         const { stderr, exitCode, tmuxCalls } = runCLI(['open', link], {
           env: {
-            TMUX_SOCKET: 'tmuxy',
             TMUX_PANE: '%1',
             MOCK_TMUX_PANE_PID: String(process.pid),
           },
@@ -90,7 +89,7 @@ describe('CLI widget subcommands', () => {
     test('refuses a spoofed TMUX_PANE whose process is not an ancestor of the caller', () => {
       const doc = path.resolve(__dirname, '../../README.md');
       const { stderr, exitCode, tmuxCalls } = runCLI(['open', '--net', doc], {
-        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%1', MOCK_TMUX_PANE_PID: '999999' },
+        env: { TMUX_PANE: '%1', MOCK_TMUX_PANE_PID: '999999' },
       });
       expect(exitCode).toBe(1);
       expect(stderr).toContain('cannot open a preview on another pane (%1)');

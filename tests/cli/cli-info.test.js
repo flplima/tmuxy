@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
+const { SOCKET } = require('./helpers/env');
 
 describe('CLI info and skill commands', () => {
   describe('tmuxy info', () => {
@@ -16,13 +17,12 @@ describe('CLI info and skill commands', () => {
     test('shows status inside session with mock info', () => {
       const { stdout, exitCode } = runCLI(['info'], {
         env: {
-          TMUX_SOCKET: 'tmuxy',
           TMUX: '/tmp/tmuxy,123,0',
           MOCK_TMUX_INFO: 'my-session\t%42\t@3\t100\t30\tbash\t1\twork\t2\n',
         },
       });
       expect(exitCode).toBe(0);
-      expect(stdout).toContain('socket: tmuxy, session: my-session');
+      expect(stdout).toContain(`socket: ${SOCKET}, session: my-session`);
       expect(stdout).toContain('Pane:    %42');
       expect(stdout).toContain('Tab:     @3');
       expect(stdout).toContain('Agent Guide:');
@@ -32,7 +32,6 @@ describe('CLI info and skill commands', () => {
     test('tmuxy info --json outputs structured JSON', () => {
       const { stdout, exitCode } = runCLI(['info', '--json'], {
         env: {
-          TMUX_SOCKET: 'tmuxy',
           TMUX: '/tmp/tmuxy,123,0',
           MOCK_TMUX_INFO: 'my-session\t%42\t@3\t100\t30\tbash\t1\twork\t2\n',
         },
@@ -41,7 +40,7 @@ describe('CLI info and skill commands', () => {
       const parsed = JSON.parse(stdout);
       expect(parsed).toMatchObject({
         inside: true,
-        socket: 'tmuxy',
+        socket: SOCKET,
         session: 'my-session',
         activePane: { id: '%42', width: 100, height: 30, command: 'bash' },
         activeTab: { id: '@3', index: 1, name: 'work', panesCount: 2 },
@@ -52,7 +51,6 @@ describe('CLI info and skill commands', () => {
     test('tmuxy info --json escapes quotes and backslashes in session and tab names', () => {
       const { stdout, exitCode } = runCLI(['info', '--json'], {
         env: {
-          TMUX_SOCKET: 'tmuxy',
           TMUX: '/tmp/tmuxy,123,0',
           MOCK_TMUX_INFO: 'sess"a\\\\b\t%42\t@3\t100\t30\tba"sh\t1\twork"tab\\\\1\t2\n',
         },
@@ -67,7 +65,6 @@ describe('CLI info and skill commands', () => {
     test('tmuxy --json outputs structured JSON at root', () => {
       const { stdout, exitCode } = runCLI(['--json'], {
         env: {
-          TMUX_SOCKET: 'tmuxy',
           TMUX: '/tmp/tmuxy,123,0',
           MOCK_TMUX_INFO: 'my-session\t%42\t@3\t100\t30\tbash\t1\twork\t2\n',
         },
@@ -76,7 +73,7 @@ describe('CLI info and skill commands', () => {
       const parsed = JSON.parse(stdout);
       expect(parsed).toMatchObject({
         inside: true,
-        socket: 'tmuxy',
+        socket: SOCKET,
         session: 'my-session',
         activePane: { id: '%42' },
       });

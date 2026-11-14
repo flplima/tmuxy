@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
+const { sealedEnv } = require('./env');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const SCRIPT = path.join(ROOT, 'bin/ci/plugin-index.mjs');
@@ -25,7 +26,7 @@ function git(cwd, ...args) {
   return execFileSync(
     'git',
     ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args],
-    { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' } },
+    { cwd, encoding: 'utf8', env: sealedEnv({ GIT_CONFIG_GLOBAL: '/dev/null' }) },
   ).trim();
 }
 
@@ -45,7 +46,7 @@ function fixtureRepo(base, name, files) {
 
 /** Run the builder with `args`; its exit status and output. */
 function runPluginIndex(args) {
-  return spawnSync('node', [SCRIPT, ...args], { encoding: 'utf8' });
+  return spawnSync('node', [SCRIPT, ...args], { encoding: 'utf8', env: sealedEnv() });
 }
 
 module.exports = { CHECKER, fixtureRepo, runPluginIndex };

@@ -35,6 +35,7 @@ import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { waitForReady } from './lib/perf-harness.mjs';
 import { discoverServerPid, plateau, printSoakTable, sample, settle } from './lib/soak-metrics.mjs';
 
@@ -60,6 +61,24 @@ const GATE = flag('--gate');
 const SOCKET = opt('--socket', process.env.TMUX_SOCKET ?? null);
 const CLI = opt('--cli', new URL('../../tmuxy-cli/bin/tmuxy-cli', import.meta.url).pathname);
 
+// The CLI is told the socket and nothing else about tmux. With none named
+// it would fall back to this shell's `$TMUX`, or to the default socket,
+// `tmuxy`: either way it would split, close and type megabytes into a
+// session someone works in. So a socket is required, and never one of those.
+const { liveSocketProblem } = createRequire(import.meta.url)(
+  '../../../tests/helpers/live-socket-guard.js',
+);
+const refusal = liveSocketProblem({ socket: SOCKET ?? '' });
+if (refusal) {
+  console.error(
+    `measure-soak will not run: ${refusal}. Name the socket of the server under test with --socket.`,
+  );
+  process.exit(2);
+}
+const CLI_ENV = { ...process.env, TMUX_SOCKET: SOCKET };
+delete CLI_ENV.TMUX;
+delete CLI_ENV.TMUX_PANE;
+
 // Not named `URL`: that shadows the global this file uses to resolve the CLI
 // path, and the shadow is hoisted, so the resolution hits a TDZ error.
 const TARGET_URL = SESSION ? `${URL_BASE}?session=${encodeURIComponent(SESSION)}` : URL_BASE;
@@ -69,7 +88,7 @@ const TARGET_URL = SESSION ? `${URL_BASE}?session=${encodeURIComponent(SESSION)}
 function runInPane(line) {
   execFileSync(CLI, ['pane', 'send', line, 'Enter'], {
     encoding: 'utf-8',
-    env: { ...process.env, ...(SOCKET ? { TMUX_SOCKET: SOCKET } : {}) },
+    env: CLI_ENV,
     timeout: 20000,
   });
 }
@@ -128,7 +147,7 @@ async function waitForPaneCount(page, predicate, reference) {
 function splitPane() {
   execFileSync(CLI, ['pane', 'split', '-v'], {
     encoding: 'utf-8',
-    env: { ...process.env, ...(SOCKET ? { TMUX_SOCKET: SOCKET } : {}) },
+    env: CLI_ENV,
     timeout: 20000,
   });
 }

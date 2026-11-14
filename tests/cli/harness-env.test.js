@@ -1,6 +1,9 @@
+const fs = require('fs');
 const os = require('os');
+const path = require('path');
 const { tmuxEnv } = require('../helpers/tmux-socket');
-const { scriptEnv } = require('./helpers/env');
+const { scriptEnv, withScratchDir } = require('./helpers/env');
+const { runCLI } = require('./helpers/run-cli');
 const { driverEnv } = require('../tauri/helpers/tauri-driver');
 
 /**
@@ -39,6 +42,39 @@ describe('the environment a test hands its children', () => {
     ]) {
       expect(env).not.toHaveProperty(name);
     }
+  });
+
+  // tmuxy exports `TMUX_BIN` into every pane, and the CLI runs that binary
+  // in place of the `tmux` on PATH. A CLI test that inherited it ran the
+  // real tmux, on the socket the test named (`tmuxy`, a released build's
+  // own), where the mock was meant to answer: four `pane send` tests failed
+  // on what a live server said, and a test that kills a pane would have
+  // asked the developer's own server to. No test names one of its own
+  // either: a child that carries a `TMUX_BIN` is not started
+  // (`harness-seal.test.js`).
+  test('a CLI script runs the mock tmux, whatever tmux the shell exports', () => {
+    process.env.TMUX_BIN = '/opt/tmuxy/bin/tmux';
+    expect(scriptEnv('/tmp/home')).not.toHaveProperty('TMUX_BIN');
+
+    // And through a whole run: the mock recorded the call, so it was the
+    // mock that ran. A binary that is not there would have failed the CLI.
+    process.env.TMUX_BIN = '/nonexistent/tmuxy-test/tmux';
+    const { exitCode, tmuxCalls } = runCLI(['pane', 'list']);
+    expect(exitCode).toBe(0);
+    expect(tmuxCalls.map((call) => call.args[0])).toEqual(['list-panes']);
+  });
+
+  // A CLI that exits at once, input unread (the agent hook outside a tmuxy
+  // pane), made the write of that input fail with EPIPE, and the harness took
+  // the error for a CLI that never exited: a flake, whichever won the race.
+  // The input here is far past a pipe's buffer, so the write always fails.
+  test('a CLI that exits without reading its input still has its exit status', () => {
+    withScratchDir('tmuxy-cli-unread-', (dir) => {
+      const cli = path.join(dir, 'exits-at-once');
+      fs.writeFileSync(cli, '#!/bin/sh\nexit 3\n', { mode: 0o755 });
+      const { exitCode } = runCLI([], { cli, input: 'x'.repeat(1 << 20) });
+      expect(exitCode).toBe(3);
+    });
   });
 
   // The server under test snapshots its sessions into its state dir and

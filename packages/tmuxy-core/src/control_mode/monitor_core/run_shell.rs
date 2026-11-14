@@ -319,11 +319,12 @@ mod tests {
     }
 
     /// Undo `quoted`: what tmux's parser and then `run-shell`'s format
-    /// expansion make of the segment.
+    /// expansion make of the segment. A run of `#` before a `[` is a style,
+    /// which tmux leaves as it is; any other run is doubled.
     fn unquoted(segment: &str) -> String {
         let inner = &segment[1..segment.len() - 1];
         let mut out = String::new();
-        let mut chars = inner.chars();
+        let mut chars = inner.chars().peekable();
         while let Some(c) = chars.next() {
             match c {
                 '\\' => match chars.next().unwrap() {
@@ -331,8 +332,16 @@ mod tests {
                     escaped => out.push(escaped),
                 },
                 '#' => {
-                    assert_eq!(chars.next(), Some('#'), "a lone # in {segment}");
-                    out.push('#');
+                    let mut run = 1;
+                    while chars.next_if_eq(&'#').is_some() {
+                        run += 1;
+                    }
+                    if chars.peek() == Some(&'[') {
+                        out.extend(std::iter::repeat_n('#', run));
+                    } else {
+                        assert_eq!(run % 2, 0, "a lone # in {segment}");
+                        out.extend(std::iter::repeat_n('#', run / 2));
+                    }
                 }
                 '"' | '$' => panic!("unescaped {c} in {segment}"),
                 _ => out.push(c),

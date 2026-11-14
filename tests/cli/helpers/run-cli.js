@@ -2,13 +2,15 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { scriptEnv, withScratchDir } = require('./env');
+const { suite } = require('./seal');
 
 const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-cli');
 
 /**
- * Every tmux invocation the CLI makes MUST target the dedicated socket
- * (`-L <name>`, or `-S <path>` when TMUX_SOCKET holds a path) — never the
- * user's default tmux server. Assert that invariant on every recorded call,
+ * Every tmux invocation the CLI makes MUST target the socket it was told to
+ * use (`-L <name>`, or `-S <path>` when TMUX_SOCKET holds a path): the run's
+ * own unless the test names another, and never the user's default tmux
+ * server. Assert that invariant on every recorded call,
  * then strip the flag pair so tests assert on the actual subcommand argv.
  *
  * @param {Array<{args: string[]}>} tmuxCalls - Raw recorded calls
@@ -16,7 +18,7 @@ const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-
  * @returns {Array<{args: string[]}>} Calls with the socket pair stripped
  */
 function stripSocketArgs(tmuxCalls, extraEnv = {}) {
-  const socket = extraEnv.TMUX_SOCKET || 'tmuxy';
+  const socket = extraEnv.TMUX_SOCKET || suite().socket;
   const expectedFlag = socket.includes('/') ? '-S' : '-L';
   return tmuxCalls.map((call) => {
     const [flag, value, ...rest] = call.args;
@@ -101,7 +103,11 @@ function runCLI(args, opts = {}) {
     });
     // A CLI that hangs (killed at the timeout) or never started is no exit
     // status at all: reported as one, it would pass every "exits 1" test.
-    if (result.error || result.status === null) {
+    // One that exited without reading its input (a hook outside a tmuxy pane)
+    // did exit: writing the input to it failed with EPIPE, and its status
+    // stands.
+    const unread = result.error?.code === 'EPIPE' && result.status !== null;
+    if ((result.error && !unread) || result.status === null) {
       throw new Error(
         `tmuxy ${args.join(' ')} did not exit: ${result.error?.message ?? `killed by ${result.signal}`}` +
           `\nstderr: ${result.stderr || ''}`,

@@ -13,7 +13,6 @@ const { runCLI } = require('./helpers/run-cli');
  */
 describe('CLI pane float', () => {
   const floatEnv = {
-    TMUX_SOCKET: 'tmuxy',
     TMUX_PANE: '%5',
     MOCK_TMUX_WINDOW_ID: '@3',
   };

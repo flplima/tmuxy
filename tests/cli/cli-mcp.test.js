@@ -9,7 +9,6 @@ describe('tmuxy mcp', () => {
   test('names the session the caller is in, and keeps read-only in the URL', () => {
     const { stdout, exitCode } = runCLI(['mcp', '--json', '--read-only', '--port', '9137'], {
       env: {
-        TMUX_SOCKET: 'tmuxy',
         TMUX: '/tmp/tmuxy,123,0',
         TMUX_PANE: '%4',
         MOCK_TMUX_SESSION: 'work',

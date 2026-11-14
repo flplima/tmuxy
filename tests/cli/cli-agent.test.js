@@ -2,6 +2,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
+const { SOCKET } = require('./helpers/env');
+const { playedTmux } = require('./helpers/seal');
 
 /**
  * `tmuxy agent hook` sets the pane state in a background job (so the agent
@@ -32,9 +34,8 @@ function hook(agent, event, state, where, extraEnv = {}) {
   return runCLI(['agent', 'hook', agent, event], {
     input: '{}',
     env: {
-      TMUX: '/tmp/tmux-501/tmuxy-test,4242,0',
+      TMUX: playedTmux(),
       TMUX_PANE: '%5',
-      TMUX_SOCKET: 'tmuxy-test',
       TMPDIR: where.dir,
       MOCK_TMUX_LOG: where.log,
       MOCK_AGENT_STATE: state,
@@ -62,7 +63,7 @@ describe('tmuxy agent', () => {
     expect(calls[1].slice(2, 5)).toEqual(['run-shell', '-t', '%5']);
     expect(writes(calls)).toEqual([
       expect.stringContaining(
-        "tmux -L tmuxy-test set-option -p -t '%5' @tmuxy-pane-state 'working'",
+        `tmux -L ${SOCKET} set-option -p -t '%5' @tmuxy-pane-state 'working'`,
       ),
     ]);
 
@@ -78,7 +79,7 @@ describe('tmuxy agent', () => {
       JSON.stringify({
         args: [
           'run-shell',
-          "tmux -L tmuxy-test set-option -p -t '%5' @tmuxy-pane-state 'needs-input'",
+          `tmux -L ${SOCKET} set-option -p -t '%5' @tmuxy-pane-state 'needs-input'`,
         ],
       }) + '\n',
     );
@@ -96,8 +97,8 @@ describe('tmuxy agent', () => {
     const where = scratch();
     // A plain tmux server's pane: not tmuxy's to draw.
     const { stdout, exitCode } = hook('agy', 'Stop', 'idle', where, {
-      TMUX: '/tmp/tmux-501/default,4242,0',
-      TMUX_SOCKET: 'default',
+      TMUX: playedTmux('plain-tmux'),
+      TMUX_SOCKET: 'plain-tmux',
     });
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe('{}');
@@ -114,7 +115,7 @@ describe('tmuxy agent', () => {
     expect(exitCode).toBe(0);
     expect(tmuxCalls[0].args).toEqual([
       'run-shell',
-      "tmux -L tmuxy set-option -p -u -t '%3' @tmuxy-pane-state",
+      `tmux -L ${SOCKET} set-option -p -u -t '%3' @tmuxy-pane-state`,
     ]);
   });
 

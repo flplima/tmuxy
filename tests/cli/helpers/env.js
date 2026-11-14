@@ -9,16 +9,42 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { scrubbedEnv } = require('../../helpers/tmux-socket');
+const { seal, suite } = require('./seal');
 
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**
+ * The environment of any child a CLI test starts: the shell's, without what
+ * would aim a tmux command at a session someone works in, the mocks first on
+ * `PATH`, and the seal (`./seal.js`): the run's own socket and tmux socket
+ * directory. A test adds to it; the seal's own variables it cannot move
+ * anywhere live, since a child with a broken seal is not started.
+ *
+ * tmuxy exports `TMUX_BIN` into every pane it runs, and the CLI runs that
+ * binary rather than the `tmux` on PATH. Inherited, it took the mock's
+ * place: a suite run from a tmuxy pane sent the CLI's tmux commands to the
+ * real tmux. It is dropped here with the rest.
+ *
+ * @param {Record<string, string>} [env] - What the test sets, over the rest
+ * @returns {Record<string, string>}
+ */
+function sealedEnv(env = {}) {
+  const inherited = scrubbedEnv();
+  delete inherited.TMUX_BIN;
+  delete inherited.TMUX_TMPDIR;
+  return { ...inherited, PATH: `${MOCKS_DIR}:${process.env.PATH}`, ...seal(), ...env };
+}
+
+/**
+ * {@link sealedEnv} for a CLI script: `HOME` a scratch directory too, so
+ * tmuxy's dirs resolve inside it.
+ *
  * @param {string} home - The scratch directory the script takes as `HOME`
  * @param {Record<string, string>} [env] - What the test sets, over the rest
- * @returns {Record<string, string>} The mocks first on PATH, nothing leaked
+ * @returns {Record<string, string>} The mocks first on PATH, nothing leaked, and no `TMUX_BIN` to run in their place
  */
 function scriptEnv(home, env = {}) {
-  return { ...scrubbedEnv(), HOME: home, PATH: `${MOCKS_DIR}:${process.env.PATH}`, ...env };
+  return sealedEnv({ HOME: home, ...env });
 }
 
 /**
@@ -44,4 +70,16 @@ function withScratchDir(prefix, fn) {
   return result;
 }
 
-module.exports = { MOCKS_DIR, scriptEnv, withScratchDir };
+/**
+ * The run's own socket name: what every CLI under test is told to use. The
+ * global setup made it before any test file loads.
+ */
+const SOCKET = suite().socket;
+
+module.exports = {
+  MOCKS_DIR,
+  SOCKET,
+  scriptEnv,
+  sealedEnv,
+  withScratchDir,
+};

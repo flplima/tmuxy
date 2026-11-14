@@ -11,6 +11,8 @@
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 
+const { SOCKET } = require('./helpers/env');
+
 const WORDS = require(
   path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy/session-names.json'),
 );
@@ -73,7 +75,6 @@ describe('tmuxy session snapshots', () => {
 describe('tmuxy pane restore-cmd', () => {
   /** A caller that really runs in pane %7: its pane's process is the suite's. */
   const IN_PANE_7 = {
-    TMUX_SOCKET: 'tmuxy',
     TMUX_PANE: '%7',
     MOCK_TMUX_PANE_PID: String(process.pid),
   };
@@ -89,7 +90,7 @@ describe('tmuxy pane restore-cmd', () => {
     expect(runShells(tmuxCalls)).toHaveLength(1);
     expect(runShells(tmuxCalls)[0].args).toEqual([
       'run-shell',
-      "TMUX_PANE=%7 tmux -L tmuxy set-option -p -t '%7' @tmuxy-pane-restore 'claude --resume abc'",
+      `TMUX_PANE=%7 tmux -L ${SOCKET} set-option -p -t '%7' @tmuxy-pane-restore 'claude --resume abc'`,
     ]);
   });
 
@@ -97,7 +98,7 @@ describe('tmuxy pane restore-cmd', () => {
     const clear = runCLI(['pane', 'restore-cmd', '--clear', '%7'], { env: IN_PANE_7 });
     expect(clear.exitCode).toBe(0);
     expect(runShells(clear.tmuxCalls)[0].args[1]).toBe(
-      "TMUX_PANE=%7 tmux -L tmuxy set-option -p -u -t '%7' @tmuxy-pane-restore",
+      `TMUX_PANE=%7 tmux -L ${SOCKET} set-option -p -u -t '%7' @tmuxy-pane-restore`,
     );
   });
 
@@ -110,7 +111,7 @@ describe('tmuxy pane restore-cmd', () => {
     expect(other.exitCode).not.toBe(0);
     expect(runShells(other.tmuxCalls)).toHaveLength(0);
     const claimed = runCLI(['pane', 'restore-cmd', 'nvim -S'], {
-      env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7', MOCK_TMUX_PANE_PID: '999999' },
+      env: { TMUX_PANE: '%7', MOCK_TMUX_PANE_PID: '999999' },
     });
     expect(claimed.exitCode).not.toBe(0);
     expect(runShells(claimed.tmuxCalls)).toHaveLength(0);

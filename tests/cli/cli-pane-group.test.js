@@ -44,7 +44,7 @@ describe('CLI pane group subcommands', () => {
   describe("the caller's pane", () => {
     test('rides along from the environment', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'ungroup'], {
-        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
+        env: { TMUX_PANE: '%7' },
       });
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].target).toBe('%7');

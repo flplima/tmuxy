@@ -39,7 +39,6 @@ function runWidgetWithPaneGone(pane) {
         env: scriptEnv(dir, {
           MOCK_TMUX_LOG: log,
           MOCK_TMUX_PANE_PID: String(process.pid),
-          TMUX_SOCKET: 'tmuxy',
           TMUX_PANE: pane,
         }),
       },
