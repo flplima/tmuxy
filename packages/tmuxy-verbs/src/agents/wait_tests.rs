@@ -111,6 +111,15 @@ fn any_ends_on_the_first_pane_and_all_on_the_last() {
     );
 }
 
+/// `fix-a %1` names one pane twice when %1 is `fix-a`: `--all` still ends.
+#[test]
+fn a_pane_named_twice_is_waited_for_once() {
+    let mut all = Waiter::new(panes(&["%1", "%1"]), &[], true, false);
+    all.read(&listing(&[("%1", "a", "working")]), true);
+    let counted = all.read(&listing(&[("%1", "a", "idle")]), false).unwrap();
+    assert_eq!(counted.len(), 1);
+}
+
 /// A crashed or closed pane is not a finished one: the wait ends, marked
 /// gone, unless it was asked to wait for exactly that.
 #[test]
