@@ -52,10 +52,23 @@ pub struct Planned {
 
 /// `list-keys -T <table>`, read by a CLI verb as an external tmux. Through
 /// [`crate::list_keys::listing`], as the server's read is, so a read that
-/// failed is an error, never an empty table.
-fn read_table(table: KeyTable) -> Result<String> {
-    let argv = ["list-keys".to_string(), "-T".into(), table.as_str().into()];
-    crate::list_keys::listing(crate::session::tmux_output(&argv)).map_err(PluginError::from)
+/// failed is an error, never an empty table. `None` when no tmux server is
+/// running: `-N` stops tmux starting one to answer, which it otherwise does
+/// for `list-keys`, and a server started that way reads the user's own
+/// `~/.tmux.conf`, which may run anything.
+fn read_table(table: KeyTable) -> Result<Option<String>> {
+    let argv = [
+        "-N".to_string(),
+        "list-keys".into(),
+        "-T".into(),
+        table.as_str().into(),
+    ];
+    match crate::session::tmux_output(&argv) {
+        Err(e) if crate::session::is_no_server(&e.to_string()) => Ok(None),
+        answer => crate::list_keys::listing(answer)
+            .map(Some)
+            .map_err(PluginError::from),
+    }
 }
 
 pub fn list_command(table: KeyTable) -> String {
@@ -94,7 +107,7 @@ fn user_binding_in(listing: &str, key: &str) -> Option<String> {
 /// install prompt, `tmuxy plugin list`), never for what it binds: with no
 /// server to ask, nothing holds a key.
 pub fn user_binding(table: KeyTable, key: &str) -> Option<String> {
-    user_binding_in(&read_table(table).unwrap_or_default(), key)
+    user_binding_in(&read_table(table).ok().flatten().unwrap_or_default(), key)
 }
 
 /// The keys every plugin asks for, and which of them can be bound: the first
@@ -186,8 +199,11 @@ pub fn commands(
 /// plan. A table that does not read stops it before anything is bound.
 pub fn apply(dirs: &Layout) -> Result<Vec<Planned>> {
     let registry = Registry::load(dirs)?;
-    let prefix = read_table(KeyTable::Prefix)?;
-    let root = read_table(KeyTable::Root)?;
+    let (Some(prefix), Some(root)) = (read_table(KeyTable::Prefix)?, read_table(KeyTable::Root)?)
+    else {
+        // No server to bind into: one binds them as it attaches.
+        return Ok(plan_with(&registry, |_, _| None));
+    };
     let (planned, cmds) = commands(&registry, |table| match table {
         KeyTable::Prefix => prefix.clone(),
         KeyTable::Root => root.clone(),

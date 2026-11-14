@@ -169,13 +169,24 @@ function terminalText(page) {
  * way a user clicks to type: anywhere else can be a hyperlink, which a click
  * opens. A spot something else covers (the dock's resize handle lies over
  * its terminal's left edge) is skipped for the next one along the row.
+ *
+ * The bottom row is the bottom of what is on screen: a scrollback view is as
+ * tall as the whole history inside its scroll container, and a click aimed
+ * at its own last row makes the browser scroll there first, which closes
+ * the view under the click.
  */
 async function clickTerminal(terminal) {
   const position = await terminal.evaluate(
     (log) => {
       const box = log.getBoundingClientRect();
       const cursor = log.querySelector('.terminal-cursor')?.getBoundingClientRect();
-      const bottom = Math.max(1, box.height - 4);
+      let shownBottom = Math.min(box.bottom, window.innerHeight);
+      for (let el = log.parentElement; el; el = el.parentElement) {
+        if (getComputedStyle(el).overflowY !== 'visible') {
+          shownBottom = Math.min(shownBottom, el.getBoundingClientRect().bottom);
+        }
+      }
+      const bottom = Math.max(1, shownBottom - box.top - 4);
       const spots = [
         ...(cursor && cursor.width > 0
           ? [
