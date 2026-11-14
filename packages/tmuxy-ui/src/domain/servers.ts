@@ -132,6 +132,33 @@ export const ServerList = Schema.Struct({
 export type ServerList = Schema.Schema.Type<typeof ServerList>;
 
 /**
+ * What a launch tells a tmux user who finds none of their sessions here
+ * (`own_tmux_offer`, `tmuxy-core/src/servers.rs`): their own tmux server, the
+ * one a bare `tmux` talks to, has `sessions` of them. tmuxy runs on a socket
+ * of its own, so they are not shown until the app is pointed there.
+ */
+export const OwnTmuxOffer = Schema.Struct({
+  /** The server a switch connects to, as the picker names it. */
+  serverId: Schema.String,
+  sessions: Schema.Number,
+  /** The session a switch opens; absent when none has a name tmuxy can attach to. */
+  session: Schema.optional(Schema.String),
+  /** Whether this host can switch there itself (the desktop); the web says how to start there. */
+  canSwitch: Schema.Boolean,
+});
+export type OwnTmuxOffer = Schema.Schema.Type<typeof OwnTmuxOffer>;
+
+/**
+ * The launch notice on screen: the offer (`ask`), the switch on its way to
+ * the host (`switching`), then, once the host took it, how to make it stick
+ * (`switched`).
+ */
+export interface OwnTmuxNotice {
+  offer: OwnTmuxOffer;
+  stage: 'ask' | 'switching' | 'switched';
+}
+
+/**
  * Empty on the single-session in-browser sandboxes (demo, v86), which render
  * the flat tab/pane tree. The active session's subtree is drawn from live
  * state, not this summary.

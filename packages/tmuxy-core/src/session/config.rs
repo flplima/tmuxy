@@ -205,27 +205,56 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path, tmux: &str) -> 
         "# ~/.tmux.conf is not read: `tmuxy config use-tmux-conf on` sources it here.\n".to_string()
     };
     format!(
-        "{header}\
-         # Where the scripts and this file are, for the commands that name them.\n\
-         set-environment -g {DATA_DIR_ENV} {data}\n\
-         set-environment -g {ENTRY_CONF_ENV} {entry}\n\
-         set-option -g {CLI_OPTION} {cli}\n\
-         set-environment -g {TMUX_BIN_ENV} {tmux}\n\
-         set-option -g {CONFIG_DIR_OPTION} {config}\n\
+        "{preamble}\
          # The chain tmux is started with and every reload sources, in order.\n\
          source-file {essentials}\n\
          source-file {defaults}\n\
          {tmux_conf}\
          source-file -q {user}\n\
          source-file {essentials}\n",
+        preamble = conf_preamble(layout, &layout.entry_conf(), tmux),
+        defaults = quote(&layout.path(&paths::DEFAULTS_CONF)),
+        user = quote(user),
+    )
+}
+
+/// What a chain file says before it sources anything: where the scripts and
+/// the chain file itself (`chain`) are, for the commands that name them.
+fn conf_preamble(layout: &Layout, chain: &Path, tmux: &str) -> String {
+    let quote = |path: &Path| crate::tmux_quote(&path.to_string_lossy());
+    format!(
+        "{header}\
+         # Where the scripts and this file are, for the commands that name them.\n\
+         set-environment -g {DATA_DIR_ENV} {data}\n\
+         set-environment -g {ENTRY_CONF_ENV} {chain}\n\
+         set-option -g {CLI_OPTION} {cli}\n\
+         set-environment -g {TMUX_BIN_ENV} {tmux}\n\
+         set-option -g {CONFIG_DIR_OPTION} {config}\n",
         header = CONF_HEADER,
         data = quote(&layout.data),
-        entry = quote(&layout.entry_conf()),
+        chain = quote(chain),
         cli = quote(&layout.cli()),
         tmux = crate::tmux_quote(tmux),
         config = quote(&layout.config),
-        defaults = quote(&layout.path(&paths::DEFAULTS_CONF)),
-        user = quote(user),
+    )
+}
+
+/// The chain for the user's OWN tmux server ([`super::USERS_OWN_SOCKET`]),
+/// when the app is pointed at it: the essentials and nothing else.
+///
+/// `source-file` is server-global, and the rest of the chain is tmuxy's taste
+/// (prefix `C-a`, its status line, its key tables). Sourced there it would
+/// rebind the prefix for every ordinary terminal attached to that server,
+/// which is somebody's day of work. The essentials are the command-aliases
+/// and the few options tmuxy stops working without. A reload sources this
+/// file again, since it is the one the server is told is its chain.
+pub(super) fn adopted_conf(layout: &Layout, tmux: &str) -> String {
+    format!(
+        "{preamble}\
+         # Your own tmux server: only what tmuxy cannot work without.\n\
+         source-file {essentials}\n",
+        preamble = conf_preamble(layout, &layout.adopted_conf(), tmux),
+        essentials = crate::tmux_quote(&layout.path(&paths::ESSENTIALS_CONF).to_string_lossy()),
     )
 }
 
@@ -257,6 +286,19 @@ fn write_entry(layout: &Layout) -> PathBuf {
     path
 }
 
+fn write_adopted(layout: &Layout) -> PathBuf {
+    if let Err(e) = std::fs::create_dir_all(&layout.state) {
+        warn!(dir = ?layout.state, error = %e, "could not create the state dir");
+    }
+    let path = layout.adopted_conf();
+    write_generated(&path, &adopted_conf(layout, super::tmux_path()), false);
+    path
+}
+
+/// The chain file the monitor sources on every connect and reload: the one
+/// for the user's own tmux server ([`adopted_conf`]) when the app is on it,
+/// else the entry file below.
+///
 /// The entry file tmux is started with (`-f`) and the monitor sources on
 /// every connect and reload, rebuilt first so it follows the user's file and
 /// the `use-tmux-conf` choice. `None` when it could not be written, and over
@@ -268,7 +310,12 @@ pub fn get_config_path() -> Option<PathBuf> {
     if super::ssh_target().is_some() {
         return None;
     }
-    let path = write_entry(&Layout::current());
+    let layout = Layout::current();
+    let path = if super::on_users_own_server() {
+        write_adopted(&layout)
+    } else {
+        write_entry(&layout)
+    };
     path.exists().then_some(path)
 }
 

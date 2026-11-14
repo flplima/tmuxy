@@ -143,6 +143,11 @@ pub enum ClientCommand {
         session: Option<String>,
     },
     DetachClient,
+    /// What a launch tells a tmux user about their own server
+    /// (`servers::OwnTmuxOffer`), or `null` when there is nothing to tell.
+    OwnTmuxOffer,
+    /// The user closed that notice: this host does not show it again.
+    CloseOwnTmuxOffer,
     /// Write the invocation token a plugin's menu action opens with,
     /// carrying the selected text.
     PreparePluginAction {
@@ -469,6 +474,23 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
         }
         ClientCommand::DetachClient => {
             ctx.detach().await?;
+            Ok(Value::Null)
+        }
+        ClientCommand::OwnTmuxOffer => {
+            let can_switch = ctx.switches_servers();
+            let offer = crate::session::scoped::spawn_blocking(move || {
+                crate::servers::own_tmux_offer(can_switch)
+            })
+            .await
+            .map_err(|e| CommandError::unavailable(e.to_string()))?;
+            to_json(offer, "own tmux offer")
+        }
+        ClientCommand::CloseOwnTmuxOffer => {
+            let can_switch = ctx.switches_servers();
+            tokio::task::spawn_blocking(move || crate::servers::close_own_tmux_offer(can_switch))
+                .await
+                .map_err(|e| CommandError::unavailable(e.to_string()))?
+                .map_err(|e| CommandError::unavailable(e.to_string()))?;
             Ok(Value::Null)
         }
         ClientCommand::PreparePluginAction {
