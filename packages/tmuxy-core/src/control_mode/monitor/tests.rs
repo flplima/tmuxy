@@ -255,7 +255,7 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             pane_id: "%0".parse().unwrap(),
         },
         // Adopt, then the window re-list; nothing is emitted, as a window
-        // only announced is not shown (A15) until the list names it.
+        // only announced is not shown (A16) until the list names it.
         ControlModeEvent::WindowAdd {
             window_id: "@1".parse().unwrap(),
         },

@@ -211,7 +211,7 @@ impl StateAggregator {
         // made by `split-window ; break-pane -d ; set-option` and announced
         // by `%window-add` and `%window-renamed` before any list could read
         // the tag the same command set: shown then, it was drawn as a tab,
-        // its column still "starting…" (A15). The session's current window
+        // its column still "starting…" (A16). The session's current window
         // is shown whatever: a chrome window is always made in the
         // background, so a current one is a tab, the one the user is on.
         let held: HashSet<&WindowId> = self

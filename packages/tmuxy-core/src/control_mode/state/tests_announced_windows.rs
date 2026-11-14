@@ -1,4 +1,4 @@
-//! A window tmux announces before any list could read its tags (A15).
+//! A window tmux announces before any list could read its tags (A16).
 
 use super::tests::*;
 use super::*;
