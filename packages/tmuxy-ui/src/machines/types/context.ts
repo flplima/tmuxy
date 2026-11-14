@@ -5,7 +5,7 @@ import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxPane, TmuxWindow, PaneGroup } from '../../domain/client';
 import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
-import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
+import type { ProfilesInfo, ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { TmuxOp } from '../../domain/commands';
 import type { PendingClose } from '../../domain/closeGuard';
@@ -27,6 +27,8 @@ import type {
 } from './domain';
 import type {
   GitRepository,
+  OwnTmuxNotice,
+  PanePorts,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
@@ -269,6 +271,8 @@ export interface AppMachineContext {
   /** Current theme mode: a palette, or `auto` for the operating system's */
   themeMode: ThemeMode;
   availableThemes: ThemeInfo[];
+  /** The terminal profiles and this session's, as the backend last answered; null until then. */
+  profiles: ProfilesInfo | null;
   /**
    * Local action tracing as the backend last reported it, or null before the
    * Debug menu has asked. Never assumed from the client side: an enable can be
@@ -342,6 +346,15 @@ export interface AppMachineContext {
    */
   repositories: GitRepository[];
   /**
+   * The TCP ports each pane's programs listen on, panes with none left out;
+   * refreshed by the `serversActor` poll while the tree is on screen. `[]` on
+   * the sandboxes and for SSH-backed servers.
+   */
+  panePorts: readonly PanePorts[];
+  /** The user's `@tmuxy-tree-row` as tmux holds it; `''` when unset. Read by
+   *  the `serversActor` poll while the tree is on screen. */
+  treeRowTemplate: string;
+  /**
    * Saved tmux servers (localhost plus anything added through the session
    * switcher) and which one is attached. Empty on web, which has no server
    * list of its own.
@@ -350,6 +363,8 @@ export interface AppMachineContext {
   currentServerId: string | null;
   /** Sessions a snapshot could bring back; see {@link RestorableSession}. */
   restorableSessions: RestorableSession[];
+  /** The launch notice about the user's own tmux server, while it is on screen. */
+  ownTmuxNotice: OwnTmuxNotice | null;
 }
 
 /** A command held while the app first connects (`heldCommands`), and when (ms since epoch). */

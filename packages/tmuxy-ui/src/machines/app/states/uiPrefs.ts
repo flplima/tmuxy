@@ -10,6 +10,8 @@ export const uiPrefsState = {
     TOGGLE_SEND_ASK: { actions: 'uiPrefs_toggleSendAsk' },
     TOGGLE_TRANSPARENCY: { actions: 'uiPrefs_toggleTransparency' },
     THEMES_LIST_RECEIVED: { actions: 'uiPrefs_setAvailableThemes' },
+    PROFILE_CALL: { actions: 'uiPrefs_profileCall' },
+    PROFILES_RECEIVED: { actions: 'uiPrefs_acceptProfiles' },
     CSS_CHANGED: { actions: 'uiPrefs_reloadCss' },
     INCREASE_FONT_SIZE: { actions: 'uiPrefs_increaseFontSize' },
     DECREASE_FONT_SIZE: { actions: 'uiPrefs_decreaseFontSize' },

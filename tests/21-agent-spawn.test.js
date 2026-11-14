@@ -1,7 +1,9 @@
 /**
  * Sub-agents in panes: an orchestrator spawns an agent into its own tab
  * (`tmuxy agent spawn`), as an agent or a script would, through the CLI
- * against a real tmux. Waiting on their states is in 21-agent-states.
+ * against a real tmux, and the agent reports back with `tmuxy pane report`.
+ * Waiting on their states is in 21-agent-states; starting and reviving an
+ * agent in 25-agent-lifecycle.
  */
 
 const fs = require('fs');
@@ -13,7 +15,7 @@ const {
   waitForPaneCount,
   waitForCondition,
 } = require('./helpers');
-const { tmuxyCli, tmuxyCliAsync } = require('./helpers/cli');
+const { tmuxyCli, tmuxyCliAsync, TMUXY_CLI } = require('./helpers/cli');
 
 /**
  * `tmuxy agent spawn` puts an agent in the caller's own tab with its task.
@@ -145,6 +147,79 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
         }
       }
       fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 120000);
+
+  test("a spawned agent's report reaches its orchestrator, with agent wait too, and only the agent writes it", async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await waitForShellPrompt(page);
+    const caller = await page.evaluate(() => window.app?.view().activePaneId);
+    const said = "fixed 3 of 3: it's #{done}";
+    let child = null;
+    try {
+      // The child writes its report from inside its own pane, as an agent
+      // told to `tmuxy pane report` when done would.
+      child = JSON.parse(
+        tmuxyCli(
+          [
+            'agent',
+            'spawn',
+            '--json',
+            '--agent',
+            'cmd',
+            '--label',
+            'reporter',
+            '--',
+            'bash',
+            '-c',
+          ].concat([`"${TMUXY_CLI}" pane report "$1"; exec sleep 600`, '_', said]),
+          { TMUX_PANE: caller },
+        ),
+      ).paneId;
+      const report = await waitForCondition(
+        page,
+        () => {
+          try {
+            return tmuxyCli(['pane', 'report', '-t', 'reporter']);
+          } catch {
+            return null;
+          }
+        },
+        20000,
+        'the child to write its report',
+      );
+      expect(report.trim()).toBe(said);
+      const read = JSON.parse(tmuxyCli(['pane', 'report', '-t', 'reporter', '--json']));
+      expect(read).toMatchObject({ ok: true, paneId: child, report: said });
+      expect(typeof read.at).toBe('number');
+
+      // `agent wait --json` hands the report over with the state.
+      tmuxyCli(['pane', 'state', 'idle', child]);
+      const waited = JSON.parse(
+        tmuxyCli(['agent', 'wait', 'reporter', '--now', '--json', '--for', '10s']),
+      );
+      expect(waited.panes[0]).toMatchObject({ paneId: child, state: 'idle', report: said });
+
+      // A report is its own pane's: a process outside it cannot write one
+      // by naming the pane, and -t only reads.
+      const forged = await tmuxyCliAsync(['pane', 'report', 'forged'], { TMUX_PANE: child });
+      expect(forged.code).toBe(1);
+      const written = await tmuxyCliAsync(['pane', 'report', '-t', 'reporter', 'forged']);
+      expect(written.code).toBe(2);
+      expect(tmuxyCli(['pane', 'report', '-t', 'reporter']).trim()).toBe(said);
+
+      const none = await tmuxyCliAsync(['pane', 'report', '-t', caller]);
+      expect(none.code).toBe(1);
+      expect(none.stderr).toContain('has no report');
+    } finally {
+      if (child) {
+        try {
+          tmuxyCli(['pane', 'kill', child]);
+        } catch {
+          // Already gone.
+        }
+      }
     }
   }, 120000);
 });

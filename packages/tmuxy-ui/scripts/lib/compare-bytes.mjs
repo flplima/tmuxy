@@ -7,9 +7,10 @@
 
 /**
  * The most a hidden spinner may add to the stream per byte it prints.
- * Measured ~8 (every frame sent in full, as for a visible pane).
+ * Measured ~0.35 since a hidden pane's screen goes at most once a second
+ * (`state::hidden_panes`); it was ~8, every frame sent in full.
  */
-export const HIDDEN_PER_SPINNER_BYTE_BUDGET = 10;
+export const HIDDEN_PER_SPINNER_BYTE_BUDGET = 1;
 
 /** The report's table and what is over budget. */
 export function compareHiddenBytes(report) {
