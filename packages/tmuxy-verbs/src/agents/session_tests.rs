@@ -170,3 +170,22 @@ fn the_revive_script_resumes_then_leaves_a_shell() {
         format!("rm -rf -- /tmp/d\nclaude --resume {ID}\nexec \"${{SHELL:-sh}}\"\n")
     );
 }
+
+/// The pane's directory is any path the shell was in: a `#(…)` in it stays
+/// text, and a trailing `;` does not end the respawn before its command.
+#[test]
+fn the_respawn_keeps_the_panes_directory_as_one_argument() {
+    let script = std::path::Path::new("/tmp/d/revive.sh");
+    assert_eq!(
+        respawn_argv("%5", "/w/#(x);", script),
+        [
+            "respawn-pane",
+            "-k",
+            "-t",
+            "%5",
+            "-c",
+            "/w/##(x)\\;",
+            "sh /tmp/d/revive.sh"
+        ]
+    );
+}

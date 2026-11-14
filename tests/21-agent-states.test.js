@@ -318,9 +318,10 @@ describeE2E('Scenario: an orchestrator spawns an agent into its own tab', {}, (c
 
       // A label or a directory holding `#(…)` reaches tmux as text: tmux
       // expands formats in a pane's title and start directory, where an
-      // unescaped one would run the command as the server.
+      // unescaped one would run the command as the server. Ending in `;`,
+      // each stays one argument, rather than ending tmux's command there.
       const marker = path.join(scratch, 'ran');
-      const hostile = `#(touch ${marker})`;
+      const hostile = `#(touch ${marker});`;
       const cwd = path.join(scratch, hostile);
       fs.mkdirSync(cwd, { recursive: true });
       second = JSON.parse(
