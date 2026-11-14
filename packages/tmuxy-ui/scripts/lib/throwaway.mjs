@@ -42,7 +42,14 @@ export async function assertThrowawayServer(evaluate) {
     // The server answers `{ result }`, as the app's own transport reads it.
     return response.ok ? String((await response.json()).result ?? '') : null;
   });
-  const name = (socket ?? '').trim().split('/').pop();
+  assertThrowawaySocket((socket ?? '').trim().split('/').pop());
+}
+
+/**
+ * Refuse unless `name` is a tmux socket a perf run may drive: the desktop
+ * harness, which names the socket its app gets, asks before it starts one.
+ */
+export function assertThrowawaySocket(name) {
   if (!name || !THROWAWAY.test(name)) {
     throw new Error(
       `refusing to run against a tmux socket named ${JSON.stringify(name || 'unknown')}: ` +
