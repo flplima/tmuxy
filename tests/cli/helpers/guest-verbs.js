@@ -12,7 +12,8 @@ const os = require('os');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
-const { MOCKS_DIR } = require('./env');
+const { MOCKS_DIR, sealedEnv } = require('./env');
+const { seal } = require('./seal');
 
 /** Build the guest's `tmuxy-verbs` and return where cargo put it. */
 function buildGuestVerbs() {
@@ -27,7 +28,7 @@ function buildGuestVerbs() {
       '--no-default-features',
       '--message-format=json-render-diagnostics',
     ],
-    { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
+    { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], env: sealedEnv() },
   );
   const artifact = out
     .split('\n')
@@ -65,7 +66,7 @@ function guestMachine() {
   const runScript = (name, args, env = {}) => {
     const result = spawnSync('bash', [path.join(cliBin, 'tmuxy', name), ...args], {
       encoding: 'utf8',
-      env: { PATH: machinePath, HOME: home, ...env },
+      env: { PATH: machinePath, HOME: home, ...seal(), ...env },
     });
     return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status };
   };
@@ -74,7 +75,7 @@ function guestMachine() {
     const result = spawnSync(path.join(bin, 'tmuxy-verbs'), args, {
       encoding: 'utf8',
       timeout: 10000,
-      env: { PATH: machinePath, HOME: home, TMUX_SOCKET: 'tmuxy', MOCK_TMUX_LOG: log, ...env },
+      env: { PATH: machinePath, HOME: home, ...seal(), MOCK_TMUX_LOG: log, ...env },
     });
     const ran = fs.existsSync(log)
       ? fs

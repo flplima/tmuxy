@@ -59,20 +59,25 @@ pub(super) async fn send_keys(
         return Err(CommandError::forbidden(format!("{why}; nothing sent")));
     }
     if verdict == Decision::NoOpinion && rules.skip_question(&[caller, ANY_MCP_CLIENT], pane) {
-        ask::Tmux::mutate(tmux, vec![ask::send_keys_argv(pane, keys)]).await?;
+        ask::deliver(tmux, pane, ask::send_keys_argv(pane, keys)).await?;
         rules.mark_unread(tmux, pane).await?;
         return Ok(json!({ "paneId": pane, "sent": true, "asked": false }));
     }
 
     let deadline = Some(Deadline::after(timeout));
     ask::wait_turn(tmux, pane, deadline).await?;
+    // A pane at a prompt is not asked over, and is checked again as the
+    // keys go in (`ask::deliver`): nothing typed there can answer it.
+    if ask::at_prompt(tmux, pane).await? {
+        return Err(ask::Refused::AtPrompt(pane.clone()).into());
+    }
     let question = Question::new(pane, ANY_MCP_CLIENT, caller, keys, &rules);
     let guard = QuestionGuard(Some((tmux.clone(), question.clone())));
     question.put_up(tmux).await?;
     let answer = question.answer(tmux, deadline).await;
     guard.take_down().await;
     answer?;
-    ask::Tmux::mutate(tmux, vec![ask::send_keys_argv(pane, keys)]).await?;
+    ask::deliver(tmux, pane, ask::send_keys_argv(pane, keys)).await?;
     Ok(json!({ "paneId": pane, "sent": true, "asked": true }))
 }
 

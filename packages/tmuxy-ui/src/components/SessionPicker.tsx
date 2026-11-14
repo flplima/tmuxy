@@ -8,9 +8,11 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useAppSelector } from '../machines/appHooks';
 import { sessionSwitcherSpec } from './menus/specs/sessionSwitcher';
 import type { AppMenuNode } from './menus/specs/actions';
+import { ComboboxInput } from './ComboboxInput';
 import { MenuIcon } from './menus/MenuIcons';
 import { dataAttributes } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
+import { useActiveOptionInView } from './useActiveOptionInView';
 import './SessionPicker.css';
 
 export type SwitcherItem = Extract<AppMenuNode, { kind: 'item' }>;
@@ -52,11 +54,7 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => inputRef.current?.focus({ preventScroll: true }), []);
-  useEffect(() => {
-    listRef.current
-      ?.querySelector<HTMLElement>('[aria-selected="true"]')
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [active?.id]);
+  useActiveOptionInView(listRef, active?.id);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const step = (by: number) => {
@@ -88,22 +86,16 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
 
   return (
     <div className="session-picker">
-      <input
-        ref={inputRef}
+      <ComboboxInput
+        inputRef={inputRef}
         className="session-picker-filter"
-        type="text"
-        role="combobox"
-        aria-label="Filter sessions"
-        aria-expanded="true"
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={active ? optionId(active) : undefined}
+        label="Filter sessions"
+        listId={listId}
+        activeId={active ? optionId(active) : undefined}
         placeholder="Filter sessions…"
-        autoComplete="off"
-        spellCheck={false}
         value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
+        onValue={(value) => {
+          setQuery(value);
           setActiveId(null);
         }}
         onKeyDown={onKeyDown}

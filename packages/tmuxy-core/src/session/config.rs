@@ -6,14 +6,14 @@ use crate::paths::{self, Layout};
 /// Shipped defaults: tmuxy's taste (prefix, status line, bindings, the
 /// `@tmuxy-*` appearance options). Mirrored to the data dir on every launch,
 /// so a new default reaches everyone with no merge work.
-const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../assets/tmuxy.defaults.conf");
+pub(super) const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../assets/tmuxy.defaults.conf");
 
 /// The settings tmuxy cannot work without — command-aliases plus the handful of
 /// tmux options the renderer, the scrollback and the session lifetime depend on.
 /// Mirrored like the defaults, and sourced first and last in the chain
 /// ([`entry_conf`]): first so the aliases exist before anything binds to them,
 /// last so no config can take the app apart.
-const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../assets/tmuxy.essentials.conf");
+pub(super) const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../assets/tmuxy.essentials.conf");
 
 /// The starter `tmuxy.conf`: comments and examples only, since tmuxy sources
 /// its own layers around the user's file. Written to the config dir on the

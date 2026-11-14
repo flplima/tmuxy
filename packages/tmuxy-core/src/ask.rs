@@ -31,7 +31,7 @@ use base64::Engine as _;
 use tokio::time::Instant;
 
 use crate::constants::tmux_options::{
-    ASK, ASK_ANSWER, PANE_STATE, SEND_ALLOW, SEND_ALLOW_INTO, SEND_ASK,
+    ASK, ASK_ANSWER, PANE_STATE, SEND_ALLOW, SEND_ALLOW_INTO, SEND_ASK, SEND_HELD,
 };
 use crate::{CommandError, PaneId};
 
@@ -92,6 +92,13 @@ pub enum Refused {
     Busy(PaneId),
     /// The pane went away while the question was up.
     Gone(PaneId),
+    /// The pane is waiting at a prompt for the user (it says `needs-input`,
+    /// or its screen shows an approval dialog). Nothing is typed into it,
+    /// asked or not: a key there could answer the prompt.
+    AtPrompt(PaneId),
+    /// The condition the sender added to the guard ([`deliver_when`]) did
+    /// not hold as the keys would have gone in.
+    Held(PaneId),
     /// tmux failed a read or a write.
     Tmux(CommandError),
 }
@@ -110,6 +117,14 @@ impl std::fmt::Display for Refused {
                 "{pane} is still asking another sender's question; nothing sent"
             ),
             Refused::Gone(pane) => write!(f, "{pane} is gone; nothing sent"),
+            Refused::AtPrompt(pane) => write!(
+                f,
+                "{pane} is waiting at a prompt for the user (needs input); nothing sent"
+            ),
+            Refused::Held(pane) => write!(
+                f,
+                "{pane} no longer met the sender's condition as the keys went in; nothing sent"
+            ),
             Refused::Tmux(e) => write!(f, "{}", e.error),
         }
     }
@@ -128,7 +143,9 @@ impl From<Refused> for CommandError {
             Refused::NoAnswer(..) | Refused::Busy(_) => {
                 CommandError::unavailable(refused.to_string())
             }
-            Refused::Declined(_) | Refused::Gone(_) => CommandError::invalid(refused.to_string()),
+            Refused::Declined(_) | Refused::Gone(_) | Refused::AtPrompt(_) | Refused::Held(_) => {
+                CommandError::invalid(refused.to_string())
+            }
         }
     }
 }
@@ -171,9 +188,7 @@ impl SendRules {
     }
 
     pub async fn read<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<Self, CommandError> {
-        Ok(Self::parse(
-            &tmux.read(display(pane, &Self::format())).await?,
-        ))
+        Ok(Self::parse(&pane_read(tmux, pane, &Self::format()).await?))
     }
 
     pub fn skip_question(&self, callers: &[&str], pane: &PaneId) -> bool {
@@ -183,14 +198,29 @@ impl SendRules {
     }
 
     /// After a send that skipped the question: the pane is unread, unless it
-    /// already says something louder about itself. The client clears it once
-    /// the user looks at the pane.
+    /// says something louder about itself. tmux decides that as it marks it,
+    /// not from the state read before the keys went in: an agent that took
+    /// them up and already says it is working stays working. The client
+    /// clears the mark once the user looks at the pane.
     pub async fn mark_unread<T: Tmux>(&self, tmux: &T, pane: &PaneId) -> Result<(), CommandError> {
-        if self.pane_state.is_empty() || self.pane_state == "idle" {
-            tmux.mutate(vec![set_pane(pane, PANE_STATE, "unread")])
-                .await?;
+        if !(self.pane_state.is_empty() || self.pane_state == "idle") {
+            return Ok(());
         }
-        Ok(())
+        let quiet = format!("#{{||:#{{==:#{{{PANE_STATE}}},}},#{{==:#{{{PANE_STATE}}},idle}}}}");
+        let mark = set_pane(pane, PANE_STATE, "unread")
+            .iter()
+            .map(|word| crate::tmux_quote(word))
+            .collect::<Vec<_>>()
+            .join(" ");
+        tmux.mutate(vec![words(&[
+            "if-shell",
+            "-F",
+            "-t",
+            pane.as_str(),
+            &quiet,
+            &mark,
+        ])])
+        .await
     }
 }
 
@@ -264,9 +294,8 @@ impl Question {
         let pane = &self.pane;
         let (yes, no) = (format!("{}:yes", self.token), format!("{}:no", self.token));
         loop {
-            // A pane that is gone cannot be answered in: tmux fails the read.
-            let answer = tmux
-                .read(display(pane, &format!("#{{{ASK_ANSWER}}}")))
+            // A pane that is gone cannot be answered in.
+            let answer = pane_read(tmux, pane, &format!("#{{{ASK_ANSWER}}}"))
                 .await
                 .map_err(|e| match e.kind {
                     crate::ErrorKind::Tmux => Refused::Gone(pane.clone()),
@@ -294,8 +323,8 @@ impl Question {
     pub async fn take_down<T: Tmux>(&self, tmux: &T) {
         let pane = &self.pane;
         let read = |option: &str| {
-            let argv = display(pane, &format!("#{{{option}}}"));
-            async move { tmux.read(argv).await.unwrap_or_default() }
+            let format = format!("#{{{option}}}");
+            async move { pane_read(tmux, pane, &format).await.unwrap_or_default() }
         };
         let mut commands = Vec::new();
         if read(ASK).await.trim() == self.encoded {
@@ -326,7 +355,7 @@ pub async fn wait_turn<T: Tmux>(
 ) -> Result<(), Refused> {
     let abandoned = Instant::now() + PENDING_LIMIT;
     loop {
-        let asking = tmux.read(display(pane, &format!("#{{{ASK}}}"))).await?;
+        let asking = pane_read(tmux, pane, &format!("#{{{ASK}}}")).await?;
         if asking.trim().is_empty() || Instant::now() >= abandoned {
             return Ok(());
         }
@@ -343,12 +372,116 @@ pub fn encode_question(token: &str, caller: &str, keys: &[String]) -> String {
     base64::engine::general_purpose::STANDARD.encode(payload.to_string())
 }
 
+/// Whether `pane` is waiting at a prompt for the user: it says so
+/// (`needs-input`), or the bottom of its screen shows an approval dialog
+/// (`crate::agent_dialog`), whatever program draws it. Read fresh, never
+/// from rules read earlier: a dialog can open while a sender waits its turn.
+pub async fn at_prompt<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<bool, CommandError> {
+    let state = pane_read(tmux, pane, &format!("#{{{PANE_STATE}}}")).await?;
+    if state.trim() == NEEDS_INPUT {
+        return Ok(true);
+    }
+    let screen = tmux
+        .read(words(&["capture-pane", "-p", "-t", pane.as_str()]))
+        .await?;
+    Ok(crate::agent_dialog::shows_dialog(&screen))
+}
+
+/// `command` (what types into `pane`: a `send-keys`, a `paste-buffer`) as
+/// one `if-shell` that tmux runs only while `pane` does not say it needs the
+/// user, decided in the same step that would type it, so a prompt that opens
+/// between a check and the keys cannot be answered by them. Otherwise tmux
+/// marks the pane with `@tmuxy-send-held-<token>` ([`SEND_HELD`]), an
+/// option of this send's own, so a send beside it can neither read the mark
+/// as its own nor clear it. `also`, a tmux format, must hold too (a program
+/// still in front, a queued send not retracted).
+pub fn guarded(pane: &PaneId, command: &[String], token: &str, also: Option<&str>) -> Argv {
+    let line = |argv: &[String]| {
+        argv.iter()
+            .map(|word| crate::tmux_quote(word))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let free = format!("#{{!=:#{{{PANE_STATE}}},{NEEDS_INPUT}}}");
+    let condition = match also {
+        Some(also) => format!("#{{&&:{free},{also}}}"),
+        None => free,
+    };
+    words(&[
+        "if-shell",
+        "-F",
+        "-t",
+        pane.as_str(),
+        &condition,
+        &line(command),
+        &line(&set_pane(pane, &format!("{SEND_HELD}-{token}"), "1")),
+    ])
+}
+
+/// Type into `pane` with `command`, unless it is waiting at a prompt: its
+/// screen is read first ([`at_prompt`]), and tmux checks its state again as
+/// it types ([`guarded`]). The one way a sender types into a pane.
+pub async fn deliver<T: Tmux>(tmux: &T, pane: &PaneId, command: Argv) -> Result<(), Refused> {
+    deliver_when(tmux, pane, command, None).await
+}
+
+/// [`deliver`], with `also` (a tmux format) checked by tmux in the same step
+/// as the pane's state: `#{==:#{pane_current_command},claude}` sends only
+/// while that program is still in front. Refused with [`Refused::Held`]
+/// when `also` failed and the pane is not at a prompt.
+pub async fn deliver_when<T: Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+    command: Argv,
+    also: Option<&str>,
+) -> Result<(), Refused> {
+    if at_prompt(tmux, pane).await.map_err(Refused::Tmux)? {
+        return Err(Refused::AtPrompt(pane.clone()));
+    }
+    let token = crate::random::token();
+    tmux.mutate(vec![guarded(pane, &command, &token, also)])
+        .await
+        .map_err(Refused::Tmux)?;
+    let held = pane_read(tmux, pane, &format!("#{{{SEND_HELD}-{token}}}"))
+        .await
+        .map_err(Refused::Tmux)?;
+    if held.trim().is_empty() {
+        return Ok(());
+    }
+    let _ = tmux
+        .mutate(vec![unset_pane(pane, &format!("{SEND_HELD}-{token}"))])
+        .await;
+    if also.is_some() && !at_prompt(tmux, pane).await.unwrap_or(true) {
+        return Err(Refused::Held(pane.clone()));
+    }
+    Err(Refused::AtPrompt(pane.clone()))
+}
+
 /// The keys as one `send-keys`: an explicit target, and `--` so a key that
 /// looks like a flag is typed.
 pub fn send_keys_argv(pane: &PaneId, keys: &[String]) -> Argv {
     let mut argv = words(&["send-keys", "-t", pane.as_str(), "--"]);
     argv.extend(keys.iter().cloned());
     argv
+}
+
+/// `format` as `pane` itself answers it. tmux's `display-message` does not
+/// fail when the target is gone: it answers for no pane, or for its default
+/// one when a client is attached. So the answer carries the pane's own id,
+/// and any other answer counts as the pane being gone: an error of kind
+/// `Tmux`, as when tmux refuses a read.
+pub async fn pane_read<T: Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+    format: &str,
+) -> Result<String, CommandError> {
+    let said = tmux
+        .read(display(pane, &format!("#{{pane_id}}\t{format}")))
+        .await?;
+    match said.split_once('\t') {
+        Some((id, rest)) if id == pane.as_str() => Ok(rest.to_string()),
+        _ => Err(CommandError::tmux(format!("{pane} is gone"))),
+    }
 }
 
 fn display(pane: &PaneId, format: &str) -> Argv {
@@ -366,6 +499,8 @@ fn unset_pane(pane: &PaneId, option: &str) -> Argv {
 fn words(words: &[&str]) -> Argv {
     words.iter().map(|w| w.to_string()).collect()
 }
+
+pub mod queue;
 
 #[cfg(test)]
 mod tests;

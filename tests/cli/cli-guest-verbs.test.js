@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { guestMachine } = require('./helpers/guest-verbs');
+const { SOCKET } = require('./helpers/env');
 
 /**
  * The in-browser guests (the v86 snapshot behind the demo and the v86
@@ -26,7 +27,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     return runCLI(args, {
       cli: machine.cli,
       path: machine.path,
-      env: { HOME: machine.home, TMUX_BIN: '', TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%5', ...env },
+      env: { HOME: machine.home, TMUX_PANE: '%5', ...env },
     });
   }
 
@@ -54,7 +55,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     expect(exitCode).toBe(0);
     const ran = tmuxCalls.find((c) => c.args[0] === 'run-shell');
     expect(ran.target).toBe('%5');
-    expect(ran.args[1]).toMatch(/tmux -L tmuxy list-panes/);
+    expect(ran.args[1]).toContain(`tmux -L ${SOCKET} list-panes`);
   });
 
   // Into the caller's own pane, which asks nobody: the pane's process is an
@@ -65,7 +66,11 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     });
     expect(exitCode).toBe(0);
     const sent = tmuxCalls.filter((c) => c.args[0] === 'run-shell').map((c) => c.args[1]);
-    expect(sent).toEqual([expect.stringMatching(/send-keys -t %5 .*echo/)]);
+    // Through the guard tmux checks as it types: nothing goes into a pane
+    // at a prompt (`ask::deliver`).
+    expect(sent).toEqual([
+      expect.stringMatching(/if-shell -F -t %5 .*send-keys.*'\\''%5'\\''.*echo/),
+    ]);
   });
 
   test('config paths answers the files', () => {
@@ -302,7 +307,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
       });
       expect(exitCode).toBe(0);
       const commands = ran(tmuxCalls).join('\n');
-      expect(commands).toContain('send-keys -t %7');
+      expect(commands).toMatch(/if-shell -F -t %7 .*send-keys.*'\\''%7'\\''/);
       expect(commands).not.toContain('@tmuxy-ask ');
     });
 
@@ -358,7 +363,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
       // A sender that does run under the pane's process types into it.
       const own = claim(['ls', 'Enter'], String(process.pid));
       expect(own.exitCode).toBe(0);
-      expect(own.ran.join('\n')).toContain('send-keys -t %7');
+      expect(own.ran.join('\n')).toMatch(/if-shell -F -t %7 .*send-keys.*'\\''%7'\\''/);
     });
 
     test('a file that is not rules refuses a send it could not have bound', () => {
@@ -396,9 +401,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
   // `pane group` runs the pane-group script inside run-shell, which the mock
   // does not play; the script is run here as run-shell would run it.
   test('the pane-group script runs the group verb', () => {
-    const { stderr, exitCode } = machine.runScript('pane-group', ['move', '%4', 'x'], {
-      TMUX_SOCKET: 'tmuxy',
-    });
+    const { stderr, exitCode } = machine.runScript('pane-group', ['move', '%4', 'x'], {});
     expect(stderr).toContain('pane-group move:');
     expect(stderr).not.toContain('not found');
     expect(exitCode).toBe(1);

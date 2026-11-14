@@ -12,7 +12,7 @@ source "${0%/*}/_lib"
 
 usage() {
   cat <<'EOF'
-Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] <keys...>
+Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] [--queue] [--wait [--for 30m]] <keys...>
 
 Type keys into a pane, as tmux send-keys does: each argument is literal text
 or a key name (Enter, Escape, C-c, ...), with nothing between them.
@@ -21,9 +21,27 @@ Into your own pane (no -t) the keys go at once. Into another pane they go
 only once the user allows it there: the pane shows who wants to send what,
 and this blocks until they answer.
 
+Nothing is ever typed into a pane waiting at a prompt for the user (its
+state says it needs the user, or its screen shows an approval dialog), asked
+or not: a key there could answer it. Such a send exits 1 and types nothing.
+
 Options:
   -t <pane>            The pane to type into. Default: your own.
   --timeout SECONDS    Give up on an unanswered question after this long.
+  --queue              Wait in line while the pane is busy (working, or at
+                       a prompt), then send as above. Sends in line go one
+                       turn at a time, first come first served; this prints
+                       the send's id, and `tmuxy pane queue -t <pane>
+                       --retract <id>` takes it back (exit 1, nothing sent).
+  --wait               Then wait for the agent in the pane to take the keys
+                       up and finish (it needs tmuxy's hooks: tmuxy agent
+                       install). Exits 5 if it has not started working
+                       within --stall-after seconds (stalled), stops at a
+                       prompt, reports an error, or another program takes
+                       its place.
+  --for DURATION       With --wait: how long it may work (30s, 10m, 2h).
+                       Default 30m.
+  --stall-after SECS   With --wait: default 5.
   --                   Everything after it is keys, even one starting with -.
 
 Skipping the question:
@@ -36,7 +54,12 @@ Rules of your own: permissions.json in the config dir can refuse a command
 (deny) or have it asked whatever the options above say. It skips no question.
 `tmuxy config permissions` checks the file and says what a send would get.
 
-Exit status: 0 sent, 1 declined or timed out, 2 bad usage, 3 no such pane.
+Exit status: 0 sent (and, with --wait, finished); 1 nothing sent (denied, declined,
+unanswered, at a prompt, taken out of the queue, or --wait into an agent
+already working); 2 bad
+usage; 3 no such pane; 5 sent, but with --wait it stalled, stopped at a
+prompt, reported an error, was replaced, or ran out of time. Under --json a
+5 says "sent": true. Only a 1 is safe to retry.
 
 Examples:
   tmuxy pane send ls Enter
@@ -48,6 +71,14 @@ EOF
 
 TARGET=""
 TIMEOUT=""
+WAIT=false
+QUEUE=false
+# `tmuxy pane queue` hands its listing and retracting here, for the same
+# target resolution.
+LIST_QUEUE=false
+RETRACT=""
+WAIT_FOR=""
+STALL_AFTER=""
 KEYS=()
 # `tmuxy pane paste` hands its text here (`--paste`), to be pasted rather than
 # typed once the same question is answered.
@@ -77,6 +108,31 @@ while [ $# -gt 0 ]; do
       PASTE=true
       shift
       ;;
+    --wait)
+      WAIT=true
+      shift
+      ;;
+    --queue)
+      QUEUE=true
+      shift
+      ;;
+    --list-queue)
+      LIST_QUEUE=true
+      shift
+      ;;
+    --retract)
+      RETRACT="${2:?--retract needs the id of a queued send}"
+      LIST_QUEUE=true
+      shift 2
+      ;;
+    --for)
+      WAIT_FOR="${2:?--for needs a duration}"
+      shift 2
+      ;;
+    --stall-after)
+      STALL_AFTER="${2:?--stall-after needs seconds}"
+      shift 2
+      ;;
     --)
       shift
       KEYS+=("$@")
@@ -93,7 +149,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ ${#KEYS[@]} -eq 0 ]; then
+if ! $LIST_QUEUE && [ ${#KEYS[@]} -eq 0 ]; then
   _die_usage "keys required"
 fi
 if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
@@ -120,7 +176,7 @@ fi
 # ever answer.
 TARGET="$(_resolve_target "$TARGET")" || exit $?
 rc=0
-resolved="$(_tmux_read display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)" || rc=$?
+resolved="$(_pane_read "$TARGET" '#{pane_id}' 2>/dev/null)" || rc=$?
 _exit_if_no_server "$rc"
 [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $TARGET"
 [ -n "$resolved" ] && TARGET="$resolved"
@@ -130,8 +186,22 @@ _exit_if_no_server "$rc"
 CALLER_PROCESS="$(basename "$(ps -o comm= -p "$PPID" 2>/dev/null || true)")"
 
 find_server_cmd || exit "$EXIT_FAILED"
+if $LIST_QUEUE; then
+  queue_args=(send-queue --target "$TARGET")
+  [ -n "$RETRACT" ] && queue_args+=(--retract "$RETRACT")
+  [ "$JSON_OUT" = true ] && queue_args+=(--json)
+  exec "${SERVER_CMD[@]}" "${queue_args[@]}"
+fi
 send_args=(send --target "$TARGET" --caller-pane "$OWN_PANE" --caller-process "$CALLER_PROCESS")
 [ -n "$TIMEOUT" ] && send_args+=(--timeout "$TIMEOUT")
 $PASTE && send_args+=(--paste)
+$QUEUE && send_args+=(--queue)
+if $WAIT; then
+  send_args+=(--wait)
+  [ -n "$WAIT_FOR" ] && send_args+=(--wait-for "$WAIT_FOR")
+  [ -n "$STALL_AFTER" ] && send_args+=(--stall-after "$STALL_AFTER")
+elif [ -n "$WAIT_FOR$STALL_AFTER" ]; then
+  _die_usage "--for and --stall-after go with --wait"
+fi
 [ "$JSON_OUT" = true ] && send_args+=(--json)
 exec "${SERVER_CMD[@]}" "${send_args[@]}" -- "${KEYS[@]}"

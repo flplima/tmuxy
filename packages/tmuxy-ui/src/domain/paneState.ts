@@ -58,6 +58,16 @@ export const PANE_STATE_LABEL: Record<PaneStateName, string> = {
   idle: 'Idle',
 };
 
+/**
+ * The states that mean a program in the pane is still at it, and how each
+ * reads in a sentence about the pane: what a close would interrupt
+ * (`domain/closeGuard.ts`).
+ */
+export const BUSY_PANE_STATE_PHRASE: Partial<Record<PaneStateName, string>> = {
+  working: 'still working',
+  'needs-input': 'waiting for your answer',
+};
+
 const KNOWN = new Set<string>(PANE_STATES);
 
 export function readPaneState(raw: string | null | undefined): PaneStateName {

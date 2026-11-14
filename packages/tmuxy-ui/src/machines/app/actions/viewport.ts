@@ -6,16 +6,27 @@ import { gridExtent } from '../../../domain/paneGeometry';
 import { fixedGridSize } from '../../../domain/gridFit';
 
 /**
- * Bring tmux's window to `target`, the size this client asks for: resize it
+ * Bring tmux's window to `target`, the size this client asks for: report it
  * when the grid it draws differs, and otherwise, once the layout is
  * `settled`, open the animation gate (an idle session may send no further
  * update to open it). The one place both the viewport's change and a model
  * update decide whether to resize.
+ *
+ * A size is reported once: the backend keeps it, and the grid of a session
+ * another client holds smaller differs on every update for as long as that
+ * client stays. A report that failed on its way is owed again
+ * (`viewport_sizeUnreported`).
  */
 export function syncClientSize(
   context: Pick<
     Ctx,
-    'connected' | 'panes' | 'activeWindowId' | 'totalWidth' | 'totalHeight' | 'enableAnimations'
+    | 'connected'
+    | 'panes'
+    | 'activeWindowId'
+    | 'totalWidth'
+    | 'totalHeight'
+    | 'enableAnimations'
+    | 'reportedSize'
   >,
   enqueue: EnqueueAction,
   target: { cols: number; rows: number },
@@ -27,6 +38,9 @@ export function syncClientSize(
   });
   if (grid.cols <= 0) return;
   if (context.connected && (target.cols !== grid.cols || target.rows !== grid.rows)) {
+    const reported = context.reportedSize;
+    if (reported?.cols === target.cols && reported.rows === target.rows) return;
+    enqueue(assign({ reportedSize: target }));
     enqueue(sendTo('tmux', { type: 'SET_CLIENT_SIZE' as const, ...target }));
   } else if (!context.enableAnimations && settled) {
     enqueue(raise({ type: 'ANIMATIONS_SETTLED' as const }));
@@ -62,13 +76,26 @@ export const viewportActions = {
     const fixed = context.phoneLayout ? null : fixedGridSize(context.sizePolicy);
     const cols = context.phoneLayout ? PHONE_COLS : (fixed?.cols ?? event.cols);
     const rows = context.phoneLayout ? PHONE_ROWS : (fixed?.rows ?? event.rows);
-    enqueue(assign({ targetCols: cols, targetRows: rows, viewportMeasured: true }));
+    // Asked for again (a new connection, another size policy): whatever was
+    // reported before is not what this backend holds.
+    const reportedSize = event.resend ? null : context.reportedSize;
+    enqueue(assign({ targetCols: cols, targetRows: rows, viewportMeasured: true, reportedSize }));
     enqueue.raise({ type: 'SYNC_DOCK_SIZE' as const });
     if (context.connected && context.panes.length === 0) {
       enqueue(sendTo('tmux', { type: 'FETCH_INITIAL_STATE' as const, cols, rows }));
     }
-    syncClientSize(context, enqueue, { cols, rows }, context.lastUpdateQuiet);
+    syncClientSize({ ...context, reportedSize }, enqueue, { cols, rows }, context.lastUpdateQuiet);
   }),
+
+  // The report is forgotten, so the next model update that still differs
+  // from the target sends it again; a newer report in between stands.
+  viewport_sizeUnreported: assignCtx(({ context, event }) =>
+    event.type === 'CLIENT_SIZE_UNREPORTED' &&
+    context.reportedSize?.cols === event.cols &&
+    context.reportedSize.rows === event.rows
+      ? { reportedSize: null }
+      : {},
+  ),
 
   viewport_setContainerSize: assignCtx(({ context, event }) => {
     if (event.type !== 'SET_CONTAINER_SIZE') return {};

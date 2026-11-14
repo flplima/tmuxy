@@ -3,6 +3,7 @@ import { getTabLabel } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor } from '../domain/paneState';
+import { paneStateLabel } from '../domain/paneStatus';
 import { InlineRename } from './InlineRename';
 import type { TmuxPane } from '../domain/client';
 
@@ -42,7 +43,11 @@ export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
 
   const face =
     state !== 'idle' ? (
-      <PaneStateMark state={state} className="pane-tab-icon pane-tab-state" />
+      <PaneStateMark
+        state={state}
+        label={paneStateLabel(state, pane)}
+        className="pane-tab-icon pane-tab-state"
+      />
     ) : (
       <PaneIcon
         pane={pane}
