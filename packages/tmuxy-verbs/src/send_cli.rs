@@ -43,6 +43,10 @@ pub struct SendArgs {
     /// With --wait: how long it may work (`30s`, `10m`, `2h`).
     #[arg(long, default_value = "30m")]
     wait_for: String,
+    /// Wait in line while the pane is busy (working, or at a prompt), then
+    /// send (`send_cli/queued.rs`).
+    #[arg(long)]
+    queue: bool,
     /// The keys: literal text or key names (Enter, C-c, ...).
     #[arg(last = true)]
     keys: Vec<String>,
@@ -114,24 +118,56 @@ async fn send<T: ask::Tmux>(
         keys: &keys,
         paste: args.paste,
         wait,
+        also: None,
     };
-    let caller_pane = args
-        .caller_pane
-        .as_deref()
-        .and_then(|p| PaneId::parse(p).ok());
-    if caller_pane.as_ref() == Some(&pane) {
-        return delivery.deliver(tmux, answer).await;
+    let route = Route {
+        caller_pane: args
+            .caller_pane
+            .as_deref()
+            .and_then(|p| PaneId::parse(p).ok()),
+        process: args.caller_process.as_deref(),
+        timeout: args.timeout,
+    };
+    if args.queue {
+        let stall = Duration::from_secs(args.stall_after);
+        return queued::send(tmux, delivery, &route, stall, answer).await;
+    }
+    route.send(tmux, &delivery, answer).await
+}
+
+/// Who sends, and how long a question may wait for its answer.
+struct Route<'a> {
+    caller_pane: Option<PaneId>,
+    process: Option<&'a str>,
+    timeout: Option<u64>,
+}
+
+impl Route<'_> {
+    /// Into the caller's own pane at once; into another once its rules or its
+    /// user allow it.
+    async fn send<T: ask::Tmux>(
+        &self,
+        tmux: &T,
+        delivery: &Delivery<'_>,
+        answer: &Answer,
+    ) -> Result<(), (i32, String)> {
+        let pane = delivery.pane;
+        if self.caller_pane.as_ref() == Some(pane) {
+            return delivery.deliver(tmux, answer).await;
+        }
+        let caller = self.caller(tmux).await;
+        let rules = SendRules::read(tmux, pane).await.map_err(failed)?;
+        if rules.skip_question(&[&caller], pane) {
+            delivery.deliver(tmux, answer).await?;
+            return rules.mark_unread(tmux, pane).await.map_err(failed);
+        }
+        put_question(tmux, pane, &caller, delivery.keys, &rules, self.timeout).await?;
+        delivery.deliver(tmux, answer).await
     }
 
-    let caller = caller_name(tmux, caller_pane.as_ref(), args.caller_process.as_deref()).await;
-    let rules = SendRules::read(tmux, &pane).await.map_err(failed)?;
-    if rules.skip_question(&[&caller], &pane) {
-        delivery.deliver(tmux, answer).await?;
-        return rules.mark_unread(tmux, &pane).await.map_err(failed);
+    async fn caller<T: ask::Tmux>(&self, tmux: &T) -> String {
+        caller_name(tmux, self.caller_pane.as_ref(), self.process).await
     }
-
-    put_question(tmux, &pane, &caller, &keys, &rules, args.timeout).await?;
-    delivery.deliver(tmux, answer).await
 }
 
 /// Ask the user in `pane` whether `caller` may type `keys`, and wait for the
@@ -224,6 +260,8 @@ struct Delivery<'a> {
     keys: &'a [String],
     paste: bool,
     wait: Option<wait::Wait>,
+    /// A tmux format the guard checks too, as the keys go in.
+    also: Option<String>,
 }
 
 impl Delivery<'_> {
@@ -264,7 +302,9 @@ impl Delivery<'_> {
             }
             None => None,
         };
-        if let Err(refused) = ask::deliver(tmux, self.pane, command).await {
+        if let Err(refused) =
+            ask::deliver_when(tmux, self.pane, command, self.also.as_deref()).await
+        {
             if let Some(buffer) = &buffer {
                 let drop = ["delete-buffer", "-b", buffer].map(String::from).to_vec();
                 let _ = ask::Tmux::mutate(tmux, vec![drop]).await;
@@ -337,7 +377,10 @@ fn without_controls(text: &str) -> String {
         .collect()
 }
 
+mod queued;
 mod wait;
+
+pub use queued::{run as run_queue, QueueArgs};
 
 #[cfg(test)]
 mod tests;

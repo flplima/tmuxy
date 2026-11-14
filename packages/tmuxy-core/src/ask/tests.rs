@@ -74,6 +74,14 @@ impl Tmux for Fake {
                 ["set-option", "-p", "-t", _, "@tmuxy-pane-state", value] => {
                     p.state = value.to_string()
                 }
+                // The unread mark, as tmux decides it: only on a quiet pane.
+                ["if-shell", "-F", "-t", _, _, mark]
+                    if mark.ends_with("'@tmuxy-pane-state' 'unread'") =>
+                {
+                    if p.state.is_empty() || p.state == "idle" {
+                        p.state = "unread".into();
+                    }
+                }
                 ["set-option", "-p", "-t", _, "@tmuxy-ask", value] => {
                     p.ask = value.to_string();
                     let question: serde_json::Value = serde_json::from_slice(
