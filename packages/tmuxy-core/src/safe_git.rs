@@ -12,7 +12,10 @@
 //!     work tree's `.gitattributes` are read from the empty tree, the
 //!     user's and the system's not at all. And every content filter driver
 //!     the config names is switched off ([`filters_off`]), for what
-//!     `info/attributes` can still name;
+//!     `info/attributes` can still name. Reading from a tree takes git 2.41
+//!     (`GIT_ATTR_SOURCE`): from 2.31 to 2.40 the work tree's
+//!     `.gitattributes` are read too, and [`filters_off`] and the caller's
+//!     diff options are what hold;
 //!   * no optional locks: a read must not take `index.lock` from under the
 //!     user's own `git commit`;
 //!   * stdin closed, a deadline on every call, and a cap on what is read.

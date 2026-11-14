@@ -6,14 +6,14 @@ use crate::paths::{self, Layout};
 /// Shipped defaults: tmuxy's taste (prefix, status line, bindings, the
 /// `@tmuxy-*` appearance options). Mirrored to the data dir on every launch,
 /// so a new default reaches everyone with no merge work.
-const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../assets/tmuxy.defaults.conf");
+pub(super) const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../assets/tmuxy.defaults.conf");
 
 /// The settings tmuxy cannot work without — command-aliases plus the handful of
 /// tmux options the renderer, the scrollback and the session lifetime depend on.
 /// Mirrored like the defaults, and sourced first and last in the chain
 /// ([`entry_conf`]): first so the aliases exist before anything binds to them,
 /// last so no config can take the app apart.
-const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../assets/tmuxy.essentials.conf");
+pub(super) const DEFAULT_ESSENTIALS_CONF: &str = include_str!("../../assets/tmuxy.essentials.conf");
 
 /// The starter `tmuxy.conf`: comments and examples only, since tmuxy sources
 /// its own layers around the user's file. Written to the config dir on the
@@ -43,6 +43,12 @@ pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 /// command names the CLI as `#{q:@tmuxy-cli}`, a format `run-shell` expands
 /// and shell-quotes when the key is pressed.
 pub const CLI_OPTION: &str = "@tmuxy-cli";
+
+/// The global tmux option naming the config directory of the app that
+/// configured this tmux server. A send reads the user's permissions file from
+/// it (`tmuxy-verbs/src/permissions_file.rs`): the caller's own environment
+/// (`XDG_CONFIG_HOME`) would let the caller choose a directory with no rules.
+pub const CONFIG_DIR_OPTION: &str = "@tmuxy-config-dir";
 
 /// The tmux binary this process resolved ([`super::tmux_path`]), set beside
 /// [`DATA_DIR_ENV`] so a script tmux runs drives the same tmux — a GUI app's
@@ -205,6 +211,7 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path, tmux: &str) -> 
          set-environment -g {ENTRY_CONF_ENV} {entry}\n\
          set-option -g {CLI_OPTION} {cli}\n\
          set-environment -g {TMUX_BIN_ENV} {tmux}\n\
+         set-option -g {CONFIG_DIR_OPTION} {config}\n\
          # The chain tmux is started with and every reload sources, in order.\n\
          source-file {essentials}\n\
          source-file {defaults}\n\
@@ -216,6 +223,7 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path, tmux: &str) -> 
         entry = quote(&layout.entry_conf()),
         cli = quote(&layout.cli()),
         tmux = crate::tmux_quote(tmux),
+        config = quote(&layout.config),
         defaults = quote(&layout.path(&paths::DEFAULTS_CONF)),
         user = quote(user),
     )

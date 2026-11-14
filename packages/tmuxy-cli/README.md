@@ -20,7 +20,7 @@ writes it with `UPDATE_GENERATED=1`. The UI's copy is
 
 - **The server binary's verbs answer what a script would only copy.** Every
   command whose work is tmuxy-core's — `run` and `tab create`, `session
-connect` and `connect`, `config`, `pane send`/`paste`, `pane float`, the
+connect` and `connect`, `config`, `keymap`, `pane send`/`paste`, `pane float`, the
   pane groups, `agent`, `session save|restore|…`, `plugin`, `trace`, `skill`,
   `pane capture --format html` — is a `tmuxy-verbs` verb (`tmuxy-server <verb>`, the desktop app's `tmuxy
 server <verb>`); the script resolves its target and caller and forwards.
@@ -45,7 +45,8 @@ server <verb>`); the script resolves its target and caller and forwards.
   not announce (`stack`), so the windows are re-listed behind it.
 - **The contract with scripts and agents** (`tmuxy --help`): exit codes
   0 ok · 1 failed · 2 bad command line · 3 target not found or ambiguous ·
-  4 no tmux server · 130 interrupted, and a wait (`pane run --wait`,
+  4 no tmux server · 5 sent, but the wait after it failed (`pane send --wait`) ·
+  130 interrupted, and a wait (`pane run --wait`,
   `pane wait`) exits with the program's own status. `--json` works on every
   command: a mutation answers `{"ok":true,…}`, a failure
   `{"ok":false,"error","code"}` on stdout. A target is a pane id or a label

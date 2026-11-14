@@ -94,6 +94,15 @@ pub struct PaneState {
     /// precmd/preexec, a build script — never inferred here.
     pub pane_state: Option<String>,
 
+    /// What the pane's program reported behind that state
+    /// (`@tmuxy-pane-status`), verbatim: a report body this host or another
+    /// wrote from the pane's output.
+    pub pane_status: Option<String>,
+
+    /// What the pane's program reported about itself in its output (OSC
+    /// 7501), and what of it tmux has been told (`program_status.rs`).
+    pub(super) program_status: super::program_status::Tracker,
+
     /// The confirmation this pane is waiting on (`@tmuxy-ask`), verbatim: the
     /// base64 payload `tmuxy pane send -t` wrote. Decoded by the client, which draws the
     /// question over the pane; `None` when nothing is pending.
@@ -182,6 +191,8 @@ impl PaneState {
             selection_start_y: 0,
             history_size: 0,
             pane_state: None,
+            pane_status: None,
+            program_status: super::program_status::Tracker::default(),
             pane_ask: None,
             pane_widget: None,
             pane_restore: None,
@@ -326,6 +337,9 @@ impl PaneState {
             cursor_shape: self.cursor_shape,
             cursor_hidden: self.cursor_hidden,
             pane_state: self.pane_state.clone(),
+            pane_status: self.pane_status.clone().filter(|status| {
+                super::program_status::status_is_for(status, self.pane_state.as_deref())
+            }),
             pane_ask: self.pane_ask.clone(),
             pane_widget: self.pane_widget.clone(),
             pane_restore: self.pane_restore.clone(),

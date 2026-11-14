@@ -89,6 +89,8 @@ impl PaneState {
         if let Some(title) = self.terminal.callbacks_mut().take_title() {
             self.set_title(title);
         }
+        let status = self.terminal.callbacks_mut().take_status();
+        self.program_status.read(status);
 
         let screen = self.terminal.screen();
         let (row, col) = screen.cursor_position();
@@ -236,6 +238,37 @@ impl PaneState {
             terminal.process(b"\x1b[?25l");
         }
         terminal
+    }
+
+    /// The commands that tell tmux what the pane's program last reported
+    /// (OSC 7501), when that changed what the pane shows: its state, the
+    /// record behind it, or both. They are the pane's at once; tmux's next
+    /// `list-panes` agrees. The text goes first, so nothing reads the new
+    /// state with the old one's text.
+    pub(in crate::control_mode::state) fn status_commands(&mut self, now: Instant) -> Vec<String> {
+        use crate::constants::tmux_options::{PANE_STATE, PANE_STATUS};
+        let Some(due) = self.program_status.due(self.pane_state.as_deref(), now) else {
+            return Vec::new();
+        };
+        let id = &self.id;
+        let mut commands = Vec::new();
+        if due.write_status {
+            // A report body holds no quote: its bytes are the protocol's
+            // value set, which the parser held it to.
+            commands.push(match &due.status {
+                Some(status) => format!("set-option -p -t {id} {PANE_STATUS} '{status}'"),
+                None => format!("set-option -pu -t {id} {PANE_STATUS}"),
+            });
+            self.pane_status = due.status;
+        }
+        if due.write_state {
+            commands.push(match due.state {
+                Some(state) => format!("set-option -p -t {id} {PANE_STATE} {}", state.as_str()),
+                None => format!("set-option -pu -t {id} {PANE_STATE}"),
+            });
+            self.pane_state = due.state.map(|state| state.as_str().to_string());
+        }
+        commands
     }
 
     /// The OSC 52 clipboard write the output since the last call asked for.

@@ -347,3 +347,59 @@ fn a_reply_past_the_cap_is_an_error_and_the_next_one_is_whole() {
         other => panic!("expected CommandResponse, got {other:?}"),
     }
 }
+
+/// tmux 3.8 queues a notification raised while a command runs until the
+/// command's block has closed (tmux issue 5458), so it comes before the
+/// `%begin` or after the `%end`, never between: both orders read the
+/// notification as one, and the reply whole.
+#[test]
+fn a_notification_queued_before_or_after_a_reply_is_read_as_one() {
+    for notification_first in [true, false] {
+        let mut parser = Parser::new();
+        let mut events = Vec::new();
+        let mut feed = |line: &str| events.extend(parser.parse_line(line));
+        if notification_first {
+            feed("%output %3 hello");
+        }
+        feed("%begin 1234567890 9 1");
+        feed("one");
+        feed("two");
+        feed("%end 1234567890 9 1");
+        if !notification_first {
+            feed("%output %3 hello");
+        }
+        assert_eq!(events.len(), 2, "{events:?}");
+        let (reply, output) = if notification_first {
+            (&events[1], &events[0])
+        } else {
+            (&events[0], &events[1])
+        };
+        assert!(
+            matches!(reply, ControlModeEvent::CommandResponse { output, success: true, .. } if output == "one\ntwo"),
+            "{reply:?}"
+        );
+        assert!(
+            matches!(output, ControlModeEvent::Output { content, .. } if content == b"hello"),
+            "{output:?}"
+        );
+    }
+}
+
+/// Before 3.8 a notification could arrive inside a block. It cannot be told
+/// from the command's own output there (a `capture-pane` of a pane showing
+/// `%output …` prints exactly that), so it is read as the reply's body: the
+/// pane's next capture or output brings it up to date. This pins that, so a
+/// parser that starts guessing is a decision, not an accident.
+#[test]
+fn before_tmux_3_8_a_notification_inside_a_reply_is_its_body() {
+    let mut parser = Parser::new();
+    assert!(parser.parse_line("%begin 1234567890 9 1").is_none());
+    assert!(parser.parse_line("%output %3 hello").is_none());
+    assert!(parser.parse_line("%window-add @4").is_none());
+    match parser.parse_line("%end 1234567890 9 1") {
+        Some(ControlModeEvent::CommandResponse { output, .. }) => {
+            assert_eq!(output, "%output %3 hello\n%window-add @4");
+        }
+        other => panic!("expected the reply, got {other:?}"),
+    }
+}

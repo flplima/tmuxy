@@ -63,6 +63,9 @@ fn read(argv: &[String]) -> Result<String, String> {
 fn make(args: FloatArgs) -> Result<String, String> {
     let pane = args.pane;
     let pane_out = read(&Spot::pane_read(pane.as_deref()))?;
+    if let Some(pane) = pane.as_deref().filter(|p| !Spot::answered_by(&pane_out, p)) {
+        return Err(format!("no such pane: {pane}"));
+    }
     let spot = Spot::new(&pane_out, &read(&Spot::windows_read(&pane_out))?);
 
     let drawer = args.drawer;
