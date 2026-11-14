@@ -125,9 +125,12 @@ it was answered with and rows already merged are re-keyed by the difference
 the oldest history.
 
 History is loaded lazily as structured cells, never as a client-maintained scrollback buffer of live
-output. On entry the client fetches the full backlog; as the user scrolls, `getNeededChunk` requests
-200-line chunks around the viewport and `mergeScrollbackChunk` merges them into the `lines` map
-(tracked by `loadedRanges`). Rows that exist but aren't loaded yet render as dim placeholders.
+output. On entry the client fetches the newest 500 rows of history and the screen
+(`FIRST_HISTORY_ROWS`), which a first wheel scroll shows at once however long the history; each
+answer then asks for the next 2,000 rows above what is in (`HISTORY_CHUNK_ROWS`), newest first,
+until the oldest row is loaded. As the user scrolls, `getNeededChunk` requests 200-line chunks
+around the viewport and `mergeScrollbackChunk` merges them into the `lines` map (tracked by
+`loadedRanges`). Rows that exist but aren't loaded yet render as dim placeholders.
 
 The fetch is a single transport call — `call('get_scrollback_cells', { paneId, start, end })`:
 
