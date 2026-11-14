@@ -158,6 +158,10 @@ pub mod tmux_options {
     /// (`claude`, `codex`, `gemini`, or a `cmd`'s program).
     pub const AGENT: &str = "@tmuxy-agent";
 
+    /// Pane-scoped: when the pane's report was written (Unix seconds),
+    /// by `tmuxy pane report`. The report counts only while this is set.
+    pub const REPORT_AT: &str = "@tmuxy-report-at";
+
     /// Pane-scoped: the agent session the pane runs, `<agent>:<uuid>`, from
     /// its hooks; `tmuxy agent revive` resumes it. Never a command line.
     pub const AGENT_SESSION: &str = "@tmuxy-agent-session";

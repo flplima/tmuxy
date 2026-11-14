@@ -15,6 +15,34 @@ cmd_pane() {
   shift 2>/dev/null || true
 
   case "$sub" in
+    report)
+      # A pane's report for whoever started it (docs/SUB-AGENTS.md). Writing
+      # is the caller's own pane only, as for restore-cmd; `-t` reads one.
+      local target="" text=() own
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --help|-h)
+            echo "Usage: tmuxy pane report <text|->        write this pane's report"
+            echo "       tmuxy pane report -t <target>      read a pane's report"
+            return
+            ;;
+          -t) [ -n "${2:-}" ] || _die_usage "-t needs a pane or label"; target="$2"; shift 2 ;;
+          *) text+=("$1"); shift ;;
+        esac
+      done
+      find_server_cmd || exit "$EXIT_FAILED"
+      if [ -n "$target" ]; then
+        [ ${#text[@]} -eq 0 ] || _die_usage "a report is its own pane's to write: -t only reads one"
+        target="$(_resolve_target "$target")" || exit $?
+        # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
+        exec "${SERVER_CMD[@]}" report -t "$target" ${server_json[@]+"${server_json[@]}"}
+      fi
+      [ ${#text[@]} -eq 1 ] || _die_usage "the report is one argument (quote it), or - for stdin"
+      own="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
+      [ -n "$own" ] || _fail "$EXIT_FAILED" "run this inside the pane the report is about"
+      exec "${SERVER_CMD[@]}" report --own "$own" ${server_json[@]+"${server_json[@]}"} -- "${text[0]}"
+      ;;
+
     restore-cmd)
       # Say how to bring this pane back after a restore (`@tmuxy-pane-restore`):
       # the program itself knows (`claude --resume <id>`, `nvim -S`, `ssh
