@@ -245,6 +245,15 @@ impl Waiter {
     }
 }
 
+/// One target, a pane id or a label, as the pane id it names: exit code and
+/// message when it names none, or several.
+pub(crate) fn resolve_one(target: &str) -> Result<String, (i32, String)> {
+    let panes = listing()?;
+    resolve(&[target.to_string()], &panes)
+        .map(|mut found| found.remove(0))
+        .map_err(|e| (EXIT_TARGET, e))
+}
+
 fn listing() -> Result<HashMap<String, Seen>, (i32, String)> {
     let argv = [
         "list-panes".into(),
