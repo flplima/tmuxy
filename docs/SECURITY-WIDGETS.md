@@ -34,6 +34,19 @@ The files a preview reads and the checkout a diff reads: in both, tmux decides w
 
 **What git prints is drawn as text.** File names and lines are strings in the answer, put on screen as text nodes only: a line of markup is shown as written. The read returns the checkout's folder name, never its path.
 
+## A Turn Is Two Snapshots Kept Outside The Checkout
+
+The "Last turn" scope (`tmuxy-core/src/diff_review/turn.rs`) shows what changed in a checkout between a pane of the diff's tab entering `working` and coming to rest (a question on the way is part of the turn). The host's pane watch (`tmuxy-core/src/host/diff_turns.rs`) notices both moments, only while a diff widget is open, and only for a pane whose folder is inside a checkout a diff of its tab shows.
+
+| Risk | What holds it |
+| ---- | ------------- |
+| A snapshot writes into the user's repository | Each snapshot starts from a copy of the repository's index, takes in tracked files (`git add -u`) and the untracked files it may copy, then `write-tree`, all into an index and object directory of tmuxy's own, under its state dir, one folder per host process, made `0700`; the repository's objects are read as alternates. Its index, refs and files are untouched. The one exception is git's freshening: an object a snapshot meets again gets its modification time renewed, as any `git add` does |
+| A snapshot runs something the repository names | It goes through `safe_git` like every diff read, with every content filter off, so a clean filter is not run (the trap test covers the turn scope); file names are passed as literal pathspecs |
+| A secret or a large file is copied into tmuxy's state dir | While a diff is open, the content of untracked files is copied into the store, but only files of at most 1 MB, 16 MB and 2,000 files in all, and never one named like a secret (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.netrc`, `credentials*`, and the like), ignored by the repository or not (`tmuxy-core/src/diff_review/turn/snapshot.rs`). Each file left out is named on screen with why, and is not in the turn |
+| Snapshots pile up | A checkout's turn and store go once no diff shows it; the stores of a host that is no longer running are removed when a host starts, never those of one that runs |
+
+A turn is kept in memory only: a host that restarts has seen none, and the scope says so until the next one.
+
 ## A Review Types Into One Agent, Never At A Question
 
 A diff's comments go to an agent as one numbered prompt (`domain/review.ts`, `components/widgets/diff/ReviewBar.tsx`): pasted into the pane the review bar names, then Enter. Only a pane of the widget's own tab running an agent (`agent_screen::AGENT_COMMANDS`, generated into the UI) is offered; `tmuxy widget diff --to %N` only preselects one, and the script takes nothing but a pane id there.

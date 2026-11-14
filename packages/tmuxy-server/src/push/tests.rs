@@ -248,7 +248,7 @@ fn rows_reporting(states: &[(&str, &str, &str)], notify: &str) -> Vec<PaneRow> {
         &states
             .iter()
             .map(|(pane, state, status)| {
-                format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\t\t100\t{status}\tmain")
+                format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t@1\t\t\t\t100\t{status}\tmain")
             })
             .collect::<Vec<_>>()
             .join("\n"),
