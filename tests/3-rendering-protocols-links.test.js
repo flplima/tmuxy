@@ -206,12 +206,13 @@ describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) =
       // the pane's right edge, underlined across both rows. Both rows link to
       // the full address rather than `https://github` on row 1 and plain text
       // on row 2.
-      const agyPath = `com/flplima/tmuxy/actions/runs/${'4'.repeat(Math.max(42, width - 38))}`;
-      const agyUrl = `https://github.${agyPath}`;
+      // As above, the typed command does not itself hold the text waited for.
+      const fours = Math.max(42, width - 38);
+      const agyUrl = `https://github.com/flplima/tmuxy/actions/runs/${'4'.repeat(fours)}`;
       await runCommand(
         ctx.page,
-        `clear; printf '  • Run: \\e[4mhttps://github.\\e[0m\\n  \\e[4m%s\\e[0m\\n' '${agyPath}'`,
-        agyPath.slice(-12),
+        `clear; printf '  • Run: \\e[4mhttps://github.\\e[0m\\n  \\e[4mcom/flplima/tmuxy/actions/runs/%s\\e[0m\\n' "$(printf '4%.0s' {1..${fours}})"`,
+        'runs/4444',
       );
       const agyRows = await ctx.page.evaluate(
         (href) =>
