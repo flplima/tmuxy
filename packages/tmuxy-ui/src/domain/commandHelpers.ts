@@ -37,6 +37,17 @@ export function target(name: string): string {
   return /^[\w.@%:-]+$/.test(name) ? name : quote(name);
 }
 
+/**
+ * Where typed input goes: a pane id as it is, or — before the client knows a
+ * pane — the session of that name alone, at its active pane (`=name:`). A
+ * bare name is tried as a window of the current session first, then as the
+ * session it names or is the prefix of: another session than the one meant
+ * (X8 in docs/INVARIANTS.md).
+ */
+export function inputTarget(to: string): string {
+  return target(/^%\d+$/.test(to) ? to : `=${to}:`);
+}
+
 export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
@@ -100,10 +111,10 @@ export function list(commands: ReadonlyArray<string>): string {
  * rejects the command, and the text is lost.
  *
  * `to` is a pane id, or — before the client knows one — the session name,
- * which goes through `target` like every other name on a command line.
+ * which goes through `inputTarget`.
  */
 export function literalText(to: string, text: string): string {
-  const at = target(to);
+  const at = inputTarget(to);
   const lines = text.split(/\r?\n/);
   const commands: string[] = [];
   lines.forEach((line, i) => {
@@ -236,7 +247,7 @@ export const REVIEW_REFUSED =
  * reads: the fallback target, a session name, could be anything at all.
  */
 export function pasteBufferInto(to: string): string {
-  const single = `paste-buffer -p -d -b ${PASTE_BUFFER} -t ${target(to)}`;
+  const single = `paste-buffer -p -d -b ${PASTE_BUFFER} -t ${inputTarget(to)}`;
   if (!/^%\d+$/.test(to)) return single;
   const synced = script('paste-synced', to, PASTE_BUFFER);
   return `if-shell -F -t ${to} '#{pane_synchronized}' '${synced}' '${single}'`;

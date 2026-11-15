@@ -4,7 +4,7 @@
  * the contexts and config type are in `appContexts.ts`.
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useActorRef } from '@xstate/react';
 import { appMachine } from './app/appMachine';
 import type { Layer } from 'effect';
@@ -74,8 +74,7 @@ export function AppProvider({
     }),
   );
 
-  // Expose the XState actor for E2E tests and stories (machines/testView.ts),
-  // and tap `send` so the action tracer sees every dispatched event.
+  // Tap `send` so the action tracer sees every dispatched event.
   useMemo(() => {
     if (typeof window === 'undefined') return;
     const originalSend = actorRef.send.bind(actorRef);
@@ -89,6 +88,14 @@ export function AppProvider({
       else if (type) tracer.event({ layer: 'xstate', name: type });
       return originalSend(event as Parameters<typeof originalSend>[0]);
     };
+  }, [actorRef]);
+
+  // Published for tests and stories only once the machine has started (this
+  // effect runs after `useActorRef`'s, which starts it): a test types as soon
+  // as `window.app` appears, and before the start no keyboard listener was
+  // there to take the key — it was neither held nor reported as not sent.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     // "Has the app caught up?" — the E2E suite's `waitForSettled` asks this
     // instead of sleeping a round trip's worth: nothing queued, batched or in
     // flight to the backend, no optimistic op awaiting tmux's verdict, and
@@ -125,6 +132,7 @@ export function AppProvider({
       await nextFrame();
     };
     const view = (): AppTestView => selectTestView(actorRef.getSnapshot().context);
+    // The XState actor for E2E tests and stories (machines/testView.ts).
     window.app = Object.assign(actorRef, { settled, caughtUp, view });
   }, [actorRef, runtime, store]);
 

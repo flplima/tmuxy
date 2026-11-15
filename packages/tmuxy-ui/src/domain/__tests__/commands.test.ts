@@ -71,7 +71,7 @@ const cases: Array<[TmuxOp, string]> = [
     TmuxOp.PasteText({ target: pid('%3'), text: 'ls -la' }),
     `set-buffer -b tmuxy-paste "ls -la"\n${PASTE_INTO_3}`,
   ],
-  [TmuxOp.SendKeys({ target: 'main', keys: 'Up' }), 'send-keys -t main Up'],
+  [TmuxOp.SendKeys({ target: 'main', keys: 'Up' }), "send-keys -t '=main:' Up"],
   [TmuxOp.SendText({ target: pid('%3'), text: "it's" }), "send-keys -t %3 -l -- 'it'\\''s'"],
   // Text that starts with a dash stays text: without `--` tmux read `-$` (fast
   // typing batched the `-$` of `"line-$i"`) as flags and dropped it.
@@ -310,7 +310,7 @@ describe('toTmuxCommand', () => {
 
   it('pastes into a session target alone: a name never reaches the shell the synced paste runs in', () => {
     expect(toTmuxCommand(TmuxOp.PasteText({ target: "x'; touch y; '", text: 'a' }))).toBe(
-      `set-buffer -b tmuxy-paste "a"\npaste-buffer -p -d -b tmuxy-paste -t 'x'\\''; touch y; '\\'''`,
+      `set-buffer -b tmuxy-paste "a"\npaste-buffer -p -d -b tmuxy-paste -t '=x'\\''; touch y; '\\'':'`,
     );
   });
 

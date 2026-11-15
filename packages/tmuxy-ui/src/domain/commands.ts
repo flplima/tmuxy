@@ -25,6 +25,7 @@ import {
   script,
   scriptWith,
   target,
+  inputTarget,
   quote,
 } from './commandHelpers';
 import { LEFT_SIDEBAR_WIDGET, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
@@ -288,7 +289,7 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'PasteBuffer':
       return 'paste-buffer -p';
     case 'SendKeys':
-      return `send-keys -t ${target(op.target)} ${op.keys}`;
+      return `send-keys -t ${inputTarget(op.target)} ${op.keys}`;
     case 'SendText':
       return literalText(op.target, op.text);
     case 'PasteText':
