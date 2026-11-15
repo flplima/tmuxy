@@ -199,6 +199,47 @@ describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) =
         'the program-wrapped URL to be opened from its second row',
       );
       expect(await ctx.page.evaluate(() => window.__opened[3].url)).toBe(hard);
+
+      // Step 5: a URL that agy CLI (glamour / muesli wordwrap) broke early at
+      // a dot because the slash-separated path segment after `https://github.`
+      // did not fit on the first line — so the first line ends far short of
+      // the pane's right edge, underlined across both rows. Both rows link to
+      // the full address rather than `https://github` on row 1 and plain text
+      // on row 2.
+      // As above, the typed command does not itself hold the text waited for.
+      const fours = Math.max(42, width - 38);
+      const agyUrl = `https://github.com/flplima/tmuxy/actions/runs/${'4'.repeat(fours)}`;
+      await runCommand(
+        ctx.page,
+        `clear; printf '  • Run: \\e[4mhttps://github.\\e[0m\\n  \\e[4mcom/flplima/tmuxy/actions/runs/%s\\e[0m\\n' "$(printf '4%.0s' {1..${fours}})"`,
+        'runs/4444',
+      );
+      const agyRows = await ctx.page.evaluate(
+        (href) =>
+          [...document.querySelectorAll('.terminal-content a.terminal-autolink')]
+            .filter((a) => a.getAttribute('href') === href)
+            .map((a) => Math.round(a.getBoundingClientRect().top)),
+        agyUrl,
+      );
+      expect(new Set(agyRows).size).toBe(2);
+      await ctx.page.keyboard.down(modifier);
+      await ctx.page
+        .locator(`.terminal-content a.terminal-autolink[href="${agyUrl}"]`)
+        .first()
+        .click();
+      await ctx.page
+        .locator(`.terminal-content a.terminal-autolink[href="${agyUrl}"]`)
+        .last()
+        .click();
+      await ctx.page.keyboard.up(modifier);
+      await waitForCondition(
+        ctx.page,
+        async () => ctx.page.evaluate(() => window.__opened.length === 6),
+        5000,
+        'both rows of the agy word-wrapped URL to open the full address',
+      );
+      expect(await ctx.page.evaluate(() => window.__opened[4].url)).toBe(agyUrl);
+      expect(await ctx.page.evaluate(() => window.__opened[5].url)).toBe(agyUrl);
     });
 
     // The reported bug: Claude Code's PR link in its footer stopped opening.

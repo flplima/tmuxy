@@ -60,5 +60,25 @@ describe('one painter for both renderers', () => {
       backgroundImage: true,
       color: 'transparent',
     });
+
+    // Both the live screen and the scrollback DOM renderer open links through
+    // openLinkFrom (window.open on web) rather than native anchor navigation.
+    const opened: string[] = [];
+    const origOpen = window.open;
+    window.open = ((url: string | URL) => {
+      opened.push(String(url));
+      return null;
+    }) as typeof window.open;
+    try {
+      const liveAnchor = live().querySelector('a.terminal-hyperlink') as HTMLAnchorElement;
+      const scrollAnchor = scrollView().querySelector('a.terminal-hyperlink') as HTMLAnchorElement;
+      expect(liveAnchor.tabIndex).toBe(-1);
+      expect(scrollAnchor.tabIndex).toBe(-1);
+      liveAnchor.click();
+      scrollAnchor.click();
+      expect(opened).toEqual([URL, URL]);
+    } finally {
+      window.open = origOpen;
+    }
   });
 });

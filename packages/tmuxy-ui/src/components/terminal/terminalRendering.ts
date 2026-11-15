@@ -1,7 +1,7 @@
 import type { CellLine } from '../../domain/wireCells';
 import { cellColorToCss, sameCellColor } from './terminalShared';
 import type { DetectedUrl } from './urlDetect';
-import { safeHref } from '../../infra/openUrl';
+import { openLinkFrom, safeHref } from '../../infra/openUrl';
 import {
   cellRuns,
   rowUrlIndex,
@@ -34,10 +34,11 @@ function detectLineBg(line: CellLine): string | null {
 function runNode(run: CellRun): HTMLElement {
   let node: HTMLElement;
   if (run.link) {
+    const { url } = run.link;
     const a = document.createElement('a');
     // Raw DOM: React's own blocking of a `javascript:` href does not apply,
     // so the allowlist is the only guard.
-    const href = safeHref(run.link.url);
+    const href = safeHref(url);
     if (href) {
       a.href = href;
       a.title = href;
@@ -45,6 +46,12 @@ function runNode(run: CellRun): HTMLElement {
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
     a.draggable = false;
+    a.tabIndex = -1;
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openLinkFrom(a, url, e.shiftKey);
+    });
     node = a;
   } else {
     node = document.createElement('span');
