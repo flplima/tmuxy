@@ -8,7 +8,7 @@ fn iterm2_inline_image_strips_and_stores() {
     let input = format!("\x1b]1337;File=inline=1;width=10;height=5:{}\x07", b64);
     let result = parser.process(input.as_bytes());
 
-    assert!(result.clean_bytes.is_empty());
+    assert!(result.clean_bytes == STRIPPED_ESCAPE);
     assert_eq!(parser.placements.len(), 1);
     assert_eq!(parser.placements[0].protocol, ImageProtocol::ITerm2);
     assert_eq!(parser.placements[0].width_cells, 10);
@@ -54,7 +54,7 @@ fn iterm2_non_inline_consumed_but_not_stored() {
     let mut parser = ImageParser::new();
     let input = b"\x1b]1337;File=name=dGVzdA==:iVBORw0KGgo=\x07";
     let result = parser.process(input);
-    assert!(result.clean_bytes.is_empty());
+    assert!(result.clean_bytes == STRIPPED_ESCAPE);
     assert!(parser.placements.is_empty());
     assert!(result.new_images.is_empty());
 }
@@ -64,7 +64,7 @@ fn iterm2_mixed_with_text() {
     let mut parser = ImageParser::new();
     let input = b"Hello \x1b]1337;File=inline=1;width=5;height=3:iVBORw0KGgo=\x07 World";
     let result = parser.process(input);
-    assert_eq!(result.clean_bytes, b"Hello  World");
+    assert_eq!(result.clean_bytes, b"Hello \x1b\\ World");
     assert_eq!(parser.placements.len(), 1);
 }
 
@@ -78,7 +78,7 @@ fn iterm2_image_split_across_chunks_is_buffered_not_torn() {
     assert!(out1.clean_bytes.is_empty());
     assert!(parser.placements.is_empty());
     let out2 = parser.process(b"0KGgo=\x07done");
-    assert_eq!(out2.clean_bytes, b"done");
+    assert_eq!(out2.clean_bytes, b"\x1b\\done");
     assert_eq!(parser.placements.len(), 1);
     assert_eq!(out2.new_images.len(), 1);
 }
@@ -141,7 +141,7 @@ fn kitty_png_single_chunk() {
     let result = parser.process(input.as_bytes());
 
     assert!(
-        result.clean_bytes.is_empty(),
+        result.clean_bytes == STRIPPED_ESCAPE,
         "kitty bytes must be stripped"
     );
     assert_eq!(parser.placements.len(), 1);
@@ -167,7 +167,7 @@ fn a_kitty_frame_wrapped_in_tmux_passthrough_still_renders() {
     let result = parser.process(wrapped.as_bytes());
 
     assert!(
-        result.clean_bytes.is_empty(),
+        result.clean_bytes == STRIPPED_ESCAPE,
         "the whole wrapper is consumed: {:?}",
         String::from_utf8_lossy(&result.clean_bytes)
     );
@@ -205,7 +205,7 @@ fn a_passthrough_split_across_reads_is_held_until_it_completes() {
         1,
         "the frame lands once it is whole"
     );
-    assert!(second.clean_bytes.is_empty());
+    assert!(second.clean_bytes == STRIPPED_ESCAPE);
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn kitty_delete_clears_placements_so_a_repaint_does_not_stack() {
     // The delete an application sends before its next frame.
     let result = parser.process(b"\x1b_Ga=d,q=2\x1b\\");
     assert!(
-        result.clean_bytes.is_empty(),
+        result.clean_bytes == STRIPPED_ESCAPE,
         "the delete must be stripped from the text stream"
     );
     assert!(parser.placements.is_empty(), "a=d drops every placement");
