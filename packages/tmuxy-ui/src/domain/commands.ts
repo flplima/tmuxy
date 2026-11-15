@@ -26,6 +26,7 @@ import {
   scriptWith,
   target,
   inputTarget,
+  sessionTarget,
   quote,
 } from './commandHelpers';
 import { LEFT_SIDEBAR_WIDGET, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
@@ -388,17 +389,17 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'NewSession':
       return `new-session -d -s ${target(op.name)}`;
     case 'KillSession':
-      return op.name === null ? 'kill-session' : `kill-session -t ${target(op.name)}`;
+      return op.name === null ? 'kill-session' : `kill-session -t ${sessionTarget(op.name)}`;
     case 'SwitchClient':
-      return `switch-client -t ${target(op.session)}`;
+      return `switch-client -t ${sessionTarget(op.session)}`;
     case 'RenameSession':
       return op.session === null
         ? `rename-session -- ${quote(op.name)}`
-        : `rename-session -t ${target(op.session)} -- ${quote(op.name)}`;
+        : `rename-session -t ${sessionTarget(op.session)} -- ${quote(op.name)}`;
     case 'SourceConfig':
       return `source-file ${CONFIG_FILE}`;
     case 'ClearFocusRequest':
-      return `set-option -u -t ${target(op.session)} @tmuxy-focus-request`;
+      return `set-option -u -t ${sessionTarget(op.session)} @tmuxy-focus-request`;
     case 'PluginAction':
       return pluginAction(op);
     case 'CommandPrompt':

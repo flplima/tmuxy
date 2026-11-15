@@ -230,11 +230,14 @@ const cases: Array<[TmuxOp, string]> = [
 
   [TmuxOp.NewSession({ name: 'tmuxy_17' }), 'new-session -d -s tmuxy_17'],
   [TmuxOp.KillSession({ name: null }), 'kill-session'],
-  [TmuxOp.KillSession({ name: 'my work' }), "kill-session -t 'my work'"],
-  [TmuxOp.SwitchClient({ session: 'my work' }), "switch-client -t 'my work'"],
-  [TmuxOp.RenameSession({ session: 'work', name: 'play' }), "rename-session -t work -- 'play'"],
+  [TmuxOp.KillSession({ name: 'my work' }), "kill-session -t '=my work'"],
+  [TmuxOp.SwitchClient({ session: 'my work' }), "switch-client -t '=my work'"],
+  [TmuxOp.RenameSession({ session: 'work', name: 'play' }), "rename-session -t '=work' -- 'play'"],
   [TmuxOp.SourceConfig(), 'source-file $TMUXY_ENTRY_CONF'],
-  [TmuxOp.ClearFocusRequest({ session: 'tmuxy' }), 'set-option -u -t tmuxy @tmuxy-focus-request'],
+  [
+    TmuxOp.ClearFocusRequest({ session: 'tmuxy' }),
+    "set-option -u -t '=tmuxy' @tmuxy-focus-request",
+  ],
 
   [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \\"%%%\\""'],
   [renameSessionPrompt(), 'command-prompt -I "#S" "rename-session -- \\"%%%\\""'],

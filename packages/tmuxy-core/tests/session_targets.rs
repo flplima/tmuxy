@@ -43,3 +43,28 @@ async fn a_session_is_found_by_its_whole_name_never_by_a_prefix() {
         "{grouped}"
     );
 }
+
+/// The targets the UI's kill-session and rename-session ops spell (`=name`):
+/// with `work` gone, a bare `-t work` would take `work-2`, the one session
+/// it is a prefix of.
+#[test]
+fn kill_and_rename_by_exact_name_leave_the_session_it_prefixes() {
+    let server = common::ScratchServer::new("exact-ops");
+    server.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", "work"]);
+    server.tmux(&["new-session", "-d", "-s", "work-2"]);
+    let names = || server.tmux(&["list-sessions", "-F", "#{session_name}"]);
+
+    server.tmux(&["rename-session", "-t", "=work", "--", "play"]);
+    assert_eq!(names().lines().collect::<Vec<_>>(), ["play", "work-2"]);
+
+    server.tmux(&["kill-session", "-t", "=play"]);
+    assert_eq!(names(), "work-2");
+
+    // The exact form of a missing name fails, where the bare one would hit `work-2`.
+    let gone = tmuxy_core::session::local_tmux_on(&server.socket)
+        .args(["kill-session", "-t", "=work"])
+        .output()
+        .expect("tmux runs");
+    assert!(!gone.status.success());
+    assert_eq!(names(), "work-2");
+}
