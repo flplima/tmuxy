@@ -48,6 +48,15 @@ export function inputTarget(to: string): string {
   return target(/^%\d+$/.test(to) ? to : `=${to}:`);
 }
 
+/**
+ * A session named as a target-session: `=name`, that session alone. A bare
+ * name is tried as a window of the current session first, then as a session
+ * it names or is the prefix of (X8 in docs/INVARIANTS.md).
+ */
+export function sessionTarget(name: string): string {
+  return target(`=${name}`);
+}
+
 export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }

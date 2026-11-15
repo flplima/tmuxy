@@ -60,7 +60,7 @@ describe('TmuxTransport over a driver', () => {
     // The one client moved: no new stream, and so no state to ask for.
     expect(await adapter.run(call((t) => t.switchSession('demo')))).toBe(false);
     expect(adapter.invocations).toEqual([
-      { cmd: 'run_tmux_command', args: { command: 'switch-client -t demo' } },
+      { cmd: 'run_tmux_command', args: { command: "switch-client -t '=demo'" } },
     ]);
   });
 

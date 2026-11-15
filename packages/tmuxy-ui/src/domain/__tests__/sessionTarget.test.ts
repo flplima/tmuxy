@@ -22,3 +22,17 @@ describe('a session name keys fall back to', () => {
     }
   });
 });
+
+describe('a session the ops name', () => {
+  it.each([
+    [TmuxOp.KillSession({ name: 'work' }), "kill-session -t '=work'"],
+    [TmuxOp.SwitchClient({ session: 'work' }), "switch-client -t '=work'"],
+    [TmuxOp.RenameSession({ session: 'work', name: 'x' }), "rename-session -t '=work' -- 'x'"],
+    [
+      TmuxOp.ClearFocusRequest({ session: 'work' }),
+      "set-option -u -t '=work' @tmuxy-focus-request",
+    ],
+  ])('is exact in %j', (op, command) => {
+    expect(toTmuxCommand(op)).toBe(command);
+  });
+});
