@@ -97,6 +97,8 @@ export abstract class GuestEngine {
   };
 
   protected sink: EngineSink | null = null;
+  /** The adapter the machine answers to: the last one to start it. */
+  private owner: object | null = null;
   private readyListeners = new Set<() => void>();
 
   /** Queue a control-mode command (one line, or several) for the guest. */
@@ -123,6 +125,24 @@ export abstract class GuestEngine {
    */
   clearSink(sink: EngineSink): void {
     if (this.sink === sink) this.sink = null;
+  }
+
+  /**
+   * Hand the machine to `owner`, before its start. On a shared engine the
+   * previous story's app is still unmounting when the next one connects, and
+   * what it sends on its way out (its viewport, shrunk to nothing) would
+   * resize the next story's tmux; from here on its calls are refused and its
+   * sink hears nothing. The start attaches at the size a cold boot does, not
+   * at the last one that app asked for.
+   */
+  claim(owner: object): void {
+    this.owner = owner;
+    this.sink = null;
+    this.clientSize = { cols: GUEST_DEFAULT_COLS, rows: GUEST_DEFAULT_ROWS };
+  }
+
+  ownedBy(owner: object): boolean {
+    return this.owner === owner;
   }
 
   /** Fires after each boot/reset, once attached and synced. */
