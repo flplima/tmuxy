@@ -82,6 +82,34 @@ tmuxy config paths --json       # every file tmuxy reads or writes: owner, locat
   --wait`: never retry it) · 130 interrupted. A wait passes the program's status
   through.
 
+## Markdown & HTML preview (`tmuxy open`)
+
+Open a markdown document or HTML page in a pane next to you:
+
+```sh
+tmuxy pane run --label preview -- tmuxy open artifact.md
+```
+
+The preview reloads automatically whenever the file changes on disk.
+
+Markdown previews support GFM, `mermaid` and `pele` diagrams, YAML front
+matter, and common HTML tags (`<details>`/`<summary>`, `<kbd>`, `<sub>`/`<sup>`,
+`<br>`, `<img width height align>`, `<picture>`/`<source>`, `<div align>`,
+`<mark>`, `<ins>`, `<u>`, `<dl>`/`<dt>`/`<dd>`, `<table>` with `colspan` and
+`rowspan`, `<ruby>`, `<fieldset>`/`<legend>`, `<meter>`, `<progress>`).
+
+Interactive form controls (`<input>` with `text`, `number`, `range`, `color`,
+`checkbox`, `radio`, etc., plus `<select>` and `<textarea>`) print one JSON
+line to the preview pane's console output whenever the user changes a control:
+
+```json
+{"input":"radius","type":"range","value":12}
+{"input":"accent","type":"color","value":"#ff5500"}
+```
+
+Give each control a `name` (or `id`). Read the user's latest tweaks from the
+preview pane with `tmuxy pane capture -t preview --trim`.
+
 ## Personalizing tmuxy
 
 Everything the user can change lives in `~/.config/tmuxy/`. `tmuxy config paths`

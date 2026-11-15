@@ -47,10 +47,10 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 | Component | Trust Level | Rationale |
 | --- | --- | --- |
-| The host machine & tmux server | Trusted | Runs with the authenticated user's permissions |
-| The tmuxy backend server | Trusted | Local process mediating control-mode and state |
-| Pane output byte streams | **Untrusted** | Any program or untrusted input file can write arbitrary escape sequences or payload bytes |
-| Browser / Webview environment | Semi-trusted context | Has access to DOM, clipboard APIs, web workers, and backend API routes |
+| Host machine & tmux server | Trusted | Runs with the authenticated user's permissions |
+| tmuxy backend server | Trusted | Local process mediating control-mode and state |
+| Pane output byte streams | **Untrusted** | Any program or file can write arbitrary escape sequences or bytes |
+| Browser / Webview environment | Semi-trusted | Has access to DOM, clipboard APIs, web workers, and backend API routes |
 
 ### Threat Vectors
 
@@ -84,7 +84,7 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 Automated fuzzing over terminal parsers and sequence handlers must verify:
 
-- **No Panics or Unhandled Exceptions:** The Rust aggregator (`tmuxy-core`) and frontend terminal stream consumers must never panic, throw unhandled exceptions, or crash when fed completely random or adversarial byte streams.
-- **Strict Scheme Filtering:** Fuzzing URI inputs against OSC 8 handlers and regex linkifiers must never emit an `<a>` tag with an href containing `javascript:`, `vbscript:`, or unvetted pseudo-protocols.
-- **Bounded Resource Consumption:** Feeding arbitrarily large or invalid base64 image chunks must terminate within bounded memory and time budgets.
-- **Parser Resynchronization:** An incomplete, nested, or corrupt escape sequence must not corrupt subsequent valid output lines or state updates.
+- **No Panics or Unhandled Exceptions:** `tmuxy-core` and frontend stream consumers never panic, throw, or crash on random or adversarial byte streams.
+- **Strict Scheme Filtering:** Fuzzing URI inputs against OSC 8 and linkifiers never emits an `<a>` tag with `javascript:`, `vbscript:`, or unvetted schemes.
+- **Bounded Resource Consumption:** Arbitrarily large or invalid base64 image chunks terminate within bounded memory and time budgets.
+- **Parser Resynchronization:** An incomplete, nested, or corrupt escape sequence never corrupts subsequent output lines or state updates.

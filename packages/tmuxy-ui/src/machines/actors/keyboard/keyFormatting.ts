@@ -178,7 +178,9 @@ export function isRealFormControl(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
   return (
     element !== null &&
-    (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') &&
+    (element.tagName === 'TEXTAREA' ||
+      element.tagName === 'INPUT' ||
+      element.tagName === 'SELECT') &&
     element !== getMobileInput()
   );
 }

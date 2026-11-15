@@ -35,6 +35,7 @@ function runWidgetWithPaneGone(pane) {
       ['-e', '$SIG{PIPE} = "IGNORE"; exec { "/bin/bash" } "bash", @ARGV', WIDGET, 'tree'],
       {
         cwd,
+        detached: true,
         stdio: ['pipe', 'pipe', 'ignore'],
         env: scriptEnv(dir, {
           MOCK_TMUX_LOG: log,

@@ -129,10 +129,9 @@ function bridge(
       if (!(e.ctrlKey || e.altKey) || e.metaKey) return;
       if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
       const chord = chordOf(e, inField(e.target) || selection()?.isCollapsed === false);
-      if (chord === 'native') return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (chord === 'copy') {
+      if (chord === 'native' || chord === 'copy') {
         execCommand('copy');
         return;
       }
