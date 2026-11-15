@@ -40,6 +40,13 @@ export function rowText(line: CellLine): string {
 
 const URL_CHAR_RE = new RegExp(`^${URL_CHAR}$`, 'u');
 const URL_RUN_RE = new RegExp(`^${URL_CHAR}+`, 'u');
+const URL_TAIL_RE = new RegExp(`${URL_CHAR}+$`, 'u');
+const HAS_SCHEME_RE = /https?:\/\//i;
+const STARTS_WITH_SCHEME_RE = /^https?:\/\//i;
+/** Characters a word-wrapper (`muesli/reflow/wordwrap`, etc.) breaks a URL after. */
+const URL_WRAP_BREAK_RE = /[.\-/?&=:;_~#]/;
+/** Closing punctuation/quotes that may immediately follow a URL token at the end of a line. */
+const TRAILING_PUNCT_RE = /^['"`>.,;:!?)\]]*$/;
 /** A character only an address is likely to carry. */
 const URLISH_RE = /[/.?=&%#_~:\-\p{N}]/u;
 const LIST_MARKER_RE = /^(?:[-*+•]|\p{N}+[.)])$/u;
@@ -68,6 +75,60 @@ function contentOf(line: CellLine): {
   return { startCell, endCell, start, end };
 }
 
+function underlineSpanState(
+  prevCell: CellLine[number],
+  nextCell: CellLine[number],
+): 'continued' | 'ended' | 'none' {
+  if (!prevCell.s?.underline) return 'none';
+  return nextCell.s?.underline ? 'continued' : 'ended';
+}
+
+function endsWithUrlFragment(prev: CellLine, before: ReturnType<typeof contentOf>): boolean {
+  const prevContent = rowText(prev).slice(before.start, before.end);
+  const prevTail = URL_TAIL_RE.exec(prevContent)?.[0];
+  if (!prevTail) return false;
+  return (
+    HAS_SCHEME_RE.test(prevTail) || (before.startCell > 0 && prevTail.length === prevContent.length)
+  );
+}
+
+/**
+ * Whether `prev` ended inside a URL that either reached `edge`, was broken early
+ * at `.` / `-` (or another URL delimiter) by a word-wrapper (`muesli/reflow/wordwrap`
+ * in agy/glamour) because `token` could not fit before `edge`, or was underlined
+ * across both rows by the TUI.
+ */
+function brokeInsideUrl(
+  prev: CellLine,
+  before: ReturnType<typeof contentOf>,
+  after: ReturnType<typeof contentOf>,
+  token: string,
+  edge: number,
+  bothUnderlined: boolean,
+): boolean {
+  if (before.endCell >= edge) return true;
+  if (!endsWithUrlFragment(prev, before)) return false;
+  if (bothUnderlined) return true;
+  if (after.startCell === 0) return false;
+  const lastChar = prev[before.endCell - 1].c;
+  if (/[.-]/.test(lastChar) && URLISH_RE.test(token)) return true;
+  return URL_WRAP_BREAK_RE.test(lastChar) && before.endCell + token.length > edge;
+}
+
+function isUrlContinuationToken(rest: string, bothUnderlined: boolean): string | null {
+  const token = URL_RUN_RE.exec(rest)?.[0];
+  if (!token || STARTS_WITH_SCHEME_RE.test(token)) return null;
+  const alone = TRAILING_PUNCT_RE.test(rest.slice(token.length));
+  if (!alone && LIST_MARKER_RE.test(token)) return null;
+  return alone || bothUnderlined || URLISH_RE.test(token) ? token : null;
+}
+
+function isProgramBreak(prev: CellLine, next: CellLine, width: number): boolean {
+  const before = contentOf(prev);
+  const after = contentOf(next);
+  return before.endCell < width || before.startCell > 0 || after.startCell >= 2;
+}
+
 /**
  * Whether `next` may be the rest of an address `prev` ran out of room for,
  * wrapped by the PROGRAM: Claude Code, agy and other Ink and curses TUIs break
@@ -82,17 +143,19 @@ export function mayContinueUrl(
 ): boolean {
   if (!prev || !next) return false;
   const before = contentOf(prev);
-  if (before.endCell === before.startCell || before.endCell < width - wrapSlack(width)) {
+  const after = contentOf(next);
+  if (before.endCell === before.startCell || after.endCell === after.startCell) {
     return false;
   }
-  if (!URL_CHAR_RE.test(prev[before.endCell - 1].c)) return false;
-  const after = contentOf(next);
+  const lastCell = prev[before.endCell - 1];
+  if (!URL_CHAR_RE.test(lastCell.c)) return false;
+  const underline = underlineSpanState(lastCell, next[after.startCell]);
+  if (underline === 'ended') return false;
+  const bothUnderlined = underline === 'continued';
   const rest = rowText(next).slice(after.start, after.end);
-  const token = URL_RUN_RE.exec(rest)?.[0];
+  const token = isUrlContinuationToken(rest, bothUnderlined);
   if (!token) return false;
-  const alone = token.length === rest.length;
-  if (!alone && LIST_MARKER_RE.test(token)) return false;
-  return alone || URLISH_RE.test(token);
+  return brokeInsideUrl(prev, before, after, token, width - wrapSlack(width), bothUnderlined);
 }
 
 export function continuesInto(
@@ -119,8 +182,8 @@ export function detectUrlsAcrossRows(rows: readonly CellLine[], width: number): 
     for (let r = i; r <= end; r++) {
       const text = rowText(rows[r]);
       const content = contentOf(rows[r]);
-      const brokeBefore = r > i && !isWrappedRow(rows[r - 1], width);
-      const breaksAfter = r < end && !isWrappedRow(rows[r], width);
+      const brokeBefore = r > i && isProgramBreak(rows[r - 1], rows[r], width);
+      const breaksAfter = r < end && isProgramBreak(rows[r], rows[r + 1], width);
       const from = brokeBefore ? content.start : 0;
       const to = breaksAfter ? content.end : text.length;
       pieces.push({ row: r, text: text.slice(from, to), from });

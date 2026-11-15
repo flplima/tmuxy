@@ -132,6 +132,75 @@ describe('detectUrlsAcrossRows', () => {
       ]);
     });
 
+    it('links a URL agy word-wrapped early at a dot or hyphen because the rest could not fit', () => {
+      // agy (glamour / muesli wordwrap) breaks at `.` and `-` when the next
+      // slash-separated segment exceeds the remaining width, leaving row 0
+      // far short of the right edge (col 36 of an 80-col pane).
+      const full = 'https://github.com/flplima/tmuxy/actions/runs/43722362807';
+      const agyRows = rows(
+        '  • Run 43722362807: https://github.',
+        '  com/flplima/tmuxy/actions/runs/43722362807',
+      );
+      const perRow = detectUrlsAcrossRows(agyRows, 80);
+      expect(perRow[0]).toEqual([{ start: 21, end: 36, url: full }]);
+      expect(perRow[1]).toEqual([{ start: 2, end: 44, url: full }]);
+
+      // Across three rows, with a hyphen break on row 0 and a slash break on row 1.
+      const threeRowUrl =
+        'https://my-staging-host.example.com/org/repo/actions/runs/43722362807/job/98765432101234567890';
+      const threeRows = rows(
+        '  • Job link: https://my-staging-',
+        '  host.example.com/org/repo/actions/runs/43722362807/job/',
+        '  98765432101234567890',
+      );
+      const threeDetected = detectUrlsAcrossRows(threeRows, 80);
+      for (const r of [0, 1, 2]) expect(at(r, threeDetected)).toEqual([threeRowUrl]);
+    });
+
+    it('uses underline continuity from TUI markdown links and stops when underline ends', () => {
+      const underlined = (prefix: string, linkPart: string, suffix = ''): CellLine => [
+        ...[...prefix].map((c) => ({ c })),
+        ...[...linkPart].map((c) => ({ c, s: { underline: true } })),
+        ...[...suffix].map((c) => ({ c })),
+      ];
+      const full = 'https://docs.example.com/reference/configuration/overview';
+      const lines = [
+        underlined('  • Docs: ', 'https://docs.example.com/reference/configuration/'),
+        underlined('  ', 'overview', ' for more details'),
+      ];
+      const perRow = detectUrlsAcrossRows(lines, 80);
+      expect(at(0, perRow)).toEqual([full]);
+      expect(at(1, perRow)).toEqual([full]);
+
+      // When row 0's URL is underlined and row 1's text is not, row 1 is not joined
+      // even if row 0 reached the margin and row 1 starts with URL-like characters.
+      const separate = [
+        underlined('see ', 'https://example.com/docs/abcdefghij'),
+        rows('  v2.0 is out')[0],
+      ];
+      expect(at(0, detectUrlsAcrossRows(separate, pane))).toEqual([
+        'https://example.com/docs/abcdefghij',
+      ]);
+    });
+
+    it('runs through a full-width box border and does not merge two consecutive URLs', () => {
+      const boxed = rows(
+        `│ ${url.slice(0, 36)} │`, // 40 columns === pane
+        `│ ${url.slice(36)} │`,
+      );
+      const perRow = detectUrlsAcrossRows(boxed, pane);
+      expect(at(0, perRow)).toEqual([url]);
+      expect(at(1, perRow)).toEqual([url]);
+
+      const twoUrls = rows(
+        '  https://github.com/flplima/tmuxy/pull/283',
+        '  https://github.com/flplima/tmuxy/pull/284',
+      );
+      const twoDetected = detectUrlsAcrossRows(twoUrls, 45);
+      expect(at(0, twoDetected)).toEqual(['https://github.com/flplima/tmuxy/pull/283']);
+      expect(at(1, twoDetected)).toEqual(['https://github.com/flplima/tmuxy/pull/284']);
+    });
+
     it('does not run on into a word, a list item, or a row that left room', () => {
       const ending = `see https://example.com/docs/abcdefghij`; // ends at column 39
       for (const next of ['  and the rest of it', '  - next item', '  2. second item']) {

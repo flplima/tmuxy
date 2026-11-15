@@ -153,7 +153,7 @@ function cellCss(style: CellStyle, selected: boolean): CSSProperties {
   const css: CSSProperties = {};
   if (style.bold) css.fontWeight = 'bold';
   if (style.italic) css.fontStyle = 'italic';
-  if (style.underline) css.textDecoration = 'underline';
+  if (style.underline) css.textDecorationLine = 'underline';
   if (selected) return css;
   if (style.fg !== undefined) css.color = cellColorToCss(style.fg);
   if (style.bg !== undefined) css.backgroundColor = cellColorToCss(style.bg);
