@@ -15,6 +15,6 @@ LINE-28
 LINE-29
 LINE-30
 
-felipe@felipe-ab350m ~/projects/tmuxy/packages/tmuxy-core/tests/fixtures/reflow
+tester@tester-devbox ~/projects/tmuxy/packages/tmuxy-core/tests/fixtures/reflow
 main*
 ❯

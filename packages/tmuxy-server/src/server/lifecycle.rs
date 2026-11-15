@@ -468,8 +468,8 @@ mod tests {
     fn titled_index_html_names_the_machine_when_the_host_is_plain() {
         let html = b"<!doctype html><head><title>tmuxy</title></head>";
         assert_eq!(
-            titled_index_html(html, "ab350m"),
-            b"<!doctype html><head><title>tmuxy on ab350m</title></head>"
+            titled_index_html(html, "devbox"),
+            b"<!doctype html><head><title>tmuxy on devbox</title></head>"
         );
         assert_eq!(titled_index_html(html, ""), html);
         assert_eq!(titled_index_html(html, "a<b"), html);

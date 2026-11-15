@@ -162,7 +162,7 @@ fn agy_splash_matches_tmux_capture() {
         rows[2],
         "      \u{2584}\u{2580}\u{2580}\u{2584}        Antigravity CLI 1.1.4"
     );
-    assert_eq!(rows[3], "     \u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}       felipe.lds@live.com (Google AI Pro)");
+    assert_eq!(rows[3], "     \u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}       tester@example.test (Google AI Pro)");
     assert_eq!(rows[4], "    \u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}      Gemini 3.5 Flash (Medium)");
     assert_eq!(
         rows[5],

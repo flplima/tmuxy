@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn a_request_round_trips_and_one_naming_anything_but_plain_names_is_refused() {
-        let request = ConnectRequest::new("work", Some("dev"), Some("felipe@prod")).unwrap();
+        let request = ConnectRequest::new("work", Some("dev"), Some("tester@prod")).unwrap();
         assert_eq!(ConnectRequest::decode(&request.encode()), Some(request));
         let local = ConnectRequest::new("default", None, Some("")).unwrap();
         assert_eq!(local.encode(), r#"{"socket":"default"}"#);
@@ -145,19 +145,19 @@ mod tests {
 
     #[test]
     fn the_saved_entry_is_keyed_by_host_and_socket_and_the_live_socket_is_not_saved() {
-        let remote = ConnectRequest::new("work", None, Some("felipe@Prod.Example:2222"))
+        let remote = ConnectRequest::new("work", None, Some("tester@Prod.Example:2222"))
             .unwrap()
             .server("tmuxy")
             .unwrap();
-        assert_eq!(remote.id, "ssh-felipe-prod-example-2222-work");
-        assert_eq!(remote.label, "felipe@Prod.Example:2222");
+        assert_eq!(remote.id, "ssh-tester-prod-example-2222-work");
+        assert_eq!(remote.label, "tester@Prod.Example:2222");
         assert_eq!(remote.kind, ServerKind::Ssh);
         let ssh = remote.ssh.unwrap();
         assert_eq!(
             (ssh.host.as_str(), ssh.user.as_deref(), ssh.port),
-            ("Prod.Example", Some("felipe"), Some(2222))
+            ("Prod.Example", Some("tester"), Some(2222))
         );
-        assert_eq!(ssh.argv_tail(), ["-p", "2222", "felipe@Prod.Example"]);
+        assert_eq!(ssh.argv_tail(), ["-p", "2222", "tester@Prod.Example"]);
         assert!(remote.last_used.is_some());
 
         let other = ConnectRequest::new("default", None, None).unwrap();
