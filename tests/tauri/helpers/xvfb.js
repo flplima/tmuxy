@@ -1,63 +1,115 @@
 /**
  * Xvfb: the X11 display WebKitGTK needs to run the Tauri app headlessly.
+ *
+ * A display already answering on :99 is used as it is: CI starts one for the
+ * smoke test before this suite runs (.github/actions/start-xvfb). Killing it
+ * to start another raced its exit: the new server found the old one's lock
+ * and socket still there, refused to start, and nothing served :99.
  */
 
 const { spawn, execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const DISPLAY = ':99';
 const RESOLUTION = '1280x720x24';
+const LOCK = '/tmp/.X99-lock';
+const SOCKET = '/tmp/.X11-unix/X99';
+const LOG = path.join(os.tmpdir(), 'tmuxy-tauri-xvfb.log');
 
+// Only a server this suite started is stopped by it.
 let xvfbProcess = null;
 
-function startXvfb() {
-  if (xvfbProcess) return;
-
-  // A display left over from an earlier run holds the lock.
+function answers() {
   try {
-    execSync(`kill $(cat /tmp/.X99-lock 2>/dev/null) 2>/dev/null`, { stdio: 'ignore' });
+    execSync(`xdpyinfo -display ${DISPLAY}`, { stdio: 'ignore', timeout: 2000 });
+    return true;
   } catch {
-    // None running.
+    return false;
   }
+}
 
-  xvfbProcess = spawn('Xvfb', [DISPLAY, '-screen', '0', RESOLUTION, '-ac', '-nolisten', 'tcp'], {
-    stdio: 'ignore',
-    detached: true,
-  });
+/** Whether `pid` is a running process: an exited one may linger as a zombie. */
+function running(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) !== 'Z';
+  } catch {
+    return false;
+  }
+}
 
-  xvfbProcess.unref();
-
-  process.env.DISPLAY = DISPLAY;
-
-  // A cold CI runner can take seconds, xdpyinfo itself ~1s to spawn on the
-  // first call; 5s was missed intermittently.
-  const timeoutMs = 30000;
+/** Wait for `holds()`, giving up at `limitMs` with `what` in the error. */
+function waitFor(what, holds, limitMs) {
   const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      execSync(`xdpyinfo -display ${DISPLAY}`, { stdio: 'ignore', timeout: 1000 });
-      return;
-    } catch {}
+  while (!holds()) {
+    if (Date.now() - start > limitMs) throw new Error(`${what} (${limitMs / 1000} s)`);
     execSync('sleep 0.1');
   }
+}
 
-  throw new Error(`Xvfb did not start within ${timeoutMs / 1000} seconds`);
+/** A lock whose server no longer answers: end that server, then clear what it left. */
+function clearStaleDisplay() {
+  let pid = null;
+  try {
+    pid = Number(fs.readFileSync(LOCK, 'utf8').trim()) || null;
+  } catch {
+    // No lock.
+  }
+  if (pid && running(pid)) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // Gone already.
+    }
+    waitFor(`the stale Xvfb ${pid} on ${DISPLAY} did not exit`, () => !running(pid), 10000);
+  }
+  for (const file of [LOCK, SOCKET]) fs.rmSync(file, { force: true });
+}
+
+function startXvfb() {
+  process.env.DISPLAY = DISPLAY;
+  if (xvfbProcess || answers()) return;
+
+  clearStaleDisplay();
+
+  const log = fs.openSync(LOG, 'w');
+  xvfbProcess = spawn('Xvfb', [DISPLAY, '-screen', '0', RESOLUTION, '-ac', '-nolisten', 'tcp'], {
+    stdio: ['ignore', log, log],
+    detached: true,
+  });
+  xvfbProcess.unref();
+  fs.closeSync(log);
+
+  const pid = xvfbProcess.pid;
+  // Keep waiting while the server is alive (a cold runner is slow to bring it
+  // up); a server that exited will never answer, so say why at once.
+  waitFor(
+    `Xvfb did not come up on ${DISPLAY}`,
+    () => {
+      if (answers()) return true;
+      if (!running(pid)) {
+        const said = fs.readFileSync(LOG, 'utf8').trim();
+        throw new Error(`Xvfb exited before ${DISPLAY} came up:\n${said || '(no output)'}`);
+      }
+      return false;
+    },
+    60000,
+  );
 }
 
 function stopXvfb() {
-  if (xvfbProcess) {
-    try {
-      process.kill(-xvfbProcess.pid, 'SIGTERM');
-    } catch {
-      // Already dead
-    }
-    xvfbProcess = null;
-  }
-
+  if (!xvfbProcess) return;
+  const pid = xvfbProcess.pid;
+  xvfbProcess = null;
   try {
-    execSync('rm -f /tmp/.X99-lock', { stdio: 'ignore' });
+    process.kill(-pid, 'SIGTERM');
+    waitFor(`Xvfb ${pid} did not exit`, () => !running(pid), 10000);
   } catch {
-    // Already gone.
+    // Already gone, or slow to go: the next start clears what it left.
   }
+  for (const file of [LOCK, SOCKET]) fs.rmSync(file, { force: true });
 }
 
 module.exports = { startXvfb, stopXvfb };
