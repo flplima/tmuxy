@@ -175,8 +175,9 @@ as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
 which skips the windows floats and sidebars occupy where a relative
 `swap-window` would not). `prefix P` (the command palette, also
 `ctrl+shift+p`) and `prefix g` (the palette on sessions, tabs and panes alone)
-are client keys too, but on keys tmux binds nothing to: a binding the config or
-a plugin puts on `P` or `g` runs instead, and the palette keeps its chord and
-its View menu items. The status line names the mode in force and shows a
-handful of its keys, each line fitting 80 columns
+are client keys too, but on keys tmux binds nothing to (tmux 3.8 binds `g` to
+its floating-pane move table; `tmuxy.defaults.conf` unbinds it): a binding a
+later config file or a plugin puts on `P` or `g` runs instead, and the palette
+keeps its chord and its View menu items. The status line names the mode in
+force and shows a handful of its keys, each line fitting 80 columns
 (`tmuxy-ui/src/components/statusLineHints.ts`).
