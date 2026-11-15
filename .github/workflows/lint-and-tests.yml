@@ -38,11 +38,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # In a GitHub stack every pull request runs this workflow, and a restack
+  # pushes them all. The top one's tree holds every change below it, so only
+  # the top runs the suite; a pull request outside a stack, a push to main and
+  # a tag build always do. Skipped here, every job below is skipped with it,
+  # and `ci` counts skipped as passed.
+  stack-top:
+    if: github.event.pull_request.stack == null || github.event.pull_request.stack.position == github.event.pull_request.stack.size
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - run: echo 'the top of its stack, or not in one'
+
   # The lint gate, step by step. WHAT is checked lives in bin/lint-gate — the
   # same list the pre-commit and pre-push hooks run — and so does the list of
   # steps: the job asks the gate for it, so a step added there runs here too.
   # Each runs even after one fails, and a red run names every failed step.
   lint:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -85,6 +99,7 @@ jobs:
   # the tagged tests; on a tag build (`e2e-tier: full`) every suite and every
   # test. A push that edited the web suites also gets the [nightly] tier.
   changes:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
@@ -116,6 +131,7 @@ jobs:
   # Every consumer runs on ubuntu-26.04, so one linux-x86_64 binary serves
   # them all.
   build-frontend:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 10
 
@@ -141,6 +157,7 @@ jobs:
           profile: ci
 
   demo-build:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 10
 
@@ -156,6 +173,7 @@ jobs:
         run: npm run build --ignore-scripts -w tmuxy-demo
 
   unit-tests:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 10
 
@@ -168,6 +186,7 @@ jobs:
         run: npm test
 
   cli-tests:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 15
 
@@ -225,6 +244,7 @@ jobs:
         run: cargo test --workspace
 
   rust-tests:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 45
 
@@ -345,6 +365,7 @@ jobs:
   # the longest job on a push, and a second runner's setup (~90s) is cheaper
   # than the half it takes over.
   storybook-probe:
+    needs: stack-top
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     strategy:
