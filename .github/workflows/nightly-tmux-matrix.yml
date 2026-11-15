@@ -100,6 +100,12 @@ jobs:
       # (HEAD) failure can be reported without failing the workflow.
       issues: write
 
+    # The server's action trace, as lint-and-tests.yml keeps it: the suites
+    # mark each test's start and end in it, and the trace-share suite shows
+    # what the server wrote there.
+    env:
+      TMUXY_E2E_TRACE: /tmp/tmuxy-e2e-trace.ndjson
+
     strategy:
       fail-fast: false
       matrix:
@@ -159,6 +165,7 @@ jobs:
         uses: ./.github/actions/start-test-server
         with:
           e2e: 'true'
+          trace: ${{ env.TMUXY_E2E_TRACE }}
 
       # Only on HEAD: every push runs these two on the pinned tmux and on 3.4
       # (tests/e2e-suites.json), and the full suite below runs them on every
