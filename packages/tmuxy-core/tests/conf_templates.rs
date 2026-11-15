@@ -182,3 +182,76 @@ fn every_shipped_config_parses() {
         }
     }
 }
+
+/// The client keys that give way to a binding (`YIELDING_CLIENT_KEYS` in
+/// tmuxy-ui's `domain/keyTables.ts`: Go to, the command palette, the activity
+/// inbox) are answered by the client only while tmux binds nothing on them.
+/// tmux 3.8 binds `prefix g` itself, so the shipped defaults unbind it; on
+/// every tmux the nightly matrix runs, none of those keys is bound once the
+/// defaults are loaded.
+#[test]
+fn the_client_keys_that_yield_are_unbound_after_the_defaults() {
+    let keys = yielding_prefix_keys();
+    let server = common::ScratchServer::new("conf-yield");
+    server.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", "yield"]);
+    // In the order tmuxy loads them: the essentials define the commands the
+    // defaults bind.
+    let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+    for conf in ["tmuxy.essentials.conf", "tmuxy.defaults.conf"] {
+        server.tmux(&["source-file", &assets.join(conf).display().to_string()]);
+    }
+    let version = server.tmux(&["display-message", "-p", "#{version}"]);
+    let bound: Vec<String> = server
+        .tmux(&["list-keys", "-T", "prefix"])
+        .lines()
+        .filter_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let table = words.iter().position(|word| *word == "-T")?;
+            let key = words.get(table + 2)?;
+            keys.iter().any(|k| k == key).then(|| line.to_string())
+        })
+        .collect();
+    assert!(
+        bound.is_empty(),
+        "tmux {version} binds keys the client yields:\n{}",
+        bound.join("\n")
+    );
+}
+
+/// The prefix-table keys whose client key yields, read from where the client
+/// defines them, so this test and the client never hold two lists.
+fn yielding_prefix_keys() -> Vec<String> {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tmuxy-ui/src/domain/keyTables.ts");
+    let source = std::fs::read_to_string(&source).unwrap();
+    let block = |start: &str, end: &str| -> String {
+        let from = source
+            .find(start)
+            .unwrap_or_else(|| panic!("{start} in keyTables.ts"));
+        let rest = &source[from + start.len()..];
+        rest[..rest.find(end).unwrap()].to_string()
+    };
+    let quoted = |text: &str| -> Vec<String> {
+        text.split('\'')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect()
+    };
+    let yielding = quoted(&block("YIELDING_CLIENT_KEYS", "]);"));
+    let keys: Vec<String> = block("prefix: {", "}")
+        .lines()
+        .filter_map(|line| {
+            let (key, client) = line.trim().trim_end_matches(',').split_once(": ")?;
+            let client = client.trim_matches('\'');
+            yielding
+                .iter()
+                .any(|y| y == client)
+                .then(|| key.trim_matches('\'').to_string())
+        })
+        .collect();
+    assert!(
+        !yielding.is_empty() && keys.len() == yielding.len(),
+        "read {keys:?} for {yielding:?} from keyTables.ts: its layout changed"
+    );
+    keys
+}
