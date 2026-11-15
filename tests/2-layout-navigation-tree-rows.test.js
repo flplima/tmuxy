@@ -145,8 +145,17 @@ describeE2E('Scenario 6h: the tree’s rows', {}, (ctx) => {
       5000,
       'no tree row under the pointer',
     );
-    const resting = await inkOf();
-    expect(resting.ink).not.toBe(resting.primary);
+    // The row's colour transitions: just after the hover ends it still reads
+    // as the hover ink, so wait for it to settle rather than read it once.
+    await waitForCondition(
+      page,
+      async () => {
+        const now = await inkOf();
+        return now.ink !== now.primary;
+      },
+      5000,
+      'the row away from the pointer to show its resting ink',
+    );
     await page.mouse.move(before.rows[0].x, before.rows[0].y);
     await waitForCondition(
       page,
