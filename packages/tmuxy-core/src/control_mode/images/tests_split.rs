@@ -84,7 +84,7 @@ fn a_wrapped_picture_cut_at_any_byte_reads_as_if_whole() {
         (clean, images, parser.placements.len())
     };
     let whole = read(&[bytes]);
-    assert_eq!(whole, (b"ab".to_vec(), 1, 1));
+    assert_eq!(whole, (b"a\x1b\\b".to_vec(), 1, 1));
     let failing: Vec<usize> = (1..bytes.len())
         .filter(|&cut| read(&[&bytes[..cut], &bytes[cut..]]) != whole)
         .collect();
@@ -121,4 +121,40 @@ fn a_wrapper_started_at_a_chunk_end_after_a_held_escape_still_unwraps() {
         read(&[first.as_bytes(), second.as_bytes(), third.as_bytes()]),
         (1, 1)
     );
+}
+
+/// A picture's escape taken out of the stream still ends the sequence the
+/// terminal was in when it came, as its own ESC would have: what follows it
+/// is text, not the end of that sequence. Found by the parser fuzzer (an ESC
+/// then a DCS ate the `;` after it when the output came whole, and printed it
+/// when tmux cut the line after the BEL).
+#[test]
+fn a_stripped_escape_ends_the_sequence_it_cut_short() {
+    let screen = |chunks: &[&[u8]]| {
+        let mut parser = ImageParser::new();
+        let mut terminal = vt100::Parser::new(4, 20, 0);
+        for chunk in chunks {
+            terminal.process(&parser.process(chunk).clean_bytes);
+        }
+        (
+            terminal.screen().contents(),
+            terminal.screen().cursor_position(),
+        )
+    };
+    let cases: [(&[u8], &str); 3] = [
+        // The fuzzer's: ESC, then a DCS that is no picture, then text.
+        (b"\x1b\x1bP\x07\x1b\\;", ";"),
+        // A CSI's parameters, then a kitty command: `m` is text, not SGR.
+        (b"\x1b[1\x1b_Ga=d\x1b\\m", "m"),
+        // An iTerm2 escape between a character and REP: nothing to repeat.
+        (b"x\x1b]1337;Custom=1\x07\x1b[3b", "x"),
+    ];
+    for (bytes, shown) in cases {
+        let whole = screen(&[bytes]);
+        assert_eq!(whole.0, shown, "{bytes:?}");
+        for cut in 1..bytes.len() {
+            let split = screen(&[&bytes[..cut], &bytes[cut..]]);
+            assert_eq!(split, whole, "{bytes:?} cut at {cut}");
+        }
+    }
 }

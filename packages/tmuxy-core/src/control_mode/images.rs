@@ -144,6 +144,14 @@ pub struct ImageParser {
     main_screen_placements: Option<Vec<ImagePlacement>>,
 }
 
+/// What vt100 reads where an image escape was taken out of the stream: a
+/// bare ST. The escape's own ESC ended any sequence the terminal was in (an
+/// ESC, a CSI's parameters), and the string it opened ended at its
+/// terminator; with nothing in its place, the bytes after it would finish
+/// that earlier sequence, so the same output read differently depending on
+/// where tmux cut it into `%output` lines.
+const STRIPPED_ESCAPE: &[u8] = b"\x1b\\";
+
 /// Upper bound on a buffered incomplete image escape; past it the stream is
 /// taken as malformed and no longer buffered.
 const MAX_PENDING_IMAGE: usize = 8 * 1024 * 1024;
@@ -397,55 +405,36 @@ impl ImageParser {
                     self.main_screen_placements = None;
                 }
 
-                // iTerm2: ESC ] 1337 ; File= ...
-                if nxt == b']' {
-                    if !output.is_empty()
-                        && content[i..].starts_with(b"\x1b]1337;")
-                        && find_osc_end(&content[i + 2..]).is_some()
-                    {
-                        let flushed = std::mem::take(&mut output);
-                        on_clean_bytes(&flushed, self);
-                    }
-                    if let Some((consumed, image)) = self.try_parse_iterm2(&content[i..]) {
-                        if let Some((id, stored)) = image {
-                            new_images.push((id, stored));
+                // Before a picture, the text up to it is flushed so it lands
+                // at the cursor that text leaves.
+                let flush_first = !output.is_empty()
+                    && match nxt {
+                        // iTerm2: ESC ] 1337 ; File= ...
+                        b']' => {
+                            content[i..].starts_with(b"\x1b]1337;")
+                                && find_osc_end(&content[i + 2..]).is_some()
                         }
-                        i += consumed;
-                        continue;
-                    }
+                        // Kitty Graphics Protocol: ESC _ G ... ESC \
+                        b'_' => content[i..].starts_with(b"\x1b_G") && terminated_after(i + 2),
+                        // Sixel: ESC P ... q ... ESC \
+                        b'P' => terminated_after(i + 2),
+                        _ => false,
+                    };
+                if flush_first {
+                    let flushed = std::mem::take(&mut output);
+                    on_clean_bytes(&flushed, self);
                 }
-
-                // Kitty Graphics Protocol: ESC _ G ... ESC \
-                if nxt == b'_' {
-                    if !output.is_empty()
-                        && content[i..].starts_with(b"\x1b_G")
-                        && terminated_after(i + 2)
-                    {
-                        let flushed = std::mem::take(&mut output);
-                        on_clean_bytes(&flushed, self);
-                    }
-                    if let Some((consumed, image)) = self.try_parse_kitty(&content[i..]) {
-                        if let Some((id, stored)) = image {
-                            new_images.push((id, stored));
-                        }
-                        i += consumed;
-                        continue;
-                    }
-                }
-
-                // Sixel: ESC P ... q ... ESC \
-                if nxt == b'P' {
-                    if !output.is_empty() && terminated_after(i + 2) {
-                        let flushed = std::mem::take(&mut output);
-                        on_clean_bytes(&flushed, self);
-                    }
-                    if let Some((consumed, image)) = self.try_parse_sixel(&content[i..]) {
-                        if let Some((id, stored)) = image {
-                            new_images.push((id, stored));
-                        }
-                        i += consumed;
-                        continue;
-                    }
+                let parsed = match nxt {
+                    b']' => self.try_parse_iterm2(&content[i..]),
+                    b'_' => self.try_parse_kitty(&content[i..]),
+                    b'P' => self.try_parse_sixel(&content[i..]),
+                    _ => None,
+                };
+                if let Some((consumed, image)) = parsed {
+                    new_images.extend(image);
+                    output.extend_from_slice(STRIPPED_ESCAPE);
+                    i += consumed;
+                    continue;
                 }
 
                 // An image-capable escape with no terminator in the rest of

@@ -95,7 +95,9 @@ control_mode/state/pane_output.rs::process_output
    │ hands the bytes to
    ▼
 control_mode/images.rs::ImageParser::process_with
-   │ ─► strips the image sequences, decodes the pictures
+   │ ─► strips the image sequences, decodes the pictures;
+   │    each leaves a bare ST, which ends any sequence it
+   │    cut short, as the escape's own ESC would have
    │ ─► clean_bytes go to vt100 (the pane's grid), with the
    │    placements shifted by any scroll those bytes cause
    │ ─► returns new_images: [(id, StoredImage)…] for the host to store

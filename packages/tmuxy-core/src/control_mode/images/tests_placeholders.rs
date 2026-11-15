@@ -11,7 +11,7 @@ fn kitty_unicode_placeholders_resolve_virtual_placements() {
     );
     let mut terminal = vt100::Parser::new(4, 8, 0);
     let first = parser.process(image.as_bytes());
-    assert!(first.clean_bytes.is_empty());
+    assert!(first.clean_bytes == STRIPPED_ESCAPE);
     assert!(first.new_images.is_empty());
     let parsed = parser.process(format!("\x1b_Ga=T;{}\x1b\\", &b64[4..]).as_bytes());
     assert_eq!(parsed.new_images.len(), 1);
@@ -55,18 +55,18 @@ fn kitty_compressed_final_chunk_without_metadata_survives_tmux_passthrough() {
     ));
     let result = parser.process(first.as_bytes());
     assert!(result.new_images.is_empty());
-    assert!(result.clean_bytes.is_empty());
+    assert!(result.clean_bytes == STRIPPED_ESCAPE);
 
     // Kitty's continuation packets may omit the image id; the final
     // packet can omit m=0 and all image metadata as well.
     let middle = wrap(format!("\x1b_Ga=T,q=2,m=1;{middle}\x1b\\"));
     let result = parser.process(middle.as_bytes());
     assert!(result.new_images.is_empty());
-    assert!(result.clean_bytes.is_empty());
+    assert!(result.clean_bytes == STRIPPED_ESCAPE);
 
     let final_chunk = wrap(format!("\x1b_Ga=T,q=2;{final_chunk}\x1b\\"));
     let result = parser.process(final_chunk.as_bytes());
-    assert!(result.clean_bytes.is_empty());
+    assert!(result.clean_bytes == STRIPPED_ESCAPE);
     assert_eq!(result.new_images.len(), 1);
     assert_eq!(result.new_images[0].1.mime_type, "image/png");
 

@@ -9,7 +9,7 @@ fn sixel_decoded_to_png() {
     let input = b"\x1bPq#0;2;100;0;0#0~~\x1b\\";
     let result = parser.process(input);
 
-    assert!(result.clean_bytes.is_empty());
+    assert!(result.clean_bytes == STRIPPED_ESCAPE);
     assert!(
         !parser.placements.is_empty(),
         "sixel input must produce a placement"
@@ -118,7 +118,10 @@ fn a_sixel_declaring_a_canvas_past_the_cap_is_dropped_unallocated() {
     let result = parser.process(b"\x1bPq\"1;1;8000;8000#0~\x1b\\");
     assert!(result.new_images.is_empty());
     assert!(parser.placements.is_empty());
-    assert!(result.clean_bytes.is_empty(), "the escape is consumed");
+    assert!(
+        result.clean_bytes == STRIPPED_ESCAPE,
+        "the escape is consumed"
+    );
 }
 
 /// Drawing reaches the same allocation without declaring it: a repeat of
@@ -181,7 +184,10 @@ fn a_sixel_whose_repeats_are_spaced_from_their_sixels_is_dropped() {
     let result = parser.process(&payload);
     assert!(result.new_images.is_empty());
     assert!(parser.placements.is_empty());
-    assert!(result.clean_bytes.is_empty(), "the escape is consumed");
+    assert!(
+        result.clean_bytes == STRIPPED_ESCAPE,
+        "the escape is consumed"
+    );
 }
 
 /// An image arriving in many chunks is buffered without its earlier chunks
@@ -200,7 +206,7 @@ fn a_sixel_split_over_many_chunks_still_decodes() {
         clean.extend(result.clean_bytes);
     }
     assert_eq!(images.len(), 1);
-    assert_eq!(clean, b"after");
+    assert_eq!(clean, b"\x1b\\after");
 }
 
 /// The terminator split between two chunks — ESC at the end of one, `\` at
@@ -212,7 +218,7 @@ fn a_terminator_split_across_chunks_ends_the_escape() {
     assert!(first.new_images.is_empty());
     let second = parser.process(b"\\tail");
     assert_eq!(second.new_images.len(), 1);
-    assert_eq!(second.clean_bytes, b"tail");
+    assert_eq!(second.clean_bytes, b"\x1b\\tail");
 }
 
 /// A run of escapes that never end, then one terminator: each used to scan
