@@ -218,7 +218,7 @@ impl StateAggregator {
         let held: HashSet<&WindowId> = self
             .windows
             .values()
-            .filter(|w| w.awaiting_list && active_window != Some(&w.id))
+            .filter(|w| !w.listed && active_window != Some(&w.id))
             .map(|w| &w.id)
             .collect();
 

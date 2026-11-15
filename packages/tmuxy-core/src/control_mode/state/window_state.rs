@@ -49,23 +49,20 @@ pub struct WindowState {
     /// From the `Z` layout flag and list-windows.
     pub zoomed: bool,
 
-    /// Known only from `%window-add` or `%window-renamed`, which carry no
-    /// tags: whether it is a tab, a sidebar or a float is unknown until
-    /// list-windows reports it, so no client is shown it before then
-    /// (`to_tmux_state`).
-    pub awaiting_list: bool,
-
     /// A `list-windows` row has described it. A window known only from
-    /// `%window-add` is not yet known to be a tab, a float or a sidebar: the
-    /// re-list behind every add says which, and until it has, the window is
-    /// neither set up nor sized as any of them.
+    /// `%window-add` or `%window-renamed`, which carry no tags, is not yet
+    /// known to be a tab, a float or a sidebar: the re-list behind every add
+    /// says which. Until it has, the window is neither set up nor sized as
+    /// any of them (`window_ids_by_sizing`, `WindowSetup`), and no client is
+    /// shown it unless it is the session's current window (`to_tmux_state`).
     pub listed: bool,
 }
 
 impl WindowState {
-    /// `index` is positional, independent of the number in the id: a window
-    /// known only from `%window-add` gets a provisional one
-    /// (`next_window_index`) until list-windows reports it.
+    /// A window a `list-windows` row describes. `index` is positional,
+    /// independent of the number in the id: a window known only from
+    /// `%window-add` gets a provisional one (`next_window_index`) until
+    /// list-windows reports it.
     pub fn new(id: WindowId, index: u32) -> Self {
         Self {
             index,
@@ -88,8 +85,7 @@ impl WindowState {
             float_noheader: false,
             active_pane_id: None,
             zoomed: false,
-            awaiting_list: false,
-            listed: false,
+            listed: true,
         }
     }
 
@@ -97,7 +93,7 @@ impl WindowState {
     /// what it is.
     pub fn announced(id: WindowId, index: u32) -> Self {
         Self {
-            awaiting_list: true,
+            listed: false,
             ..Self::new(id, index)
         }
     }
