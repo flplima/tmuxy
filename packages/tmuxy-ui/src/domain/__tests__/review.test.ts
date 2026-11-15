@@ -79,7 +79,7 @@ describe('a review', () => {
     expect(lines[lines.length - 1]).toBe(
       `if-shell -F -t %3 '${AGENT_TAKES_INPUT}' ` +
         '{ paste-buffer -p -d -b tmuxy-review-r1 -t %3 ; send-keys -t %3 Enter } ' +
-        `{ delete-buffer -b tmuxy-review-r1 ; display-message "${REVIEW_REFUSED}" }`,
+        `{ delete-buffer -b tmuxy-review-r1 ; display-message -p "${REVIEW_REFUSED}" }`,
     );
     // Neither the paste nor the Enter is outside the check.
     expect(lines.filter((line) => /paste-buffer|send-keys/.test(line))).toHaveLength(1);

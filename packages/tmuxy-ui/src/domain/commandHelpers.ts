@@ -241,7 +241,7 @@ export function reviewInto(to: PaneId, text: string, id: string): string {
   const commands = staged(buffer, text);
   if (commands.length === 0) return '';
   const send = `paste-buffer -p -d -b ${buffer} -t ${to} ; send-keys -t ${to} Enter`;
-  const refuse = `delete-buffer -b ${buffer} ; display-message ${tmuxDoubleQuoted(REVIEW_REFUSED)}`;
+  const refuse = `delete-buffer -b ${buffer} ; display-message -p ${tmuxDoubleQuoted(REVIEW_REFUSED)}`;
   commands.push(`if-shell -F -t ${to} '${AGENT_TAKES_INPUT}' { ${send} } { ${refuse} }`);
   return commands.join('\n');
 }
