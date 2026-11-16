@@ -237,7 +237,8 @@ jobs:
             - Webapp or Storybook: `agent-browser --session qa-web set viewport 1100 620`, then `agent-browser --session qa-web record start /tmp/claude-review/raw/<name>.webm`, drive it, `agent-browser --session qa-web record stop`.
             - Tauri GUI: `ffmpeg -y -f x11grab -video_size 1280x720 -t 8 -i :99 /tmp/claude-review/raw/<name>.webm` while you drive it with `xdotool`.
             - Convert each to a GIF at most 800 px wide and 10 fps: `ffmpeg -y -i /tmp/claude-review/raw/<name>.webm -vf "fps=10,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" /tmp/claude-review/gifs/<name>.gif`. Names are lowercase letters, digits and dashes. Keep each GIF under 5 MB.
-            - Skip GIFs when the stack changes nothing visible.
+            - The terminal takes keys only after a click inside the pane (`agent-browser --session qa-web click ".terminal-content"`, then `keyboard type` and `press Enter`). When typed keys still do not arrive, drive the app from your shell with `tmuxy pane send` or `tmuxy run` while the recording runs: the GIF shows the UI reacting either way.
+            - Record at least one GIF whenever the stack changes anything visible; skip them only when it changes nothing visible.
 
             ## 4. Output
             Write the whole report to `/tmp/claude-review/review.md`, in Markdown, under 60,000 bytes. Another job posts it on PR `#${{ env.ROOT_PR }}`; you post nothing yourself. Cover:
