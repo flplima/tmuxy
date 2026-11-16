@@ -1,9 +1,9 @@
 name: claude review
 
+# Runs only when flplima or laika-assistant comments `@claude review` on a pull
+# request. It runs on flplima's Claude subscription token, which the agent's
+# shell can read: whoever triggers it vouches for the PR's content.
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, ready_for_review, reopened]
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -19,32 +19,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  qa-review:
+  review:
     name: claude review
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     if: >-
+      contains(fromJSON('["flplima", "laika-assistant"]'), github.actor) &&
       (
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.draft == false &&
-        (
-          contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.pull_request.author_association) ||
-          github.event.pull_request.user.type == 'Bot'
-        )
-      ) ||
-      (
-        github.actor == 'flplima' &&
-        (
-          (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude qa')) ||
-          (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude qa')) ||
-          (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude qa'))
-        )
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@claude review')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude review')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude review'))
       )
     permissions:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
       actions: read
 
     steps:
@@ -200,27 +189,20 @@ jobs:
           agent-browser --session qa-web open http://localhost:9000
           agent-browser --session qa-sb open http://localhost:6006
 
-      - name: Run Claude review (Opus + Sonnet sub-agents)
+      - name: Run Claude review (Sonnet)
         uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1
         env:
           DISPLAY: ':99'
           GH_TOKEN: ${{ github.token }}
           CLAUDE_CODE_SUBAGENT_MODEL: sonnet
         with:
-          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
-          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
-          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
-          anthropic_workspace_id: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
-          anthropic_oidc_audience: https://api.anthropic.com
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           classify_inline_comments: 'false'
           # A rerun with debug logging shows Claude's own output, so a run that
           # fails before its first turn says why; a normal run keeps it hidden.
           show_full_output: ${{ runner.debug == '1' }}
-          trigger_phrase: '@claude qa'
-          allowed_bots: '*'
-          allowed_non_write_users: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
-          restrict_untrusted_prs: 'false'
+          trigger_phrase: '@claude review'
           additional_permissions: 'actions: read'
           settings: |
             {
@@ -229,9 +211,8 @@ jobs:
               }
             }
           claude_args: >-
-            --model opus
+            --model sonnet
             --max-turns 30
-            --max-budget-usd 20
             --allowedTools "Agent,Task,Bash,Read,Edit,Write,Glob,Grep,mcp__github_inline_comment__create_inline_comment,mcp__github_ci__get_ci_status,mcp__github_ci__get_workflow_run_details,mcp__github_ci__download_job_log"
           prompt: |
             You are running inside a live QA environment for `flplima/tmuxy`.
@@ -242,7 +223,7 @@ jobs:
             - Each sub-agent must inspect its PR's diff (`git diff origin/<base>...origin/<head>`) and check compliance with `AGENTS.md`, `docs/INVARIANTS.md`, `docs/TMUX.md`, `docs/STATE-MANAGEMENT.md`, `docs/DATA-FLOW.md`, `docs/TESTS.md`, and `docs/SECURITY.md`.
             - Flag bugs, race conditions, control-mode hazards, blind waits, DOM-only test assertions without bounding-rect checks, security issues, and invariant violations.
 
-            ## 2. Live End-to-End QA (Opus)
+            ## 2. Live End-to-End QA
             All live QA surfaces are already booted from the stack top:
             - **Webapp (`http://localhost:9000`) + CLI (`/usr/local/bin/tmuxy`)**: drive with `agent-browser --session qa-web` (snapshot, click, type, screenshot, check bounding rects and console errors) and run `tmuxy` CLI commands against the live session. Inspect `/tmp/tmuxy-qa-trace.ndjson` and `/tmp/tmuxy-server.log` (`./target/debug/tmuxy-server trace --check /tmp/tmuxy-qa-trace.ndjson`).
             - **Storybook (`http://localhost:6006`)**: drive stories touched by the stack with `agent-browser --session qa-sb` (`/tmp/storybook.log`).
@@ -266,7 +247,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: claude-qa-review-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: claude-review-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
             /tmp/pr-stack.md
             /tmp/tmuxy-qa-trace.ndjson
