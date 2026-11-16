@@ -192,7 +192,21 @@ pub fn seeded_aggregator() -> StateAggregator {
         window_id: "@0".parse().unwrap(),
         pane_id: "%0".parse().unwrap(),
     });
+    // %0's and %2's captures land, as on a real attach: until then a pane
+    // that appeared drops its output (A9), and the properties need it
+    // reaching the emulator. %1's stays in flight, asked for twice, for the
+    // tests about a capture landing (`land_capture` lands it).
+    for pane in ["0", "2"] {
+        land_capture(&mut agg, pane);
+    }
     agg
+}
+
+/// Land an empty capture of `%<pane>` (the seed leaves `%1`'s in flight).
+pub fn land_capture(agg: &mut StateAggregator, pane: &str) {
+    agg.step(signed(agg, response(&format!("TMUXY_CAP_BEGIN {pane}"))));
+    agg.step(response(""));
+    agg.step(signed(agg, response("TMUXY_CAP_END")));
 }
 
 /// Events that reach every effect of A1, as short runs (a reply is its three

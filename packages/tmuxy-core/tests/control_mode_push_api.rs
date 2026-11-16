@@ -7,8 +7,8 @@
 
 use tmuxy_core::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};
 use tmuxy_core::control_mode::{
-    Parser, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, LIST_BEGIN_MARKER,
-    LIST_END_MARKER,
+    Parser, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER,
+    CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER,
 };
 use tmuxy_core::TmuxState;
 
@@ -36,6 +36,19 @@ fn marked_list(agg: &StateAggregator, list: TmuxList, number: u32, rows: &str) -
 
 fn pane_list(agg: &StateAggregator, number: u32, rows: &str) -> String {
     marked_list(agg, TmuxList::Panes, number, rows)
+}
+
+/// The aggregator's marked capture of pane `%<pane>`, as tmux answers it: a
+/// pane that appears shows nothing, and drops its output, until this lands (A9).
+fn pane_capture(agg: &StateAggregator, number: u32, pane: u32, screen: &str) -> String {
+    let begin = agg.markers().tag(CAPTURE_BEGIN_MARKER);
+    let end = agg.markers().tag(CAPTURE_END_MARKER);
+    let (a, b, c) = (number, number + 1, number + 2);
+    format!(
+        "%begin {a} {a} 1\n{begin} {pane}\n%end {a} {a} 1\n\
+         %begin {b} {b} 1\n{screen}%end {b} {b} 1\n\
+         %begin {c} {c} 1\n{end}\n%end {c} {c} 1\n"
+    )
 }
 
 /// A real `tmux -CC` slice: session/window handshake, the list-panes and
@@ -209,6 +222,8 @@ fn a_character_split_across_output_lines_reaches_the_screen_whole() {
     let mut parser = Parser::new();
     let mut agg = StateAggregator::with_session_name("m");
     attach(&mut parser, &mut agg);
+    let blank = pane_capture(&agg, 20, 0, "");
+    feed(&mut parser, &mut agg, &blank);
     let mut feed = |line: &[u8]| {
         if let Some(event) = parser.parse_line(line) {
             agg.step(event);

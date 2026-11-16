@@ -17,6 +17,10 @@ use common_aggregator_props::*;
 fn the_seam_events_reach_every_effect_of_a1() {
     let title = tmuxy_core::constants::tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
     let mut agg = seeded_aggregator();
+    // %1's image output needs its capture landed (A9); the follow-up the
+    // seed asked for too.
+    land_capture(&mut agg, "1");
+    land_capture(&mut agg, "1");
     let script = vec![
         ControlModeEvent::WindowAdd {
             window_id: "@1".parse().unwrap(),

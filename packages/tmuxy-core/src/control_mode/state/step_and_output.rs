@@ -1,16 +1,6 @@
 use super::*;
 use crate::{PaneId, WindowId};
 
-/// How many panes not yet in the state may have their `%output` kept for
-/// them (a split's output lands before the layout that creates the pane):
-/// a burst of splits is a handful, anything past this is not a split.
-const MAX_EARLY_OUTPUT_PANES: usize = 32;
-
-/// How much of such a pane's output is kept, newest last: a shell's first
-/// prompt and then some. The capture the new pane gets refills its screen
-/// anyway; this only spares it a blank first frame.
-const MAX_EARLY_OUTPUT_BYTES: usize = 8192;
-
 impl StateAggregator {
     /// `step` at an explicit `now`, the clock settling is measured on.
     pub fn step_at(&mut self, event: ControlModeEvent, now: Instant) -> StepResult {
@@ -178,9 +168,10 @@ impl StateAggregator {
         content: &[u8],
     ) -> (bool, Vec<(u32, super::images::StoredImage)>, Option<String>) {
         // Output for a pane no list-panes or layout has placed is another
-        // session's, or a split's that came early.
+        // session's, or a split's that came early: the capture the pane gets
+        // when it appears holds it.
         if let Some(pane) = self.panes.get_mut(pane_id) {
-            if self.panes_moved_window.contains(pane_id) {
+            if self.panes_awaiting_capture.contains(pane_id) {
                 return (false, Vec::new(), None);
             }
             if pane.window_id.is_some() {
@@ -199,19 +190,6 @@ impl StateAggregator {
                 let clipboard = pane.take_clipboard();
                 return (true, new_imgs, clipboard);
             }
-        }
-        if self.early_output.len() < MAX_EARLY_OUTPUT_PANES
-            || self.early_output.contains_key(pane_id)
-        {
-            let buf = self.early_output.entry(pane_id.clone()).or_default();
-            buf.extend(content);
-            if buf.len() > MAX_EARLY_OUTPUT_BYTES {
-                let start = buf.len() - MAX_EARLY_OUTPUT_BYTES;
-                debug!(pane = %pane_id, dropped = start, "early output over its cap: oldest bytes dropped");
-                *buf = buf[start..].to_vec();
-            }
-        } else {
-            debug!(pane = %pane_id, bytes = content.len(), "early output for one pane too many: dropped");
         }
         (false, Vec::new(), None)
     }
@@ -278,9 +256,9 @@ impl StateAggregator {
                 let moved_window = !pane.in_window(window_id);
                 let was_resized = pane.resize(lp.width, lp.height);
                 if moved_window {
-                    // break-pane, swap-pane: see `panes_moved_window`.
+                    // break-pane, swap-pane: see `panes_awaiting_capture`.
                     pane.move_to_window(window_id.clone());
-                    self.panes_moved_window.insert(lp.id.clone());
+                    self.panes_awaiting_capture.insert(lp.id.clone());
                 }
                 if was_resized || moved_window {
                     resized_panes.push(lp.id.clone());
@@ -292,10 +270,9 @@ impl StateAggregator {
                 pane.x = lp.x;
                 pane.y = lp.y;
                 pane.active = active_pane_id.as_ref() == Some(&lp.id);
-                pane.replay_early_output(&mut self.early_output);
                 self.panes.insert(lp.id.clone(), pane);
-                // Captured: output it printed before it existed may have been
-                // dropped (`MAX_EARLY_OUTPUT_BYTES`, `MAX_EARLY_OUTPUT_PANES`).
+                // Blank until its capture lands (`panes_awaiting_capture`).
+                self.panes_awaiting_capture.insert(lp.id.clone());
                 resized_panes.push(lp.id.clone());
             }
         }
