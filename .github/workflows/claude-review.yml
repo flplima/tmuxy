@@ -203,6 +203,12 @@ jobs:
           bin/ci/wait-for-server http://localhost:4444/status
           "$SANDBOX" run ./target/debug/tmuxy 2>/tmp/tauri-app.log &
 
+          # 4. The browser sessions, started here so their daemon outlives each of
+          #    Claude's commands: every command runs in its own process namespace,
+          #    which takes a daemon it started down with it.
+          "$SANDBOX" run agent-browser --session qa-web open http://localhost:9000
+          "$SANDBOX" run agent-browser --session qa-sb open http://localhost:6006
+
       - name: Run Claude review (Sonnet)
         uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1
         env:
@@ -234,7 +240,8 @@ jobs:
             ## 2. Live End-to-End QA
             All live QA surfaces are already booted from the stack top:
             The machine has no network beyond these local servers: no GitHub, no web, no `gh`. Everything you need is in the checkout and `/tmp/pr-stack.md`. The binaries are already built from the stack top; `cargo` and `npm install` cannot fetch anything, so do not build or run the Rust tests.
-            - **Webapp (`http://localhost:9000`) + CLI (`/usr/local/bin/tmuxy`)**: drive with `agent-browser --session qa-web open http://localhost:9000` (snapshot, click, type, screenshot, check bounding rects and console errors) and run `tmuxy` CLI commands against the live session. Inspect `/tmp/tmuxy-qa-trace.ndjson` and `/tmp/tmuxy-server.log` (`./target/debug/tmuxy-server trace --check /tmp/tmuxy-qa-trace.ndjson`).
+            - The browser sessions `qa-web` (on the webapp) and `qa-sb` (on Storybook) are already open: keep using those two, so the browser stays up between your commands.
+            - **Webapp (`http://localhost:9000`) + CLI (`/usr/local/bin/tmuxy`)**: drive with `agent-browser --session qa-web` (snapshot, click, type, screenshot, check bounding rects and console errors) and run `tmuxy` CLI commands against the live session. Inspect `/tmp/tmuxy-qa-trace.ndjson` and `/tmp/tmuxy-server.log` (`./target/debug/tmuxy-server trace --check /tmp/tmuxy-qa-trace.ndjson`).
             - **Storybook (`http://localhost:6006`)**: drive stories touched by the stack with `agent-browser --session qa-sb` (`/tmp/storybook.log`).
             - **Tauri Linux GUI (`target/debug/tmuxy` on `Xvfb :99`, `tauri-driver` on `http://localhost:4444`)**: capture screenshots with `DISPLAY=:99 import -window root /tmp/claude-review/raw/tauri.png`, send input with `DISPLAY=:99 xdotool`, or run WebDriver checks against `:4444` (`/tmp/tauri-app.log`, `/tmp/tauri-driver.log`).
 
