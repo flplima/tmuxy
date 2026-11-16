@@ -18,6 +18,11 @@ set -euo pipefail
 AGENT=claude-agent
 AGENT_HOME=/home/$AGENT
 OUT=/tmp/claude-review
+# Claude's per-command sandbox shows other users' homes as empty, so what the
+# agent works on lives outside /home/runner: the checkout, bind-mounted, and a
+# copy of the browser.
+QA_ROOT=/srv/qa/tmuxy
+QA_CHROME_DIR=/opt/qa-chrome
 # The Claude Code version claude-code-action itself installs, at the SHA the
 # workflow pins (src/entrypoints/run.ts); move both together.
 CLAUDE_CODE_VERSION=2.1.325
@@ -53,14 +58,14 @@ setup() {
     mkdir -p "$GITHUB_WORKSPACE/$cache"
     sudo setfacl -R -m "u:$AGENT:rwX" -m "d:u:$AGENT:rwX" "$GITHUB_WORKSPACE/$cache"
   done
+  sudo mkdir -p "$QA_ROOT"
+  mountpoint -q "$QA_ROOT" || sudo mount --bind "$GITHUB_WORKSPACE" "$QA_ROOT"
+  echo "QA_ROOT=$QA_ROOT" >>"$GITHUB_ENV"
+  sudo ln -sf "$QA_ROOT/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
   if [ -n "${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ]; then
-    local dir
-    dir="$(dirname "$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")"
-    sudo setfacl -R -m "u:$AGENT:rX" "$dir"
-    while [ "$dir" != "$HOME" ] && [ "$dir" != / ]; do
-      dir="$(dirname "$dir")"
-      sudo setfacl -m "u:$AGENT:x" "$dir"
-    done
+    sudo rm -rf "$QA_CHROME_DIR"
+    sudo cp -r "$(dirname "$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")" "$QA_CHROME_DIR"
+    sudo chmod -R a+rX "$QA_CHROME_DIR"
   fi
   # tauri-driver lives in the runner's cargo home, which the agent cannot read.
   if command -v tauri-driver >/dev/null; then
@@ -68,7 +73,8 @@ setup() {
   fi
 
   # claude-code-action takes one executable path, so it gets this launcher.
-  printf '#!/bin/sh\nexec "%s" claude "$@"\n' "$(realpath "$0")" >"$(dirname "$(realpath "$0")")/claude-launch"
+  printf '#!/bin/sh\ncd "%s" && exec "%s" claude "$@"\n' "$QA_ROOT" "$(realpath "$0")" \
+    >"$(dirname "$(realpath "$0")")/claude-launch"
   chmod 755 "$(dirname "$(realpath "$0")")/claude-launch"
 
   sudo install -d -o "$AGENT" -m 700 "$OUT" "$OUT/gifs" "$OUT/raw"
@@ -158,8 +164,8 @@ run() {
     --preserve-env=CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CODE_ENTRYPOINT,CLAUDE_AGENT_SDK_VERSION,DISPLAY \
     -- env PATH="$(agent_path)" \
     XDG_RUNTIME_DIR="/tmp/$AGENT-run" \
-    AGENT_BROWSER_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" \
+    AGENT_BROWSER_EXECUTABLE_PATH="$QA_CHROME_DIR/chrome" \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$QA_CHROME_DIR/chrome" \
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
     CLAUDE_CODE_SUBAGENT_MODEL=sonnet \

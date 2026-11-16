@@ -180,6 +180,7 @@ jobs:
           DISPLAY: ':99'
         run: |
           set -euo pipefail
+          cd "$QA_ROOT"
 
           # 1. tmuxy-server on :9000 with action trace; its tmux shells are the agent's
           "$SANDBOX" run env RUST_LOG='info,tmuxy_server::sse=debug' TMUXY_TRACE_LEVEL=labeled \
