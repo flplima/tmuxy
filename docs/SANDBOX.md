@@ -9,10 +9,10 @@ A sandbox buys isolation and a preview URL. It does not buy CPU or memory: it
 runs the same compiler on the same cores, and every sandbox holds its own
 `node_modules`, `target/` and dev stack.
 
-`bin/devcontainer` is a different thing: a convenience container that
-bind-mounts the checkout (and the main `.git`), shares gh, SSH and Claude login
-volumes, starts as root and publishes four ports. Use it to work in a
-container yourself; use a sandbox to hand a container to an agent.
+To work in a container yourself, open the repo in VS Code ("Reopen in
+Container") or a Codespace: `devcontainer.json` bind-mounts the checkout and
+keeps gh, SSH and Claude logins in named volumes. That trusts what runs inside;
+a sandbox is for handing a container to an agent.
 
 ## Commands
 
@@ -35,7 +35,7 @@ The slug is checked (`[a-z0-9-]`, up to 40) because it names a container, a
 network, two volumes and a branch. The branch is a Docker label set at `up`;
 `collect` reads it from there, never from inside the sandbox.
 
-The image is the shared `tmuxy-dev` one, built by `bin/devcontainer build` from
+The image is the shared `tmuxy-dev` one, built by `bin/sandbox build` from
 `.devcontainer/Dockerfile`, which carries Caddy for this. What runs inside is
 `.devcontainer/sandbox/`: `init.sh` (the main process), `preview.sh` and the
 `Caddyfile`. `up` copies that directory from the host checkout into the

@@ -214,8 +214,9 @@ tmuxy open notes.md              # preview a markdown file or a page, following 
 ```bash
 git clone https://github.com/flplima/tmuxy.git
 cd tmuxy
-npm run devcontainer
-# I strongly recommend using the devcontainer, unless you don't mind
+bin/sandbox build && bin/sandbox up my-task
+bin/sandbox claude my-task
+# I strongly recommend a sandbox, unless you don't mind your agent
 # messing with your host tmux sessions while vibe coding
 
 # From here, ask your AI agent for help.
@@ -224,11 +225,11 @@ npm run devcontainer
 
 The same `.devcontainer/` works in three places:
 
-| Where                             | How it starts                  | Credentials                       |
-| --------------------------------- | ------------------------------ | --------------------------------- |
-| `bin/devcontainer` (plain Docker) | `npm run devcontainer`         | Named volumes; log in once inside |
-| VS Code Dev Containers            | "Reopen in Container"          | Same named volumes                |
-| GitHub Codespaces                 | "Create codespace" on the repo | Injected by Codespaces            |
+| Where                  | How it starts                  | Credentials                                     |
+| ---------------------- | ------------------------------ | ----------------------------------------------- |
+| `bin/sandbox` (agents) | `bin/sandbox up <slug>`        | None; work leaves through `bin/sandbox collect` |
+| VS Code Dev Containers | "Reopen in Container"          | Named volumes; log in once inside               |
+| GitHub Codespaces      | "Create codespace" on the repo | Injected by Codespaces                          |
 
 No script hardcodes a workspace path — each derives the repo root from its own
 location — so the workspace may live wherever the host puts it. Codespaces

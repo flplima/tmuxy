@@ -2,10 +2,10 @@
 #
 # Shared container setup, idempotent and replayed on every (re)start.
 #
-# Runs identically in all three environments that host this workspace:
+# Runs identically in every environment that hosts this workspace:
 #   - GitHub Codespaces        (devcontainer.json postCreateCommand/postStartCommand)
 #   - VS Code Dev Containers   (same)
-#   - bin/devcontainer         (plain `docker run`, invoked from INIT_SCRIPT)
+#   - a bin/sandbox container  (.devcontainer/sandbox/init.sh)
 #
 # Nothing here may assume a fixed workspace path: the repo root is derived from
 # this script's own location, so it works at /workspaces/tmuxy, /tmuxy, or a

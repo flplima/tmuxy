@@ -11,10 +11,12 @@
 # before anything is pushed. docs/SANDBOX.md has the design.
 #
 # Usage:
+#   bin/sandbox build [--no-cache]
+#                         Build the tmuxy-dev image from .devcontainer/Dockerfile.
 #   bin/sandbox up <slug> [--from <branch>] [--memory 4g] [--pids 4096]
 #                         Create and start it: clone <branch> (default main)
 #                         from GitHub over HTTPS onto branch sandbox/<slug>,
-#                         then npm ci. Never builds the image.
+#                         then npm ci. Never builds the image (`build` does).
 #   bin/sandbox ls        Every sandbox, from the Docker labels.
 #   bin/sandbox preview <slug>
 #                         Start the dev server and Storybook inside, print
@@ -122,7 +124,7 @@ cmd_up() {
 
     local created
     created="$(docker image inspect -f '{{.Created}}' "$IMAGE" 2>/dev/null)" ||
-        die "no $IMAGE image; build it with: bin/devcontainer build"
+        die "no $IMAGE image; build it with: bin/sandbox build"
     echo "==> image $IMAGE, built ${created%%.*}"
 
     local branch="sandbox/$slug" url
@@ -418,13 +420,27 @@ cmd_collect() {
     echo "  gh pr create --draft --repo ${repo%.git} --head $branch"
 }
 
+# The image VS Code and Codespaces build from devcontainer.json too, with the
+# Node release bin/toolchain names.
+cmd_build() {
+    local nocache=()
+    case "${1:-}" in
+        "") ;;
+        --no-cache) nocache=(--no-cache) ;;
+        *) die "usage: bin/sandbox build [--no-cache]" ;;
+    esac
+    docker build "${nocache[@]}" --build-arg NODE_VERSION="$("$REPO_ROOT/bin/toolchain" node-version)" \
+        -t "$IMAGE" -f "$REPO_ROOT/.devcontainer/Dockerfile" "$REPO_ROOT"
+}
+
 cmd_help() {
-    sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 COMMAND="${1:-help}"
 [ $# -gt 0 ] && shift
 case "$COMMAND" in
+    build) cmd_build "$@" ;;
     up) cmd_up "$@" ;;
     ls) cmd_ls ;;
     preview) cmd_preview "$@" ;;

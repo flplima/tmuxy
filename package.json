@@ -14,7 +14,6 @@
     "packages/tmuxy-demo"
   ],
   "scripts": {
-    "devcontainer": "bash bin/devcontainer up",
     "build:wasm": "cargo build -p tmuxy-wasm --target wasm32-unknown-unknown --release --no-default-features && wasm-bindgen --target web --out-dir packages/tmuxy-wasm/pkg --out-name tmuxy_wasm target/wasm32-unknown-unknown/release/tmuxy_wasm.wasm",
     "start": "bash bin/dev-server start",
     "stop": "bash bin/dev-server stop",

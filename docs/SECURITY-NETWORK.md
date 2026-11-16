@@ -56,7 +56,7 @@ The API sends **no CORS headers**, so no other origin can read a response even w
 
 The `Host` rule applies to a routable bind too: the address it bound is a name it answers to, and so is anything passed with `--allowed-host` (repeatable, or `TMUXY_ALLOWED_HOSTS`). A **wildcard** bind (`0.0.0.0`, `::`) answers on every address the machine has, so it accepts any IP literal — never a rebound name, since a page whose origin is an address was served by that address — and still refuses any hostname that is not loopback or allowed. Reaching a wildcard bind by name (a LAN hostname, a Codespaces forwarding domain) needs `--allowed-host`.
 
-A container's published port is not a boundary on its own: Docker publishes `-p PORT:...` on every host interface, past the host firewall. `bin/devcontainer` publishes on `127.0.0.1` for that reason, since the dev server inside runs `--no-auth`.
+A container's published port is not a boundary on its own: Docker publishes `-p PORT:...` on every host interface, past the host firewall. `bin/sandbox` publishes on `127.0.0.1` for that reason, since the dev server inside runs `--no-auth`.
 
 ## What the App Will Load and Draw
 

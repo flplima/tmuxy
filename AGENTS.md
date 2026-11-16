@@ -57,13 +57,10 @@ runner so neither can drift from the other.
 
 | Variable | Description |
 | --- | --- |
-| `CONTAINER_NAME` | Container name (e.g., `tmuxy-worktree-1`) |
-| `HOST_PORT` | Port exposed on the host (e.g., `14089`) |
-| `PORT` | Internal server port (`9000`) |
 | `CODESPACES` | Set by GitHub Codespaces; the credential-volume scripts no-op when present |
 
-One `.devcontainer/` serves `bin/devcontainer` (plain Docker), VS Code Dev
-Containers and GitHub Codespaces. **Never hardcode the workspace path** — every
+One `.devcontainer/` serves VS Code Dev Containers, GitHub Codespaces and
+`bin/sandbox` (which builds its image with `bin/sandbox build`). **Never hardcode the workspace path** — every
 script derives the repo root from its own location, since Codespaces picks the
 path and ignores `workspaceMount`; nothing essential goes in `runArgs` (ignored
 there too). Shared start-up work is `.devcontainer/setup.sh`, which all hosts run.
