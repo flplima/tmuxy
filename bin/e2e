@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#
+# The E2E suite on a port and a tmux socket of this checkout's own, so two
+# worktrees (two agents) can run it at once without picking numbers by hand
+# or taking a machine-wide lock.
+#
+# Usage:
+#   bin/e2e [jest args...]        # e.g. bin/e2e tests/26-bug-report.test.js
+#   bin/e2e --print               # the port, config port and socket, and exit
+#
+# Both come from a hash of the checkout's path, so they are the same on every
+# run from the same worktree (a server it left up is reused) and differ from
+# another worktree's:
+#   TMUXY_PORT   9300-9499  (the config server takes TMUXY_PORT + 200, so
+#                           9500-9699, clear of every main port)
+#   TMUX_SOCKET  tmuxy-e2e-<dir>-<hash>
+# TMUXY_PORT or TMUX_SOCKET already set wins, as CI sets them.
+#
+# The shell's own tmux and tmuxy login never reach the run: a suite started
+# from a pane must not be able to aim at the session it runs in.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+hash="$(printf '%s' "$ROOT" | cksum | cut -d' ' -f1)"
+name="$(basename "$ROOT" | tr -c 'a-zA-Z0-9-' '-' | cut -c1-20)"
+name="${name%-}"
+
+export TMUXY_PORT="${TMUXY_PORT:-$((9300 + hash % 200))}"
+export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-e2e-${name}-$(printf '%04x' $((hash % 65536)))}"
+
+if [ "${1:-}" = "--print" ]; then
+  echo "TMUXY_PORT=$TMUXY_PORT"
+  echo "TMUXY_CONFIG_PORT=$((TMUXY_PORT + 200))"
+  echo "TMUX_SOCKET=$TMUX_SOCKET"
+  exit 0
+fi
+
+echo "bin/e2e: port $TMUXY_PORT, socket $TMUX_SOCKET" >&2
+exec env -u TMUX -u TMUX_PANE -u TMUX_BIN -u TMUXY_PASSWORD \
+  npx jest --runInBand "$@"

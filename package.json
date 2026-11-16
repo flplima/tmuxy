@@ -21,7 +21,7 @@
     "restart": "bash bin/dev-server restart",
     "logs": "bash bin/dev-server logs",
     "test": "vitest run",
-    "test:e2e": "jest --runInBand",
+    "test:e2e": "bash bin/e2e",
     "test:tauri": "NODE_OPTIONS='--experimental-vm-modules' jest --config tests/tauri/jest.config.js",
     "test:cli": "jest --config tests/cli/jest.config.js",
     "perf:interactions": "node packages/tmuxy-ui/scripts/measure-interactions.mjs",
