@@ -2,7 +2,7 @@
 # Based on the official Claude Code devcontainer pattern with project-specific tools:
 # the pinned tmux, Rust, agent-browser
 
-# The Node release is bin/toolchain's (`node-version`); bin/devcontainer passes
+# The Node release is bin/toolchain's (`node-version`); `bin/sandbox build` passes
 # it, and the default is held to it by bin/ci/toolchain.test.mjs for the hosts
 # that build from devcontainer.json alone.
 ARG NODE_VERSION=22
@@ -108,8 +108,7 @@ RUN mkdir /commandhistory \
     && chown -R user /commandhistory
 
 # The default workspace path for both Codespaces and VS Code Dev Containers.
-# bin/devcontainer bind-mounts the worktree here too, so all hosts agree — and
-# no script depends on it, each derives the repo root from its own location.
+# No script depends on it: each derives the repo root from its own location.
 WORKDIR /workspaces/tmuxy
 # Owned by `user`: a sandbox (bin/sandbox) mounts a fresh named volume here,
 # and Docker gives a new volume the owner of the directory it lands on, so a
@@ -131,7 +130,7 @@ ENV EDITOR=nvim
 ENV VISUAL=nvim
 
 # Bash login-shell setup: PATH, UTF-8 locale, and persistent history (backed by
-# the /commandhistory volume created above). bin/devcontainer drops into `bash -l`.
+# the /commandhistory volume created above).
 RUN { \
       echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH'; \
       echo 'export LANG=C.UTF-8'; \
@@ -143,7 +142,7 @@ RUN { \
 
 # `yolo` — run Claude Code with all permission checks disabled. Installed as an
 # executable on PATH (not a shell function) so it resolves in ANY shell: login or
-# not, bash or sh — including `bin/devcontainer run sh`.
+# not, bash or sh.
 RUN mkdir -p /home/user/.local/bin \
     && printf '#!/usr/bin/env bash\nexec claude --dangerously-skip-permissions "$@"\n' > /home/user/.local/bin/yolo \
     && chmod +x /home/user/.local/bin/yolo
@@ -152,7 +151,7 @@ RUN mkdir -p /home/user/.local/bin \
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Pre-create credential dirs with user ownership so the named volume
-# mounts (see bin/devcontainer and devcontainer.json) are
+# mounts (see devcontainer.json) are
 # writable. Credentials are never mounted from the host — users log in
 # inside (gh auth login, claude login, ssh-keygen) and the volumes
 # persist that state across restarts.

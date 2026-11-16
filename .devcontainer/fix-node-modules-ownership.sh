@@ -6,11 +6,9 @@
 # Only the mount point is chowned — a populated volume is large and its contents
 # are already correct.
 #
-# Invoked in two contexts, hence the dual privilege handling (same pattern as
-# fix-credential-ownership.sh):
-#   - bin/devcontainer's entrypoint.sh, as root: chowns directly.
-#   - devcontainer.json's onCreateCommand, as `user`: elevates via the scoped
-#     NOPASSWD sudoers rule the Dockerfile installs.
+# Invoked from devcontainer.json's onCreateCommand, as `user`: elevates via the
+# scoped NOPASSWD sudoers rule the Dockerfile installs (directly when root, the
+# same pattern as fix-credential-ownership.sh).
 # Idempotent and safe to re-run on every container start.
 set -euo pipefail
 

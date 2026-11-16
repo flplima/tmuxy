@@ -9,11 +9,9 @@
 # `claude login`, `ssh-keygen`, and the ~/.claude.json persistence daemon (which
 # can't write into a root-owned ~/.agents volume).
 #
-# Invoked in two contexts, hence the dual privilege handling:
-#   - bin/devcontainer's entrypoint.sh, as root: runs chown/chmod directly,
-#     with no sudo dependency.
-#   - devcontainer.json's postStartCommand, as `user`: elevates ONLY chown/chmod
-#     via the scoped NOPASSWD sudoers rule the Dockerfile installs.
+# Invoked from devcontainer.json's postStartCommand, as `user`: elevates ONLY
+# chown/chmod via the scoped NOPASSWD sudoers rule the Dockerfile installs, and
+# runs them directly when already root.
 # Idempotent and safe to re-run on every container start.
 #
 # Codespaces has no credential named volumes (it injects its own git/gh auth and

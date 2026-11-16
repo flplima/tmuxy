@@ -19,7 +19,7 @@ tmuxy drives `tmux` control mode, so development never touches your real work se
 Pick any of three ways to start:
 
 1. **GitHub Codespaces:** Click **Code > Create codespace on main**.
-2. **Local Docker container (recommended):** Run `npm run devcontainer` (or VS Code *Reopen in Container*).
+2. **Local Docker container (recommended):** VS Code _Reopen in Container_. To hand the work to an agent, `bin/sandbox build` once, then `bin/sandbox up <slug>` ([docs/SANDBOX.md](docs/SANDBOX.md)).
 3. **Local host:** Run `bash bin/bootstrap`, then `npm start` (`cargo watch` + Vite HMR on `http://localhost:9000` against `tmuxy-dev`).
 
 ## 2. Two review speeds: isolated edges vs core seams

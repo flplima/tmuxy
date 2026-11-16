@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * The Node release is bin/toolchain's: CI asks it through setup-node-rust,
- * bin/devcontainer passes it to the image build, and the one copy left — the
+ * `bin/sandbox build` passes it to the image build, and the one copy left — the
  * Dockerfile's default, for a host that builds from devcontainer.json alone
  * — is held to it here.
  */
