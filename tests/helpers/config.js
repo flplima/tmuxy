@@ -30,13 +30,15 @@ const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
 const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
 
 /**
- * The server every E2E server runs: the release build `jest.setup.js` builds
- * (and CI builds). One build, so a run never mixes the suite's server with an
- * older or a debug one beside it.
+ * The server every E2E server runs: `TMUXY_E2E_SERVER_BIN` (the `ci`-profile
+ * build `jest.global-setup.js` makes once per run, or a binary the developer
+ * names), else the `target/release` one CI downloads. One build, so a run never
+ * mixes the suite's server with an older or a debug one beside it.
  */
 function serverBinary() {
-  const file = path.join(WORKSPACE_ROOT, 'target/release/tmuxy-server');
-  if (!fs.existsSync(file)) throw new Error(`no release tmuxy-server at ${file}`);
+  const file =
+    process.env.TMUXY_E2E_SERVER_BIN || path.join(WORKSPACE_ROOT, 'target/release/tmuxy-server');
+  if (!fs.existsSync(file)) throw new Error(`no tmuxy-server at ${file}`);
   return file;
 }
 

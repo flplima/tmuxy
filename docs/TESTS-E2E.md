@@ -35,7 +35,7 @@ Helpers live in `tests/helpers/`, one file per domain, imported through `tests/h
 
 - Tests connect to an existing Chrome via CDP on port 9222 — never install Playwright browsers locally (CI provisions its own chromium; that's the one exception)
 - All E2E tests run sequentially (`maxWorkers: 1`) — they share one tmux server
-- A tmuxy server must be reachable on `TMUXY_PORT` (default 9100, `tests/helpers/config.js`); the suite builds and starts one itself — on that port — if nothing answers. One port per environment, like one socket per environment: 9000 belongs to a released build and `bin/dev-server`, 9100 to this suite. A server that is already up is asked which tmux socket it drives and REFUSED unless it is this run's, because a stranger's server fails the suite as a wall of unrelated flakes rather than as a port conflict
+- A tmuxy server must be reachable on `TMUXY_PORT` (default 9100, `tests/helpers/config.js`); if nothing answers, the run builds the UI and the server once (`tests/jest.global-setup.js`, on the `ci` cargo profile, like CI's per-PR job; the nightly matrix keeps `release`) and each file's setup starts it on that port. `TMUXY_E2E_SERVER_BIN` names a binary to use instead, and nothing is then built. One port per environment, like one socket per environment: 9000 belongs to a released build and `bin/dev-server`, 9100 to this suite. A server that is already up is asked which tmux socket it drives and REFUSED unless it is this run's, because a stranger's server fails the suite as a wall of unrelated flakes rather than as a port conflict
 - Missing prerequisites FAIL the run: `describeE2E` fails its `beforeAll` when the server or the browser is missing, with the reason. A suite that skipped instead reported green having run nothing
 
 ### What the helpers guarantee
@@ -65,7 +65,7 @@ The suite pins `TMUX_SOCKET` to **`tmuxy-test`** and clears `$TMUX` in `tests/je
 **The server under test has to be on that socket too.** It is the other half of every round trip: a server attached elsewhere leaves the tests reading and writing different tmux servers, and every one of them fails at "session not found" while the UI looks perfectly healthy. The suite gets this right on its own — a server it starts inherits the pinned socket, and CI sets `TMUX_SOCKET` for the whole e2e job. Only a server you started by hand can diverge, so start it to match:
 
 ```bash
-TMUX_SOCKET=tmuxy-test ./target/release/tmuxy-server   # or just let the suite start its own
+TMUX_SOCKET=tmuxy-test ./target/ci/tmuxy-server   # or just let the suite start its own
 ```
 
 The setup step warns when it reuses a server it did not start, because a running server reports no socket and the mismatch cannot be detected — only flagged.

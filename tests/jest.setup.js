@@ -1,4 +1,4 @@
-const { execSync, execFileSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 
 // Every child process gets the suite's socket and dirs from `tmuxEnv()`
@@ -114,9 +114,6 @@ beforeAll(async () => {
 
   if (!serverRunning) {
     try {
-      console.warn('[setup] Building frontend and server...');
-      execSync('npm run build -w tmuxy-ui', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
-      execSync('cargo build --release -p tmuxy-server', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
       console.warn('[setup] Starting production server...');
       const { spawn } = require('child_process');
       const fs = require('fs');
