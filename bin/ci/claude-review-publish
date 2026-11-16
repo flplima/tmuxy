@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Publishes what the Claude review job left behind, from a job that never had
+# the Claude token and never ran the pull request's code.
+#
+#   claude-review-publish <dir> <pr-number>
+#
+# <dir> holds review.md and gifs/*.gif. Nothing is posted when any file in it
+# carries something shaped like an Anthropic token. GIFs that are not GIFs,
+# too big or too many are dropped; the rest go on the orphan branch
+# pr-assets/claude-review-<pr>, linked by commit SHA. In review.md, a GIF is
+# written `![caption](gif:name.gif)`.
+set -euo pipefail
+
+dir="$1"
+pr="$2"
+: "${GH_TOKEN:?}" "${GITHUB_REPOSITORY:?}" "${GITHUB_RUN_ID:?}"
+review="$dir/review.md"
+max_review_bytes=60000
+max_gif_bytes=$((5 * 1024 * 1024))
+max_gifs=4
+
+notice() {
+  gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body "$1"
+  echo "::error::$1"
+  exit 1
+}
+
+[ -f "$review" ] || notice "Claude review: no review was written (run $GITHUB_RUN_ID)."
+[ "$(wc -c <"$review")" -le "$max_review_bytes" ] ||
+  notice "Claude review: the review was over $max_review_bytes bytes and was not posted (run $GITHUB_RUN_ID)."
+if grep -rqaiE 'sk-ant-[a-z0-9_-]{8}' "$dir"; then
+  notice "Claude review: withheld, its output carried something shaped like an Anthropic token (run $GITHUB_RUN_ID)."
+fi
+
+publishable() {
+  local gif="$1" magic
+  magic="$(head -c 6 "$gif")"
+  [[ "$(basename "$gif")" =~ ^[a-z0-9][a-z0-9-]{0,40}\.gif$ ]] &&
+    { [ "$magic" = GIF89a ] || [ "$magic" = GIF87a ]; } &&
+    [ "$(wc -c <"$gif")" -le "$max_gif_bytes" ]
+}
+
+body="$(cat "$review")"
+gifs=()
+for gif in "$dir"/gifs/*.gif; do
+  [ -f "$gif" ] || continue
+  if [ "${#gifs[@]}" -ge "$max_gifs" ] || ! publishable "$gif"; then
+    echo "::warning::dropped $(basename "$gif")"
+    continue
+  fi
+  gifs+=("$gif")
+done
+
+if [ "${#gifs[@]}" -gt 0 ]; then
+  branch="pr-assets/claude-review-$pr"
+  repo="$(mktemp -d)"
+  auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "github-actions[bot]"
+  git -C "$repo" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  if git -C "$repo" -c http.extraheader="$auth" fetch -q --depth 1 \
+    "https://github.com/$GITHUB_REPOSITORY" "refs/heads/$branch" 2>/dev/null; then
+    git -C "$repo" checkout -q FETCH_HEAD
+  else
+    git -C "$repo" checkout -q --orphan assets
+  fi
+  mkdir -p "$repo/$GITHUB_RUN_ID"
+  cp "${gifs[@]}" "$repo/$GITHUB_RUN_ID/"
+  git -C "$repo" add "$GITHUB_RUN_ID"
+  git -C "$repo" commit -qm "GIFs for the Claude review of #$pr (run $GITHUB_RUN_ID)"
+  git -C "$repo" -c http.extraheader="$auth" push -q \
+    "https://github.com/$GITHUB_REPOSITORY" "HEAD:refs/heads/$branch"
+  sha="$(git -C "$repo" rev-parse HEAD)"
+  for gif in "${gifs[@]}"; do
+    name="$(basename "$gif")"
+    body="${body//"(gif:$name)"/"(https://github.com/$GITHUB_REPOSITORY/blob/$sha/$GITHUB_RUN_ID/$name?raw=true)"}"
+  done
+fi
+# A GIF the review names but that was dropped or never recorded.
+body="$(printf '%s' "$body" | sed -E 's/!\[([^]]*)\]\(gif:[^)]*\)/_(GIF not published: \1)_/g')"
+
+printf '%s\n' "$body" | gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body-file -

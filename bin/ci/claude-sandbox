@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# The fence around the Claude review job (.github/workflows/claude-review.yml).
+#
+# Claude, and every QA surface it drives (tmuxy-server and its tmux shells,
+# Storybook, the desktop app, the browser), runs as `claude-agent`: a user with
+# no sudo, no docker, and a network that reaches loopback and the Claude API
+# only. The runner user keeps its own network, so the job's own steps still
+# work. Nothing here depends on what the model decides.
+#
+#   claude-sandbox setup            create the user, install Claude Code for it
+#   claude-sandbox lock             fence the user's network
+#   claude-sandbox check            fail unless every fence holds
+#   claude-sandbox run <cmd...>     run a command as the user
+#   claude-sandbox claude <args...> Claude Code as the user (via ./claude-launch)
+#   claude-sandbox stop             end everything the user still runs
+set -euo pipefail
+
+AGENT=claude-agent
+AGENT_HOME=/home/$AGENT
+OUT=/tmp/claude-review
+# The Claude Code version claude-code-action itself installs, at the SHA the
+# workflow pins (src/entrypoints/run.ts); move both together.
+CLAUDE_CODE_VERSION=2.1.325
+API_HOST=api.anthropic.com
+
+die() {
+  echo "::error::claude-sandbox: $*" >&2
+  exit 1
+}
+
+agent_path() {
+  local node_dir
+  node_dir="$(dirname "$(command -v node)")"
+  echo "$AGENT_HOME/.local/bin:$node_dir:/usr/local/bin:/usr/bin:/bin"
+}
+
+setup() {
+  sudo apt-get install -y --no-install-recommends bubblewrap socat acl ffmpeg >/dev/null
+  # Ubuntu 24.04+ keeps unprivileged user namespaces behind AppArmor, and
+  # bubblewrap needs them to isolate each command Claude runs.
+  if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+    sudo sysctl -qw kernel.apparmor_restrict_unprivileged_userns=0
+  fi
+  id "$AGENT" >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash "$AGENT"
+
+  # The workspace is already world-readable; the runner's home is only
+  # traversed, and the agent writes nothing there but the build caches.
+  sudo setfacl -m "u:$AGENT:x" "$HOME" "$HOME/work"
+  local cache
+  for cache in node_modules/.cache node_modules/.vite packages/tmuxy-ui/node_modules/.cache packages/tmuxy-ui/node_modules/.vite; do
+    mkdir -p "$GITHUB_WORKSPACE/$cache"
+    sudo setfacl -R -m "u:$AGENT:rwX" -m "d:u:$AGENT:rwX" "$GITHUB_WORKSPACE/$cache"
+  done
+  if [ -n "${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ]; then
+    local dir
+    dir="$(dirname "$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")"
+    sudo setfacl -R -m "u:$AGENT:rX" "$dir"
+    while [ "$dir" != "$HOME" ] && [ "$dir" != / ]; do
+      dir="$(dirname "$dir")"
+      sudo setfacl -m "u:$AGENT:x" "$dir"
+    done
+  fi
+  # tauri-driver lives in the runner's cargo home, which the agent cannot read.
+  if command -v tauri-driver >/dev/null; then
+    sudo install -m 755 "$(command -v tauri-driver)" /usr/local/bin/
+  fi
+
+  # claude-code-action takes one executable path, so it gets this launcher.
+  printf '#!/bin/sh\nexec "%s" claude "$@"\n' "$(realpath "$0")" >"$(dirname "$(realpath "$0")")/claude-launch"
+  chmod 755 "$(dirname "$(realpath "$0")")/claude-launch"
+
+  sudo install -d -o "$AGENT" -m 700 "$OUT" "$OUT/gifs" "$OUT/raw"
+  sudo install -d -o "$AGENT" -m 700 "/tmp/$AGENT-run"
+  sudo -H -u "$AGENT" git config --global --add safe.directory '*'
+  sudo -H -u "$AGENT" bash -c \
+    "set -o pipefail; curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" >/dev/null
+
+  # Managed settings outrank every other settings file, and the agent cannot
+  # write them: no web tools, nothing read from /proc or the runner's files.
+  sudo install -d -m 755 /etc/claude-code
+  sudo tee /etc/claude-code/managed-settings.json >/dev/null <<'JSON'
+{
+  "permissions": {
+    "deny": [
+      "WebFetch",
+      "WebSearch",
+      "Read(//proc/**)",
+      "Read(//etc/claude-code/**)",
+      "Read(//home/runner/work/_temp/**)",
+      "Read(//home/runner/.*/**)"
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  }
+}
+JSON
+}
+
+lock() {
+  local uid ips ip
+  uid="$(id -u "$AGENT")"
+  ips="$(getent ahostsv4 "$API_HOST" | awk '{print $1}' | sort -u)"
+  [ -n "$ips" ] || die "cannot resolve $API_HOST"
+  # The agent gets the API from /etc/hosts: it has no DNS at all, so a lookup
+  # cannot carry data out either.
+  echo "$(echo "$ips" | head -1) $API_HOST" | sudo tee -a /etc/hosts >/dev/null
+
+  local ipt
+  for ipt in iptables ip6tables; do
+    sudo "$ipt" -N CLAUDE_AGENT 2>/dev/null || sudo "$ipt" -F CLAUDE_AGENT
+    sudo "$ipt" -I OUTPUT 1 -m owner --uid-owner "$uid" -j CLAUDE_AGENT
+    sudo "$ipt" -A CLAUDE_AGENT -p udp --dport 53 -j REJECT
+    sudo "$ipt" -A CLAUDE_AGENT -p tcp --dport 53 -j REJECT
+    sudo "$ipt" -A CLAUDE_AGENT -o lo -j ACCEPT
+  done
+  for ip in $ips; do
+    sudo iptables -A CLAUDE_AGENT -d "$ip" -p tcp --dport 443 -j ACCEPT
+  done
+  sudo iptables -A CLAUDE_AGENT -j REJECT
+  sudo ip6tables -A CLAUDE_AGENT -j REJECT
+}
+
+# Each line: what must hold, then a command that must FAIL for it to hold.
+check() {
+  local failed=0 worker
+  worker="$(pgrep -u "$(id -u)" -f Runner.Worker | head -1 || true)"
+  expect_fail() {
+    local what="$1"
+    shift
+    if run bash -c "$*" >/dev/null 2>&1; then
+      echo "::error::fence open: $what"
+      failed=1
+    else
+      echo "fence holds: $what"
+    fi
+  }
+  expect_fail "no web beyond the Claude API" "curl -sS -m 5 -o /dev/null https://example.com"
+  expect_fail "no GitHub" "curl -sS -m 5 -o /dev/null https://api.github.com"
+  expect_fail "no DNS" "getent hosts example.com"
+  expect_fail "no sudo" "sudo -n true"
+  expect_fail "no docker" "docker ps"
+  [ -n "$worker" ] && expect_fail "no reading the runner's environment" "cat /proc/$worker/environ"
+  if ! run curl -sS -m 10 -o /dev/null "https://$API_HOST/"; then
+    echo "::error::the Claude API is unreachable for $AGENT"
+    failed=1
+  fi
+  [ "$failed" = 0 ] || die "a fence is open; Claude does not start"
+}
+
+# The environment is built from nothing: no runner token, no workflow token.
+# Only the names listed here cross over.
+run() {
+  sudo -n -H -u "$AGENT" \
+    --preserve-env=CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CODE_ENTRYPOINT,CLAUDE_AGENT_SDK_VERSION,DISPLAY \
+    -- env PATH="$(agent_path)" \
+    XDG_RUNTIME_DIR="/tmp/$AGENT-run" \
+    AGENT_BROWSER_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" \
+    CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    CLAUDE_CODE_SUBAGENT_MODEL=sonnet \
+    "$@"
+}
+
+stop() {
+  sudo pkill -u "$AGENT" 2>/dev/null || true
+}
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  setup) setup ;;
+  lock) lock ;;
+  check) check ;;
+  run) run "$@" ;;
+  claude) run "$AGENT_HOME/.local/bin/claude" "$@" ;;
+  stop) stop ;;
+  *) die "usage: claude-sandbox setup|lock|check|run|claude|stop" ;;
+esac

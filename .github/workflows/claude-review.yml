@@ -2,7 +2,10 @@ name: claude review
 
 # Runs only when flplima or laika-assistant comments `@claude review` on a pull
 # request. It runs on flplima's Claude subscription token, which the agent's
-# shell can read: whoever triggers it vouches for the PR's content.
+# shell could read: whoever triggers it vouches for the PR's content. Claude and
+# every QA surface run as an unprivileged user fenced to loopback and the Claude
+# API (bin/ci/claude-sandbox); a second job, which never holds the Claude
+# token, posts the review and its GIFs (bin/ci/claude-review-publish).
 on:
   issue_comment:
     types: [created]
@@ -32,14 +35,24 @@ jobs:
       )
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
+      pull-requests: read
       actions: read
+    outputs:
+      root_pr: ${{ steps.stack.outputs.root_pr }}
 
     steps:
+      # The default branch, whatever the event: the fence comes from here, never
+      # from the pull request it fences.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
+
+      - name: Keep the fence from the default branch
+        run: |
+          mkdir -p "$RUNNER_TEMP/trusted"
+          cp bin/ci/claude-sandbox "$RUNNER_TEMP/trusted/"
+          echo "SANDBOX=$RUNNER_TEMP/trusted/claude-sandbox" >> "$GITHUB_ENV"
 
       - name: Resolve PR stack and check out stack top
         id: stack
@@ -125,6 +138,7 @@ jobs:
           cat /tmp/pr-stack.md
           # shellcheck disable=SC1091
           source /tmp/pr-stack.env
+          echo "root_pr=$ROOT_PR" >> "$GITHUB_OUTPUT"
           git checkout -B "$TOP_HEAD_REF" "origin/$TOP_HEAD_REF"
 
       - uses: ./.github/actions/setup-node-rust
@@ -155,47 +169,41 @@ jobs:
 
       - uses: ./.github/actions/start-xvfb
 
-      - name: Boot live QA surfaces (webapp :9000, Storybook :6006, Tauri GUI :99 + tauri-driver :4444)
+      - name: Fence the agent (its own user, loopback and the Claude API only)
+        run: |
+          "$SANDBOX" setup
+          "$SANDBOX" lock
+          "$SANDBOX" check
+
+      - name: Boot live QA surfaces as the agent (webapp :9000, Storybook :6006, Tauri GUI :99 + tauri-driver :4444)
         env:
           DISPLAY: ':99'
-          RUST_LOG: 'info,tmuxy_server::sse=debug'
         run: |
           set -euo pipefail
 
-          # 1. tmuxy-server on :9000 with action trace
-          TMUXY_TRACE_LEVEL=labeled ./target/debug/tmuxy-server \
-            --port 9000 \
-            --no-auth \
-            --trace /tmp/tmuxy-qa-trace.ndjson \
+          # 1. tmuxy-server on :9000 with action trace; its tmux shells are the agent's
+          "$SANDBOX" run env RUST_LOG='info,tmuxy_server::sse=debug' TMUXY_TRACE_LEVEL=labeled \
+            ./target/debug/tmuxy-server --port 9000 --no-auth --trace /tmp/tmuxy-qa-trace.ndjson \
             2>/tmp/tmuxy-server.log &
-          echo "TMUXY_SERVER_PID=$!" >> "$GITHUB_ENV"
           bin/ci/wait-for-server http://localhost:9000
 
           # 2. Storybook on :6006
           mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
-          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          echo "STORYBOOK_PID=$!" >> "$GITHUB_ENV"
+          "$SANDBOX" run npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
           bin/ci/wait-for-server http://localhost:6006/index.json 180000
 
           # 3. tauri-driver on :4444 + Tauri debug binary on Xvfb :99
-          tauri-driver --port 4444 2>/tmp/tauri-driver.log &
-          echo "TAURI_DRIVER_PID=$!" >> "$GITHUB_ENV"
+          "$SANDBOX" run tauri-driver --port 4444 2>/tmp/tauri-driver.log &
           bin/ci/wait-for-server http://localhost:4444/status
-
-          ./target/debug/tmuxy 2>/tmp/tauri-app.log &
-          echo "TAURI_APP_PID=$!" >> "$GITHUB_ENV"
-
-          # 4. Warm up isolated agent-browser sessions for Web and Storybook QA
-          agent-browser --session qa-web open http://localhost:9000
-          agent-browser --session qa-sb open http://localhost:6006
+          "$SANDBOX" run ./target/debug/tmuxy 2>/tmp/tauri-app.log &
 
       - name: Run Claude review (Sonnet)
         uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1
         env:
           DISPLAY: ':99'
-          GH_TOKEN: ${{ github.token }}
-          CLAUDE_CODE_SUBAGENT_MODEL: sonnet
         with:
+          # Claude runs as the fenced user, through the launcher the fence wrote.
+          path_to_claude_code_executable: ${{ runner.temp }}/trusted/claude-launch
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           classify_inline_comments: 'false'
@@ -203,17 +211,10 @@ jobs:
           # fails before its first turn says why; a normal run keeps it hidden.
           show_full_output: ${{ runner.debug == '1' }}
           trigger_phrase: '@claude review'
-          additional_permissions: 'actions: read'
-          settings: |
-            {
-              "env": {
-                "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
-              }
-            }
           claude_args: >-
             --model sonnet
             --max-turns 30
-            --allowedTools "Agent,Task,Bash,Read,Edit,Write,Glob,Grep,mcp__github_inline_comment__create_inline_comment,mcp__github_ci__get_ci_status,mcp__github_ci__get_workflow_run_details,mcp__github_ci__download_job_log"
+            --allowedTools "Agent,Task,Bash,Read,Edit,Write,Glob,Grep"
           prompt: |
             You are running inside a live QA environment for `flplima/tmuxy`.
             Read `/tmp/pr-stack.md` first. It lists the triggered PR (`#${{ env.ROOT_PR }}`), the full open PR stack (if stacked), the checked-out stack top (`#${{ env.TOP_PR }}` on `${{ env.TOP_HEAD_REF }}`), and the exact `git diff origin/<base>...origin/<head>` command for each PR in the chain.
@@ -225,16 +226,24 @@ jobs:
 
             ## 2. Live End-to-End QA
             All live QA surfaces are already booted from the stack top:
-            - **Webapp (`http://localhost:9000`) + CLI (`/usr/local/bin/tmuxy`)**: drive with `agent-browser --session qa-web` (snapshot, click, type, screenshot, check bounding rects and console errors) and run `tmuxy` CLI commands against the live session. Inspect `/tmp/tmuxy-qa-trace.ndjson` and `/tmp/tmuxy-server.log` (`./target/debug/tmuxy-server trace --check /tmp/tmuxy-qa-trace.ndjson`).
+            The machine has no network beyond these local servers: no GitHub, no web, no `gh`. Everything you need is in the checkout and `/tmp/pr-stack.md`.
+            - **Webapp (`http://localhost:9000`) + CLI (`/usr/local/bin/tmuxy`)**: drive with `agent-browser --session qa-web open http://localhost:9000` (snapshot, click, type, screenshot, check bounding rects and console errors) and run `tmuxy` CLI commands against the live session. Inspect `/tmp/tmuxy-qa-trace.ndjson` and `/tmp/tmuxy-server.log` (`./target/debug/tmuxy-server trace --check /tmp/tmuxy-qa-trace.ndjson`).
             - **Storybook (`http://localhost:6006`)**: drive stories touched by the stack with `agent-browser --session qa-sb` (`/tmp/storybook.log`).
-            - **Tauri Linux GUI (`target/debug/tmuxy` on `Xvfb :99`, `tauri-driver` on `http://localhost:4444`)**: capture screenshots with `DISPLAY=:99 import -window root /tmp/tauri-screen.png`, send input with `DISPLAY=:99 xdotool`, or run WebDriver checks against `:4444` (`/tmp/tauri-app.log`, `/tmp/tauri-driver.log`).
+            - **Tauri Linux GUI (`target/debug/tmuxy` on `Xvfb :99`, `tauri-driver` on `http://localhost:4444`)**: capture screenshots with `DISPLAY=:99 import -window root /tmp/claude-review/raw/tauri.png`, send input with `DISPLAY=:99 xdotool`, or run WebDriver checks against `:4444` (`/tmp/tauri-app.log`, `/tmp/tauri-driver.log`).
 
-            ## 3. Output
-            - Use `mcp__github_inline_comment__create_inline_comment` (or `gh api`) for concrete line-level defects on the PR where the line was introduced.
-            - Post a concise QA + Code Review report on PR `#${{ env.ROOT_PR }}` via `gh pr comment ${{ env.ROOT_PR }}` covering:
-              1. Per-PR code review findings across the stack.
-              2. Live QA verification results (webapp, CLI, Storybook, Tauri GUI, trace health) with concrete observations.
-              3. Verdict (pass, pass with notes, or changes requested).
+            ## 3. GIFs of what changed
+            Record up to three short GIFs (3 to 10 seconds each) that show what the stack changes: a new feature working, a fixed bug no longer happening, or a bug you found happening.
+            - Webapp or Storybook: `agent-browser --session qa-web set viewport 1100 620`, then `agent-browser --session qa-web record start /tmp/claude-review/raw/<name>.webm`, drive it, `agent-browser --session qa-web record stop`.
+            - Tauri GUI: `ffmpeg -y -f x11grab -video_size 1280x720 -t 8 -i :99 /tmp/claude-review/raw/<name>.webm` while you drive it with `xdotool`.
+            - Convert each to a GIF at most 800 px wide and 10 fps: `ffmpeg -y -i /tmp/claude-review/raw/<name>.webm -vf "fps=10,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" /tmp/claude-review/gifs/<name>.gif`. Names are lowercase letters, digits and dashes. Keep each GIF under 5 MB.
+            - Skip GIFs when the stack changes nothing visible.
+
+            ## 4. Output
+            Write the whole report to `/tmp/claude-review/review.md`, in Markdown, under 60,000 bytes. Another job posts it on PR `#${{ env.ROOT_PR }}`; you post nothing yourself. Cover:
+              1. Per-PR code review findings across the stack, each with its file and line.
+              2. Live QA results (webapp, CLI, Storybook, Tauri GUI, trace health) with concrete observations.
+              3. Each GIF where it belongs, as `![what it shows](gif:<name>.gif)`, with a sentence on what to look at.
+              4. Verdict (pass, pass with notes, or changes requested).
 
       - name: Trace health check
         if: always()
@@ -261,11 +270,46 @@ jobs:
       - name: Stop background QA services
         if: always()
         run: |
-          for pid_var in TAURI_APP_PID TAURI_DRIVER_PID STORYBOOK_PID TMUXY_SERVER_PID XVFB_PID; do
-            pid="${!pid_var:-}"
-            if [ -n "$pid" ]; then
-              kill "$pid" 2>/dev/null || true
-            fi
-          done
-          agent-browser --session qa-web close 2>/dev/null || true
-          agent-browser --session qa-sb close 2>/dev/null || true
+          "${SANDBOX:-true}" stop
+          if [ -n "${XVFB_PID:-}" ]; then
+            kill "$XVFB_PID" 2>/dev/null || true
+          fi
+
+      # Only the report and the GIFs cross to the publishing job.
+      - name: Collect the review
+        run: |
+          mkdir -p "$RUNNER_TEMP/review/gifs"
+          sudo cp /tmp/claude-review/review.md "$RUNNER_TEMP/review/" 2>/dev/null || true
+          sudo find /tmp/claude-review/gifs -maxdepth 1 -type f -name '*.gif' -exec cp {} "$RUNNER_TEMP/review/gifs/" \;
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/review"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: claude-review-output-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review
+          retention-days: 7
+
+  publish:
+    name: claude review / publish
+    needs: review
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: claude-review-output-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review
+
+      - name: Post the review and its GIFs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT_PR: ${{ needs.review.outputs.root_pr }}
+        run: bin/ci/claude-review-publish "$RUNNER_TEMP/review" "$ROOT_PR"

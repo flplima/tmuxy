@@ -112,12 +112,68 @@ describe('the Claude review workflow runs on a trusted comment only', () => {
   it('runs Sonnet, resolves PR stacks, and boots all live QA surfaces', () => {
     expect(workflow).toContain('--model sonnet');
     expect(workflow).toContain('--max-turns 30');
-    expect(workflow).toContain('"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"');
     expect(workflow).toContain('Agent,Task');
     expect(workflow).toContain('/tmp/pr-stack.md');
     expect(workflow).toContain('--trace /tmp/tmuxy-qa-trace.ndjson');
     expect(workflow).toContain('agent-browser --session qa-web');
     expect(workflow).toContain('agent-browser --session qa-sb');
     expect(workflow).toContain('tauri-driver --port 4444');
+  });
+
+  it('fences Claude and every QA surface from a script on the default branch', () => {
+    expect(workflow).toContain('ref: ${{ github.event.repository.default_branch }}');
+    expect(workflow).toContain('cp bin/ci/claude-sandbox "$RUNNER_TEMP/trusted/"');
+    expect(workflow).toMatch(/"\$SANDBOX" setup\n\s+"\$SANDBOX" lock\n\s+"\$SANDBOX" check/);
+    expect(workflow).toContain(
+      'path_to_claude_code_executable: ${{ runner.temp }}/trusted/claude-launch',
+    );
+    for (const launch of [
+      '"$SANDBOX" run env RUST_LOG=',
+      '"$SANDBOX" run npm run storybook',
+      '"$SANDBOX" run tauri-driver',
+      '"$SANDBOX" run ./target/debug/tmuxy 2>',
+    ]) {
+      expect(workflow).toContain(launch);
+    }
+    expect(workflow).not.toMatch(
+      /^\s+(?:\.\/target\/debug\/tmuxy 2>|tauri-driver --port|npm run storybook)/m,
+    );
+    expect(workflow).not.toMatch(/mcp__github/);
+    expect(workflow).not.toMatch(/^\s+GH_TOKEN:.*\n(?:.*\n){0,3}\s+uses: anthropics/m);
+  });
+
+  it('posts from a job that never holds the Claude token and never runs the PR', () => {
+    const [review, publish] = workflow.split('\n  publish:\n');
+    expect(review).toMatch(/permissions:\n\s+contents: read\n\s+pull-requests: read\n/);
+    expect(publish).toBeDefined();
+    expect(publish).not.toContain('CLAUDE_CODE_OAUTH_TOKEN');
+    expect(publish).not.toContain('pr-stack');
+    expect(publish).toContain('persist-credentials: false');
+    expect(publish).toContain('bin/ci/claude-review-publish');
+  });
+
+  it('fences the agent: own user, no DNS, loopback and the Claude API, checked before Claude starts', () => {
+    const sandbox = read('bin/ci/claude-sandbox');
+    expect(sandbox).toContain('--uid-owner');
+    expect(sandbox).toMatch(/--dport 53 -j REJECT/);
+    expect(sandbox).toContain('-o lo -j ACCEPT');
+    expect(sandbox).toContain('API_HOST=api.anthropic.com');
+    for (const fence of [
+      'no web beyond the Claude API',
+      'no GitHub',
+      'no DNS',
+      'no sudo',
+      'no docker',
+    ]) {
+      expect(sandbox).toContain(`expect_fail "${fence}"`);
+    }
+    expect(sandbox).toContain('"WebFetch"');
+    expect(sandbox).toContain('"Read(//proc/**)"');
+    expect(sandbox).toContain('"CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1"');
+  });
+
+  it('withholds a review that carries anything shaped like an Anthropic token', () => {
+    const publish = read('bin/ci/claude-review-publish');
+    expect(publish).toContain("grep -rqaiE 'sk-ant-[a-z0-9_-]{8}'");
   });
 });
