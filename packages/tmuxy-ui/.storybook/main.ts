@@ -20,6 +20,17 @@ const wasmPkg = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'tmuxy
 // so the theme switcher can load /themes/<name>.css.
 const themesDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'themes');
 
+// Behind a reverse proxy that serves the app at / and Storybook under a path
+// prefix on one port (bin/sandbox), STORYBOOK_BASE names that prefix
+// (`/storybook/`). Vite then writes the prefix into every module URL the preview
+// loads, and its HMR client dials the port the page came from instead of
+// Storybook's own.
+const proxyBase = process.env.STORYBOOK_BASE;
+
+// Host names the proxy is reached by, comma separated, for when it is not
+// localhost or an IP address.
+const proxyHosts = process.env.STORYBOOK_ALLOWED_HOSTS?.split(',').filter(Boolean);
+
 const config: StorybookConfig = {
   stories: ['../src/**/*.mdx', '../src/**/*.stories.@(ts|tsx)'],
   addons: ['@storybook/addon-docs', '@storybook/addon-a11y'],
@@ -36,6 +47,14 @@ const config: StorybookConfig = {
   typescript: {
     reactDocgen: false,
   },
+  ...(proxyHosts && { core: { allowedHosts: proxyHosts } }),
+  ...(proxyBase && {
+    viteFinal: (viteConfig) => {
+      const { port: _builderPort, ...hmr } =
+        typeof viteConfig.server?.hmr === 'object' ? viteConfig.server.hmr : {};
+      return { ...viteConfig, base: proxyBase, server: { ...viteConfig.server, hmr } };
+    },
+  }),
 };
 
 export default config;
