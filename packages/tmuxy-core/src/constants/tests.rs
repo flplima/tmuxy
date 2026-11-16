@@ -51,3 +51,24 @@ fn a_built_row_reads_back_through_its_table() {
 
     assert!(Row::<PaneColumn>::parse(&line).is_none());
 }
+
+/// The window subscription watches every tmuxy option a window row reads
+/// but the session-scoped focus request, and the window's index.
+#[test]
+fn the_window_subscription_watches_each_tmuxy_window_column() {
+    use super::tmux_formats::subscribe_window_meta_command;
+    let command = subscribe_window_meta_command();
+    for option in [
+        tmux_options::WINDOW_TYPE,
+        tmux_options::FLOAT_WIDTH,
+        tmux_options::SIDEBAR_COLS,
+        tmux_options::COLLAPSIBLE,
+        "window_index",
+    ] {
+        assert!(
+            command.contains(&format!("#{{{option}}}")),
+            "{option}: {command}"
+        );
+    }
+    assert!(!command.contains(tmux_options::FOCUS_REQUEST), "{command}");
+}

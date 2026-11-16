@@ -70,6 +70,8 @@ impl<W> MonitorCore<W> {
         // send one. Nor does a theme change.
         commands.push(tmux_formats::subscribe_pane_titles_command().to_string());
         commands.push(tmux_formats::subscribe_theme_command().to_string());
+        commands.push(tmux_formats::subscribe_window_meta_command());
+        commands.push(tmux_formats::subscribe_session_meta_command());
         commands
     }
 }

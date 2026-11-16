@@ -503,3 +503,33 @@ fn a_theme_picked_anywhere_rides_the_next_delta() {
     assert!(agg.to_state_update().is_none());
     assert_eq!(agg.to_tmux_state().theme_rev.as_deref(), Some("nord:dark"));
 }
+
+/// A window option or the focus request written outside the monitor reaches
+/// it only as a subscription report: the windows are re-listed behind it,
+/// and a report of anyone else's subscription re-lists nothing.
+#[test]
+fn a_window_or_session_meta_report_re_lists_the_windows() {
+    use crate::constants::tmux_formats::{
+        SESSION_META_SUBSCRIPTION_NAME, THEME_SUBSCRIPTION_NAME, WINDOW_META_SUBSCRIPTION_NAME,
+    };
+    let relists = |name: &str| {
+        let mut agg = StateAggregator::new();
+        let step = agg.step(ControlModeEvent::SessionSubscriptionChanged {
+            name: name.to_string(),
+            value: "x".to_string(),
+        });
+        step.effects.iter().any(|effect| {
+            matches!(
+                effect,
+                SideEffect::Send {
+                    batch: Batch::WindowRelist,
+                    ..
+                }
+            )
+        })
+    };
+    assert!(relists(WINDOW_META_SUBSCRIPTION_NAME));
+    assert!(relists(SESSION_META_SUBSCRIPTION_NAME));
+    assert!(!relists(THEME_SUBSCRIPTION_NAME));
+    assert!(!relists("someone-else"));
+}

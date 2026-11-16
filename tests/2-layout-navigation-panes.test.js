@@ -17,6 +17,7 @@ const {
   waitForLayoutSettled,
   waitForCondition,
 } = require('./helpers/layout-helpers');
+const { TMUXY_CLI, typeInTerminal, pressEnter, waitForShellPrompt } = require('./helpers');
 
 // ==================== Scenario 4d: Marked pane ====================
 
@@ -130,6 +131,47 @@ describeE2E('Scenario 4d: Marked pane', {}, (ctx) => {
     expect(cleared.flags).toBe(0);
     expect(cleared.outlined).toBe(0);
   }, 120000);
+});
+
+// ==================== Scenario 4e: A change made from a shell ====================
+
+describeE2E('Scenario 4e: A mark set from a shell', {}, (ctx) => {
+  // The CLI in a shell pane talks to tmux on a client of its own, so the
+  // monitor never sees the command, and tmux announces no mark. The monitor's
+  // subscription polls `#{pane_marked}` once a second: the mark shows in about
+  // a second, where it used to wait for the next event or the idle heartbeat
+  // (10 s of quiet, then every 15 s). Five seconds tells the two apart on a
+  // slow runner too.
+  test('tmuxy run select-pane -m in a shell marks the pane within a second or so, -M clears it', async () => {
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page);
+    const pane = await ctx.page.evaluate(() => window.app?.view().activePaneId);
+    const markedInUi = () =>
+      ctx.page.evaluate(() =>
+        [...document.querySelectorAll('.pane-layout-item.pane-marked')].map((el) => {
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 ? el.dataset.paneId : null;
+        }),
+      );
+    const typedAndShown = async (flag, wanted, what) => {
+      await typeInTerminal(ctx.page, `${TMUXY_CLI} run select-pane ${flag} -t "$TMUX_PANE"`);
+      const typed = Date.now();
+      await pressEnter(ctx.page);
+      await waitForCondition(
+        ctx.page,
+        async () => (await markedInUi()).join() === wanted,
+        5000,
+        what,
+      );
+      return Date.now() - typed;
+    };
+
+    expect(await markedInUi()).toEqual([]);
+    const markedAfter = await typedAndShown('-m', pane, 'the mark set from the shell to show');
+    const clearedAfter = await typedAndShown('-M', '', 'the mark cleared from the shell to go');
+    expect(markedAfter).toBeLessThan(5000);
+    expect(clearedAfter).toBeLessThan(5000);
+  }, 60000);
 });
 
 // ==================== Scenario 4f: Collapsible panes ====================

@@ -341,13 +341,17 @@ impl TmuxList {
 /// announce on its own.
 ///
 /// tmux sends no notification when a title changes (`select-pane -T`, a
-/// program's OSC 0/2) or a pane option does, so these would wait for the idle
-/// heartbeat (15 s). tmux checks a subscription about once a second and
+/// program's OSC 0/2), a pane is marked or a pane option is written, so these
+/// would wait for the idle heartbeat (15 s) whenever the write came from
+/// anywhere but the monitor's own connection: the CLI in a shell pane, a
+/// plugin, a key binding. tmux checks a subscription about once a second and
 /// answers `%subscription-changed` whatever made the change (tmux 3.2+; `%*`
 /// is every pane of every window). The global `@tmuxy-group-rev` and
 /// `@tmuxy-plugins-rev` are inherited by every pane, so a reorder among
 /// hidden members and a plugin install are seen too. `@tmuxy-pane-state` is
-/// often written with nothing printed after it.
+/// often written with nothing printed after it. The list is the pane columns
+/// that change silently and nothing more: each field is expanded for every
+/// pane, every second.
 pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = "tmuxy-pane-meta";
 
 pub fn subscribe_pane_titles_command() -> String {
@@ -358,10 +362,59 @@ pub fn subscribe_pane_titles_command() -> String {
         tmux_options::GROUP_REV,
         tmux_options::PLUGINS_REV,
         tmux_options::PANE_STATE,
+        tmux_options::ASK,
+        tmux_options::PANE_WIDGET,
+        "pane_marked",
     ]
     .map(|name| Field::Var(name).format())
     .join("|");
     format!("refresh-client -B '{PANE_TITLE_SUBSCRIPTION_NAME}:%*:{watched}'")
+}
+
+/// The control-mode subscription that reports a window's tmuxy options and
+/// its index, which change with no notification (`@*` is every window of the
+/// attached session): a float's size, a sidebar dragged or hidden, a stack
+/// collapsed, a window moved, from the CLI or a plugin as from a client. A
+/// change re-lists the windows (`StateAggregator::step_at`).
+pub const WINDOW_META_SUBSCRIPTION_NAME: &str = "tmuxy-window-meta";
+
+pub fn subscribe_window_meta_command() -> String {
+    // Every tmuxy option a window row reads, so a new column is watched with
+    // no second list to keep; the session-scoped focus request has its own.
+    let watched = WindowColumn::ALL
+        .iter()
+        .filter_map(|column| match column.field() {
+            Field::Var(name)
+                if name.starts_with("@tmuxy-") && name != tmux_options::FOCUS_REQUEST =>
+            {
+                Some(name)
+            }
+            _ => None,
+        })
+        .chain(["window_index"])
+        .map(|name| Field::Var(name).format())
+        .collect::<Vec<_>>()
+        .join("|");
+    format!("refresh-client -B '{WINDOW_META_SUBSCRIPTION_NAME}:@*:{watched}'")
+}
+
+/// The control-mode subscription that reports the session's focus request
+/// (`@tmuxy-focus-request`, written by `tmuxy` shell helpers outside the
+/// monitor). It is session-scoped, so it is watched once here rather than
+/// once per window; a change re-lists the windows, whose rows carry it.
+pub const SESSION_META_SUBSCRIPTION_NAME: &str = "tmuxy-session-meta";
+
+pub fn subscribe_session_meta_command() -> String {
+    format!(
+        "refresh-client -B '{SESSION_META_SUBSCRIPTION_NAME}::{}'",
+        Field::Var(tmux_options::FOCUS_REQUEST).format()
+    )
+}
+
+/// Whether a subscription of this name reports something only a window
+/// re-list brings.
+pub fn relists_windows(subscription: &str) -> bool {
+    subscription == WINDOW_META_SUBSCRIPTION_NAME || subscription == SESSION_META_SUBSCRIPTION_NAME
 }
 
 /// The control-mode subscription that reports the theme and its mode,
