@@ -158,13 +158,17 @@ check() {
 }
 
 # The environment is built from nothing: no runner token, no workflow token.
-# Only the names listed here cross over.
+# Only the names listed here cross over. tmux refuses to start without TERM, and
+# Chrome's own sandbox needs user namespaces that Claude's per-command sandbox
+# already holds.
 run() {
   sudo -n -H -u "$AGENT" \
     --preserve-env=CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CODE_ENTRYPOINT,CLAUDE_AGENT_SDK_VERSION,DISPLAY \
     -- env PATH="$(agent_path)" \
     XDG_RUNTIME_DIR="/tmp/$AGENT-run" \
+    TERM=xterm-256color \
     AGENT_BROWSER_EXECUTABLE_PATH="$QA_CHROME_DIR/chrome" \
+    AGENT_BROWSER_ARGS=--no-sandbox \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$QA_CHROME_DIR/chrome" \
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \

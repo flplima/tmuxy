@@ -111,7 +111,7 @@ describe('the Claude review workflow runs on a trusted comment only', () => {
 
   it('runs Sonnet, resolves PR stacks, and boots all live QA surfaces', () => {
     expect(workflow).toContain('--model sonnet');
-    expect(workflow).toContain('--max-turns 30');
+    expect(workflow).toContain('--max-turns 60');
     expect(workflow).toContain('Agent,Task');
     expect(workflow).toContain('/tmp/pr-stack.md');
     expect(workflow).toContain('--trace /tmp/tmuxy-qa-trace.ndjson');
