@@ -47,7 +47,9 @@ setup() {
   # traversed, and the agent writes nothing there but the build caches.
   sudo setfacl -m "u:$AGENT:x" "$HOME" "$HOME/work"
   local cache
-  for cache in node_modules/.cache node_modules/.vite packages/tmuxy-ui/node_modules/.cache packages/tmuxy-ui/node_modules/.vite; do
+  for cache in node_modules/.cache node_modules/.vite node_modules/.vite-temp \
+    packages/tmuxy-ui/node_modules/.cache packages/tmuxy-ui/node_modules/.vite \
+    packages/tmuxy-ui/node_modules/.vite-temp; do
     mkdir -p "$GITHUB_WORKSPACE/$cache"
     sudo setfacl -R -m "u:$AGENT:rwX" -m "d:u:$AGENT:rwX" "$GITHUB_WORKSPACE/$cache"
   done
