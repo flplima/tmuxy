@@ -16,14 +16,16 @@ set -e
 # already, and only the fingerprint tells a formatter's rewrite from that.
 HOOK_TMP=$(mktemp -d)
 trap 'rm -rf "$HOOK_TMP"' EXIT
-git diff --cached --name-only --diff-filter=ACM | LC_ALL=C sort > "$HOOK_TMP/staged"
+git diff --cached --name-only -z --diff-filter=ACMR > "$HOOK_TMP/staged-z"
+tr '\0' '\n' < "$HOOK_TMP/staged-z" | LC_ALL=C sort > "$HOOK_TMP/staged"
 git diff --name-only | LC_ALL=C sort > "$HOOK_TMP/unstaged"
 LC_ALL=C comm -12 "$HOOK_TMP/staged" "$HOOK_TMP/unstaged" > "$HOOK_TMP/partial"
 while IFS= read -r f; do
   printf '%s %s\n' "$(git hash-object -- "$f")" "$f"
 done < "$HOOK_TMP/partial" > "$HOOK_TMP/partial-before"
 
-bin/lint-gate format
+# Each formatter runs on the staged files it owns, and not at all when none is.
+bin/lint-gate format --files-from "$HOOK_TMP/staged-z"
 
 # A fully staged file that differs from the index now was rewritten by a
 # formatter: re-stage it. A partially staged one never is — that would commit
@@ -42,7 +44,7 @@ done < "$HOOK_TMP/partial-before"
 # `vitest related` runs a staged test file and every test that transitively
 # imports a staged source file. CI runs the entire suite, so a miss here is
 # caught there.
-CHANGED_UI=$(git diff --cached --name-only --diff-filter=ACM \
+CHANGED_UI=$(git diff --cached --name-only --diff-filter=ACMR \
   | grep -E '^packages/tmuxy-ui/src/.*\.(ts|tsx)$' \
   | sed 's#^packages/tmuxy-ui/##' || true)
 if [ -n "$CHANGED_UI" ]; then

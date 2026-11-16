@@ -137,7 +137,7 @@ A bug on a seam between layers — effect order, the server stream, the client's
 
 Before wrapping up a task, run the local check that mirrors CI's lint job and the unit tests:
 
-- `npm run check:fast` — `bin/lint-gate check` (the one list of what is formatted, linted, type-checked and clippy'd; the pre-push hook and CI's `lint` job run the same) followed by `npm test`
+- `npm run check:fast` — `bin/lint-gate check` (the one list of what is formatted, linted, type-checked and clippy'd; the pre-push hook and CI's `lint` job run the same) followed by `npm test`; a pass of the gate on a clean tree stamps that tree, and pre-push then skips the gate for it
 
 The rest of the map, for when a change reaches further:
 

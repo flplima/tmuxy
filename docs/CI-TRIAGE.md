@@ -81,3 +81,7 @@ A phase more than one job runs is a composite action under `.github/actions/`, s
 
 - `docs/TESTS.md`
 - `docs/PERFORMANCE.md`
+
+## The pre-push stamp
+
+A full `bin/lint-gate check` that passes on a tree with no uncommitted tracked changes stamps it: a file named for the tree hash (`git rev-parse HEAD^{tree}`) under `<git-common-dir>/tmuxy-lint-gate/`, shared by every worktree and never committed. `.github/pre-push` reads the refs git passes on stdin and skips the gate when every pushed commit's tree is stamped; a deleted ref needs nothing. A pushed commit that is not checked out and not stamped is checked in a temporary worktree (`bin/lint-gate check-sha <sha>`), never by HEAD's tree. The stamp does not cover the toolchain (a changed Rust or Node version) or untracked files the run saw; delete the directory to force a full run, or `TMUXY_SKIP_PREPUSH=1` in an emergency.

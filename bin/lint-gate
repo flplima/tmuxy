@@ -6,9 +6,18 @@
 #
 # Usage:
 #   bin/lint-gate format             # rewrite: prettier, eslint --fix, cargo fmt
+#   bin/lint-gate format --files-from <list>
+#                                    # the same, only on the files in <list>
+#                                    # (NUL-separated paths, e.g. the staged
+#                                    # ones): each formatter on the files it
+#                                    # owns, and not started with none
 #   bin/lint-gate check [<step>...]  # read-only; every step, or only the named
 #                                    # ones: policy prettier rustfmt eslint
 #                                    # types knip complexity clippy clippy-wasm
+#   bin/lint-gate stamped <sha>...   # exit 0 when a full `check` passed on the
+#                                    # tree of every <sha> (what pre-push asks)
+#   bin/lint-gate check-sha <sha>    # a full `check` of <sha>'s tree, in a
+#                                    # temporary worktree
 #   bin/lint-gate steps              # the step names, one per line (CI's
 #                                    # lint job runs each by name)
 set -euo pipefail
@@ -57,17 +66,95 @@ pkgs() {
   for crate in "$@"; do printf -- '-p %s ' "$crate"; done
 }
 
+# Brace-expand one scope glob (`a/{b,c}/*.ts` -> two lines): the globs are
+# prettier's, which expands braces; git's pathspecs do not.
+expand_braces() {
+  (set -f; eval "printf '%s\\n' $1")
+}
+
+# The tracked files a list of scope globs covers, NUL-separated. `*` stays in
+# one directory and `**/` may span none, as in prettier's own globs; a plain
+# path is a file or a directory.
+scope_files() {
+  local glob expanded specs=()
+  for glob in "$@"; do
+    while IFS= read -r expanded; do specs+=(":(glob)$expanded"); done < <(expand_braces "$glob")
+  done
+  git ls-files -z -- "${specs[@]}"
+}
+
+# The paths of the NUL-separated list on stdin that scope_files "$@" covers,
+# NUL-separated, in list order.
+in_scope() {
+  local -A covered=()
+  local file
+  while IFS= read -r -d '' file; do covered[$file]=1; done < <(scope_files "$@")
+  while IFS= read -r -d '' file; do
+    if [ -n "${covered[$file]:-}" ]; then printf '%s\0' "$file"; fi
+  done
+}
+
+# Format the whole repo, or only the files named in $1 (a NUL-separated list).
 do_format() {
-  step 'prettier --write'
-  # Only the files it rewrote: the full list is every file in the repo, on
-  # every commit.
-  npx prettier --write --log-level warn "${PRETTIER_SCOPE[@]}"
-  step 'eslint --fix'
-  npx eslint --fix "${ESLINT_ROOT_SCOPE[@]}"
-  npm run lint:fix -w tmuxy-ui
-  step 'cargo fmt'
-  # shellcheck disable=SC2046
-  cargo fmt $(pkgs "${FMT_CRATES[@]}")
+  local list="${1:-}"
+  if [ -z "$list" ]; then
+    step 'prettier --write'
+    npx prettier --write --log-level warn "${PRETTIER_SCOPE[@]}"
+    step 'eslint --fix'
+    npx eslint --fix "${ESLINT_ROOT_SCOPE[@]}"
+    npm run lint:fix -w tmuxy-ui
+    step 'cargo fmt'
+    # shellcheck disable=SC2046
+    cargo fmt $(pkgs "${FMT_CRATES[@]}")
+    return
+  fi
+
+  local -a pretty=() root_js=() ui_js=() rust=()
+  local file crate
+  # Prettier's own ignore file still applies to a file named on its command
+  # line, and --ignore-unknown leaves a file type it has no parser for alone.
+  mapfile -d '' -t pretty < <(in_scope "${PRETTIER_SCOPE[@]}" < "$list")
+  if [ ${#pretty[@]} -gt 0 ]; then
+    step 'prettier --write (staged)'
+    npx prettier --write --ignore-unknown --log-level warn "${pretty[@]}"
+  fi
+
+  # ESLINT_ROOT_SCOPE names directories and single files, no globs.
+  local js='\.(js|jsx|mjs|cjs|ts|tsx)$' entry
+  while IFS= read -r -d '' file; do
+    [[ $file =~ $js ]] || continue
+    case "$file" in
+      packages/tmuxy-ui/src/* | packages/tmuxy-ui/scripts/* | packages/tmuxy-ui/eslint-rules/* | packages/tmuxy-ui/.storybook/*)
+        ui_js+=("${file#packages/tmuxy-ui/}")
+        continue
+        ;;
+    esac
+    for entry in "${ESLINT_ROOT_SCOPE[@]}"; do
+      if [[ $file == "$entry" || $file == "$entry"/* ]]; then root_js+=("$file"); break; fi
+    done
+  done < "$list"
+  if [ ${#root_js[@]} -gt 0 ]; then
+    step 'eslint --fix (staged)'
+    npx eslint --fix "${root_js[@]}"
+  fi
+  if [ ${#ui_js[@]} -gt 0 ]; then
+    step 'eslint --fix (staged, tmuxy-ui)'
+    (cd packages/tmuxy-ui && npx eslint --fix "${ui_js[@]}")
+  fi
+
+  # rustfmt on the files themselves: it formats a file and the modules it
+  # declares, never a crate it was not pointed at (vendored crates are not in
+  # FMT_CRATES).
+  while IFS= read -r -d '' file; do
+    [[ $file == *.rs ]] || continue
+    for crate in "${FMT_CRATES[@]}"; do
+      if [[ $file == "packages/$crate/"* ]]; then rust+=("$file"); break; fi
+    done
+  done < "$list"
+  if [ ${#rust[@]} -gt 0 ]; then
+    step 'rustfmt (staged)'
+    rustfmt --edition "$(sed -n 's/^edition *= *"\(.*\)"/\1/p' Cargo.toml | head -1)" "${rust[@]}"
+  fi
 }
 
 check_policy() {
@@ -165,11 +252,79 @@ check_clippy_wasm() {
   fi
 }
 
+# A full `check` that passes on a clean tree leaves a stamp named for the tree
+# it checked, in a directory every worktree of the repo shares and git never
+# tracks; pre-push skips the gate for a commit whose tree is stamped. The tree
+# already holds this script, the configs and the lockfiles, so the hash of the
+# tree is the key. Not in it, and an accepted gap: the toolchain (node, rustc,
+# clippy, an installed dependency out of step with the lockfile) and untracked
+# files the run happened to see.
+stamp_dir() {
+  printf '%s/tmuxy-lint-gate' "$(git rev-parse --path-format=absolute --git-common-dir)"
+}
+
+write_stamp() {
+  # Tracked files in the index or the working tree that differ from HEAD mean
+  # the gate looked at something other than HEAD's tree.
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "lint-gate: uncommitted changes to tracked files: no stamp written, pre-push will check again."
+    return
+  fi
+  local dir tree
+  dir="$(stamp_dir)"
+  tree="$(git rev-parse 'HEAD^{tree}')"
+  mkdir -p "$dir"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$dir/$tree"
+  # A tree is rarely pushed a month after it was checked.
+  find "$dir" -type f -mtime +30 -delete
+  echo "lint-gate: stamped tree $tree"
+}
+
+# Exit 0 when every given commit's tree carries a stamp.
+all_stamped() {
+  local dir sha tree
+  dir="$(stamp_dir)"
+  for sha in "$@"; do
+    tree="$(git rev-parse --verify --quiet "$sha^{tree}")" || return 1
+    [ -f "$dir/$tree" ] || return 1
+  done
+}
+
+# A full check of a commit that is not the checked-out one: its tree in a
+# temporary worktree, with this checkout's installed dependencies and build
+# cache.
+check_sha() {
+  local sha="$1" tmp status=0 dep
+  tmp="$(mktemp -d)"
+  git worktree add --quiet --detach "$tmp/tree" "$sha"
+  for dep in node_modules packages/tmuxy-ui/node_modules packages/tmuxy-demo/node_modules; do
+    if [ -d "$ROOT/$dep" ]; then ln -s "$ROOT/$dep" "$tmp/tree/$dep"; fi
+  done
+  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}" "$tmp/tree/bin/lint-gate" check || status=$?
+  git worktree remove --force "$tmp/tree"
+  rm -rf "$tmp"
+  return "$status"
+}
+
 ALL_STEPS=(policy prettier rustfmt eslint types knip complexity shellcheck clippy clippy-wasm)
 
 case "${1:-}" in
   format)
-    do_format
+    if [ "${2:-}" = "--files-from" ] && [ -n "${3:-}" ]; then
+      do_format "$3"
+    elif [ $# -eq 1 ]; then
+      do_format
+    else
+      echo "usage: bin/lint-gate format [--files-from <nul-separated-list>]" >&2
+      exit 2
+    fi
+    ;;
+  stamped)
+    shift
+    all_stamped "$@"
+    ;;
+  check-sha)
+    check_sha "${2:?usage: bin/lint-gate check-sha <sha>}"
     ;;
   steps)
     printf '%s\n' "${ALL_STEPS[@]}"
@@ -177,8 +332,10 @@ case "${1:-}" in
   check)
     shift
     steps=("$@")
+    full=0
     if [ ${#steps[@]} -eq 0 ]; then
       steps=("${ALL_STEPS[@]}")
+      full=1
     fi
     for s in "${steps[@]}"; do
       case "$s" in
@@ -199,9 +356,10 @@ case "${1:-}" in
       esac
     done
     printf '\nlint-gate: OK (%s)\n' "${steps[*]}"
+    if [ "$full" = 1 ]; then write_stamp; fi
     ;;
   *)
-    echo "usage: bin/lint-gate format | check [<step>...] | steps" >&2
+    echo "usage: bin/lint-gate format [--files-from <list>] | check [<step>...] | stamped <sha>... | check-sha <sha> | steps" >&2
     echo "steps: ${ALL_STEPS[*]}" >&2
     exit 2
     ;;
