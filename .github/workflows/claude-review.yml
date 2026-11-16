@@ -2,10 +2,12 @@ name: claude review
 
 # Runs only when flplima or laika-assistant comments `@claude review` on a pull
 # request. It runs on flplima's Claude subscription token, which the agent's
-# shell could read: whoever triggers it vouches for the PR's content. Claude and
-# every QA surface run as an unprivileged user fenced to loopback and the Claude
-# API (bin/ci/claude-sandbox); a second job, which never holds the Claude
-# token, posts the review and its GIFs (bin/ci/claude-review-publish).
+# shell never holds: a proxy on loopback adds it to each API request
+# (bin/ci/claude-api-proxy.mjs). Claude and every QA surface run as an
+# unprivileged user fenced to loopback (bin/ci/claude-sandbox); a second job,
+# which never holds the token, posts the review and its GIFs
+# (bin/ci/claude-review-publish). Whoever triggers it vouches for the PR's code,
+# whose build runs before the fence goes up.
 on:
   issue_comment:
     types: [created]
@@ -51,7 +53,7 @@ jobs:
       - name: Keep the fence from the default branch
         run: |
           mkdir -p "$RUNNER_TEMP/trusted"
-          cp bin/ci/claude-sandbox "$RUNNER_TEMP/trusted/"
+          cp bin/ci/claude-sandbox bin/ci/claude-api-proxy.mjs "$RUNNER_TEMP/trusted/"
           echo "SANDBOX=$RUNNER_TEMP/trusted/claude-sandbox" >> "$GITHUB_ENV"
 
       - name: Resolve PR stack and check out stack top
@@ -169,9 +171,12 @@ jobs:
 
       - uses: ./.github/actions/start-xvfb
 
-      - name: Fence the agent (its own user, loopback and the Claude API only)
+      - name: Fence the agent (its own user, loopback only, the token behind a proxy)
+        env:
+          CLAUDE_REVIEW_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           "$SANDBOX" setup
+          "$SANDBOX" proxy
           "$SANDBOX" lock
           "$SANDBOX" check
 
@@ -205,7 +210,8 @@ jobs:
         with:
           # Claude runs as the fenced user, through the launcher the fence wrote.
           path_to_claude_code_executable: ${{ runner.temp }}/trusted/claude-launch
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Not the token: the proxy holds that. The action only needs a value.
+          claude_code_oauth_token: held-by-the-proxy
           github_token: ${{ github.token }}
           classify_inline_comments: 'false'
           # A rerun with debug logging shows Claude's own output, so a run that

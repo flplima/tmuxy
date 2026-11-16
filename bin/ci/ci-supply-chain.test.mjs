@@ -98,12 +98,14 @@ describe('the Claude review workflow runs on a trusted comment only', () => {
     expect(workflow).not.toContain('restrict_untrusted_prs:');
   });
 
-  it('authenticates with the subscription token secret, never a key in the file', () => {
+  it('hands the subscription token to the API proxy only, never to Claude', () => {
     expect(workflow).toMatch(/^permissions:\n\s+contents: read$/m);
     expect(workflow).toContain(
       'uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1',
     );
-    expect(workflow).toContain('claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
+    expect(workflow).toContain('claude_code_oauth_token: held-by-the-proxy');
+    expect(workflow.match(/secrets\.CLAUDE_CODE_OAUTH_TOKEN/g)).toHaveLength(1);
+    expect(workflow).toContain('CLAUDE_REVIEW_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
     expect(workflow).toContain("classify_inline_comments: 'false'");
     expect(workflow).not.toContain('anthropic_api_key:');
     expect(workflow).not.toContain('anthropic_federation_rule_id:');
@@ -122,8 +124,12 @@ describe('the Claude review workflow runs on a trusted comment only', () => {
 
   it('fences Claude and every QA surface from a script on the default branch', () => {
     expect(workflow).toContain('ref: ${{ github.event.repository.default_branch }}');
-    expect(workflow).toContain('cp bin/ci/claude-sandbox "$RUNNER_TEMP/trusted/"');
-    expect(workflow).toMatch(/"\$SANDBOX" setup\n\s+"\$SANDBOX" lock\n\s+"\$SANDBOX" check/);
+    expect(workflow).toContain(
+      'cp bin/ci/claude-sandbox bin/ci/claude-api-proxy.mjs "$RUNNER_TEMP/trusted/"',
+    );
+    expect(workflow).toMatch(
+      /"\$SANDBOX" setup\n\s+"\$SANDBOX" proxy\n\s+"\$SANDBOX" lock\n\s+"\$SANDBOX" check/,
+    );
     expect(workflow).toContain(
       'path_to_claude_code_executable: ${{ runner.temp }}/trusted/claude-launch',
     );
@@ -157,9 +163,14 @@ describe('the Claude review workflow runs on a trusted comment only', () => {
     expect(sandbox).toContain('--uid-owner');
     expect(sandbox).toMatch(/--dport 53 -j REJECT/);
     expect(sandbox).toContain('-o lo -j ACCEPT');
-    expect(sandbox).toContain('API_HOST=api.anthropic.com');
+    expect(sandbox).toMatch(
+      /-A CLAUDE_AGENT -o lo -j ACCEPT\n\s+sudo "\$ipt" -A CLAUDE_AGENT -j REJECT/,
+    );
+    expect(sandbox).not.toMatch(/--preserve-env=[^\n]*TOKEN/);
+    expect(sandbox).toContain('ANTHROPIC_AUTH_TOKEN=held-by-the-proxy');
     for (const fence of [
-      'no web beyond the Claude API',
+      'no web',
+      'no Claude API but through the proxy',
       'no GitHub',
       'no DNS',
       'no sudo',
