@@ -21,6 +21,8 @@ module.exports = {
   testTimeout: 120000,
   verbose: true,
   transformIgnorePatterns: [],
+  // Builds the UI and the server once per run, not once per test file.
+  globalSetup: '<rootDir>/tests/jest.global-setup.js',
   setupFilesAfterEnv: ['<rootDir>/tests/jest.setup.js'],
   // No forceExit: the shared browser is released in tests/jest.setup.js, so a
   // run that will not exit means a real leaked handle, which we want to see.
