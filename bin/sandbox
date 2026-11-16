@@ -29,9 +29,10 @@
 #   bin/sandbox logs <slug> [init|dev|storybook] [-f]
 #                         The start-up log (default), the dev server's or
 #                         Storybook's.
-#   bin/sandbox collect <slug>
+#   bin/sandbox collect <slug> [--dry-run]
 #                         Bundle sandbox/<slug> out, check it in a quarantine
-#                         repository, ask, and only on "y" push that branch.
+#                         repository and push that branch unless a check
+#                         refuses it (--dry-run stops before the push).
 #   bin/sandbox down <slug> [--purge]
 #                         Remove the container and its network. The volumes
 #                         stay unless --purge.
@@ -273,10 +274,12 @@ cmd_down() {
 #      never a fetch from the container's repository (alternates and symlinked
 #      refs there would pull in history the host never chose);
 #   3. one refspec into the quarantine, no tags, fsck on;
-#   4. refuse workflow changes, flag the paths that run code on a machine, show
-#      the commits and the diffstat, and ask;
-#   5. only on "y", push that one branch to GitHub over HTTPS. The sandbox
-#      branch is never checked out, built or tested on the host.
+#   4. refuse workflow changes (and a branch whose workflows differ from
+#      GitHub's main because it is behind it), flag the paths that run code on
+#      a machine, show the commits and the diffstat;
+#   5. push sandbox/<slug> (never main) over HTTPS. No one is asked: the
+#      checks decide; flags are for the PR's reviewer. The branch is never
+#      checked out, built or tested on the host.
 
 QUARANTINE=""
 NO_HOOKS=""
@@ -286,7 +289,7 @@ qgit() {
         -c core.hooksPath="$NO_HOOKS" -c transfer.fsckObjects=true "$@"
 }
 
-# What collect refuses (exit 1) or flags (asks anyway), one line per path.
+# What collect refuses (exit 1) or flags (pushes anyway), one line per path.
 check_paths() {
     local base="$1" tip="$2" meta path old_mode new_mode status refuse=0
     while IFS=$'\t' read -r meta path; do
@@ -335,7 +338,12 @@ check_paths() {
 }
 
 cmd_collect() {
-    local slug="${1:-}"
+    local slug="${1:-}" dry_run=0
+    case "${2:-}" in
+        "") ;;
+        --dry-run) dry_run=1 ;;
+        *) die "usage: bin/sandbox collect <slug> [--dry-run]" ;;
+    esac
     check_slug "$slug"
     need_running "$slug"
     command -v jq >/dev/null || die "collect needs jq"
@@ -406,17 +414,18 @@ cmd_collect() {
     fi
     echo "quarantine: $QUARANTINE (review there; never check the branch out here)"
     [ "$refuse" = 0 ] || die "refused: a workflow or action changed; nothing was pushed"
-
-    local answer=""
-    read -r -p "Push $branch to $url? [y/N] " answer || true
-    if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
-        echo "not pushed"
+    # Behind main, it carries main's old workflows: GitHub reads a change.
+    if ! qgit diff --quiet --no-ext-diff "refs/base/github/main" "$tip" -- .github/workflows .github/actions; then
+        die "refused: $branch is behind main's workflows; rebase it inside first: bin/sandbox shell $slug git pull --rebase origin main"
+    fi
+    if [ "$dry_run" = 1 ]; then
+        echo "dry run: not pushed"
         return 0
     fi
     # The host's own credentials, so the global config this time, but still no hooks.
     git -C "$QUARANTINE" -c core.hooksPath="$NO_HOOKS" push "$url" "refs/heads/$branch:refs/heads/$branch"
     local repo="${url#https://github.com/}"
-    echo "pushed. Open it as a draft until you have read the diff:"
+    echo "pushed. Open it as a draft until the flags above are read:"
     echo "  gh pr create --draft --repo ${repo%.git} --head $branch"
 }
 
@@ -434,7 +443,7 @@ cmd_build() {
 }
 
 cmd_help() {
-    sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 COMMAND="${1:-help}"

@@ -24,7 +24,7 @@ a sandbox is for handing a container to an agent.
 | `bin/sandbox shell <slug> [cmd…]` | A login shell inside, or one command |
 | `bin/sandbox claude <slug>` | Attaches to `claude --dangerously-skip-permissions` in a `claude` session of the sandbox's own tmux, starting it on the first call |
 | `bin/sandbox logs <slug> [init\|dev\|storybook] [-f]` | The start-up log (clone, install, proxy), the dev server's, or Storybook's |
-| `bin/sandbox collect <slug>` | Bundles `sandbox/<slug>` out, checks it in a quarantine repository, asks, and pushes only on `y` (below) |
+| `bin/sandbox collect <slug> [--dry-run]` | Bundles `sandbox/<slug>` out, checks it in a quarantine repository, and pushes it unless a check refuses (below) |
 | `bin/sandbox down <slug> [--purge]` | Removes the container and its network. The workspace and cargo volumes stay, so `up` again resumes the branch; `--purge` removes them and the quarantine too |
 
 The host port is Docker's pick and changes when the container restarts; `ls`
@@ -128,11 +128,10 @@ So `collect` treats everything that comes out as hostile input:
 | Quarantine | A fresh bare repository in the host's state dir (`~/.local/state/tmuxy/sandbox/quarantine-<slug>.git`), with no global or system git config and an empty hooks directory. It is seeded from trusted sources only: this checkout's `origin/*` and `main`, and `main` from GitHub |
 | Bundle | Inside, `git bundle create` of `refs/heads/sandbox/<slug>` alone, leaving out the commits the host already has, piped out through a size cap (`SANDBOX_BUNDLE_MAX_MB`, default 200) |
 | Fetch | `bundle verify`, then one refspec to `refs/heads/sandbox/<slug>`, `--no-tags`, with `transfer.fsckObjects`. Any other ref in the quarantine refuses |
-| Refuse | Any change under `.github/workflows/` or `.github/actions/`, and a branch that shares no history with `main` |
+| Refuse | Any change under `.github/workflows/` or `.github/actions/`; a branch whose workflows differ from GitHub's `main` because it fell behind (rebase it inside first); a branch that shares no history with `main` |
 | Flag | Other `.github/` files and hooks, `bin/`, `.devcontainer/`, `.claude/`, `.agents/`, `AGENTS.md`, `.gitmodules`, `.gitattributes`, `.npmrc`, `.cargo/`; a `package.json` whose `scripts` changed; a lockfile entry from outside npm's registry or crates.io; a `Cargo.toml` patch, git or path dependency; symlinks; new executables; merges; more than 50 commits |
 | Show | The commits and the diffstat, with control characters stripped so the text cannot drive the terminal |
-| Ask | `y` pushes; anything else, or no terminal answer, stops |
-| Push | Only that branch, to GitHub over HTTPS, with the host's credentials and still no hooks; then prints the `gh pr create --draft` line |
+| Push | No one is asked: the checks decide, so an agent can collect on its own. Only `sandbox/<slug>`, never `main`, to GitHub over HTTPS with the host's credentials and still no hooks; then the `gh pr create --draft` line. The flags are for whoever reviews the pull request. `--dry-run` stops before the push |
 
 Never check out, build or test a sandbox branch on the host before it is
 merged: review it on GitHub or in another sandbox. The quarantine is for
