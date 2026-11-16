@@ -1,4 +1,4 @@
-name: claude qa and code review
+name: claude review
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   qa-review:
-    name: claude qa + review
+    name: claude review
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     if: >-
@@ -200,7 +200,7 @@ jobs:
           agent-browser --session qa-web open http://localhost:9000
           agent-browser --session qa-sb open http://localhost:6006
 
-      - name: Run Claude Code QA + Code Review (Opus + Sonnet sub-agents)
+      - name: Run Claude review (Opus + Sonnet sub-agents)
         uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1
         env:
           DISPLAY: ':99'
