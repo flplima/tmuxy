@@ -261,14 +261,14 @@ pub struct StateAggregator {
     /// While settling a compound command (`splitw ; breakp`), window and
     /// layout events update state without asking for an emission.
     suppress_window_emissions: bool,
-    /// Panes whose vt100 was reset because they moved between windows
-    /// (break-pane): their `%output` is dropped until a capture lands, so the
-    /// old window's content does not pile up in the fresh buffer.
-    panes_moved_window: std::collections::HashSet<PaneId>,
-    /// `%output` for panes not in state yet: on a split, tmux can send the new
-    /// pane's output before the `%layout-change` that creates it, so
-    /// `parse_layout` replays it once the pane exists.
-    early_output: HashMap<PaneId, Vec<u8>>,
+    /// Panes whose screen is unknown until their capture lands: one that just
+    /// appeared (a split, a group member swapped in from the stash) or whose
+    /// vt100 was reset because it moved between windows (break-pane). Their
+    /// `%output` is dropped until then — the capture holds it — so no update
+    /// carries a screen built from a fragment: a group member swapped back
+    /// in showed only what it printed since, its earlier lines gone, until
+    /// the capture landed.
+    panes_awaiting_capture: std::collections::HashSet<PaneId>,
     /// HIDDEN pane-group members parked in the stash session, carrying only
     /// what a group tab strip needs. Rebuilt from each `TmuxList::Stash` reply
     /// and emitted as `TmuxPane` stubs; the frontend tells a stub from the
@@ -320,8 +320,7 @@ impl StateAggregator {
             hidden_panes: hidden_panes::HiddenPanes::default(),
             delta_seq: 0,
             suppress_window_emissions: false,
-            panes_moved_window: std::collections::HashSet::new(),
-            early_output: HashMap::new(),
+            panes_awaiting_capture: std::collections::HashSet::new(),
             stash_members: HashMap::new(),
             window_setup: HashMap::new(),
             settling_until: None,
@@ -383,6 +382,8 @@ mod test_pane;
 mod tests;
 #[cfg(test)]
 mod tests_announced_windows;
+#[cfg(test)]
+mod tests_awaiting_capture;
 #[cfg(test)]
 mod tests_capture;
 #[cfg(test)]

@@ -40,14 +40,14 @@ impl StateAggregator {
             .or_insert_with(|| PaneState::new(pane_id.clone(), width, height));
 
         if is_new_pane {
-            let early_bytes = pane.replay_early_output(&mut self.early_output);
+            // Blank until its capture lands (`panes_awaiting_capture`).
+            self.panes_awaiting_capture.insert(pane_id.clone());
             debug!(
                 pane = %pane_id,
                 window = ?window_id,
                 cols = width,
                 rows = height,
                 shell = crate::constants::is_shell_name(&command),
-                bytes = early_bytes,
                 "pane appeared"
             );
         }
@@ -85,7 +85,7 @@ impl StateAggregator {
         let moved_window = match window_id {
             Some(window) if pane.window_id.is_some() && !pane.in_window(&window) => {
                 pane.move_to_window(window);
-                self.panes_moved_window.insert(pane_id.clone());
+                self.panes_awaiting_capture.insert(pane_id.clone());
                 true
             }
             other => {

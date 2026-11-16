@@ -1,6 +1,6 @@
 use super::tests::*;
 use super::*;
-use crate::ids::test_ids::{pid, wid};
+use crate::ids::test_ids::pid;
 
 /// A response between the capture markers is attributed to exactly the
 /// pane named by the BEGIN marker — and unmarked responses (e.g. a
@@ -427,61 +427,6 @@ fn a_mode_change_notification_relists_the_pane_instead_of_toggling_copy_mode() {
         "the notification after the row flipped the pane out of copy mode"
     );
     assert!(agg.has_pane_in_copy_mode(), "the clipboard gate stays open");
-}
-
-/// A pane that moved windows (break-pane) holds its `%output` until the
-/// capture of its new place lands. When that capture fails, the hold must
-/// be released with it, or the pane goes blind: every line it prints from
-/// then on is dropped until some later capture happens to land.
-#[test]
-fn a_moved_pane_whose_capture_fails_gets_its_output_back() {
-    let mut agg = StateAggregator::new();
-    seed_pane(&mut agg, "%0", "@0");
-    for w in ["@0", "@1"] {
-        agg.windows.insert(wid(w), WindowState::new(wid(w), 0));
-    }
-    let layout = "0000,80x24,0,0,0";
-    let moved = agg.process_event(ControlModeEvent::LayoutChange {
-        window_id: wid("@1"),
-        layout: layout.into(),
-        visible_layout: layout.into(),
-        flags: String::new(),
-    });
-    assert_eq!(
-        moved.panes_needing_refresh,
-        vec![pid("%0")],
-        "a move captures the pane"
-    );
-    agg.queue_captures(&[pid("%0")]);
-
-    let held = agg.process_event(ControlModeEvent::Output {
-        pane_id: pid("%0"),
-        content: b"STALE\r\n".to_vec(),
-    });
-    assert!(
-        !held.state_changed,
-        "output is held while the capture is in flight"
-    );
-
-    agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
-    agg.process_event(ControlModeEvent::CommandResponse {
-        output: "can't find pane: %0\n".to_string(),
-        success: false,
-    });
-
-    let after = agg.process_event(ControlModeEvent::Output {
-        pane_id: pid("%0"),
-        content: b"FRESH".to_vec(),
-    });
-    assert!(
-        after.state_changed,
-        "output reaches the pane once the capture is over"
-    );
-    let first_row: String = agg.panes.get_mut("%0").unwrap().get_content()[0]
-        .iter()
-        .map(|c| c.char.clone())
-        .collect();
-    assert_eq!(first_row.trim_end(), "FRESH");
 }
 
 /// A capture asked for while one is already in flight for the pane (the

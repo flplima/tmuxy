@@ -222,6 +222,8 @@ impl StateAggregator {
         self.pending_captures
             .retain(|id| self.panes.contains_key(id));
         self.recapture.retain(|id| self.panes.contains_key(id));
+        self.panes_awaiting_capture
+            .retain(|id| self.panes.contains_key(id));
     }
 
     pub fn window_ids(&self) -> Vec<WindowId> {

@@ -206,10 +206,10 @@ impl StateAggregator {
     ) -> ProcessEventResult {
         // Whatever the outcome: a wedged entry would block every later
         // capture of the pane and hold the first state back
-        // (`initial_state_ready`), and a moved pane left in
-        // `panes_moved_window` would drop every `%output` it prints.
+        // (`initial_state_ready`), and a pane left in
+        // `panes_awaiting_capture` would drop every `%output` it prints.
         self.pending_captures.retain(|id| *id != pane_id);
-        self.panes_moved_window.remove(&pane_id);
+        self.panes_awaiting_capture.remove(&pane_id);
         // A capture asked for while this one was in flight (a second resize
         // of a divider drag) was dropped as a duplicate, yet this reply
         // shows the pane as it was when the capture was issued: ask again,

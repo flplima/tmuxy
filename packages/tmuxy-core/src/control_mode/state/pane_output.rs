@@ -1,5 +1,5 @@
 use super::*;
-use crate::{PaneId, WindowId};
+use crate::WindowId;
 
 /// What a pane's emulator reset keeps (`PaneState::reset`).
 enum Reset {
@@ -10,21 +10,6 @@ enum Reset {
 }
 
 impl PaneState {
-    /// Replay the `%output` that arrived for this pane before it existed —
-    /// during a split, `%output` often lands before the `%layout-change` or
-    /// list-panes row that creates the pane. Returns how many bytes it was.
-    pub(in crate::control_mode::state) fn replay_early_output(
-        &mut self,
-        early_output: &mut HashMap<PaneId, Vec<u8>>,
-    ) -> usize {
-        let Some(early) = early_output.remove(&self.id) else {
-            return 0;
-        };
-        self.output_bytes += early.len() as u64;
-        self.process_output(&early);
-        early.len()
-    }
-
     pub fn process_output(&mut self, content: &[u8]) {
         self.content_dirty = true;
 
