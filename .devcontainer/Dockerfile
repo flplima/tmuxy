@@ -93,6 +93,11 @@ RUN /tmp/bin/install-dev-tools --full \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 
+# Caddy, the one-port proxy a sandbox (bin/sandbox) puts in front of the dev
+# server, Vite's HMR socket and Storybook. One static binary from the official
+# image; nothing else of that image comes along.
+COPY --from=caddy:2 /usr/bin/caddy /usr/local/bin/caddy
+
 # Ensure `user` has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global \
     && chown -R user:user /usr/local/share
@@ -106,6 +111,10 @@ RUN mkdir /commandhistory \
 # bin/devcontainer bind-mounts the worktree here too, so all hosts agree — and
 # no script depends on it, each derives the repo root from its own location.
 WORKDIR /workspaces/tmuxy
+# Owned by `user`: a sandbox (bin/sandbox) mounts a fresh named volume here,
+# and Docker gives a new volume the owner of the directory it lands on, so a
+# root-owned one would leave the non-root container unable to clone into it.
+RUN chown user:user /workspaces/tmuxy
 
 # Trust any workspace path so git doesn't complain about "dubious ownership"
 # when the container user's uid differs from the mount owner. A wildcard is

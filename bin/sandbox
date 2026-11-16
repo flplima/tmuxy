@@ -1,0 +1,438 @@
+#!/usr/bin/env bash
+#
+# One isolated container per agent, reached through one loopback port.
+#
+# A sandbox is the tmuxy-dev image (.devcontainer/Dockerfile) run as a non-root
+# user with every capability dropped, a hard memory limit with no swap, its own
+# Docker network, and a private clone of the repository in a named volume. No
+# host checkout, .git, gh login, SSH key or Claude login goes in; the only
+# credential is CLAUDE_CODE_OAUTH_TOKEN, passed through when the caller has it
+# set. Work comes out only through `collect`, as a git bundle the host checks
+# before anything is pushed. docs/SANDBOX.md has the design.
+#
+# Usage:
+#   bin/sandbox up <slug> [--from <branch>] [--memory 4g] [--pids 4096]
+#                         Create and start it: clone <branch> (default main)
+#                         from GitHub over HTTPS onto branch sandbox/<slug>,
+#                         then npm ci. Never builds the image.
+#   bin/sandbox ls        Every sandbox, from the Docker labels.
+#   bin/sandbox preview <slug>
+#                         Start the dev server and Storybook inside, print
+#                         http://127.0.0.1:<port>/ and /storybook/.
+#   bin/sandbox shell <slug> [cmd...]
+#                         A login shell inside (or run cmd).
+#   bin/sandbox claude <slug>
+#                         Attach to `claude --dangerously-skip-permissions` in
+#                         the sandbox's own tmux (started on first call).
+#   bin/sandbox logs <slug> [init|dev|storybook] [-f]
+#                         The start-up log (default), the dev server's or
+#                         Storybook's.
+#   bin/sandbox collect <slug>
+#                         Bundle sandbox/<slug> out, check it in a quarantine
+#                         repository, ask, and only on "y" push that branch.
+#   bin/sandbox down <slug> [--purge]
+#                         Remove the container and its network. The volumes
+#                         stay unless --purge.
+#
+# Environment:
+#   CLAUDE_CODE_OAUTH_TOKEN  passed into the container when set, never printed
+#   SANDBOX_BUNDLE_MAX_MB    the largest bundle collect accepts (default 200)
+set -euo pipefail
+
+# Nothing of the host's tmux reaches a container, not even by accident.
+unset TMUX TMUX_PANE TMUX_BIN TMUXY_PASSWORD
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+IMAGE="tmuxy-dev"
+WS="/workspaces/tmuxy"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tmuxy/sandbox"
+LABEL="dev.tmuxy.sandbox"
+
+die() {
+    echo "sandbox: $*" >&2
+    exit 1
+}
+
+# Interactive only when stdin is a terminal.
+TTY_OPTS=(-i)
+[ -t 0 ] && TTY_OPTS=(-i -t)
+
+# A slug names a container, a network, two volumes and a branch: lower case,
+# digits and hyphens only, so it cannot spell anything else in any of them.
+check_slug() {
+    [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]{0,39}$ ]] ||
+        die "slug must be 1-40 of [a-z0-9-], starting with a letter or digit"
+}
+
+ctr() { echo "tmuxy-sbx-$1"; }
+net() { echo "tmuxy-sbx-$1"; }
+ws_vol() { echo "tmuxy-sbx-ws-$1"; }
+cargo_vol() { echo "tmuxy-sbx-cargo-$1"; }
+
+exists() { docker container inspect "$(ctr "$1")" >/dev/null 2>&1; }
+running() { [ "$(docker inspect -f '{{.State.Running}}' "$(ctr "$1")" 2>/dev/null)" = "true" ]; }
+need_running() { running "$1" || die "sandbox '$1' is not running (bin/sandbox ls)"; }
+
+# The branch is read back from the label `up` set, never from inside.
+branch_of() { docker inspect -f "{{index .Config.Labels \"dev.tmuxy.branch\"}}" "$(ctr "$1")"; }
+
+# The published host port of the one proxy port.
+port_of() {
+    local hp
+    hp="$(docker port "$(ctr "$1")" 8080/tcp | head -1)"
+    [ -n "$hp" ] || die "sandbox '$1' publishes no port"
+    echo "${hp##*:}"
+}
+
+# The repository on GitHub over HTTPS, from the host's origin. A sandbox clones
+# from here and collect pushes here: never the host's own .git.
+repo_url() {
+    local url
+    url="$(git -C "$REPO_ROOT" remote get-url origin)"
+    case "$url" in
+        git@github.com:*) url="https://github.com/${url#git@github.com:}" ;;
+        ssh://git@github.com/*) url="https://github.com/${url#ssh://git@github.com/}" ;;
+        https://github.com/*) ;;
+        *) die "origin is not a GitHub repository: $url" ;;
+    esac
+    echo "$url"
+}
+
+# Hostile text (commit messages, paths) printed without its control
+# characters, so it cannot drive the terminal.
+sanitize() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
+
+cmd_up() {
+    local slug="${1:-}"
+    check_slug "$slug"
+    shift
+    local from="main" memory="4g" pids="4096"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --from) from="${2:?--from needs a branch}"; shift 2 ;;
+            --memory) memory="${2:?--memory needs a size}"; shift 2 ;;
+            --pids) pids="${2:?--pids needs a number}"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+    git check-ref-format --branch "$from" >/dev/null 2>&1 || die "not a branch name: $from"
+    [[ "$memory" =~ ^[0-9]+[mg]$ ]] || die "--memory takes a size like 4g or 6144m"
+    [[ "$pids" =~ ^[0-9]+$ ]] || die "--pids takes a number"
+    exists "$slug" && die "sandbox '$slug' exists; bin/sandbox down $slug first"
+
+    local created
+    created="$(docker image inspect -f '{{.Created}}' "$IMAGE" 2>/dev/null)" ||
+        die "no $IMAGE image; build it with: bin/devcontainer build"
+    echo "==> image $IMAGE, built ${created%%.*}"
+
+    local branch="sandbox/$slug" url
+    url="$(repo_url)"
+
+    docker network inspect "$(net "$slug")" >/dev/null 2>&1 ||
+        docker network create --label "$LABEL=$slug" "$(net "$slug")" >/dev/null
+    local v
+    for v in "$(ws_vol "$slug")" "$(cargo_vol "$slug")"; do
+        docker volume inspect "$v" >/dev/null 2>&1 ||
+            docker volume create --label "$LABEL=$slug" "$v" >/dev/null
+    done
+
+    local env_args=(
+        -e SANDBOX_REPO_URL="$url"
+        -e SANDBOX_FROM="$from"
+        -e SANDBOX_BRANCH="$branch"
+        -e SANDBOX_GIT_NAME="$(git -C "$REPO_ROOT" config user.name || true)"
+        -e SANDBOX_GIT_EMAIL="$(git -C "$REPO_ROOT" config user.email || true)"
+        -e STORYBOOK_BASE=/storybook/
+        -e TMUXY_VITE_HMR_PATH=/__vite_hmr
+    )
+    # By name only: docker reads the value from this environment, so it is on
+    # no command line and in no output.
+    [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && env_args+=(-e CLAUDE_CODE_OAUTH_TOKEN)
+
+    docker create --name "$(ctr "$slug")" \
+        --init \
+        --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges \
+        --memory "$memory" --memory-swap "$memory" --pids-limit "$pids" \
+        --shm-size 1g \
+        --network "$(net "$slug")" -p 127.0.0.1::8080 \
+        -v "$(ws_vol "$slug"):$WS" \
+        -v "$(cargo_vol "$slug"):/usr/local/cargo/registry" \
+        -w "$WS" \
+        "${env_args[@]}" \
+        --label "$LABEL=$slug" --label "dev.tmuxy.branch=$branch" --label "dev.tmuxy.from=$from" \
+        "$IMAGE" bash /opt/sandbox/init.sh >/dev/null
+    # Copied in from this checkout before the start, so the proxy config and
+    # the start-up script are the host's, not the clone's.
+    docker cp -q "$REPO_ROOT/.devcontainer/sandbox/." "$(ctr "$slug"):/opt/sandbox"
+    docker start "$(ctr "$slug")" >/dev/null
+
+    echo "==> sandbox $slug: branch $branch from $from, memory $memory, port 127.0.0.1:$(port_of "$slug")"
+    echo "    start-up:  bin/sandbox logs $slug -f   (clone + npm ci, a few minutes)"
+    echo "    agent:     bin/sandbox claude $slug"
+    echo "    preview:   bin/sandbox preview $slug"
+    [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || echo "    (no CLAUDE_CODE_OAUTH_TOKEN set: claude will ask to log in)"
+}
+
+cmd_ls() {
+    docker ps -a --filter "label=$LABEL" \
+        --format "table {{.Label \"$LABEL\"}}\t{{.Label \"dev.tmuxy.branch\"}}\t{{.Status}}\t{{.Ports}}"
+}
+
+cmd_preview() {
+    local slug="${1:-}"
+    check_slug "$slug"
+    need_running "$slug"
+    docker exec -u 1000:1000 "$(ctr "$slug")" bash /opt/sandbox/preview.sh
+    local port
+    port="$(port_of "$slug")"
+    echo "app:        http://127.0.0.1:$port/"
+    echo "storybook:  http://127.0.0.1:$port/storybook/"
+}
+
+cmd_shell() {
+    local slug="${1:-}"
+    check_slug "$slug"
+    shift
+    need_running "$slug"
+    if [ $# -gt 0 ]; then
+        exec docker exec "${TTY_OPTS[@]}" -u 1000:1000 "$(ctr "$slug")" bash -lc "$*"
+    fi
+    exec docker exec "${TTY_OPTS[@]}" -u 1000:1000 "$(ctr "$slug")" bash -l
+}
+
+cmd_claude() {
+    local slug="${1:-}"
+    check_slug "$slug"
+    need_running "$slug"
+    [ -t 0 ] || die "claude needs a terminal"
+    exec docker exec -it -u 1000:1000 "$(ctr "$slug")" \
+        tmux new-session -A -s claude -c "$WS" claude --dangerously-skip-permissions
+}
+
+cmd_logs() {
+    local slug="${1:-}"
+    check_slug "$slug"
+    shift
+    local which="init" follow=0 a
+    for a in "$@"; do
+        case "$a" in
+            -f | --follow) follow=1 ;;
+            init | dev | storybook) which="$a" ;;
+            *) die "logs takes init, dev or storybook, and -f" ;;
+        esac
+    done
+    exists "$slug" || die "no sandbox '$slug'"
+    case "$which" in
+        init)
+            if [ "$follow" = 1 ]; then exec docker logs -f "$(ctr "$slug")"; fi
+            exec docker logs "$(ctr "$slug")"
+            ;;
+        dev)
+            need_running "$slug"
+            local f=(--no-follow)
+            [ "$follow" = 1 ] && f=()
+            exec docker exec "${TTY_OPTS[@]}" -u 1000:1000 "$(ctr "$slug")" bin/dev-server logs "${f[@]}"
+            ;;
+        storybook)
+            need_running "$slug"
+            local t=(-n 200)
+            [ "$follow" = 1 ] && t=(-n 200 -f)
+            exec docker exec "${TTY_OPTS[@]}" -u 1000:1000 "$(ctr "$slug")" tail "${t[@]}" /tmp/sandbox-storybook.log
+            ;;
+    esac
+}
+
+cmd_down() {
+    local slug="${1:-}"
+    check_slug "$slug"
+    shift
+    local purge=0
+    [ "${1:-}" = "--purge" ] && purge=1
+    docker rm -f "$(ctr "$slug")" >/dev/null 2>&1 && echo "removed container $(ctr "$slug")"
+    docker network rm "$(net "$slug")" >/dev/null 2>&1 && echo "removed network $(net "$slug")"
+    if [ "$purge" = 1 ]; then
+        local v
+        for v in "$(ws_vol "$slug")" "$(cargo_vol "$slug")"; do
+            docker volume rm "$v" >/dev/null 2>&1 && echo "removed volume $v"
+        done
+        rm -rf "$STATE_DIR/quarantine-$slug.git"
+    else
+        echo "kept volumes $(ws_vol "$slug") and $(cargo_vol "$slug") (--purge removes them)"
+    fi
+}
+
+# --- collect -----------------------------------------------------------------
+#
+# Everything that comes out of a sandbox is hostile input. The order matters:
+#   1. a fresh bare quarantine repository, seeded from the host's own refs and
+#      from GitHub (trusted sources only), with no global or system git config
+#      and an empty hooks directory;
+#   2. a bundle of the one branch, made inside and piped out under a size cap,
+#      never a fetch from the container's repository (alternates and symlinked
+#      refs there would pull in history the host never chose);
+#   3. one refspec into the quarantine, no tags, fsck on;
+#   4. refuse workflow changes, flag the paths that run code on a machine, show
+#      the commits and the diffstat, and ask;
+#   5. only on "y", push that one branch to GitHub over HTTPS. The sandbox
+#      branch is never checked out, built or tested on the host.
+
+QUARANTINE=""
+NO_HOOKS=""
+
+qgit() {
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$QUARANTINE" \
+        -c core.hooksPath="$NO_HOOKS" -c transfer.fsckObjects=true "$@"
+}
+
+# What collect refuses (exit 1) or flags (asks anyway), one line per path.
+check_paths() {
+    local base="$1" tip="$2" meta path old_mode new_mode status refuse=0
+    while IFS=$'\t' read -r meta path; do
+        read -r old_mode new_mode _ _ status <<<"${meta#:}"
+        case "$path" in
+            .github/workflows/* | .github/actions/*)
+                echo "REFUSED  $path (runs in CI with the repository's secrets)"
+                refuse=1
+                continue
+                ;;
+            .github/* | .githooks/* | */hooks/* | hooks/* | .husky/*) echo "FLAG     $path (hooks or GitHub config)" ;;
+            bin/* | .devcontainer/* | .claude/* | .agents/* | AGENTS.md | CLAUDE.md | .gitmodules | .gitattributes | .npmrc | .cargo/*)
+                echo "FLAG     $path (runs on a machine or steers an agent)"
+                ;;
+        esac
+        [ "$new_mode" = 120000 ] && echo "FLAG     $path (symlink)"
+        [ "$new_mode" = 100755 ] && [ "$old_mode" != 100755 ] && echo "FLAG     $path (new executable)"
+        [ "$status" = D ] && continue
+        case "$path" in
+            package.json | */package.json)
+                if [ "$(qgit show "$base:$path" 2>/dev/null | jq -S .scripts 2>/dev/null)" != \
+                    "$(qgit show "$tip:$path" | jq -S .scripts 2>/dev/null)" ]; then
+                    echo "FLAG     $path (scripts changed)"
+                fi
+                ;;
+            package-lock.json | */package-lock.json)
+                if qgit diff --no-ext-diff --no-textconv "$base" "$tip" -- "$path" |
+                    grep -E '^\+\s*"resolved":' | grep -vqE '"https://registry\.npmjs\.org/'; then
+                    echo "FLAG     $path (a package resolved from outside registry.npmjs.org)"
+                fi
+                ;;
+            Cargo.lock | */Cargo.lock)
+                if qgit diff --no-ext-diff --no-textconv "$base" "$tip" -- "$path" |
+                    grep -E '^\+source = ' | grep -vqF 'registry+https://github.com/rust-lang/crates.io-index'; then
+                    echo "FLAG     $path (a crate from outside crates.io)"
+                fi
+                ;;
+            Cargo.toml | */Cargo.toml)
+                if qgit diff --no-ext-diff --no-textconv "$base" "$tip" -- "$path" | grep -qE '^\+.*(\[patch|git *=|path *=)'; then
+                    echo "FLAG     $path (a patch, git or path dependency)"
+                fi
+                ;;
+        esac
+    done < <(qgit -c core.quotePath=true diff --raw --no-renames --no-ext-diff "$base" "$tip")
+    return "$refuse"
+}
+
+cmd_collect() {
+    local slug="${1:-}"
+    check_slug "$slug"
+    need_running "$slug"
+    command -v jq >/dev/null || die "collect needs jq"
+    local branch url max_mb
+    branch="$(branch_of "$slug")"
+    [ "$branch" = "sandbox/$slug" ] || die "label says branch '$branch', expected sandbox/$slug"
+    url="$(repo_url)"
+    max_mb="${SANDBOX_BUNDLE_MAX_MB:-200}"
+
+    mkdir -p "$STATE_DIR"
+    NO_HOOKS="$STATE_DIR/no-hooks"
+    mkdir -p "$NO_HOOKS"
+    QUARANTINE="$STATE_DIR/quarantine-$slug.git"
+    rm -rf "$QUARANTINE"
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q --bare --template= "$QUARANTINE"
+
+    echo "==> seeding the quarantine from this checkout and GitHub"
+    qgit fetch -q --no-tags "$REPO_ROOT" "+refs/remotes/origin/*:refs/base/origin/*" "+refs/heads/main:refs/base/local/main"
+    qgit fetch -q --no-tags "$url" "+refs/heads/main:refs/base/github/main"
+
+    # The bundle leaves out what the host already has, as far as the sandbox
+    # knows those commits; whatever it does not know comes along in full.
+    local tips=()
+    mapfile -t tips < <(qgit for-each-ref --format='%(objectname)' refs/base/ | sort -u)
+    local tmp
+    tmp="$(mktemp -d)"
+    # shellcheck disable=SC2064 # expand now: tmp is local
+    trap "rm -rf '$tmp'" EXIT
+    echo "==> bundling $branch out of the sandbox (cap ${max_mb} MB)"
+    # shellcheck disable=SC2016 # expanded inside the container
+    docker exec -i -u 1000:1000 -w "$WS" "$(ctr "$slug")" bash -c '
+        b=$1; shift; neg=()
+        for s in "$@"; do git cat-file -e "$s^{commit}" 2>/dev/null && neg+=("^$s"); done
+        git bundle create --quiet - "refs/heads/$b" "${neg[@]}"
+    ' _ "$branch" "${tips[@]}" | head -c $((max_mb * 1024 * 1024 + 1)) >"$tmp/b.bundle" || true
+    local size
+    size="$(wc -c <"$tmp/b.bundle")"
+    [ "$size" -gt 0 ] || die "no bundle: is $branch empty, or does it add nothing to main?"
+    [ "$size" -le $((max_mb * 1024 * 1024)) ] || die "bundle over ${max_mb} MB; refused"
+
+    qgit bundle verify -q "$tmp/b.bundle" >/dev/null 2>&1 || die "the bundle does not verify against main; refused"
+    qgit fetch -q --no-tags --no-write-fetch-head "$tmp/b.bundle" "+refs/heads/$branch:refs/heads/$branch" ||
+        die "fetching $branch from the bundle failed (fsck?); refused"
+    [ "$(qgit for-each-ref --format=x refs/heads/ refs/tags/ | wc -l)" = 1 ] || die "unexpected refs in the quarantine; refused"
+
+    local base tip
+    tip="$(qgit rev-parse "refs/heads/$branch")"
+    base="$(qgit merge-base "$tip" refs/base/github/main)" || die "$branch shares no history with main; refused"
+
+    local count merges
+    count="$(qgit rev-list --count "$base..$tip")"
+    merges="$(qgit rev-list --count --merges "$base..$tip")"
+    echo
+    echo "==> $count commit(s) on $branch over main ($merges merge(s))"
+    qgit log --no-color --format='%h %an <%ae>%n    %s' "$base..$tip" | head -100 | sanitize
+    echo
+    qgit diff --no-color --no-ext-diff --no-textconv --stat=100 "$base" "$tip" | tail -60 | sanitize
+    echo
+
+    local findings refuse=0
+    findings="$(check_paths "$base" "$tip")" || refuse=1
+    [ "$merges" -gt 0 ] && findings+=$'\n'"FLAG     $merges merge commit(s): history from elsewhere may come along"
+    [ "$count" -gt 50 ] && findings+=$'\n'"FLAG     $count commits: more than an agent's branch usually holds"
+    if [ -n "${findings//[$'\n']/}" ]; then
+        echo "==> checks"
+        printf '%s\n' "$findings" | sed '/^$/d' | sanitize
+        echo
+    fi
+    echo "quarantine: $QUARANTINE (review there; never check the branch out here)"
+    [ "$refuse" = 0 ] || die "refused: a workflow or action changed; nothing was pushed"
+
+    local answer=""
+    read -r -p "Push $branch to $url? [y/N] " answer || true
+    if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+        echo "not pushed"
+        return 0
+    fi
+    # The host's own credentials, so the global config this time, but still no hooks.
+    git -C "$QUARANTINE" -c core.hooksPath="$NO_HOOKS" push "$url" "refs/heads/$branch:refs/heads/$branch"
+    local repo="${url#https://github.com/}"
+    echo "pushed. Open it as a draft until you have read the diff:"
+    echo "  gh pr create --draft --repo ${repo%.git} --head $branch"
+}
+
+cmd_help() {
+    sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+COMMAND="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$COMMAND" in
+    up) cmd_up "$@" ;;
+    ls) cmd_ls ;;
+    preview) cmd_preview "$@" ;;
+    shell) cmd_shell "$@" ;;
+    claude) cmd_claude "$@" ;;
+    logs) cmd_logs "$@" ;;
+    collect) cmd_collect "$@" ;;
+    down) cmd_down "$@" ;;
+    help | -h | --help) cmd_help ;;
+    *) die "unknown command: $COMMAND (bin/sandbox help)" ;;
+esac

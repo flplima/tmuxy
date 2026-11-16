@@ -1,0 +1,55 @@
+# The one port a sandbox publishes (bin/sandbox): the app at /, Storybook under
+# /storybook/, and both HMR sockets, all on :8080. docs/SANDBOX.md has the
+# routing table and why each rule is here.
+{
+	admin off
+	auto_https off
+	# Only what went wrong reaches `bin/sandbox logs`.
+	log {
+		level ERROR
+	}
+}
+
+http://:8080 {
+	# Storybook's Vite HMR socket: Vite upgrades only on the exact base path,
+	# so this one request keeps its prefix. It must come before handle_path.
+	@sb_hmr {
+		path /storybook/
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	handle @sb_hmr {
+		reverse_proxy 127.0.0.1:6006
+	}
+
+	redir /storybook /storybook/ 308
+
+	# Everything else under the prefix, with the prefix stripped.
+	handle_path /storybook/* {
+		reverse_proxy 127.0.0.1:6006
+	}
+
+	# Three absolute URLs Storybook 10.6 writes without the base.
+	@sb_abs path /storybook-server-channel /vite-inject-mocker-entry.js /@id/__x00__virtual:/@storybook/*
+	handle @sb_abs {
+		reverse_proxy 127.0.0.1:6006
+	}
+
+	# staticDirs the v86 stories fetch by absolute path. /themes/* stays with the app.
+	@sb_static path /wasm/* /v86/* /v86-img/*
+	handle @sb_static {
+		reverse_proxy 127.0.0.1:6006
+	}
+
+	# The app's Vite HMR socket goes straight to Vite (TMUXY_VITE_HMR_PATH):
+	# tmuxy-server's dev proxy drops the Upgrade header. By name, not address:
+	# Vite binds `localhost`, which Node resolves to ::1 first.
+	handle /__vite_hmr {
+		reverse_proxy localhost:9001
+	}
+
+	# Everything else: tmuxy-server --dev.
+	handle {
+		reverse_proxy 127.0.0.1:9000
+	}
+}

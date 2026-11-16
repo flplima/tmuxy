@@ -68,6 +68,10 @@ script derives the repo root from its own location, since Codespaces picks the
 path and ignores `workspaceMount`; nothing essential goes in `runArgs` (ignored
 there too). Shared start-up work is `.devcontainer/setup.sh`, which all hosts run.
 
+`bin/sandbox` runs one permission-skipping agent per isolated container behind
+one loopback port, with work leaving only through `collect`: see
+[docs/SANDBOX.md](docs/SANDBOX.md).
+
 Copilot's cloud agent uses none of this: an ephemeral runner bootstrapped by
 `.github/workflows/copilot-setup-steps.yml` (no custom image or
 `devcontainer.json` there). Both call `bin/install-dev-tools` for the tooling on
