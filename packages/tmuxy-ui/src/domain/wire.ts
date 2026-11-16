@@ -224,8 +224,9 @@ export const ServerDelta = Schema.Struct({
   ),
   new_panes: Schema.optional(Schema.Array(WirePane)),
   new_windows: Schema.optional(Schema.Array(WireWindow)),
-  active_window_id: Schema.optional(WindowId),
-  active_pane_id: Schema.optional(PaneId),
+  /** Absent: unchanged. `null`: there is none any more. */
+  active_window_id: OptionalNull(WindowId),
+  active_pane_id: OptionalNull(PaneId),
   /** See `ServerState.focus_request`. An empty string means "cleared". */
   focus_request: Schema.optional(Schema.String),
   /** See `ServerState.plugins_rev`; `''` when gone. */

@@ -185,3 +185,21 @@ describe('applyDelta — window order', () => {
     expect(next.windows.find((w) => w.id === '@1')?.active_pane_id).toBe('%9');
   });
 });
+
+describe('applyDelta — active window and pane', () => {
+  // `null` is "there is none any more"; absent is "unchanged". Read alike,
+  // a client kept a closed window's pane as its active one.
+  test('null clears the active window and pane; absent keeps them', () => {
+    const state = makeState();
+    const cleared = applyDelta(
+      state,
+      wireDelta({ seq: 2, active_window_id: null, active_pane_id: null }),
+    );
+    expect(cleared.active_window_id).toBeNull();
+    expect(cleared.active_pane_id).toBeNull();
+
+    const kept = applyDelta(state, wireDelta({ seq: 2 }));
+    expect(kept.active_window_id).toBe('@0');
+    expect(kept.active_pane_id).toBe('%0');
+  });
+});

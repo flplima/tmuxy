@@ -197,10 +197,13 @@ pub struct TmuxDelta {
     pub new_panes: Option<Vec<TmuxPane>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_windows: Option<Vec<TmuxWindow>>,
+    /// The active window or pane changed: `Some(None)` (null on the wire)
+    /// when there is none any more, which a plain `None` (absent: unchanged)
+    /// could not say, so a client kept the one that was gone.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_window_id: Option<WindowId>,
+    pub active_window_id: Option<Option<WindowId>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_pane_id: Option<PaneId>,
+    pub active_pane_id: Option<Option<PaneId>>,
     /// A shell helper queued (or cleared) a focus request. `Some("")` means it
     /// was cleared — the option is gone — so the field distinguishes "no change"
     /// (absent) from "no longer pending" (empty string).

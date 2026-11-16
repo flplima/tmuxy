@@ -68,7 +68,7 @@ fn a_delta_is_structural_when_the_shape_moves_not_when_output_arrives() {
     d.panes = Some(panes);
     assert!(is_structural(&d), "a pane going away is");
     d.panes = None;
-    d.active_pane_id = Some(pid("%1"));
+    d.active_pane_id = Some(Some(pid("%1")));
     assert!(is_structural(&d));
 }
 
