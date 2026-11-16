@@ -65,6 +65,10 @@ jobs:
           set -euo pipefail
           git fetch origin "+refs/heads/*:refs/remotes/origin/*" --prune
 
+          if [ "$(gh pr view "$ROOT_PR" --json state --jq .state)" != OPEN ]; then
+            echo "::error::#$ROOT_PR is not open (merged or closed): there is nothing to review"
+            exit 1
+          fi
           root_json="$(gh pr view "$ROOT_PR" --json number,title,headRefName,headRefOid,baseRefName,url,author,isDraft)"
           open_prs="$(gh pr list --state open --limit 200 --json number,title,headRefName,headRefOid,baseRefName,url,author,isDraft)"
 
