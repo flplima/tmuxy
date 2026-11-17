@@ -3,7 +3,6 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::super::guard::scratch_root;
 use super::*;
 
 /// A repository of the test's own in the temp dir, with one commit; none of
@@ -43,18 +42,6 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
 }
 
 #[test]
-fn a_task_becomes_a_short_branch_name() {
-    assert_eq!(slug("Fix the login redirect!"), "fix-the-login-redirect");
-    assert_eq!(slug("  --Ünïcode & ASCII 42 "), "ünïcode-ascii-42");
-    assert_eq!(slug("Corrigir a navegação"), "corrigir-a-navegação");
-    assert_eq!(
-        slug("a very long task description that keeps going well past the limit"),
-        "a-very-long-task-description-that-keeps"
-    );
-    assert_eq!(slug("!!!"), "");
-}
-
-#[test]
 fn a_worktree_is_made_beside_the_main_one_on_a_new_branch() {
     let (root, repo) = repository("made");
     let created = create(&repo.join("."), "agent/fix-login", None).unwrap();
@@ -73,19 +60,20 @@ fn a_worktree_is_made_beside_the_main_one_on_a_new_branch() {
 fn an_existing_directory_branch_or_a_bad_name_is_refused() {
     let (root, repo) = repository("refused");
     create(&repo, "fix", None).unwrap();
-    let again = create(&repo, "fix", None).unwrap_err().to_string();
+    let again = create(&repo, "fix", None).unwrap_err();
     assert!(again.contains("is already there"), "{again}");
     std::fs::remove_dir_all(root.join("app-fix")).unwrap();
-    let branch = create(&repo, "fix", None).unwrap_err().to_string();
+    let branch = create(&repo, "fix", None).unwrap_err();
     assert!(branch.contains("worktree add"), "{branch}");
-    let bad = create(&repo, "a..b", None).unwrap_err().to_string();
+    let bad = create(&repo, "a..b", None).unwrap_err();
     assert!(bad.contains("not a branch name git takes"), "{bad}");
     let outside = root.join("plain");
     std::fs::create_dir_all(&outside).unwrap();
-    assert!(matches!(
-        create(&outside, "x", None).unwrap_err(),
-        GuardError::NotAWorktree(_)
-    ));
+    let elsewhere = create(&outside, "x", None).unwrap_err();
+    assert!(
+        elsewhere.contains("is not in a git worktree"),
+        "{elsewhere}"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -151,9 +139,7 @@ fn the_checkout_runs_no_hook_or_filter_the_repository_names() {
 #[test]
 fn a_base_is_never_read_as_an_option() {
     let (root, repo) = repository("base");
-    let refused = create(&repo, "x", Some("--orphan"))
-        .unwrap_err()
-        .to_string();
+    let refused = create(&repo, "x", Some("--orphan")).unwrap_err();
     assert!(refused.contains("worktree add"), "{refused}");
     assert!(!root.join("app-x").join("README").exists());
     create(&repo, "y", Some("HEAD")).unwrap();

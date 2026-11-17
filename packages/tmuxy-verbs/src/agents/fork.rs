@@ -4,11 +4,12 @@
 //!
 //! The session is the one the hooks recorded (`session.rs`), validated the
 //! same way, and the command is built from the same table: a recorded value
-//! picks an agent and fills in a UUID, nothing more. The worktree comes from
-//! `tmuxy worktree new`'s code, in the repository the pane is in.
+//! picks an agent and fills in a UUID, nothing more. The worktree is made in
+//! the repository the pane is in (`checkout.rs`).
 
 use tmuxy_core::argv::shell_word;
-use tmuxy_core::worktrees::create;
+
+mod checkout;
 
 use super::session::{self, Resumable};
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_TARGET};
@@ -74,8 +75,8 @@ pub fn run(answer: &Answer, args: ForkArgs) {
     let source = std::path::Path::new(&now.path);
     // The fork starts where the pane's worktree is, with its uncommitted
     // work: the conversation is about those files as they are.
-    let created = create::head(source)
-        .and_then(|base| create::create(source, &branch, Some(&base)))
+    let created = checkout::head(source)
+        .and_then(|base| checkout::create(source, &branch, Some(&base)))
         .unwrap_or_else(|e| {
             // A second fork of one conversation meets the first's branch.
             let hint = if named {
@@ -85,9 +86,9 @@ pub fn run(answer: &Answer, args: ForkArgs) {
             };
             answer.exit(EXIT_FAILED, &format!("{e}{hint}"))
         });
-    let carried = create::carry(source, std::path::Path::new(&created.path), args.untracked)
+    let carried = checkout::carry(source, std::path::Path::new(&created.path), args.untracked)
         .unwrap_or_else(|e| {
-            let _ = tmuxy_core::worktrees::guard::remove(std::path::Path::new(&created.path), true);
+            let _ = checkout::discard(&created);
             answer.exit(
                 EXIT_FAILED,
                 &format!("could not carry the uncommitted work, so no fork was made: {e}"),

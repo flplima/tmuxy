@@ -44,8 +44,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | A12 | Wait for agents in panes to stop, by their state | — | — | — | `tmuxy agent wait` | — | `tests/21-agent-states.test.js` |
 | A13 | An agent's report of what it did, for whoever started it | — | — | — | `tmuxy pane report` | — | `tests/21-agent-spawn.test.js` |
 | A14 | Bring an exited agent back into the same conversation | the pane menu's Revive Agent Session | — | — | `tmuxy agent revive` | — | `tests/25-agent-lifecycle.test.js` |
-| A15 | Fork an agent's conversation into a new worktree and tab | — | — | — | `tmuxy agent fork` | — | `tests/24-worktrees.test.js` |
-| A16 | Worktrees: one for a task with its tab and agent, and removed without losing work | — | — | — | `tmuxy worktree` | — | `tests/24-worktrees.test.js` |
+| A15 | Fork an agent's conversation into a new worktree and tab | — | — | — | `tmuxy agent fork` | — | `tests/24-agent-fork.test.js` |
 | A17 | Post to a Claude Code session's inbox instead of typing (a spike, off by default) | — | — | — | `tmuxy pane send` | `@tmuxy-send-inbox` | `tests/cli/cli-agent.test.js` |
 
 ## Configuration and themes
