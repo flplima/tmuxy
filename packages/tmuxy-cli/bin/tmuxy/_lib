@@ -63,6 +63,16 @@ tmuxy_state_dir() {
   fi
 }
 
+# The file the preview widget in pane `$2` of the tmux server at socket path
+# `$1` keeps the lines it reads in, for `tmuxy pane listen`: in the state dir,
+# one per server and pane, so two servers never share one. The socket path
+# goes in whole, `%` and `/` escaped, so no two sockets name one file.
+preview_message_log() {
+  local key="${1//%/%25}"
+  key="${key//\//%2F}"
+  printf '%s/preview-messages/%s.%s.log' "$(tmuxy_state_dir)" "$key" "${2#%}"
+}
+
 # The scripts' directory, which is this file's own, whoever sources it.
 # Resolved with parameter expansion, not `dirname`. These scripts run from
 # `run-shell` on a keypress, and every external binary is another process

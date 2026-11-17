@@ -258,7 +258,7 @@ cmd_pane() {
       fi
       ;;
 
-    run|wait|capture)
+    run|wait|capture|listen)
       "cmd_pane_$sub" "$@"
       ;;
 

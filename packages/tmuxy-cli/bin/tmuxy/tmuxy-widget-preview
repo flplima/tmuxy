@@ -19,6 +19,11 @@
 # The file is watched — inotify where there is one, a poll every second
 # otherwise — and each change rewrites one line under the marker, which is
 # what tells the UI to read it again.
+#
+# A JSON line typed into the pane — a markdown form control's change, a
+# page's `tmuxy.emit` — is printed under that line, and appended to a log of
+# the pane's own, owner-only, which `tmuxy pane listen` reads. The app types
+# one only while this pane is tagged `preview` (tmux checks, as it types).
 
 set -euo pipefail
 
@@ -75,17 +80,32 @@ case "$ABS" in
 esac
 
 PANE="$(shquote "$TMUX_PANE")"
+
+# The pane's message log, started empty before the widget tags the pane, so
+# a listener that waits for the tag never reads an earlier widget's lines.
+# Past LOG_CAP it starts over as a new file, which a listener follows.
+SOCKET_PATH="$(_pane_read "$TMUX_PANE" '#{socket_path}' 2>/dev/null || true)"
+LOG="$(preview_message_log "${SOCKET_PATH:-${TMUX%%,*}}" "$TMUX_PANE")"
+LOG_CAP=$((8 * 1024 * 1024))
+(umask 077 && mkdir -p "${LOG%/*}") && chmod 700 "${LOG%/*}" 2>/dev/null || true
+rm -f -- "$LOG"
+(umask 077 && : >"$LOG") 2>/dev/null || true
+
 # The path goes with this script. Ctrl+C ends the widget first — its own exit
 # takes `@tmuxy-pane-widget` with it, which alone stops the preview being
 # read — and this script ends once the pane's shell does.
 cleanup() {
-  stty echo </dev/tty 2>/dev/null || true
+  stty echo icanon </dev/tty 2>/dev/null || true
+  rm -f -- "$LOG"
   _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW" || true
   _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW_NET" || true
 }
 trap cleanup EXIT
 
-stty -echo 2>/dev/null || true
+# Not echoed, and read as it arrives rather than a line at a time: a
+# terminal holds at most one line of 4096 bytes (1024 on macOS) while it
+# waits for the Enter, and a line may be 16 KiB.
+stty -echo -icanon min 1 time 0 2>/dev/null || true
 
 _run_safe "set-option -p -t $PANE $OPT_PANE_PREVIEW $(shquote "$ABS")"
 if [ -n "$NET" ]; then
@@ -113,16 +133,35 @@ settle() {
   fi
 }
 
+# A received line, kept for `tmuxy pane listen`.
+logged=0
+record() {
+  printf '%s\n' "$1" >>"$LOG" 2>/dev/null || return 0
+  logged=$((logged + ${#1} + 1))
+  if [ "$logged" -gt "$LOG_CAP" ]; then
+    (umask 077 && : >"$LOG.new" && mv -f -- "$LOG.new" "$LOG") 2>/dev/null || true
+    logged=0
+  fi
+}
+
 watch_file() {
-  local last="" now line max
+  local last="" now line max cols partial=""
   local -a inputs=()
+  # The log goes as soon as the widget does; the rest of the clean-up waits
+  # for this script, which outlives the shell the widget hands the pane to.
+  trap 'rm -f -- "$LOG"' EXIT
   redraw() {
+    # Each line cut to one row, so a long one cannot scroll the marker off
+    # the screen; the log has it whole.
+    cols="$(stty size 2>/dev/null)"
+    cols="${cols#* }"
+    [[ "$cols" =~ ^[1-9][0-9]*$ ]] || cols=200
     printf '\033[H\033[2J%s\n' "${WIDGET_MARKER}preview"
     if [ -z "$THEME" ]; then echo "$PREVIEW_NO_THEME"; fi
     echo "${PREVIEW_FILE}${NAME}"
     echo "${PREVIEW_REV}${last}"
     for line in ${inputs[@]+"${inputs[@]}"}; do
-      printf '%s\n' "$line"
+      printf '%s\n' "${line:0:cols}"
     done
   }
   while :; do
@@ -132,9 +171,13 @@ watch_file() {
       redraw
     fi
     if [ -t 0 ]; then
+      line=""
       if IFS= read -r -t 1 line; then
+        line="$partial$line"
+        partial=""
         case "$line" in
           \{*\})
+            record "$line"
             inputs+=("$line")
             max=$(( (${LINES:-24} > 12 ? ${LINES:-24} : 12) - 5 ))
             if [ "${#inputs[@]}" -gt "$max" ]; then
@@ -143,6 +186,9 @@ watch_file() {
             redraw
             ;;
         esac
+      else
+        # A line still arriving when the second ran out: the rest follows.
+        partial="$partial$line"
       fi
     else
       settle

@@ -189,6 +189,7 @@ Commands:
   zoom          Toggle pane zoom
   break         Break pane into own tab
   capture       Capture pane content [target] [--trim] [--unwrap] [--format text|vt|html]
+  listen        Print the lines a preview pane receives, as they arrive [target] [--from-start]
   send          Send keys to pane <keys...>
   queue         Sends waiting for a busy pane [-t target] [--retract id]
   state         Declare what the pane is doing <state> [target]

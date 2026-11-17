@@ -54,6 +54,14 @@ display_answer() {
         printf 'tmuxy\t%%0\t@0\t120\t40\tzsh\t0\tmain\t2\n'
       fi
       ;;
+    # `pane listen`: the pane's id, its widget tag and the server's socket.
+    # MOCK_TMUX_PANE_WIDGET_FILE holds a tag that changes while it listens.
+    *'#{@tmuxy-pane-widget}'*'#{socket_path}'*)
+      widget="${MOCK_TMUX_PANE_WIDGET:-}"
+      [ -z "${MOCK_TMUX_PANE_WIDGET_FILE:-}" ] || widget="$(cat "$MOCK_TMUX_PANE_WIDGET_FILE" 2>/dev/null)"
+      printf '%s\t%s\t%s\n' "${target:-%0}" "$widget" "${MOCK_TMUX_SOCKET_PATH:-}"
+      ;;
+    *'#{socket_path}'*) echo "${MOCK_TMUX_SOCKET_PATH:-}" ;;
     # `verified_own_pane`: the process in the caller's pane. A test whose
     # caller runs there names an ancestor of the CLI (jest's own pid).
     *'#{pane_pid}'*) echo "${MOCK_TMUX_PANE_PID:-}" ;;
