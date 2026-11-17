@@ -55,6 +55,9 @@ tmuxy pane send -t <target> <keys...> # type into another pane; the user allows 
 tmuxy pane send -t <agent> --wait 'fix the test' Enter # then wait for that agent to work and finish; exit 5 if it stalls or stops at a prompt
 tmuxy pane send -t <agent> --queue 'next task' Enter # wait in line while it works, then send; prints an id
 tmuxy pane queue -t <agent> [--retract <id>] # what waits in line; take a send back (exit 1 for that sender, nothing sent)
+tmuxy session new [name] [--cwd D] [--json] [-- cmd...] # a detached session; no name = memorable one; prints the name; exit 1 if it exists
+tmuxy session rename [old] <new> # rename (default: this session); exit 1 if the name is taken
+tmuxy session kill <session>    # needs the name (exit 2 without); missing = exit 3; its snapshot stays, `forget` deletes it
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy run <tmux cmd>            # a read/arrange/close tmux command, through run-shell
 tmuxy config reload             # re-apply tmuxy.conf (and the whole config chain) to the running app

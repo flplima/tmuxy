@@ -22,10 +22,10 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 
 | Id | Feature | Mouse / UI | Menu | Keybinding | CLI | Config / Tag | Enforced by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| S1 | New session | — | `session-new` | — | — | — | `tests/4-session-connectivity-multi.test.js` |
-| S2 | Rename the session | — | `session-rename` | — | — | — | — |
+| S1 | New session | — | `session-new` | — | `tmuxy session new` | — | `tests/4-session-connectivity-multi.test.js` `tests/cli/cli-session.test.js` |
+| S2 | Rename the session | — | `session-rename` | — | `tmuxy session rename` | — | `tests/cli/cli-session.test.js` |
 | S3 | Detach (the desktop app) | — | `session-detach` | — | — | — | — |
-| S4 | Kill the session, after a confirmation | — | `session-kill` | — | — | — | — |
+| S4 | Kill the session, after a confirmation (the CLI names the session, with no confirmation) | — | `session-kill` | — | `tmuxy session kill` | — | `tests/cli/cli-session.test.js` |
 | S5 | Switch sessions | the tree's title | `session:*` | — | `tmuxy session switch` | — | `tests/4-session-connectivity-multi.test.js` |
 | S6 | Save, list, restore and forget snapshots | — | `restore:*` | — | `tmuxy session save` `tmuxy session snapshots` `tmuxy session restore` `tmuxy session forget` | — | `tests/15-session-snapshot.test.js` |
 | S7 | Attach to another tmux server, over SSH too | the splash's form | `session-connect` `server:*` | — | `tmuxy session connect` `tmuxy connect` | — | `tests/tauri/tauri-app-ssh.test.js` |

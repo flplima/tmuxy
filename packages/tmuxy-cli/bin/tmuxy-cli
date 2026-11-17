@@ -124,7 +124,7 @@ Commands:
   agent       Show Claude Code / Codex / Antigravity state in tmuxy (install, uninstall, status)
   pane        Manage panes (split, kill, select, resize, group, float)
   tab         Manage tabs (create, kill, select, rename, layout)
-  session     Manage sessions (switch, connect, save, restore, snapshots, forget)
+  session     Manage sessions (new, rename, kill, switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
   widget      Display widgets (tree, preview)
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
@@ -236,6 +236,9 @@ usage_session() {
 Usage: tmuxy session <command> [args...]
 
 Commands:
+  new           Create a detached session [name] [--cwd DIR] [-- command...]
+  rename        Rename a session [session] <new-name>
+  kill          Kill a session <session> (its snapshot stays)
   switch        Interactive session switcher
   connect       Connect to a server and attach <dest> [--socket NAME]
   save          Snapshot a session now [name] [--scrollback N]

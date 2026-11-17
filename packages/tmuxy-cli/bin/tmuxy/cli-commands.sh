@@ -175,6 +175,165 @@ cmd_widget() {
 
 # --- Session subcommands ---
 
+# --- Session verbs: new, rename, kill ---
+
+# Is a session named exactly `$1` on the server? Exact, never a prefix: tmux's
+# own `-t name` matches prefixes.
+_session_exists() {
+  local names rc=0
+  names=$(_tmux_read list-sessions -F '#{session_name}' 2>/dev/null) || rc=$?
+  _exit_if_no_server "$rc"
+  case $'\n'"$names"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
+  return 1
+}
+
+# A name tmux keeps as written: it turns `:` and `.` into `_`, and a leading
+# `-` would read as an option.
+_check_session_name() {
+  case "$1" in
+    "") _die_usage "the session needs a name" ;;
+    -*) _die_usage "a session name cannot start with '-'" ;;
+    *[:.]*) _die_usage "a session name cannot hold ':' or '.'" ;;
+    *[[:cntrl:]]*) _die_usage "a session name takes no control characters" ;;
+  esac
+  [ "$1" != "$STASH_SESSION" ] || _die_usage "'$1' is tmuxy's own"
+}
+
+# The answer of a session verb: the name, or `{"ok":true,"session":…}`.
+_session_answer() {
+  if [ "$JSON_OUT" = true ]; then
+    json_ok "session=$(json_string "$1")"
+  else
+    echo "$1"
+  fi
+}
+
+usage_session_new() {
+  cat <<'EOF'
+Usage: tmuxy session new [name] [--cwd DIR] [--json] [-- command...]
+
+Create a session, detached: your own client stays where it is. With no name
+it gets a memorable one (`quiet-meadow`). A name a session already has exits
+1 and creates nothing. Prints the session's name.
+
+Options:
+  --cwd DIR    Start the first pane in DIR (exit 2 when it is no directory)
+  --json       {"ok":true,"session":"<name>"}
+  -- command   Run this in the first pane instead of the shell
+EOF
+}
+
+cmd_session_new() {
+  local name="" cwd="" cmd=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --help|-h) usage_session_new; return ;;
+      --cwd) [ -n "${2:-}" ] || _die_usage "--cwd needs a directory"; cwd="$2"; shift 2 ;;
+      --) shift; cmd=("$@"); break ;;
+      -*) _die_usage "unknown option '$1'" usage_session_new ;;
+      *)
+        [ -z "$name" ] || _die_usage "one name only: '$name' and '$1'" usage_session_new
+        name="$1"; shift
+        ;;
+    esac
+  done
+  if [ -n "$cwd" ] && [ ! -d "$cwd" ]; then
+    _die_usage "--cwd: no such directory: $cwd"
+  fi
+  if [ -z "$name" ]; then
+    name="$(memorable_session_name)"
+  else
+    _check_session_name "$name"
+    ! _session_exists "$name" || _fail "$EXIT_FAILED" "a session named '$name' exists; nothing created"
+  fi
+
+  local flags word shell_cmd=""
+  flags="-d -s $(shquote "$name")"
+  [ -z "$cwd" ] || flags="$flags -c $(shquote "$cwd")"
+  if [ ${#cmd[@]} -gt 0 ]; then
+    for word in "${cmd[@]}"; do shell_cmd="$shell_cmd $(shquote "$word")"; done
+    flags="$flags $(shquote "${shell_cmd# }")"
+  fi
+  _run_safe "new-session $flags" || _fail "$EXIT_FAILED" "tmux created no session"
+  _session_answer "$name"
+}
+
+usage_session_rename() {
+  cat <<'EOF'
+Usage: tmuxy session rename [session] <new-name> [--json]
+
+Rename a session; with one argument, the one you are in. A name another
+session has exits 1. --json answers {"ok":true,"session":"<new-name>"}. The
+session's snapshot, if any, keeps the old name until the session is saved
+again.
+EOF
+}
+
+cmd_session_rename() {
+  local args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --help|-h) usage_session_rename; return ;;
+      -*) _die_usage "unknown option '$1'" usage_session_rename ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  local old="" new=""
+  case ${#args[@]} in
+    1) new="${args[0]}" ;;
+    2) old="${args[0]}"; new="${args[1]}" ;;
+    *) _die_usage "a new name is required" usage_session_rename ;;
+  esac
+  _check_session_name "$new"
+  if [ -z "$old" ]; then
+    local rc=0
+    old="$(_tmux_read display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_name}')" || rc=$?
+    _exit_if_no_server "$rc"
+    [ -n "$old" ] || _fail "$EXIT_FAILED" "run this inside a tmuxy pane, or name the session"
+  else
+    _session_exists "$old" || _fail "$EXIT_TARGET" "no session named '$old'"
+  fi
+  [ "$old" != "$new" ] || _fail "$EXIT_FAILED" "the session is already named '$new'"
+  ! _session_exists "$new" || _fail "$EXIT_FAILED" "a session named '$new' exists; nothing renamed"
+  _run_safe "rename-session -t $(shquote "=$old") $(shquote "$new")" \
+    || _fail "$EXIT_FAILED" "tmux did not rename '$old'"
+  _session_answer "$new"
+}
+
+usage_session_kill() {
+  cat <<'EOF'
+Usage: tmuxy session kill <session> [--json]
+
+Kill a session and every pane in it. The session is always named: there is
+no default, so a script cannot kill the one it runs in by leaving the name
+out. A session that does not exist exits 3. --json answers
+{"ok":true,"session":"<name>"}.
+
+The session's snapshot stays, marked exited, so `tmuxy session restore`
+brings it back; `tmuxy session forget <name>` deletes it.
+EOF
+}
+
+cmd_session_kill() {
+  local name=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --help|-h) usage_session_kill; return ;;
+      -*) _die_usage "unknown option '$1'" usage_session_kill ;;
+      *)
+        [ -z "$name" ] || _die_usage "one session only" usage_session_kill
+        name="$1"; shift
+        ;;
+    esac
+  done
+  [ -n "$name" ] || _die_usage "a session name is required" usage_session_kill
+  [ "$name" != "$STASH_SESSION" ] || _die_usage "'$name' is tmuxy's own"
+  _session_exists "$name" || _fail "$EXIT_TARGET" "no session named '$name'"
+  _run_safe "kill-session -t $(shquote "=$name")" \
+    || _fail "$EXIT_FAILED" "tmux did not kill '$name'"
+  _session_answer "$name"
+}
+
 cmd_session() {
   local sub="${1:-}"
   shift 2>/dev/null || true
@@ -189,6 +348,16 @@ cmd_session() {
 
     connect)
       session_connect "$@"
+      ;;
+
+    new)
+      cmd_session_new "$@"
+      ;;
+    rename)
+      cmd_session_rename "$@"
+      ;;
+    kill)
+      cmd_session_kill "$@"
       ;;
 
     save|snapshots)
