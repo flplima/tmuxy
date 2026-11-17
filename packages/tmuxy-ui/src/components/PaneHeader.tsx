@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { selectDraggedPaneId, selectGroupDrop } from '../machines/selectors/layout';
 import { useAppSelector, useAppSend, usePane, usePaneGroup } from '../machines/appHooks';
 import { PaneContextMenu } from './PaneContextMenu';
-import { PaneTab } from './PaneTab';
+import { PaneFace, PaneTab } from './PaneTab';
 import { Tooltip } from './Tooltip';
 import { selectKeyBindings } from '../machines/selectors/ui';
 import { TmuxOp } from '../domain/commands';
@@ -11,6 +11,7 @@ import type { KeyBindings } from '../domain/wire';
 import { measureTabStrip } from '../machines/drag/tabStripDrop';
 import { DRAG_THRESHOLD_PX, LONG_PRESS_MS } from '../domain/tabOverview';
 import { isModelPaneId, type PaneId } from '../domain/ids';
+import type { TmuxPane } from '../domain/client';
 
 /** px a finger may move before a long-press is taken for a scroll. */
 const LONG_PRESS_MOVE_THRESHOLD = 10;
@@ -283,16 +284,11 @@ export function PaneHeader({
 
   const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
 
-  // A tab may hold no control of its own (ARIA), so a member's ⋮ and ✕ are
-  // pointer targets hidden from assistive technology; the tab's context menu
-  // carries the same actions.
+  // A tab may hold no control of its own (ARIA), so a member's icon and ✕
+  // are pointer targets hidden from assistive technology; the tab's context
+  // menu carries the same actions.
   const controlsFor = (forPaneId: PaneId) => (
     <span className="pane-tab-controls" aria-hidden="true">
-      <Tooltip label="Pane menu">
-        <span className="pane-header-menu" onClick={(e) => handleMenuClick(e, forPaneId)}>
-          ⋮
-        </span>
-      </Tooltip>
       <Tooltip label="Close pane">
         <span
           className="pane-header-close"
@@ -322,8 +318,14 @@ export function PaneHeader({
       // (and stops) its own right-click.
       onContextMenu={(e) => handleContextMenu(e, activeTabId)}
     >
-      {/* The tab list is the strip of titles alone: the ⋮ and ✕ beside it are
-          buttons, which a tablist may not hold. */}
+      <PaneMenuButton
+        pane={pane}
+        titleOverride={titleOverride}
+        grouped={isGroup}
+        onClick={handleMenuClick}
+      />
+      {/* The tab list is the strip of titles alone: the icon button and ✕ beside
+          it are buttons, which a tablist may not hold. */}
       <div
         className={`pane-tabs${isGroup ? ' pane-tabs-group' : ''}`}
         ref={tabsRef}
@@ -348,6 +350,8 @@ export function PaneHeader({
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
               controls={isGroup ? controlsFor(tabPane.tmuxId) : null}
+              onFaceClick={(e) => handleMenuClick(e, tabPane.tmuxId)}
+              faceless={!isGroup}
               dropMark={dropMarkFor(index)}
               dragging={isGroup && draggedPaneId === tabPane.tmuxId}
             />
@@ -365,16 +369,6 @@ export function PaneHeader({
       )}
       {!isGroup && (
         <>
-          <Tooltip label="Pane menu">
-            <button
-              className="pane-header-menu"
-              onClick={handleMenuClick}
-              aria-haspopup="menu"
-              aria-label="Pane menu"
-            >
-              ⋮
-            </button>
-          </Tooltip>
           <FloatMinimizeButton onMinimize={isFloat ? onFloatMinimize : undefined} />
           <Tooltip label="Close pane">
             <button
@@ -418,6 +412,33 @@ function FloatMinimizeButton({ onMinimize }: { onMinimize: (() => void) | undefi
         aria-label="Minimize float"
       >
         {'\u2212'}
+      </button>
+    </Tooltip>
+  );
+}
+
+/** A lone pane's leading icon, which is the button that opens its pane menu (a group's tabs carry their own). */
+function PaneMenuButton({
+  pane,
+  titleOverride,
+  grouped,
+  onClick,
+}: {
+  pane: TmuxPane;
+  titleOverride?: string;
+  grouped: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  if (grouped) return null;
+  return (
+    <Tooltip label="Pane menu">
+      <button
+        className="pane-header-icon-menu"
+        onClick={onClick}
+        aria-haspopup="menu"
+        aria-label="Pane menu"
+      >
+        <PaneFace pane={pane} titleOverride={titleOverride} />
       </button>
     </Tooltip>
   );

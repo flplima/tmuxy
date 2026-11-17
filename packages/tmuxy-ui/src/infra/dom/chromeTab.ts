@@ -28,3 +28,16 @@ export function tabWalksChrome(target: EventTarget | null): boolean {
   if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') return false;
   return element.matches(CHROME_CONTROL);
 }
+
+/**
+ * Enter and Space on a header button the focus reached by the keyboard press
+ * that button, as on any page; with the focus on a pane they are the shell's.
+ */
+export function activatesChromeButton(
+  event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>,
+): boolean {
+  if (event.key !== 'Enter' && event.key !== ' ') return false;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+  const element = event.target as HTMLElement | null;
+  return element?.tagName === 'BUTTON' && tabWalksChrome(element);
+}

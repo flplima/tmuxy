@@ -160,3 +160,36 @@ export const PaneContextMenuSplit: Story = {
     );
   },
 };
+
+/** The header's leading icon is the pane menu's button: no ⋮ beside the ✕, and a click opens the menu at the icon. */
+export const PaneMenuFromHeaderIcon: Story = {
+  args: { transitions: [{ match: /^split-window -v$/, to: 'split-below' }] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await waitForPanes(canvas, ['%0', '%1']);
+    const header = paneEl(canvas, '%0');
+    expect(header.querySelector('.pane-header-menu')).toBeNull();
+    const icon = header.querySelector('.pane-header-icon-menu') as HTMLElement | null;
+    expect(icon).not.toBeNull();
+    expect(icon!.getAttribute('aria-haspopup')).toBe('menu');
+    expect(icon!.getAttribute('aria-label')).toBe('Pane menu');
+    const tab = header.querySelector('.pane-tab') as HTMLElement;
+    expect(icon!.getBoundingClientRect().right).toBeLessThanOrEqual(
+      tab.getBoundingClientRect().left + 24,
+    );
+
+    icon!.focus();
+    await user.keyboard('{Enter}');
+    const item = await findMenuItem(canvasElement.ownerDocument, /Split Pane Below/i);
+    const menu = item.closest('[role="menu"]') as HTMLElement;
+    const at = icon!.getBoundingClientRect();
+    await waitFor(() => {
+      const m = menu.getBoundingClientRect();
+      expect(Math.abs(m.left - at.left)).toBeLessThan(8);
+      expect(m.top).toBeGreaterThanOrEqual(at.bottom - 1);
+    });
+    await user.click(item);
+    await waitForPanes(canvas, ['%0', '%1', '%2']);
+  },
+};

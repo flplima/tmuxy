@@ -276,10 +276,10 @@ describeE2E('Scenario 6j: Pane header context menu', {}, (ctx) => {
     const paneA = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     const header = `.pane-layout-item[data-pane-id="${paneA}"] .pane-header`;
 
-    // The ⋮ of a single pane sits outside its tab: right-clicking it is the
+    // The icon button of a single pane sits outside its tab: right-clicking it is the
     // header of that pane, and an action from the menu acts on it.
-    await rightClick(`${header} .pane-header-menu`);
-    await menuVisible(`${header} .pane-header-menu`);
+    await rightClick(`${header} .pane-header-icon-menu`);
+    await menuVisible(`${header} .pane-header-icon-menu`);
     await chooseItem('Mark Pane');
     await waitForCondition(ctx.page, async () => marked(paneA), 5000, `${paneA} to be marked`);
     await ctx.page.waitForSelector(`${header} [data-testid="pane-header-mark"]`, {

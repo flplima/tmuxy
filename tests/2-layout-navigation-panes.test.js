@@ -104,9 +104,9 @@ describeE2E('Scenario 4d: Marked pane', {}, (ctx) => {
     await navigatePaneKeyboard(ctx.page, 'left');
     const leftPane = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     expect(leftPane).not.toBe(rightPane);
-    // The pane menu lives behind the header's ⋮ button (a right-click on the
+    // The pane menu lives behind the header's icon button (a right-click on the
     // content opens the text-selection menu instead).
-    await ctx.page.click(`.pane-container [data-pane-id="${leftPane}"] .pane-header-menu`);
+    await ctx.page.click(`.pane-container [data-pane-id="${leftPane}"] .pane-header-icon-menu`);
     await ctx.page.waitForSelector('[role="menuitem"]', { timeout: 5000 });
     const swapItem = await ctx.page.$('[role="menuitem"]:has-text("Swap with Marked Pane")');
     expect(swapItem).not.toBeNull();

@@ -7,18 +7,17 @@
 const { waitForCondition } = require('./browser');
 
 /**
- * Click "Add Pane to Group" via the ⋮ menu on the active pane header
+ * Click "Add Pane to Group" via the pane menu (the header's icon) on the active pane header
  */
 async function clickPaneGroupAdd(page) {
-  // The ⋮ of the pane the user is ON. A group's header is divided between its
-  // members and each carries its own ⋮, so "the first one in the document" is
-  // some other member's menu — it used to be the single shared button, which
-  // is why taking the first one worked before.
+  // The icon of the pane the user is ON. A group's header is divided between
+  // its members and each carries its own icon, so "the first one in the
+  // document" is some other member's menu.
   const menuBtn =
-    (await page.$('.pane-tab.pane-tab-selected .pane-header-menu')) ||
-    (await page.$('.pane-active .pane-header-menu')) ||
-    (await page.$('.pane-header-menu'));
-  if (!menuBtn) throw new Error('Pane header menu button (⋮) not found');
+    (await page.$('.pane-tab.pane-tab-selected .pane-tab-face-menu')) ||
+    (await page.$('.pane-active .pane-header-icon-menu')) ||
+    (await page.$('.pane-header-icon-menu'));
+  if (!menuBtn) throw new Error('Pane menu icon not found');
   await menuBtn.click();
   // waitForSelector's `state: 'visible'` is itself the wait for the menu to
   // open, so the beat before it only delayed the first poll.

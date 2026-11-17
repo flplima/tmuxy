@@ -210,7 +210,7 @@ describeE2E('Scenario 6k: A coding agent’s state on its tree row', {}, (ctx) =
       }, selector);
     const rowMark = `[data-testid="tree-pane-${agentPane}"] .sidebar-tree-state`;
     const tabMark = '.tab-name-active .tab-mark';
-    const headerMark = `[data-pane-tab="${agentPane}"] .pane-tab-icon`;
+    const headerMark = `[data-pane-id="${agentPane}"] .pane-header-icon-menu .pane-tab-icon, [data-pane-tab="${agentPane}"] .pane-tab-icon`;
     const SPINNER = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/;
     const waitForMark = (selector, expected, what) =>
       waitForCondition(
@@ -255,7 +255,12 @@ describeE2E('Scenario 6k: A coding agent’s state on its tree row', {}, (ctx) =
       ctx.page,
       async () =>
         ctx.page.evaluate((sel) => {
-          const icon = document.querySelector(`${sel}.pane-tab-icon-static`);
+          const icon = document.querySelector(
+            sel
+              .split(', ')
+              .map((part) => `${part}.pane-tab-icon-static`)
+              .join(', '),
+          );
           const box = icon?.getBoundingClientRect();
           return !!box && box.width > 0 && !icon.classList.contains('pane-state-mark');
         }, headerMark),

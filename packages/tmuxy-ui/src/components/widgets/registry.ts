@@ -13,7 +13,7 @@ export interface WidgetProps {
 
 /**
  * What a widget contributes to the pane chrome it does not own: the tab title,
- * the process icon and the ⋮ menu.
+ * the process icon and the pane menu.
  */
 export interface WidgetDefinition {
   component: ComponentType<WidgetProps>;

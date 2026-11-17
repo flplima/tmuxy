@@ -30,7 +30,11 @@ const { tmuxyCli, tmuxyCliAsync, tmuxRunAsOperator } = require('./helpers/cli');
 /** The state mark a pane's header shows, if it shows one. */
 async function headerMark(page, paneId) {
   return page.evaluate((id) => {
-    const mark = document.querySelector(`[data-pane-tab="${id}"] .pane-state-mark`);
+    // A group's member wears its mark in its tab; a lone pane's header
+    // draws it as the button that opens the pane menu.
+    const mark = document.querySelector(
+      `[data-pane-tab="${id}"] .pane-state-mark, [data-pane-id="${id}"] .pane-header-icon-menu .pane-state-mark`,
+    );
     const box = mark?.getBoundingClientRect();
     if (!mark || !box || box.width === 0) return null;
     return [...mark.classList].find((c) => c.startsWith('is-'))?.slice(3) ?? null;
@@ -162,7 +166,6 @@ describeE2E('Scenario: closing a pane that says it is working asks first', {}, (
     );
     expect(await closeQuestion(page)).toMatch(/still working/);
     expect(await paneIds(page)).toContain(busy);
-
     // Escape keeps the pane, and it is still the working one.
     await page.keyboard.press('Escape');
     await waitForCondition(
@@ -352,7 +355,9 @@ describeE2E(
         await print('7501;state=blocked:kind=permission:msg=QXBwbHkgMyB0byBhZGQ/');
         await shows(paneId, 'needs-input', 'a blocked program to mark the pane needs-input');
         // Pointing at the mark says what the program is waiting for.
-        await page.hover(`[data-pane-tab="${paneId}"] .pane-state-mark`);
+        await page.hover(
+          `[data-pane-tab="${paneId}"] .pane-state-mark, [data-pane-id="${paneId}"] .pane-header-icon-menu .pane-state-mark`,
+        );
         await waitForCondition(
           page,
           () =>

@@ -52,7 +52,7 @@ App-answered keys (`app …`), mouse gestures and `Enforced by` paths are not re
 | P18 | Type or paste into a pane, asked first when it is another's | the send question's buttons | `pane-paste` `selection-send-keys` `view-send-ask` | `app Cmd+Enter` | `tmuxy pane send` `tmuxy pane paste` | `@tmuxy-send-ask` `@tmuxy-send-allow` `@tmuxy-send-allow-into` | `tests/13-send-permission.test.js` |
 | P19 | Show what a pane is doing | the state mark on its header and tree row | — | — | `tmuxy pane state` | `@tmuxy-pane-state` | `tests/21-agent-states.test.js` |
 | P20 | Say how a pane comes back after a restore | — | — | — | `tmuxy pane restore-cmd` | `@tmuxy-pane-restore` | `tests/15-session-snapshot.test.js` |
-| P21 | The pane menu | a header's ⋮ or right-click | `menu-pane` | — | — | — | `packages/tmuxy-ui/src/stories/PaneHeaderActions.stories.tsx` |
+| P21 | The pane menu | a header's icon or right-click | `menu-pane` | — | — | — | `packages/tmuxy-ui/src/stories/PaneHeaderActions.stories.tsx` |
 | P22 | The prefix and the pane key table | — | — | `prefix C-a` `prefix a` `prefix p` | — | — | `tests/2-layout-navigation-tree-drag.test.js` |
 | P23 | Your own rules for what a caller may type into another pane: refuse it, or always ask | — | — | — | `tmuxy config permissions` | `~/.config/tmuxy/permissions.json` | `tests/cli/cli-guest-verbs.test.js` |
 | P24 | A send that waits in line for a busy pane; list the line, take one back | — | — | — | `tmuxy pane queue` | — | `tests/cli/cli-send.test.js` |
