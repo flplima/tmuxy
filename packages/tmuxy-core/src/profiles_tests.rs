@@ -337,3 +337,23 @@ fn a_menu_change_sets_the_profiles_field_and_never_send_ask() {
     assert!(!dir.join("Bad.json").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A save puts a new file in the profile's place rather than truncating the
+/// old one and writing into it, so another window loading the profile at
+/// that moment reads the old values or the new, never an empty file.
+#[cfg(unix)]
+#[test]
+fn a_save_replaces_the_profile_file_whole() {
+    use std::os::unix::fs::MetadataExt;
+    let dir = scratch("replace-whole");
+    save(&dir, "Reading", &nord()).unwrap();
+    let path = file(&dir, "Reading").unwrap();
+    let before = std::fs::metadata(&path).unwrap().ino();
+    let lighter = Profile {
+        theme_mode: Some("light".into()),
+        ..nord()
+    };
+    save(&dir, "Reading", &lighter).unwrap();
+    assert_ne!(std::fs::metadata(&path).unwrap().ino(), before);
+    assert_eq!(load(&dir, "Reading").unwrap(), lighter);
+}
