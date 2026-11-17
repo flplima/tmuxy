@@ -28,6 +28,16 @@ idle          said it is idle                       last
 
 The list is read when the inbox opens and every two seconds while it is open. What an earlier look left is shown until the first answer comes.
 
+## The counts on the status line
+
+At the status line's right end, just left of the host name, `⚠️ 1  ❌ 2` counts the panes in `needs-input` and in `error`, across every session: the same rows the inbox lists. A count shows only above zero, and with both at zero nothing is drawn.
+
+- **One pane in all** (the total of the two counts is 1): a click goes to that pane, as a row's Enter does.
+- **More than one**: a click opens the inbox.
+- It is a button, named like "2 panes need you, 1 failed".
+
+The status line reads the panes every five seconds, whether the inbox is open or not (nothing else tells the client that a pane in another session changed state). The demo does not read.
+
 ## Using it
 
 The inbox is a combobox, like the session switcher: the keyboard stays in the filter box, and the arrows move a highlight through the list.
@@ -62,10 +72,12 @@ The highlight is a pane, not a position, so a row that moves as states change ke
 | `packages/tmuxy-ui/src/domain/activity.ts` | The read, the rows, their order, the filter, who is most urgent |
 | `packages/tmuxy-ui/src/machines/app/actions/activity.ts` | Open, refresh, go to a pane, go to the most urgent |
 | `packages/tmuxy-ui/src/components/ActivityInbox.tsx` | The list and its keys |
+| `packages/tmuxy-ui/src/components/TmuxStatusBar.tsx` | The counts and their poll |
 | `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_ACTIVITY` and `GO_TO_PANE` on the transport |
 
 ## Tests
 
 - `packages/tmuxy-ui/src/domain/__tests__/activity.test.ts`: the order, what is left out, the names and the words.
 - `packages/tmuxy-ui/src/machines/app/states/__tests__/activity.test.ts`: opening reads, going closes, the jump skips the pane in front.
-- `tests/4-session-connectivity-activity.test.js`: three panes in two sessions, in a browser against a real tmux.
+- `tests/4-session-connectivity-activity.test.js`: three panes in two sessions, and the status line's counts (one goes to its pane, two open the inbox, none shows nothing), in a browser against a real tmux.
+- `packages/tmuxy-ui/src/components/TmuxStatusBar.stories.tsx`: the counts, their click, and the phone's width.

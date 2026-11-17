@@ -43,6 +43,23 @@ function inboxRows(page) {
   });
 }
 
+/** The status line's counts as they are drawn; null while there are none. */
+function statusCounts(page) {
+  return page.evaluate(() => {
+    const chip = document.querySelector('[data-testid="statusline-inbox"]');
+    const host = document.querySelector('.statusline-host');
+    if (!chip || !host) return null;
+    const chipBox = chip.getBoundingClientRect();
+    const hostBox = host.getBoundingClientRect();
+    return {
+      text: chip.textContent,
+      label: chip.getAttribute('aria-label'),
+      shown: chipBox.width > 0 && chipBox.height > 0,
+      leftOfHost: chipBox.right <= hostBox.left,
+    };
+  });
+}
+
 describeE2E('Scenario: the activity inbox', {}, (ctx) => {
   test('panes of two sessions are listed most urgent first, Enter goes to one in the other session, and prefix U to the next that needs you', async () => {
     // Setup (not the feature under test): a second session with two panes,
@@ -139,5 +156,72 @@ describeE2E('Scenario: the activity inbox', {}, (ctx) => {
       }
       await waitForMonitorGone(other);
     }
+  }, 180000);
+
+  test('the status line counts the panes that wait and the panes that failed: one goes to its pane, two open the inbox, none show nothing', async () => {
+    const { page } = ctx;
+    await ctx.setupPage();
+    await focusPage(page);
+    await waitForShellPrompt(page);
+    const activePane = () => page.evaluate(() => window.app?.view().activePaneId);
+    const front = await activePane();
+    // Setup: a second pane that is not in front.
+    const behind = tmuxExec(`split-window -d -P -F '#{pane_id}' -t ${ctx.session.name}`).trim();
+    expect(behind).toMatch(/^%\d+$/);
+    expect(await activePane()).toBe(front);
+
+    const waitForCounts = async (check, what) => {
+      let seen = null;
+      await waitForCondition(
+        page,
+        async () => {
+          seen = await statusCounts(page);
+          return check(seen);
+        },
+        20000,
+        async () => `${what}; the status line shows ${JSON.stringify(seen)}`,
+      );
+      return seen;
+    };
+
+    expect(await statusCounts(page)).toBeNull();
+
+    // One failed pane, not the one in front: a click goes to it.
+    tmuxyCli(['pane', 'state', 'error', behind]);
+    const one = await waitForCounts((c) => c?.shown, 'one failure to show');
+    expect(one.text).toContain('❌ 1');
+    expect(one.text).not.toContain('⚠️');
+    expect(one.label).toBe('1 failed');
+    expect(one.leftOfHost).toBe(true);
+    await page.click('[data-testid="statusline-inbox"]');
+    await waitForCondition(
+      page,
+      async () => (await activePane()) === behind,
+      20000,
+      async () => `the click to land on ${behind}; the pane in front is ${await activePane()}`,
+    );
+    expect(await inboxRows(page)).toBeNull();
+
+    // A pane that waits as well: two panes, so a click opens the list.
+    tmuxyCli(['pane', 'state', 'needs-input', front]);
+    const both = await waitForCounts(
+      (c) => c?.text.includes('⚠️ 1') && c.text.includes('❌ 1'),
+      'both counts',
+    );
+    expect(both.label).toBe('1 pane needs you, 1 failed');
+    expect(both.leftOfHost).toBe(true);
+    await page.click('[data-testid="statusline-inbox"]');
+    await waitForCondition(
+      page,
+      async () => (await inboxRows(page))?.length > 0,
+      20000,
+      async () => 'the click to open the inbox',
+    );
+    await page.keyboard.press('Escape');
+
+    // Back to idle: nothing is left on the line.
+    tmuxyCli(['pane', 'state', 'idle', front]);
+    tmuxyCli(['pane', 'state', 'idle', behind]);
+    await waitForCounts((c) => c === null, 'the counts to go away');
   }, 180000);
 });

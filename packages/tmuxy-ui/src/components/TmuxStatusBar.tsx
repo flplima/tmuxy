@@ -24,6 +24,7 @@ import { selectGridDimensions } from '../machines/selectors/layout';
 import { gridPixelSize } from '../domain/paneGeometry';
 import { HINT_SEPARATOR, modeHints, normalHints, type Hint } from './statusLineHints';
 import { serverHostLabel } from '../domain/servers';
+import { activityCounts, activityCountsLabel, countedPane } from '../domain/activity';
 import { SessionMenu } from './SessionMenu';
 import './TmuxStatusBar.css';
 
@@ -102,6 +103,43 @@ function CommandModeInput({
   );
 }
 
+/** How often the status line's counts read the panes of every session. */
+const COUNTS_REFRESH_MS = 5000;
+
+/**
+ * `⚠️ 1  ❌ 2`: the panes that wait for the user and the panes that failed,
+ * across sessions. One pane is a click away; more open the inbox.
+ */
+function InboxCounts() {
+  const rows = useAppSelector((ctx) => ctx.activityRows);
+  const send = useAppSend();
+  const { isDemo } = useAppConfig();
+  useEffect(() => {
+    if (isDemo) return;
+    send({ type: 'REFRESH_ACTIVITY' });
+    const timer = setInterval(() => send({ type: 'REFRESH_ACTIVITY' }), COUNTS_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [isDemo, send]);
+
+  const counts = activityCounts(rows);
+  if (counts.waiting + counts.failed === 0) return null;
+  const only = countedPane(rows);
+  return (
+    <button
+      type="button"
+      className="statusline-inbox statusline-clickable"
+      data-testid="statusline-inbox"
+      aria-label={activityCountsLabel(counts)}
+      onClick={() => send(only ? { type: 'ACTIVITY_GO', row: only } : { type: 'TOGGLE_ACTIVITY' })}
+    >
+      {counts.waiting > 0 && (
+        <span data-testid="statusline-inbox-waiting">⚠️ {counts.waiting}</span>
+      )}
+      {counts.failed > 0 && <span data-testid="statusline-inbox-failed">❌ {counts.failed}</span>}
+    </button>
+  );
+}
+
 export function TmuxStatusBar() {
   const commandMode = useAppSelector(selectCommandMode);
   const statusMessage = useAppSelector(selectStatusMessage);
@@ -161,6 +199,7 @@ export function TmuxStatusBar() {
         </div>
         <div className="tmux-statusline-center">{centerContent}</div>
         <div className="tmux-statusline-right" ref={switcherRef} hidden={mode !== null}>
+          <InboxCounts />
           <span
             className={`statusline-host${handleSwitcherClick ? ' statusline-clickable' : ''}`}
             onClick={handleSwitcherClick}

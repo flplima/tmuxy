@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor } from 'storybook/test';
 import { TmuxStatusBar } from './TmuxStatusBar';
+import { ActivityInbox } from './ActivityInbox';
+import type { ActivityRow } from '../domain/activity';
+import { pid, wid } from '../test/wire';
 import { FixtureProvider } from '../stories/FixtureHarness';
 import { asFixture } from '../stories/fixtures/FixtureAdapter';
 import panes from '../stories/fixtures/gen/panes.json';
@@ -103,5 +106,108 @@ export const SameHeightInEveryMode: Story = {
     send({ type: 'COMMAND_MODE_CANCEL' });
     await waitFor(() => expect(canvas.getByTestId('tmux-status-bar')).toBeInTheDocument());
     expect(barBox(canvasElement), 'back to normal').toEqual(normal);
+  },
+};
+
+const row = (pane: string, state: ActivityRow['state'], session = 'work'): ActivityRow => ({
+  paneId: pid(pane),
+  windowId: wid('@4'),
+  session,
+  tab: 'main',
+  tabIndex: 0,
+  state,
+  name: 'claude',
+  said: '',
+});
+
+const rectOf = (el: Element) => el.getBoundingClientRect();
+
+/** The counts sit at the line's right end, left of the host, only for what is above zero. */
+export const InboxCounts: Story = {
+  render: () => (
+    <FixtureProvider height={60} fixture={{ ...PANES, hostname: 'gaphs04' }} start="one">
+      <TmuxStatusBar />
+      <ActivityInbox />
+    </FixtureProvider>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => canvas.getByTestId('tmux-status-bar'), { timeout: 5000 });
+    expect(canvas.queryByTestId('statusline-inbox')).toBeNull();
+
+    storyApp().send({
+      type: 'ACTIVITY_LOADED',
+      rows: [row('%7', 'needs-input', 'play'), row('%8', 'error'), row('%9', 'error')],
+    });
+    const chip = await waitFor(() => canvas.getByTestId('statusline-inbox'));
+    expect(chip).toHaveAccessibleName('1 pane needs you, 2 failed');
+    expect(canvas.getByTestId('statusline-inbox-waiting')).toHaveTextContent('⚠️ 1');
+    expect(canvas.getByTestId('statusline-inbox-failed')).toHaveTextContent('❌ 2');
+    const host = canvasElement.querySelector('.statusline-host')!;
+    expect(rectOf(chip).width).toBeGreaterThan(0);
+    expect(rectOf(chip).right).toBeLessThanOrEqual(rectOf(host).left);
+
+    storyApp().send({ type: 'ACTIVITY_LOADED', rows: [row('%8', 'error')] });
+    await waitFor(() => expect(canvas.queryByTestId('statusline-inbox-waiting')).toBeNull());
+    expect(canvas.getByTestId('statusline-inbox')).toHaveAccessibleName('1 failed');
+
+    storyApp().send({ type: 'ACTIVITY_LOADED', rows: [row('%8', 'working')] });
+    await waitFor(() => expect(canvas.queryByTestId('statusline-inbox')).toBeNull());
+  },
+};
+
+/** More than one counted pane: a click opens the inbox. */
+export const InboxCountsOpenTheInbox: Story = {
+  render: () => (
+    <FixtureProvider height={60} fixture={PANES} start="one">
+      <TmuxStatusBar />
+      <ActivityInbox />
+    </FixtureProvider>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => canvas.getByTestId('tmux-status-bar'), { timeout: 5000 });
+    storyApp().send({
+      type: 'ACTIVITY_LOADED',
+      rows: [row('%7', 'needs-input', 'play'), row('%8', 'error')],
+    });
+    (await waitFor(() => canvas.getByTestId('statusline-inbox'))).click();
+    await waitFor(() => expect(canvas.getByTestId('activity-inbox')).toBeInTheDocument());
+    storyApp().send({ type: 'TOGGLE_ACTIVITY' });
+    await waitFor(() => expect(canvas.queryByTestId('activity-inbox')).toBeNull());
+  },
+};
+
+/** On a phone's width both counts and the host still fit the line. */
+export const InboxCountsOnAPhone: Story = {
+  render: () => (
+    <FixtureProvider
+      width={390}
+      height={60}
+      fixture={{ ...PANES, hostname: 'gaphs04' }}
+      start="one"
+    >
+      <TmuxStatusBar />
+    </FixtureProvider>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => canvas.getByTestId('tmux-status-bar'), { timeout: 5000 });
+    // A phone's width hides the hints by media query; the story's viewport is
+    // wider than that, so it hides them the same way.
+    const phoneRule = document.createElement('style');
+    phoneRule.textContent = '.statusline-hints { display: none; }';
+    document.head.append(phoneRule);
+    storyApp().send({
+      type: 'ACTIVITY_LOADED',
+      rows: [row('%7', 'needs-input', 'play'), row('%8', 'error')],
+    });
+    const chip = await waitFor(() => canvas.getByTestId('statusline-inbox'));
+    const bar = rectOf(canvas.getByTestId('tmux-status-bar'));
+    const session = rectOf(canvasElement.querySelector('.statusline-session')!);
+    expect(rectOf(chip).left).toBeGreaterThanOrEqual(bar.left);
+    expect(session.right).toBeLessThanOrEqual(bar.right);
+    expect(rectOf(chip).height).toBeLessThanOrEqual(bar.height);
+    phoneRule.remove();
   },
 };
