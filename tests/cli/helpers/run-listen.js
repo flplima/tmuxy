@@ -73,7 +73,7 @@ function fakePreview(home, pane) {
  * @param {string} home - The scratch directory the CLI takes as `HOME`
  * @param {string[]} args - What follows `pane listen`
  * @param {Record<string, string>} env - The preview's environment, and more
- * @returns {{ lines: () => string[], waitForLines: (n: number) => Promise<string[]>, exited: Promise<{ code: number | null, stdout: string, stderr: string }> }}
+ * @returns {{ lines: () => string[], waitForLines: (n: number) => Promise<string[]>, exited: Promise<{ code: number | null, stdout: string, stderr: string }>, running: () => boolean }}
  */
 function startListener(home, args, env) {
   const child = spawn(CLI_PATH, ['pane', 'listen', ...args], {
@@ -98,7 +98,50 @@ function startListener(home, args, env) {
     }
     return lines();
   };
-  return { lines, waitForLines, exited, kill: () => child.kill() };
+  return {
+    lines,
+    waitForLines,
+    exited,
+    running: () => child.exitCode === null,
+    kill: () => child.kill(),
+  };
 }
 
-module.exports = { fakePreview, startListener };
+/**
+ * An `ls` first on PATH that takes the preview's log away on cue, as it is
+ * looked at: the moment between two looks of the listener's in which a
+ * preview that ends removes its log.
+ *
+ * @param {string} home - The scratch directory
+ * @param {string} log - The log to take away
+ */
+function vanishingLog(home, log) {
+  const bin = path.join(home, 'vanish-bin');
+  const cue = path.join(home, 'vanish-cue');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(
+    path.join(bin, 'ls'),
+    [
+      '#!/bin/bash',
+      'for arg in "$@"; do',
+      '  if [ "$arg" = "$VANISH_LOG" ] && [ -e "$VANISH_CUE" ]; then rm -f "$VANISH_CUE" "$VANISH_LOG"; fi',
+      'done',
+      'PATH="${PATH#*:}" exec ls "$@"',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  return {
+    env: {
+      PATH: `${bin}:${path.resolve(__dirname, '../mocks')}:${process.env.PATH}`,
+      VANISH_LOG: log,
+      VANISH_CUE: cue,
+    },
+    /** Take the log away the next time it is looked at. */
+    arm: () => fs.writeFileSync(cue, ''),
+    /** Whether it has been taken away. */
+    done: () => !fs.existsSync(cue) && !fs.existsSync(log),
+  };
+}
+
+module.exports = { fakePreview, startListener, vanishingLog };

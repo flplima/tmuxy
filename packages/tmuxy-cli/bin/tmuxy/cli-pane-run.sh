@@ -268,19 +268,24 @@ _listen_read() {
 
 # The inode of a file, or nothing: what tells a log that started over (a new
 # file put in its place) from the one open on fd 5. `[ -ef /dev/fd/5 ]`
-# would do it on Linux, but bash on macOS never finds the two the same.
+# would do it on Linux, but bash on macOS never finds the two the same. A
+# file that is gone answers nothing and succeeds: under `set -e` and
+# `pipefail` a failing `ls` would end the listener.
 _listen_inode() {
-  ls -di -- "$1" 2>/dev/null | awk '{print $1}'
+  { ls -di -- "$1" 2>/dev/null || :; } | awk '{print $1}'
 }
 
 # Open the log on fd 5, and keep the inode of the file opened: taken on both
 # sides of the open, until the two agree, so a log replaced in that moment is
-# never mistaken for the one open.
+# never mistaken for the one open. Fails when the log is gone: the preview
+# ended, and removed it. Under `set -e` a bare `exec` that cannot open its
+# file would end the listener with status 1 instead.
 _listen_open() {
   local before
   while :; do
     before="$(_listen_inode "$1")"
-    exec 5<"$1"
+    [ -n "$before" ] || return 1
+    exec 5<"$1" 2>/dev/null || return 1
     LISTEN_INODE="$(_listen_inode "$1")"
     [ "$before" != "$LISTEN_INODE" ] || break
   done
@@ -353,7 +358,8 @@ EOF2
     [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $id"
   done
 
-  _listen_open "$log"
+  # A preview that ended in that moment took its log, and said nothing.
+  _listen_open "$log" || return 0
   LISTEN_PARTIAL=""
   # Joining a preview that is under way: from what arrives next, unless
   # asked for all of it. A listener that waited for the preview missed
@@ -366,17 +372,20 @@ EOF2
   # Until the preview ends: the log read every nap, the tag about once a
   # second, or at once when the log is gone. A log that is another file now
   # has started over: the old one is read to its end, the new from its top.
-  local naps=0
+  # The log is looked at once a pass: gone between two looks, it would read
+  # as replaced, and the preview that took it has ended.
+  local naps=0 now
   while :; do
     _listen_print
-    if [ -f "$log" ] && [ "$(_listen_inode "$log")" != "$LISTEN_INODE" ]; then
+    now="$(_listen_inode "$log")"
+    if [ -n "$now" ] && [ "$now" != "$LISTEN_INODE" ]; then
       _listen_print
       [ -z "$LISTEN_PARTIAL" ] || printf '%s\n' "$LISTEN_PARTIAL"
-      _listen_open "$log"
       LISTEN_PARTIAL=""
+      _listen_open "$log" || break
       continue
     fi
-    if [ ! -f "$log" ] || [ $((naps % 7)) -eq 6 ]; then
+    if [ -z "$now" ] || [ $((naps % 7)) -eq 6 ]; then
       _listen_read "$id" || break
       [ "$LISTEN_WIDGET" = preview ] || break
     fi
