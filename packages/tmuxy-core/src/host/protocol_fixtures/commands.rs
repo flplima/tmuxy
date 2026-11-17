@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 44;
+const COMMANDS: usize = 41;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -63,9 +63,6 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::CreateProfile { .. } => 38,
         C::RenameProfile { .. } => 39,
         C::DeleteProfile { .. } => 40,
-        C::ReadDiff { .. } => 41,
-        C::ChangeHunk { .. } => 42,
-        C::UndoRevert { .. } => 43,
     }
 }
 
@@ -112,22 +109,6 @@ fn every_request() -> Vec<ClientCommand> {
         C::ReadPreview {
             pane_id: pane(),
             path: Some(s("img/logo.png")),
-        },
-        C::ReadDiff {
-            pane_id: pane(),
-            scope: crate::diff_review::Scope::Branch,
-        },
-        C::ChangeHunk {
-            pane_id: pane(),
-            scope: crate::diff_review::Scope::Unstaged,
-            path: s("src/main.rs"),
-            hunk: 1,
-            token: s("5f0c1e2d3a4b6c7d"),
-            action: crate::diff_review::hunk::HunkAction::Revert,
-        },
-        C::UndoRevert {
-            pane_id: pane(),
-            id: s("1794452507000-0"),
         },
         C::StagePreview {
             pane_id: pane(),
@@ -291,67 +272,7 @@ fn every_command_answer_matches_its_fixture() {
                 )),
             ],
         ),
-        (
-            "read_diff",
-            json(&crate::diff_review::DiffRead {
-                name: "app".to_string(),
-                scope: crate::diff_review::Scope::Branch,
-                branch: Some("feature".to_string()),
-                base: Some("main".to_string()),
-                files: vec![crate::diff_review::DiffFile {
-                    path: "src/new.rs".to_string(),
-                    old_path: Some("src/old.rs".to_string()),
-                    status: crate::diff_review::FileStatus::Renamed,
-                    binary: false,
-                    mode_change: Some("100644 → 100755".to_string()),
-                    hunks: vec![crate::diff_review::Hunk {
-                        header: "@@ -1,2 +1,2 @@".to_string(),
-                        raw: Vec::new(),
-                        lines: vec![
-                            crate::diff_review::DiffLine {
-                                kind: crate::diff_review::LineKind::Context,
-                                old: Some(1),
-                                new: Some(1),
-                                text: "fn main() {".to_string(),
-                            },
-                            crate::diff_review::DiffLine {
-                                kind: crate::diff_review::LineKind::Removed,
-                                old: Some(2),
-                                new: None,
-                                text: "}".to_string(),
-                            },
-                            crate::diff_review::DiffLine {
-                                kind: crate::diff_review::LineKind::Added,
-                                old: None,
-                                new: Some(2),
-                                text: "} // end".to_string(),
-                            },
-                            crate::diff_review::DiffLine {
-                                kind: crate::diff_review::LineKind::Note,
-                                old: None,
-                                new: None,
-                                text: "No newline at end of file".to_string(),
-                            },
-                        ],
-                    }],
-                    token: "5f0c1e2d3a4b6c7d".to_string(),
-                    raw_header: Vec::new(),
-                    raw_path: String::new(),
-                }],
-                untracked: vec!["notes.txt".to_string()],
-                untracked_more: 0,
-                truncated: false,
-                turn: None,
-            }),
-        ),
         ("stage_preview", null()),
-        (
-            "change_hunk",
-            json(&crate::diff_review::hunk::HunkChanged {
-                revert: Some("1794452507000-0".to_string()),
-            }),
-        ),
-        ("undo_revert", null()),
         ("get_theme_settings", json(&canonical_theme_settings())),
         ("set_theme", null()),
         ("set_theme_mode", null()),

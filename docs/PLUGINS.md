@@ -13,6 +13,8 @@ tmuxy plugin update [name]                            # move to the latest commi
 tmuxy plugin remove chrome-devtools [--purge]
 ```
 
+Reviewing an agent's changes in a pane is the `diff` plugin's job, not tmuxy's.
+
 What a plugin can rely on from tmuxy (CLI verbs, environment variables, the
 context JSON, exit codes) is listed in [PLUGIN-API.md](PLUGIN-API.md).
 

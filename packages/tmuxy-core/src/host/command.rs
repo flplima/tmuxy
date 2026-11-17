@@ -121,39 +121,6 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                 "preview",
             )
         }
-        ClientCommand::ReadDiff { pane_id, scope } => {
-            let tx = runtime.channel().await?;
-            to_json(
-                crate::diff_review::read_diff(&tx, &pane_id, scope).await?,
-                "diff",
-            )
-        }
-        ClientCommand::ChangeHunk {
-            pane_id,
-            scope,
-            path,
-            hunk,
-            token,
-            action,
-        } => {
-            let request = crate::diff_review::hunk::HunkRequest {
-                scope,
-                path,
-                hunk,
-                token,
-                action,
-            };
-            let tx = runtime.channel().await?;
-            to_json(
-                crate::diff_review::change_hunk(&tx, &pane_id, request).await?,
-                "hunk",
-            )
-        }
-        ClientCommand::UndoRevert { pane_id, id } => {
-            let tx = runtime.channel().await?;
-            crate::diff_review::undo_revert(&tx, &pane_id, id).await?;
-            Ok(Value::Null)
-        }
         ClientCommand::StagePreview { pane_id, html } => {
             let tx = runtime.channel().await?;
             crate::preview::stage_page(&tx, runtime.preview_pages(), pane_id, html).await?;

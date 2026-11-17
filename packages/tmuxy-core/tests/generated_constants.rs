@@ -37,9 +37,6 @@ fn packages() -> PathBuf {
 
 /// A string as a single-quoted literal, in TypeScript and in shell alike: no
 /// value written here holds a quote or a backslash.
-#[path = "generated_constants/agents.rs"]
-mod agents;
-
 fn quoted(value: &str) -> String {
     assert!(
         !value.contains('\'') && !value.contains('\\'),
@@ -142,7 +139,6 @@ fn typescript() -> String {
             .map(|s| quoted(s.as_str()))
             .join(", ")
     );
-    agents::write(&mut out);
     let _ = writeln!(
         out,
         "\n/** Sidebar column widths and drag bounds, in cells (`sidebar_dock`). */\n\
@@ -389,7 +385,6 @@ fn shell_tmux_names(out: &mut String) {
         ("PANE_PREVIEW", o::PANE_PREVIEW),
         ("PANE_PREVIEW_NET", o::PANE_PREVIEW_NET),
         ("TRUST_PANE_CLAIMS", o::TRUST_PANE_CLAIMS),
-        ("PANE_DIFF", o::PANE_DIFF),
         ("SEND_INBOX", o::SEND_INBOX),
         ("AGENT_INBOX", o::AGENT_INBOX),
     ] {
