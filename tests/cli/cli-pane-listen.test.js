@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { withScratchDir } = require('./helpers/env');
-const { fakePreview, startListener } = require('./helpers/run-listen');
+const { fakePreview, startListener, vanishingLog } = require('./helpers/run-listen');
 
 const EMIT = (n) => JSON.stringify({ emit: { n } });
 
@@ -76,6 +76,36 @@ describe('tmuxy pane listen', () => {
         EMIT(2),
         EMIT(3),
       ]);
+    }));
+
+  /**
+   * A preview that ends removes its log. Gone between two of the listener's
+   * looks, it read as a log replaced, and reopening a file that is not there
+   * ended the listener with status 1 (`set -e`), before the preview it
+   * listened to had ended.
+   */
+  test('a log gone in the moment it is looked at ends nothing early: the listener ends with the preview, 0', () =>
+    withScratchDir('tmuxy-listen-', async (home) => {
+      const preview = fakePreview(home, '%5');
+      const vanish = vanishingLog(home, preview.log);
+      preview.start([EMIT(1)]);
+      const listener = startListener(home, ['%5', '--from-start'], {
+        ...preview.env,
+        ...vanish.env,
+      });
+      expect(await listener.waitForLines(1)).toEqual([EMIT(1)]);
+      vanish.arm();
+      while (!vanish.done()) await new Promise((resolve) => setTimeout(resolve, 50));
+      // Two more looks at the pane's tag with its log gone: still listening.
+      const asked = preview.asked();
+      while (listener.running() && preview.asked() < asked + 2) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(listener.running()).toBe(true);
+      preview.end();
+      const { code, stdout, stderr } = await listener.exited;
+      expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+      expect(stdout.split('\n').filter(Boolean)).toEqual([EMIT(1)]);
     }));
 
   test('joining a preview under way prints from the next line, or with --from-start from its first', () =>
