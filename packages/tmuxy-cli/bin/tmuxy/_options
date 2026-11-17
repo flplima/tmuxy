@@ -41,7 +41,6 @@ OPT_PANE_WIDGET='@tmuxy-pane-widget'
 OPT_PANE_PREVIEW='@tmuxy-pane-preview'
 OPT_PANE_PREVIEW_NET='@tmuxy-pane-preview-net'
 OPT_TRUST_PANE_CLAIMS='@tmuxy-trust-pane-claims'
-OPT_PANE_DIFF='@tmuxy-pane-diff'
 OPT_SEND_INBOX='@tmuxy-send-inbox'
 OPT_AGENT_INBOX='@tmuxy-agent-inbox'
 

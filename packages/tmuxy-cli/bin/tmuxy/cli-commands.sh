@@ -159,10 +159,6 @@ cmd_widget() {
       JSON_OUT="$JSON_OUT" exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
       ;;
 
-    diff)
-      JSON_OUT="$JSON_OUT" exec "$SCRIPTS_DIR/tmuxy-widget-diff" "$@"
-      ;;
-
     --help|-h)
       usage_widget
       ;;

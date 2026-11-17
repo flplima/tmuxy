@@ -1,6 +1,6 @@
 # Security: What a Widget Reads
 
-The files a preview reads and the checkout a diff reads: in both, tmux decides what may be read, and what is read is untrusted. Part of [SECURITY.md](SECURITY.md), beside [SECURITY-CONTENT.md](SECURITY-CONTENT.md).
+The files a preview reads: tmux decides what may be read, and what is read is untrusted. Part of [SECURITY.md](SECURITY.md), beside [SECURITY-CONTENT.md](SECURITY-CONTENT.md).
 
 ## A Preview Reads One File
 
@@ -33,50 +33,3 @@ The files a preview reads and the checkout a diff reads: in both, tmux decides w
 | The handler trusts the line | A plugin is told the line is a page's: data to parse, never a command ([PLUGINS.md](PLUGINS.md#two-way-pages)) |
 
 **What a preview does not protect.** A document opened with `--net` can tell a remote host anything it can read — which, by the rules above, is its own folder's pages, styles, scripts and pictures. A page's scripts run, in an opaque origin, which is what local reports and charts need. And a preview shows the user what the file says: a convincing fake prompt drawn by a page is a page, in a pane whose header names the file. Nor does a listener learn who wrote a line: anything that types a `{…}` line into the pane (the user, a `tmuxy pane send` they allowed) reads to it as the page's.
-
-## A Diff Reads One Checkout
-
-`tmuxy widget diff [folder]` shows a git checkout's changes in a pane (the `diff` widget). The checkout is anyone's: a clone, a pull request checked out, a branch an agent wrote. Its config can name programs for git to run, and its file names and lines are text someone else chose.
-
-**What may be read is decided by tmux, not by the client.** The UI reads through `read_diff`, naming only the pane and a scope (unstaged, staged, or the branch against its base). The checkout is the pane's `@tmuxy-pane-diff`, honoured only while `@tmuxy-pane-widget` is `diff`; `tmuxy-widget-diff` writes both out of band through `run-shell`, after checking the pane is its caller's own, and the widget clears its tag on exit, so the read is refused from then on.
-
-**git runs nothing the repository names** (`tmuxy-core/src/diff_review/git.rs`). No filesystem monitor, hook, pager, credential helper or transport; no external diff and no textconv; every content filter driver the config holds switched off, so a filtered file is compared as the text it is; no submodule; the variables that would point git elsewhere or add config scrubbed. The plumbing commands read the index as it is and never write it, so the user's own commit is never held up by a lock. Each read has a deadline and a cap on what it returns. A test sets a trap for each of these and checks none fires.
-
-**What git prints is drawn as text.** File names and lines are strings in the answer, put on screen as text nodes only: a line of markup is shown as written. The read returns the checkout's folder name, never its path.
-
-## A Turn Is Two Snapshots Kept Outside The Checkout
-
-The "Last turn" scope (`tmuxy-core/src/diff_review/turn.rs`) shows what changed in a checkout between a pane of the diff's tab entering `working` and coming to rest (a question on the way is part of the turn). The host's pane watch (`tmuxy-core/src/host/diff_turns.rs`) notices both moments, only while a diff widget is open, and only for a pane whose folder is inside a checkout a diff of its tab shows.
-
-| Risk | What holds it |
-| ---- | ------------- |
-| A snapshot writes into the user's repository | Each snapshot starts from a copy of the repository's index, takes in tracked files (`git add -u`) and the untracked files it may copy, then `write-tree`, all into an index and object directory of tmuxy's own, under its state dir, one folder per host process, made `0700`; the repository's objects are read as alternates. Its index, refs and files are untouched. The one exception is git's freshening: an object a snapshot meets again gets its modification time renewed, as any `git add` does |
-| A snapshot runs something the repository names | It goes through `safe_git` like every diff read, with every content filter off, so a clean filter is not run (the trap test covers the turn scope); file names are passed as literal pathspecs |
-| A secret or a large file is copied into tmuxy's state dir | While a diff is open, the content of untracked files is copied into the store, but only files of at most 1 MB, 16 MB and 2,000 files in all, and never one named like a secret (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.netrc`, `credentials*`, and the like), ignored by the repository or not (`tmuxy-core/src/diff_review/turn/snapshot.rs`). Each file left out is named on screen with why, and is not in the turn |
-| Snapshots pile up | A checkout's turn and store go once no diff shows it; the stores of a host that is no longer running are removed when a host starts, never those of one that runs |
-
-A turn is kept in memory only: a host that restarts has seen none, and the scope says so until the next one.
-
-## A Hunk Action Changes Only The Hunk Drawn
-
-Stage and Revert… on a hunk of the unstaged changes, Unstage on one of the staged changes (`tmuxy-core/src/diff_review/hunk.rs`, `components/widgets/diff/HunkBar.tsx`). Only a changed text file's hunks offer them.
-
-| Risk | What holds it |
-| ---- | ------------- |
-| The client makes git apply a patch of its own | The client sends the file's name, the hunk's place and the token of the file's patch as drawn, nothing more. The server reads the checkout again; the patch git applies is that hunk as git itself printed it, with its file's header |
-| An action lands on a file that changed since it was drawn | Refused unless the file's patch now has the token the client drew: "changed since the diff was drawn: nothing was done". A revert waiting for its confirm keeps the token from when it was asked |
-| A revert throws away the user's work | It asks first, with the hunk in front of the user. Before `git apply -R`, the file is copied into tmuxy's state dir (`diff-reverts`, `0700`); Undo puts it back while the file is still as the revert left it, and says so otherwise. Copies are kept a week. Only a plain file inside the checkout is reverted, never a link |
-| git runs something the repository names | `git apply` goes through `safe_git` with every content filter off (the trap test stages and reverts). Attributes are read from the checkout's files for it, not from a tree, because git 2.56's `apply` to the working tree crashes with `attr.tree` set; with filters off they can only change line endings or an encoding |
-
-## A Review Types Into One Agent, Never At A Question
-
-A diff's comments go to an agent as one numbered prompt (`domain/review.ts`, `components/widgets/diff/ReviewBar.tsx`): pasted into the pane the review bar names, then Enter. Only a pane of the widget's own tab running an agent (`agent_screen::AGENT_COMMANDS`, generated into the UI) is offered; `tmuxy widget diff --to %N` only preselects one, and the script takes nothing but a pane id there.
-
-| Risk | What holds it |
-| ---- | ------------- |
-| The prompt answers a permission question | Two checks. The client's `sendRefusal` refuses while the pane reads `needs-input`. Then tmux checks again as it sends: the paste and the Enter run inside one `if-shell -F` on `agent_takes_input_format` (`commandHelpers.ts` `reviewInto`), so a dialog raised after the client looked gets no keys; the staged review is dropped, a message says so, and Restore brings the comments back. Both give way to `pane send`'s own refusal once that exists |
-| The prompt reaches a shell | A shell would run each line, and a quoted `   > code` line is a redirection that empties a file. No pane but an agent is offered, and the same `if-shell` requires an agent's process, so an agent that exited in the meantime leaves a shell that gets nothing |
-| The review's text drives the program | It goes as a paste: control characters dropped, bracketed when the program asked for it, to that pane alone even in a synchronized window |
-| The checkout's text runs as markup in the widget | A comment and the line it quotes are text nodes, as every diff line is |
-
-An agent tmuxy installs no hooks for (Gemini CLI, Aider) is never offered: nothing would say when it waits for an answer. What tmux can see is the limit: a dialog no hook has declared and the screen pass has not read yet (it reads every 1.5 s) still looks like an agent at work. Held by `tests/14-widget-diff.test.js` (a fake agent reads the prompt; then the send is held after the client's check while the agent raises a question, and nothing reaches it; then its shell is offered nothing), `tests/agent_takes_input.rs` (the format, asked of a real tmux) and `domain/__tests__/review.test.ts`.

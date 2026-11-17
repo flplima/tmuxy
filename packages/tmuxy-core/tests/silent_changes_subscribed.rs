@@ -110,7 +110,7 @@ fn a_mark_and_the_pane_options_tmuxy_reads_are_reported() {
     for (label, write) in [
         ("sub-mark", "select-pane -m"),
         ("sub-ask", "set -p @tmuxy-ask question"),
-        ("sub-widget", "set -p @tmuxy-pane-widget diff"),
+        ("sub-widget", "set -p @tmuxy-pane-widget preview"),
     ] {
         let after = reported_after(label, write, pane_meta);
         assert!(after < Duration::from_secs(3), "{write}: {after:?}");

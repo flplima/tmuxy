@@ -3,7 +3,6 @@ import { isPluginName } from './plugins';
 // PASTE_BUFFER: named, so a paste never replaces the buffer the user last
 // yanked, and dropped again once pasted.
 import {
-  AGENT_TAKES_INPUT,
   CLI_PATH,
   PANE_PREVIEWS,
   PASTE_BUFFER,
@@ -227,29 +226,6 @@ function staged(buffer: string, text: string): string[] {
   }
   return commands;
 }
-
-/**
- * A diff review typed to the agent in pane `to`: staged, then pasted and
- * entered only if tmux, in the same command list, finds an agent there that
- * waits for nothing (`AGENT_TAKES_INPUT`). So a dialog the client has not
- * seen yet, or a shell left where the agent was, gets no keys: the staged
- * review is dropped and a message says so. The paste goes to that pane
- * alone, even in a synchronized window.
- */
-export function reviewInto(to: PaneId, text: string, id: string): string {
-  // A buffer of its own, apart from a paste's and from another review's.
-  const buffer = `tmuxy-review-${id.replace(/[^a-z0-9]/gi, '')}`;
-  const commands = staged(buffer, text);
-  if (commands.length === 0) return '';
-  const send = `paste-buffer -p -d -b ${buffer} -t ${to} ; send-keys -t ${to} Enter`;
-  const refuse = `delete-buffer -b ${buffer} ; display-message -p ${tmuxDoubleQuoted(REVIEW_REFUSED)}`;
-  commands.push(`if-shell -F -t ${to} '${AGENT_TAKES_INPUT}' { ${send} } { ${refuse} }`);
-  return commands.join('\n');
-}
-
-/** What tmux says when it refuses a review (no `%` or `#`: the message is expanded). */
-export const REVIEW_REFUSED =
-  'Review not sent: the agent is waiting for an answer, or is gone. Restore brings your comments back.';
 
 /**
  * `json` as one line of printable ASCII: every other character a `\uXXXX`

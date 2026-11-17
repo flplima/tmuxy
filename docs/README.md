@@ -99,7 +99,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [SANDBOX.md](SANDBOX.md) | `bin/sandbox`: one agent per isolated container, the one-port proxy for the app and Storybook, and `collect`, the checked way work leaves | Running an agent with permissions skipped, or changing what crosses a sandbox's boundary |
 | [SECURITY-NETWORK.md](SECURITY-NETWORK.md) | Where the server listens, what it serves, and how to deploy it | Exposing a server beyond the machine it runs on |
 | [SECURITY-CONTENT.md](SECURITY-CONTENT.md) | What widgets read (a pointer), session snapshots and hostile pane output | The preview widget, snapshots, anything that renders what a program wrote |
-| [SECURITY-WIDGETS.md](SECURITY-WIDGETS.md) | The one file a preview reads and the one checkout a diff reads, and what git may not run | The preview or diff widget, anything that reads a file for a pane |
+| [SECURITY-WIDGETS.md](SECURITY-WIDGETS.md) | The one file a preview reads, and what a page may do | The preview widget, anything that reads a file for a pane |
 | [TELEMETRY.md](TELEMETRY.md) | Every network connection the server, the desktop app, the CLI and the website make: when, to where, what is sent, how to turn it off | Adding anything that talks to the network; answering "does tmuxy phone home?" |
 | [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do (no terminal emulation, no live local scrollback buffer, no local echo, no canvas rendering, etc.) | Before proposing a new feature; understanding design boundaries |
 

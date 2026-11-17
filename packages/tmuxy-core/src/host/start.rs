@@ -34,7 +34,6 @@ pub fn start<S: Sessions>(
 ) -> Started<impl Future<Output = ()> + Send + 'static> {
     crate::trace::init(trace, dev);
     let (panes_tx, panes) = socket_watch::channel();
-    let turns = super::diff_turns::watch(panes.clone());
     let background = async move {
         let config = watch_config(move |change| {
             let sessions = Arc::clone(&sessions);
@@ -44,7 +43,7 @@ pub fn start<S: Sessions>(
                 }
             });
         });
-        tokio::join!(socket_watch::run(panes_tx), config, turns);
+        tokio::join!(socket_watch::run(panes_tx), config);
     };
     Started { panes, background }
 }

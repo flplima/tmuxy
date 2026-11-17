@@ -17,7 +17,6 @@ pub mod command_router;
 pub mod float;
 
 #[cfg(feature = "native")]
-pub mod diff_review;
 #[cfg(feature = "native")]
 pub mod host;
 pub mod layout;

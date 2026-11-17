@@ -1,9 +1,4 @@
 {
-  "change_hunk": [
-    {
-      "revert": "1794452507000-0"
-    }
-  ],
   "close_own_tmux_offer": [
     null
   ],
@@ -443,56 +438,6 @@
   "query_tmux": [
     "%0 bash\n"
   ],
-  "read_diff": [
-    {
-      "base": "main",
-      "branch": "feature",
-      "files": [
-        {
-          "binary": false,
-          "hunks": [
-            {
-              "header": "@@ -1,2 +1,2 @@",
-              "lines": [
-                {
-                  "kind": "context",
-                  "new": 1,
-                  "old": 1,
-                  "text": "fn main() {"
-                },
-                {
-                  "kind": "removed",
-                  "old": 2,
-                  "text": "}"
-                },
-                {
-                  "kind": "added",
-                  "new": 2,
-                  "text": "} // end"
-                },
-                {
-                  "kind": "note",
-                  "text": "No newline at end of file"
-                }
-              ]
-            }
-          ],
-          "modeChange": "100644 → 100755",
-          "oldPath": "src/old.rs",
-          "path": "src/new.rs",
-          "status": "renamed",
-          "token": "5f0c1e2d3a4b6c7d"
-        }
-      ],
-      "name": "app",
-      "scope": "branch",
-      "truncated": false,
-      "untracked": [
-        "notes.txt"
-      ],
-      "untrackedMore": 0
-    }
-  ],
   "read_preview": [
     {
       "kind": "markdown",
@@ -548,9 +493,6 @@
     null
   ],
   "stage_preview": [
-    null
-  ],
-  "undo_revert": [
     null
   ],
   "use_profile": [

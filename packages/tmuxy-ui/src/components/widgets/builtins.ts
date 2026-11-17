@@ -7,8 +7,6 @@
 import { registerWidget } from './registry';
 import { TmuxyTree } from './TmuxyTree';
 import { previewWidget } from './preview/definition';
-import { diffWidget } from './diff/definition';
 
 registerWidget('tree', { component: TmuxyTree });
 registerWidget('preview', previewWidget);
-registerWidget('diff', diffWidget);
