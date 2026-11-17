@@ -82,6 +82,11 @@ cmd_pane_run() {
     esac
   done
   [ ${#cmd[@]} -gt 0 ] || _die_usage "command required (after --)" usage_pane_run
+  # A label is one field of `pane list`'s tab-separated rows: a tab or a
+  # newline in it would shift the fields after it.
+  case "$label" in
+    *[[:cntrl:]]*) _die_usage "--label takes no control characters" usage_pane_run ;;
+  esac
   local deadline=""
   if [ -n "$for" ]; then
     local seconds
