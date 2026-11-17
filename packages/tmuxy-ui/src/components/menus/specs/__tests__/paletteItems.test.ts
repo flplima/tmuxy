@@ -32,11 +32,11 @@ describe('the View menu’s palette items', () => {
     const web = viewMenuSpec(ctx({ keybindings }), WEB);
     expect(find(web, 'view-palette')).toMatchObject({
       label: 'Command Palette…',
-      keyHint: 'ctrl+shift+p',
+      keyHint: 'ctrl+shift+k',
     });
     expect(find(web, 'view-go-to')).toMatchObject({ keyHint: 'ctrl+a g' });
     expect(find(viewMenuSpec(ctx({ keybindings }), MAC), 'view-palette')).toMatchObject({
-      keyHint: 'cmd+shift+p',
+      keyHint: 'cmd+k',
     });
     // A key the config bound is no longer the palette's to name.
     const bound = {

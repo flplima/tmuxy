@@ -4,7 +4,7 @@
  * while it is open.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pid } from '../../../test/wire';
 import { pressKey, sendCommands, spawnKeyboardActor } from './keyboardHarness';
 
@@ -19,28 +19,45 @@ const toggles = (events: Array<{ type: string; [k: string]: unknown }>) =>
   events.filter((e) => e.type === 'TOGGLE_PALETTE').map((e) => e.mode);
 
 describe('keyboardActor — the command palette', () => {
-  it('opens on Ctrl+Shift+P and on Cmd+Shift+P, and sends the pane nothing', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('opens on Ctrl+Shift+K off a Mac, and sends the pane nothing', () => {
     const { events, set } = spawnKeyboardActor(pid('%1'));
     set({ keybindings: BINDINGS });
 
-    pressKey({ key: 'P', ctrlKey: true, shiftKey: true });
-    pressKey({ key: 'P', metaKey: true, shiftKey: true });
+    pressKey({ key: 'K', ctrlKey: true, shiftKey: true });
     // A browser that reports the unshifted letter with Shift held.
-    pressKey({ key: 'p', ctrlKey: true, shiftKey: true });
+    pressKey({ key: 'k', ctrlKey: true, shiftKey: true });
 
-    expect(toggles(events)).toEqual(['all', 'all', 'all']);
+    expect(toggles(events)).toEqual(['all', 'all']);
     expect(sendCommands(events)).toEqual([]);
   });
 
-  it('leaves Ctrl+P and Shift+P to the pane', () => {
+  it('opens on Cmd+K on a Mac, and the old Ctrl+Shift+P no longer does', () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
     const { events, set } = spawnKeyboardActor(pid('%1'));
     set({ keybindings: BINDINGS });
 
-    pressKey({ key: 'p', ctrlKey: true });
-    pressKey({ key: 'P', shiftKey: true });
+    pressKey({ key: 'k', metaKey: true });
+    expect(toggles(events)).toEqual(['all']);
+    expect(sendCommands(events)).toEqual([]);
+
+    pressKey({ key: 'K', metaKey: true, shiftKey: true });
+    pressKey({ key: 'k', ctrlKey: true, shiftKey: true });
+    expect(toggles(events)).toEqual(['all']);
+  });
+
+  it('leaves Ctrl+K, Shift+K, Cmd+K and Ctrl+Shift+P to the pane off a Mac', () => {
+    const { events, set } = spawnKeyboardActor(pid('%1'));
+    set({ keybindings: BINDINGS });
+
+    pressKey({ key: 'k', ctrlKey: true });
+    pressKey({ key: 'K', shiftKey: true });
+    pressKey({ key: 'k', metaKey: true });
+    pressKey({ key: 'P', ctrlKey: true, shiftKey: true });
 
     expect(toggles(events)).toEqual([]);
-    expect(sendCommands(events)).toHaveLength(2);
+    expect(sendCommands(events)).toHaveLength(4);
   });
 
   it('opens everything on prefix P and the places on prefix g', () => {
@@ -93,7 +110,7 @@ describe('keyboardActor — the command palette', () => {
     expect(events.map((e) => e.type)).toEqual(['CLOSE_PALETTE']);
 
     // The chord still toggles it.
-    pressKey({ key: 'P', ctrlKey: true, shiftKey: true });
+    pressKey({ key: 'K', ctrlKey: true, shiftKey: true });
     expect(toggles(events)).toEqual(['all']);
   });
 });

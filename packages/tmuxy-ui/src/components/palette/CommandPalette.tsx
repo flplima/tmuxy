@@ -1,5 +1,5 @@
 /**
- * The command palette (Ctrl/Cmd+Shift+P, or `prefix P`): one box to type in,
+ * The command palette (Cmd+K on a Mac, Ctrl+Shift+K elsewhere, or `prefix P`): one box to type in,
  * over everything the app menu offers and every session, tab and pane to go
  * to. `prefix g` opens it on the places alone; typing `>` there brings the
  * actions back.

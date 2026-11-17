@@ -90,11 +90,12 @@ export function clientKeyFor(table: string, key: string, bound: boolean): Client
 /**
  * The chords the keyboard actor answers before any table: ctrl+0 opens the
  * Tab Overview, ctrl+1-9 picks a tab by its position in the strip
- * (`TAB_POSITION_CHORDS`), and ctrl+shift+p (cmd+shift+p too) opens the
- * command palette.
+ * (`TAB_POSITION_CHORDS`), and ctrl+shift+k (cmd+k on a Mac, `PALETTE_CHORD_MAC`)
+ * opens the command palette.
  */
 export const CLIENT_CHORDS: Partial<Record<ClientKey, string>> = {
   'tab-overview': 'ctrl+0',
-  'command-palette': 'ctrl+shift+p',
+  'command-palette': 'ctrl+shift+k',
 };
+export const PALETTE_CHORD_MAC = 'cmd+k';
 export const TAB_POSITION_CHORDS = 'ctrl+1-9';

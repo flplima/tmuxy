@@ -138,7 +138,8 @@ describe('keys in every table', () => {
   it('names the go-to key only while the key is not bound to something else', () => {
     expect(clientKeyHint(MODES, 'go-to')).toBe('ctrl+a g');
     // The palette's chord is its hint, whatever the tables hold.
-    expect(clientKeyHint(MODES, 'command-palette')).toBe('ctrl+shift+p');
+    expect(clientKeyHint(MODES, 'command-palette')).toBe('ctrl+shift+k');
+    expect(clientKeyHint(MODES, 'command-palette', true)).toBe('cmd+k');
     const bound: KeyBindings = {
       ...MODES,
       prefix_bindings: [

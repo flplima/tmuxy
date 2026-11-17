@@ -10,6 +10,7 @@ import { toTmuxCommand, type TmuxOp } from './commands';
 import { boundAction, parseCommandToOp, runShellScript } from './store/parseCommand';
 import {
   CLIENT_CHORDS,
+  PALETTE_CHORD_MAC,
   CLIENT_KEYS,
   clientKeyFor,
   splitTableSwitch,
@@ -126,8 +127,10 @@ export function keyHint(keybindings: KeyBindings | null, op: TmuxOp): string | u
 export function clientKeyHint(
   keybindings: KeyBindings | null,
   clientKey: ClientKey,
+  isMac = false,
 ): string | undefined {
-  const chord = CLIENT_CHORDS[clientKey];
+  const chord =
+    isMac && clientKey === 'command-palette' ? PALETTE_CHORD_MAC : CLIENT_CHORDS[clientKey];
   if (chord || !keybindings) return chord;
   for (const [table, keys] of Object.entries(CLIENT_KEYS)) {
     const bindings = tables(keybindings).find(([name]) => name === table)?.[1] ?? [];
