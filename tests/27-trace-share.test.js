@@ -46,5 +46,11 @@ describeE2E('Scenario: a redacted trace from the Debug menu', {}, (ctx) => {
       'the trace to be copied',
     );
     expect(copied).toBe(shown);
+
+    // Escape dismisses it, with the focus wherever the menu left it.
+    await clickMenuItem(page, ['Debug', 'Copy Trace…']);
+    await preview.waitFor({ state: 'visible', timeout: 15000 });
+    await page.keyboard.press('Escape');
+    await preview.waitFor({ state: 'hidden', timeout: 10000 });
   }, 90000);
 });

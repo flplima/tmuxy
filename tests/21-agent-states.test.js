@@ -26,6 +26,7 @@ const {
   killPaneKeyboard,
 } = require('./helpers');
 const { tmuxyCli, tmuxyCliAsync, tmuxRunAsOperator } = require('./helpers/cli');
+const { expectDialogCentredInMonospace } = require('./helpers/dialog');
 
 /** The state mark a pane's header shows, if it shows one. */
 async function headerMark(page, paneId) {
@@ -166,6 +167,8 @@ describeE2E('Scenario: closing a pane that says it is working asks first', {}, (
     );
     expect(await closeQuestion(page)).toMatch(/still working/);
     expect(await paneIds(page)).toContain(busy);
+    await expectDialogCentredInMonospace(page);
+
     // Escape keeps the pane, and it is still the working one.
     await page.keyboard.press('Escape');
     await waitForCondition(
