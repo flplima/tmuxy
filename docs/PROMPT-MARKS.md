@@ -1,6 +1,6 @@
 # Shell prompts (OSC 133)
 
-A shell with OSC 133 integration marks its prompts and its commands in its own output. tmuxy uses the marks for four things: a mark beside each prompt in the scrollback, a jump from prompt to prompt, a copy of what the newest command printed, and a result left on the pane when a long command ends.
+A shell with OSC 133 integration marks its prompts and its commands in its own output. tmuxy uses the marks for three things: a mark beside each prompt in the scrollback, a jump from prompt to prompt, and a copy of what the newest command printed. A new prompt also ends a program's `working` or `blocked` status.
 
 It is a companion to [COPY-MODE.md](COPY-MODE.md) (the scrollback views) and [RICH-RENDERING.md](RICH-RENDERING.md#program-status-osc-7501) (the pane's state).
 
@@ -10,8 +10,8 @@ It is a companion to [COPY-MODE.md](COPY-MODE.md) (the scrollback views) and [RI
 | --- | --- | --- | --- |
 | `OSC 133 ; A` | a prompt starts | tmux keeps it on the line; tmuxy's parser sees it too | prompt rows; ends a `working` or `blocked` program status |
 | `OSC 133 ; B` | the prompt ends, typing starts | nobody | nothing |
-| `OSC 133 ; C` | the command's output starts | tmux keeps it on the line; tmuxy's parser notes the time | "Copy Last Output"; the start of the command's run |
-| `OSC 133 ; D ; <status>` | the command ended | tmuxy's parser only (tmux keeps no mark for it) | the result left on the pane |
+| `OSC 133 ; C` | the command's output starts | tmux keeps it on the line | "Copy Last Output" |
+| `OSC 133 ; D ; <status>` | the command ended | nobody (tmux keeps no mark for it) | nothing |
 
 The shell sends them, never tmuxy: bash, zsh and fish have integration scripts, and several prompts ship with one.
 
@@ -63,27 +63,11 @@ Pane menu ▸ Copy Last Output (`get_last_command_output`). The output is the ro
 
 The rows are found by one query and captured by the next, and `capture-pane` counts lines from the top of the screen. A pane that printed in between has moved them. Two checks catch that: the history size must be the same, and the first captured row must read what the walk read on the output's first row (a full history keeps its size while its lines move). A capture that fails either is thrown away and both are asked again, three times at most. Wrapped lines are joined, and the padding at the end of each line and the blank rows below the last one are dropped. An output longer than 20,000 rows is refused.
 
-## A long command's end
-
-The parser notes when a command starts (`C`) and how it ends (`D`). One that ran for ten seconds or more leaves a record on the pane, exactly as a program's own OSC 7501 report would (`control_mode/command_finish.rs`):
-
-| Exit status | Record | The pane shows | Tooltip |
-| --- | --- | --- | --- |
-| 0, or none given | `done` | unread, cleared when the pane is in front | "New output: Finished in 15 s" |
-| not 0 | `done` | the same | "New output: Exit 130 after 2 min 5 s" |
-
-A status that is not 0 is said in the text and is still a result, never `error`. Most long commands that end that way were stopped by the person watching them: Ctrl-C on a server is 130, a closed ssh 255.
-
-A shorter command leaves nothing. The next command (`C`) takes the last one's record off.
-
-`tmuxy server` pushes a notice for a result (`tmuxy-server/src/push/watch.rs`): an `unread` that a report is behind, the shell's or a program's own `done`. It waits one read of the panes (1.5 s) first, because a client that has the pane in front clears it within that time, and what was seen there is not news. The shell's notice says "A command finished", since by then the pane's program is the shell again. An `unread` nothing reported (a send that skipped its question) is not pushed.
-
 ## What a pane's output can do with these
 
 The marks are pane output, so a program, a `cat`ed file or a remote host can print them ([SECURITY-CONTENT.md](SECURITY-CONTENT.md)).
 
 - **Choose what Copy Last Output copies**: a `C` mark, then any text. It takes the user's click, and the notice says only how many characters went.
-- **Leave a result on its pane and raise its push notice**, every ten seconds at most: a `C`, a wait, a `D`.
 - **End another program's `working` or `blocked`** with an `A` mark.
 - **Add false prompts to the jump.** A walk reads the newest 256.
 
@@ -91,7 +75,6 @@ The marks are pane output, so a program, a `cat`ed file or a remote host can pri
 
 - **Exit status in the scrollback marks.** tmux keeps no mark for `D`, so a failed command's prompt looks like any other.
 - **Rows in an open view are not corrected** when the pane is resized (tmux rewraps the history) or when a full history drops its oldest lines. The marks drift with the view's own rows until it is opened again.
-- **A setting for the ten seconds.** It is a constant.
 - **The in-browser demo** (v86, CheerpX) answers that a pane has no marks.
 
 ## Key files
@@ -99,9 +82,7 @@ The marks are pane output, so a program, a `cat`ed file or a remote host can pri
 | File | Responsibility |
 | --- | --- |
 | `packages/tmuxy-core/src/host/prompt_marks.rs` | The walk, the rows, the last output |
-| `packages/tmuxy-core/src/control_mode/osc.rs` | Reads `A`, `C` and `D` out of a pane's output |
-| `packages/tmuxy-core/src/control_mode/command_finish.rs` | What a long command's end leaves on its pane |
-| `packages/tmuxy-server/src/push/watch.rs` | The push notice, and the wait before an unread one |
+| `packages/tmuxy-core/src/control_mode/osc.rs` | Reads `A` out of a pane's output |
 | `packages/tmuxy-ui/src/domain/promptMarks.ts` | The jump, as a pure function of a view |
 | `packages/tmuxy-ui/src/machines/app/actions/copyMode/promptMarks.ts` | The events: jump, rows loaded, copy last output |
 
@@ -110,4 +91,3 @@ The marks are pane output, so a program, a `cat`ed file or a remote host can pri
 - `packages/tmuxy-core/tests/prompt_marks.rs` runs the walk against a real tmux: 41 prompts by row, the last output, no state with the pane in a mode, and a user's copy mode left alone.
 - `packages/tmuxy-core/src/host/prompt_marks_tests.rs` holds the parsing and the retries.
 - `tests/1-input-interaction-prompts.test.js` drives the menu and the keys in a browser.
-- `tests/21-agent-states.test.js` runs an eleven-second command in a pane that is not in front.

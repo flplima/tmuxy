@@ -3,7 +3,7 @@
 //! that is not watching, so no monitor would see it.
 
 use std::collections::{HashMap, HashSet};
-use tmuxy_core::host::socket_watch::{PaneRow, ResultFrom};
+use tmuxy_core::host::socket_watch::PaneRow;
 
 use tmuxy_core::PaneStateName;
 
@@ -27,13 +27,6 @@ impl Notice {
         };
         let title = match PaneStateName::parse(&row.state) {
             Some(PaneStateName::Error) => format!("{name} stopped with an error"),
-            // After a shell's command the pane's program is the shell again,
-            // and it is not the shell that finished.
-            Some(PaneStateName::Unread)
-                if row.label.is_empty() && row.result() == Some(ResultFrom::Shell) =>
-            {
-                "A command finished".to_string()
-            }
             Some(PaneStateName::Unread) => format!("{name} finished"),
             _ => format!("{name} needs you"),
         };
@@ -86,8 +79,8 @@ impl Watch {
     /// notices — none while `@tmuxy-notify` is off.
     ///
     /// `needs-input` and `error` are news at once. An `unread` is news when
-    /// it is a result, something a program or the shell reported as done
-    /// ([`PaneRow::result`]), and once it has waited a read: a client that
+    /// it is a result, something a program reported as done
+    /// ([`PaneRow::has_result`]), and once it has waited a read: a client that
     /// has the pane in front takes the mark off as soon as it shows, and
     /// what was seen there is not worth a notification.
     pub(crate) fn update(&mut self, rows: &[PaneRow], host: &str) -> Vec<Notice> {
@@ -106,7 +99,7 @@ impl Watch {
                 let entered = previous.get(&row.pane_id) != Some(&row.state);
                 match PaneStateName::parse(&row.state) {
                     Some(PaneStateName::NeedsInput | PaneStateName::Error) => entered,
-                    Some(PaneStateName::Unread) if row.result().is_none() => false,
+                    Some(PaneStateName::Unread) if !row.has_result() => false,
                     Some(PaneStateName::Unread) if entered => {
                         self.unseen.insert(row.pane_id.clone());
                         false
