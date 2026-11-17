@@ -105,7 +105,9 @@ CALLER_T=""
 #
 # Free-text tmux fields (window names, pane commands) can contain commas and
 # quotes, so the --json serializers use a tab separator and escape the values.
-LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t'"#{$OPT_PANE_LABEL}"
+# A pane's folder may hold a tab too, so it goes last, and the row printer
+# takes the rest of the row as it.
+LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t'"#{$OPT_PANE_LABEL}"$'\t'"#{$OPT_PANE_STATE}"$'\t''#{pane_current_path}'
 LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t'"#{$OPT_WINDOW_TYPE}"
 
 # --- Help ---

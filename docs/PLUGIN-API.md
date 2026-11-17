@@ -69,7 +69,7 @@ A plugin may call any `tmuxy` verb a user may; these are the ones whose
 
 | Verb | Use |
 | --- | --- |
-| `tmuxy pane list --json` | The panes of a tab. |
+| `tmuxy pane list [--all] --json` | The panes of a tab (`--all`: of the session), one object each: `id`, `tab`, `width`, `height`, `command`, `active`, `title`, `label`, `state` (the pane's `@tmuxy-pane-state` word, `""` when unset; [TMUX-TAGS.md](TMUX-TAGS.md)) and `cwd` (its current folder). |
 | `tmuxy pane capture <pane> [--json]` | What a pane shows. |
 | `tmuxy pane send -t <pane> <keys…>` | Type into a pane (asks the user there first). |
 | `tmuxy pane run [--wait] -- <cmd…>` | Run a command in a new pane. |

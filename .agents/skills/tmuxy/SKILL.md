@@ -35,7 +35,7 @@ tmuxy is a web/desktop UI over a real tmux server. When running inside tmuxy, pa
 tmuxy                           # status and multiplexer info
 tmuxy --json                    # machine-readable status
 tmuxy skill                     # print this guide
-tmuxy pane list --json          # id, tab, width, height, command, active, label (--all = every tab)
+tmuxy pane list --json          # id, tab, width, height, command, active, title, label, state, cwd (--all = every tab)
 tmuxy pane split [-h|-v] [--json] # split pane (returns %id or JSON)
 tmuxy pane run --wait -- npm test # run a command in a new pane and exit with ITS status
 tmuxy pane run --label logs -- tail -f x.log  # keep it running; `-t logs` names it from now on
