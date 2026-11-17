@@ -59,8 +59,9 @@ pub struct SendArgs {
 
 /// The CLI's own `Tmux`: reads as tmux subprocesses, which tmux runs safely
 /// beside an attached control-mode client, and every change inside
-/// `run-shell` (docs/TMUX.md).
-struct CliTmux;
+/// `run-shell` (docs/TMUX.md). `tmuxy pane ask` (`ask_cli.rs`) asks over it
+/// too.
+pub(crate) struct CliTmux;
 
 impl ask::Tmux for CliTmux {
     async fn read(&self, argv: Argv) -> Result<String, CommandError> {
@@ -129,18 +130,9 @@ async fn send<T: ask::Tmux>(
         also: None,
         inbox: args.inbox,
     };
-    // The caller's pane is a claim until this process is seen to run there:
-    // the flag is the caller's to write, and a claim to the target pane
-    // would deliver with no rule read and nobody asked.
-    let mut caller_pane = args
-        .caller_pane
-        .as_deref()
-        .and_then(|p| PaneId::parse(p).ok());
-    if let Some(claimed) = &caller_pane {
-        if !runs_in(tmux, claimed).await {
-            caller_pane = None;
-        }
-    }
+    // A claim to the target pane would deliver with no rule read and nobody
+    // asked.
+    let caller_pane = verified_pane(tmux, args.caller_pane.as_deref()).await;
     let route = Route {
         caller_pane,
         process: args.caller_process.as_deref(),
@@ -249,6 +241,13 @@ async fn put_question<T: ask::Tmux>(
     })
 }
 
+/// The pane the caller claims to run in, once this process is seen to run
+/// there: the flag is the caller's to write.
+pub(crate) async fn verified_pane<T: ask::Tmux>(tmux: &T, claimed: Option<&str>) -> Option<PaneId> {
+    let pane = PaneId::parse(claimed?).ok()?;
+    runs_in(tmux, &pane).await.then_some(pane)
+}
+
 /// Whether this process runs in `pane`: the pane's own process is this one
 /// or an ancestor of it.
 async fn runs_in<T: ask::Tmux>(tmux: &T, pane: &PaneId) -> bool {
@@ -261,7 +260,7 @@ async fn runs_in<T: ask::Tmux>(tmux: &T, pane: &PaneId) -> bool {
 
 /// Who is asking: the program in front in the caller's pane (an agent's own
 /// name, not the shell it runs commands through), else the caller's process.
-async fn caller_name<T: ask::Tmux>(
+pub(crate) async fn caller_name<T: ask::Tmux>(
     tmux: &T,
     pane: Option<&PaneId>,
     process: Option<&str>,
@@ -279,7 +278,7 @@ async fn caller_name<T: ask::Tmux>(
     name.unwrap_or_else(|| "a script".to_string())
 }
 
-async fn interrupted() {
+pub(crate) async fn interrupted() {
     use tokio::signal::unix::{signal, SignalKind};
     let (Ok(mut int), Ok(mut term)) = (
         signal(SignalKind::interrupt()),
@@ -436,6 +435,7 @@ mod queued;
 mod wait;
 
 pub use queued::{run as run_queue, QueueArgs};
+pub(crate) use wait::duration;
 
 #[cfg(test)]
 mod tests;

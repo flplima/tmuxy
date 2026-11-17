@@ -262,3 +262,32 @@ take_own_pane() {
   TMUX_PANE="$own"
   export TMUX_PANE
 }
+
+# Who is asking, and the pane a send or a question goes to, as `tmuxy pane
+# send` and `tmuxy pane ask` hand them to their verbs. Sets OWN_PANE, the
+# pane the caller runs in, as it was before the CLI resolved a default for
+# callers outside any pane (tmuxy-cli exports it) and only if the caller
+# really runs there (`verified_own_pane`); TARGET, the pane `$1` names, else
+# the caller's own, else for a caller in no pane (cron, ssh, a script) the
+# pane the CLI resolved, the one the user is looking at, which is someone
+# else's; and CALLER_PROCESS, the caller's parent process, which names a
+# caller in no pane. `$2` says what would go there, for the refusal when no
+# pane can.
+resolve_caller_and_target() {
+  OWN_PANE="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
+  TARGET="${1:-}"
+  if [ -z "$TARGET" ]; then
+    TARGET="${OWN_PANE:-${TMUX_PANE:-}}"
+    [ -n "$TARGET" ] || _die_usage "no pane to $2 (pass -t)"
+  fi
+  # The target has to exist before a question is hung on it: a typo'd pane
+  # id would otherwise block forever on an option nothing can ever answer.
+  TARGET="$(_resolve_target "$TARGET")" || exit $?
+  local rc=0 resolved
+  resolved="$(_pane_read "$TARGET" '#{pane_id}' 2>/dev/null)" || rc=$?
+  _exit_if_no_server "$rc"
+  [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $TARGET"
+  [ -z "$resolved" ] || TARGET="$resolved"
+  # shellcheck disable=SC2034 # read by the script that called this (send, ask)
+  CALLER_PROCESS="$(basename "$(ps -o comm= -p "$PPID" 2>/dev/null || true)")"
+}

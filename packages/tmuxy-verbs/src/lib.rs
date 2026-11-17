@@ -1,5 +1,5 @@
 //! The `tmuxy server <verb>` tools that serve nothing: plugins, session
-//! snapshots, coding agents, pane groups, floats, tabs, sends, the config
+//! snapshots, coding agents, pane groups, floats, tabs, sends, questions, the config
 //! files, trace files and a pane capture as HTML. The CLI scripts call them;
 //! every binary (`tmuxy-server`, the desktop app's `tmuxy server …`, and
 //! `tmuxy-verbs` where neither is installed) runs them through [`Verb`]
@@ -10,6 +10,7 @@
 //! as not available here, under the CLI's contract.
 
 mod agents;
+mod ask_cli;
 mod capture_cli;
 mod cli_json;
 mod config_cli;
@@ -70,6 +71,10 @@ pub enum Verb {
     /// `tmuxy pane queue`.
     #[command(hide = true)]
     SendQueue(send_cli::QueueArgs),
+    /// Put a question over a pane and print the first answer. Backs
+    /// `tmuxy pane ask`, which resolves the target and the caller.
+    #[command(hide = true)]
+    Ask(ask_cli::AskArgs),
     /// Ask the desktop app to reconnect to another tmux server. Backs
     /// `tmuxy connect <socket>`.
     #[cfg(feature = "native")]
@@ -132,6 +137,7 @@ pub async fn run(verb: Verb) {
         Verb::Keymap(args) => keymap_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
         Verb::SendQueue(args) => send_cli::run_queue(args).await,
+        Verb::Ask(args) => ask_cli::run(args).await,
         #[cfg(feature = "native")]
         Verb::Connect(args) => connect_cli::run(args),
         #[cfg(feature = "native")]
@@ -200,6 +206,7 @@ mod tests {
             &["new-tab", "--json"],
             &["connect", "--json", "--socket", "x"],
             &["session-connect", "--json"],
+            &["ask", "--json", "--target", "%3", "--", "Deploy?"],
         ] {
             let parsed = Cli::try_parse_from(std::iter::once("tmuxy").chain(argv.iter().copied()));
             assert!(parsed.is_ok(), "{argv:?}");

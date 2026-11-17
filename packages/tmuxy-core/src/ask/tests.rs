@@ -1,4 +1,5 @@
 use super::*;
+use base64::Engine as _;
 use std::sync::Mutex;
 
 fn pane() -> PaneId {
@@ -18,16 +19,16 @@ struct FakePane {
     state: String,
     /// What the pane's send options read as ([`SendRules::parse`]).
     rules: String,
-    reply: Option<&'static str>,
+    reply: Option<String>,
     log: Vec<Argv>,
 }
 
 struct Fake(Mutex<FakePane>);
 
 impl Fake {
-    fn new(reply: Option<&'static str>) -> Self {
+    fn new(reply: Option<&str>) -> Self {
         Self(Mutex::new(FakePane {
-            reply,
+            reply: reply.map(String::from),
             ..FakePane::default()
         }))
     }
@@ -90,7 +91,7 @@ impl Tmux for Fake {
                             .unwrap(),
                     )
                     .unwrap();
-                    if let Some(reply) = p.reply {
+                    if let Some(reply) = &p.reply {
                         p.answer = format!("{}:{reply}", question["token"].as_str().unwrap());
                     }
                 }
@@ -277,4 +278,119 @@ async fn a_skipped_send_marks_a_quiet_pane_unread_and_leaves_a_loud_one() {
     };
     loud.mark_unread(&tmux, &pane()).await.unwrap();
     assert!(tmux.log().is_empty());
+}
+
+fn decoded(encoded: &str) -> serde_json::Value {
+    serde_json::from_slice(
+        &base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+fn choices(words: &[&str]) -> Vec<String> {
+    words.iter().map(|w| w.to_string()).collect()
+}
+
+#[test]
+fn a_question_says_its_kind_and_how_it_is_answered() {
+    let deploy = Prompt::new("Deploy?", choices(&["yes", "no"]), false).unwrap();
+    assert_eq!(
+        decoded(&deploy.encode("3-1-ab", "claude")),
+        serde_json::json!({
+            "token": "3-1-ab", "kind": "question", "caller": "claude",
+            "question": "Deploy?", "choices": ["yes", "no"],
+        })
+    );
+    let name = Prompt::new("Branch name?", vec![], true).unwrap();
+    assert_eq!(
+        decoded(&name.encode("3-1-ab", "a script")),
+        serde_json::json!({
+            "token": "3-1-ab", "kind": "question", "caller": "a script",
+            "question": "Branch name?", "text": true,
+        })
+    );
+    // Neither: a yes-or-no question. The caller is free text too: one line.
+    let plain = Prompt::new("Go on?", vec![], false).unwrap();
+    assert_eq!(plain.answers(), &Answers::Choices(choices(&["Yes", "No"])));
+    let caller = format!("evil\u{1b}[2J{}", "x".repeat(100));
+    let shown = decoded(&plain.encode("t", &caller))["caller"].clone();
+    assert_eq!(shown.as_str().unwrap().chars().count(), 60);
+    assert!(!shown.as_str().unwrap().contains('\u{1b}'));
+}
+
+#[test]
+fn a_question_a_script_could_break_the_overlay_with_is_refused() {
+    let refused = |question: &str, choices: Vec<String>, text: bool| {
+        Prompt::new(question, choices, text).unwrap_err()
+    };
+    assert!(refused("Deploy?", choices(&["a"]), true).contains("--choice and --text"));
+    assert!(refused("  ", vec![], false).contains("required"));
+    assert!(refused(&"q".repeat(501), vec![], false).contains("at most 500"));
+    assert!(Prompt::new(&"q".repeat(500), vec![], false).is_ok());
+    assert!(refused("Deploy\nnow?", vec![], false).contains("control character"));
+    assert!(refused("Pick", choices(&["a\u{1b}[31m"]), false).contains("control character"));
+    let seven = choices(&["1", "2", "3", "4", "5", "6", "7"]);
+    assert!(refused("Pick", seven, false).contains("at most 6"));
+    assert!(refused("Pick", vec!["c".repeat(61)], false).contains("at most 60"));
+    assert!(refused("Pick", choices(&["a", ""]), false).contains("empty"));
+    // Non-ASCII text is counted in characters, not bytes.
+    assert!(Prompt::new(&"é".repeat(500), choices(&["ação"]), false).is_ok());
+}
+
+/// The answer the UI writes for a question, round trip: the CLI prints the
+/// chosen choice's text or the text typed, a dismissal is a no, and the pane
+/// gets back the state it had.
+#[tokio::test]
+async fn a_question_is_answered_with_a_choice_or_a_line_of_text() {
+    let ask = |reply: &str, prompt: Prompt| {
+        let tmux = Fake::new(Some(reply));
+        tmux.0.lock().unwrap().state = "working".into();
+        async move {
+            let question = Question::asking(&pane(), "1", "claude", &prompt, "working");
+            question.put_up(&tmux).await.unwrap();
+            assert_eq!(tmux.0.lock().unwrap().state, "needs-input");
+            let said = question
+                .reply(
+                    &tmux,
+                    &prompt,
+                    Some(Deadline::after(Duration::from_millis(300))),
+                )
+                .await;
+            question.take_down(&tmux).await;
+            let p = tmux.0.lock().unwrap();
+            assert!(p.ask.is_empty(), "the question is left up");
+            assert_eq!(p.state, "working");
+            said
+        }
+    };
+    let deploy = || Prompt::new("Deploy?", choices(&["yes", "no"]), false).unwrap();
+    assert_eq!(ask("choice:0", deploy()).await, Ok("yes".to_string()));
+    assert_eq!(ask("choice:1", deploy()).await, Ok("no".to_string()));
+    assert_eq!(ask("no", deploy()).await, Err(Refused::Declined(pane())));
+    // An answer this question cannot have: not a choice it offered, a text
+    // to a question with buttons. It is waited past, as a stale one is.
+    let timeout = Duration::from_millis(300);
+    assert_eq!(
+        ask("choice:2", deploy()).await,
+        Err(Refused::NoAnswer(pane(), timeout))
+    );
+    assert_eq!(
+        ask("text:eWVz", deploy()).await,
+        Err(Refused::NoAnswer(pane(), timeout))
+    );
+
+    let name = || Prompt::new("Branch name?", vec![], true).unwrap();
+    let typed = base64::engine::general_purpose::STANDARD.encode("fix: a, b; ação 🚀");
+    assert_eq!(
+        ask(&format!("text:{typed}"), name()).await,
+        Ok("fix: a, b; ação 🚀".to_string())
+    );
+    let with_escape = base64::engine::general_purpose::STANDARD.encode("ok\u{1b}[2J");
+    assert_eq!(
+        ask(&format!("text:{with_escape}"), name()).await,
+        Ok("ok[2J".to_string())
+    );
+    assert_eq!(ask("text:", name()).await, Ok(String::new()));
 }

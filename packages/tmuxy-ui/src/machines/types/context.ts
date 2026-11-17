@@ -6,7 +6,6 @@ import type { TmuxPane, TmuxWindow, PaneGroup } from '../../domain/client';
 import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
 import type { ProfilesInfo, ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
-import type { AskAnswer } from '../../domain/paneAsk';
 import type { TmuxOp } from '../../domain/commands';
 import type { PendingClose } from '../../domain/closeGuard';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
@@ -53,13 +52,14 @@ export interface AppMachineContext {
   totalHeight: number;
   paneGroups: Record<GroupId, PaneGroup>;
   /**
-   * Which of Yes/No is highlighted on each pane showing a `tmuxy pane send -t`
-   * question, keyed by pane id. A pane with no entry starts on `yes` — the
-   * answer the keyboard shortcut gives, so the highlight and the shortcut
-   * agree before the user has touched anything. Entries are dropped when the
-   * question goes away.
+   * Which answer is highlighted on each pane showing a question drawn over it,
+   * by its place, keyed by pane id: Yes (0) or No (1) for a `tmuxy pane send
+   * -t`, a choice for a `tmuxy pane ask`. A pane with no entry starts on the
+   * first — for a send the answer the keyboard shortcut gives, so the
+   * highlight and the shortcut agree before the user has touched anything.
+   * Entries are dropped when the question goes away.
    */
-  askSelections: Record<PaneId, AskAnswer>;
+  askSelections: Record<PaneId, number>;
   targetCols: number;
   targetRows: number;
   /**

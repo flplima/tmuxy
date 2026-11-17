@@ -171,8 +171,9 @@ pub(super) async fn settle<T: ask::Tmux>(
     }
 }
 
-/// `30s`, `10m`, `2h`, or plain seconds, as `--wait-for` takes it.
-pub(super) fn duration(text: &str) -> Result<Duration, (i32, String)> {
+/// `30s`, `10m`, `2h`, or plain seconds, as `--wait-for` and `tmuxy pane
+/// ask --for` take it.
+pub(crate) fn duration(text: &str) -> Result<Duration, (i32, String)> {
     let bad = || {
         (
             EXIT_USAGE,

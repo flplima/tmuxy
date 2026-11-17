@@ -3,10 +3,13 @@ import {
   decodePaneAsk,
   paneAskFor,
   paneOfferFor,
+  paneOverlayAskFor,
   paneSendFor,
+  questionAnswer,
   sentText,
   sentTextIsLong,
 } from '../paneAsk';
+import { decodeBase64Text } from '../base64';
 
 /** Encode a payload the way `packages/tmuxy-cli/bin/tmuxy/send` does. */
 function encode(payload: unknown): string {
@@ -92,6 +95,74 @@ describe('decodePaneAsk', () => {
     // An offer with nothing to run is not an offer.
     expect(decodePaneAsk(encode({ token: 't', kind: 'offer', command: '' }))).toBeNull();
     expect(paneOfferFor({ paneAsk: encode({ token: 't', keys: ['ls'] }) })).toBeNull();
+  });
+});
+
+describe('a tmuxy pane ask question', () => {
+  /** What `ask/prompt.rs` writes for `tmuxy pane ask "Deploy?" --choice yes --choice no`. */
+  const deploy = {
+    token: '3-4821-17',
+    kind: 'question',
+    caller: 'claude',
+    question: 'Deploy?',
+    choices: ['yes', 'no'],
+  };
+
+  it('reads back the question, who asks and its choices, drawn over the pane as a send is', () => {
+    const paneAsk = encode(deploy);
+    expect(decodePaneAsk(paneAsk)).toEqual({ ...deploy, text: false });
+    expect(paneOverlayAskFor({ paneAsk })?.kind).toBe('question');
+    // Not a send: Cmd+Enter's "allow every send" never answers it.
+    expect(paneSendFor({ paneAsk })).toBeNull();
+    const text = encode({ ...deploy, choices: undefined, text: true, question: 'Branch?' });
+    expect(decodePaneAsk(text)).toMatchObject({ kind: 'question', choices: [], text: true });
+    // An offer is a banner over a live pane, not an overlay.
+    const offer = encode({ token: 't', kind: 'offer', command: 'htop' });
+    expect(paneOverlayAskFor({ paneAsk: offer })).toBeNull();
+  });
+
+  it('shows a script’s free text as one capped line, whatever was written to the option', () => {
+    // Anything on the socket can write @tmuxy-ask: the CLI's own caps are
+    // held here too, so the overlay stays inside its pane, and no control
+    // character reaches the page.
+    const ask = decodePaneAsk(
+      encode({
+        ...deploy,
+        caller: `evil\u001b[2J${'c'.repeat(80)}`,
+        question: `rm -rf /?\n${'q'.repeat(600)}`,
+        choices: ['a'.repeat(90), 'b', 'c', 'd', 'e', 'f', 'g'],
+      }),
+    );
+    expect(ask?.kind).toBe('question');
+    if (ask?.kind !== 'question') return;
+    expect(ask.caller).toBe(`evil[2J${'c'.repeat(53)}`);
+    expect(ask.question).toHaveLength(500);
+    expect(ask.question.startsWith('rm -rf /?q')).toBe(true);
+    expect(ask.choices).toHaveLength(6);
+    expect(ask.choices[0]).toHaveLength(60);
+  });
+
+  it('refuses a question it could not answer by the place of a choice', () => {
+    // A choice is answered by its place: dropping a bad one would shift the
+    // rest, and the CLI would print the wrong answer.
+    for (const bad of [
+      { ...deploy, question: '' },
+      { ...deploy, choices: [] },
+      { ...deploy, choices: undefined },
+      { ...deploy, choices: ['yes', ''] },
+      { ...deploy, choices: ['yes', 2] },
+    ]) {
+      expect(decodePaneAsk(encode(bad))).toBeNull();
+    }
+  });
+
+  it('answers with a choice’s place, a line of text as UTF-8 base64, or no', () => {
+    expect(questionAnswer({ choice: 1 })).toBe('choice:1');
+    expect(questionAnswer('dismiss')).toBe('no');
+    const typed = questionAnswer({ text: "fix: a, b; it's 🚀" });
+    expect(typed).toMatch(/^text:[A-Za-z0-9+/=]*$/);
+    expect(decodeBase64Text(typed.slice('text:'.length))).toBe("fix: a, b; it's 🚀");
+    expect(questionAnswer({ text: '' })).toBe('text:');
   });
 });
 

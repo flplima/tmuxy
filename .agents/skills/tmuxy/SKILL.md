@@ -55,6 +55,8 @@ tmuxy pane send -t <target> <keys...> # type into another pane; the user allows 
 tmuxy pane send -t <agent> --wait 'fix the test' Enter # then wait for that agent to work and finish; exit 5 if it stalls or stops at a prompt
 tmuxy pane send -t <agent> --queue 'next task' Enter # wait in line while it works, then send; prints an id
 tmuxy pane queue -t <agent> [--retract <id>] # what waits in line; take a send back (exit 1 for that sender, nothing sent)
+tmuxy pane ask "Deploy to prod?" --choice deploy --choice wait # ask the person over your pane, on every client; prints the choice (exit 1 dismissed)
+tmuxy pane ask "Branch name?" --text --for 10m # a line of text instead; no flags: Yes/No
 tmuxy session new [name] [--cwd D] [--json] [-- cmd...] # a detached session; no name = memorable one; prints the name; exit 1 if it exists
 tmuxy session rename [old] <new> # rename (default: this session); exit 1 if the name is taken
 tmuxy session kill <session>    # needs the name (exit 2 without); missing = exit 3; its snapshot stays, `forget` deletes it
@@ -79,6 +81,11 @@ tmuxy config paths --json       # every file tmuxy reads or writes: owner, locat
 - **`--json` on every command:** queries keep their shape; a mutation answers
   `{"ok":true,...}` with the ids it made; a failure is
   `{"ok":false,"error":"…","code":N}` on stdout, N being the exit code.
+- **Ask, don't guess.** Before an irreversible or costly step you are not
+  sure the person wants (a deploy, a force-push, deleting data, spending
+  money), ask with `tmuxy pane ask` instead of guessing: it shows on every
+  app they have open, phone included, and blocks until they answer. Exit 1
+  means dismissed or unanswered: treat it as no.
 - **Exit codes:** 0 ok · 1 failed (tmux refused, user declined, a wait timed
   out) · 2 bad command line · 3 target not found or ambiguous · 4 no tmux
   server on the socket · 5 sent, but the wait after it failed (`pane send

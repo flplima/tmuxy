@@ -28,7 +28,7 @@ import { LogProfiler } from '../renderLog';
 import { RowEdges } from './RowEdges';
 import { AskOverlay } from '../AskOverlay';
 import { OfferBanner } from '../OfferBanner';
-import { paneSendFor } from '../../domain/paneAsk';
+import { paneOverlayAskFor } from '../../domain/paneAsk';
 import { isCollapsedPane } from '../../domain/paneGeometry';
 import { extractSelectedText } from '../../domain/copyMode';
 import { ScrollPositionIndicator } from './TerminalPaneScroll';
@@ -279,7 +279,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                     // anchor: a hidden one would take it from the copy cursor,
                     // and on a pane asking whether to allow a send the cursor
                     // would paint above the blur.
-                    isActive={holdsKeyboard && !copyState && !paneSendFor(pane)}
+                    isActive={holdsKeyboard && !copyState && !paneOverlayAskFor(pane)}
                     width={pane.width}
                     height={pane.height}
                     inMode={pane.inMode}

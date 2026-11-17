@@ -19,6 +19,23 @@ const {
 // ==================== Pane Information ====================
 
 /**
+ * The state a pane's header shows (`needs-input`, `working`, …), or null
+ * when no mark is drawn. A group's member wears its mark in its tab; a lone
+ * pane's header draws it as the button that opens the pane menu. A pane
+ * alone in its tab has no header, so give it a neighbour first.
+ */
+async function paneHeaderMark(page, paneId) {
+  return page.evaluate((id) => {
+    const mark = document.querySelector(
+      `[data-pane-tab="${id}"] .pane-state-mark, [data-pane-id="${id}"] .pane-header-icon-menu .pane-state-mark`,
+    );
+    const box = mark?.getBoundingClientRect();
+    if (!mark || !box || box.width === 0) return null;
+    return [...mark.classList].find((c) => c.startsWith('is-'))?.slice(3) ?? null;
+  }, paneId);
+}
+
+/**
  * An element that draws a pane: its layout wrapper, its terminal, a float, the
  * dock. A pane carries its id on more than one of them, so callers count
  * distinct ids. The tree's rows carry it too, for every tab's panes.
@@ -477,6 +494,7 @@ async function resizePaneKeyboard(page, direction, amount = 5) {
 module.exports = {
   // Pane info
   GRID_PANE,
+  paneHeaderMark,
   onScreen,
   shownPanes,
   getUIPaneCount,
