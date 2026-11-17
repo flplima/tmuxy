@@ -60,9 +60,17 @@
   background: var(--bg-highlight);
 }
 
+/* The answer that goes ahead wears the scheme's accent. */
+.app-menu-dialog-actions button:not(:first-child, .is-destructive, :disabled) {
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
 .app-menu-dialog-actions button.is-destructive {
   border-color: var(--error-color);
-  color: var(--error-color);
+  /* Mixed toward the text colour so it reads at 4.5:1 on the button in a dark
+     face and a light one. */
+  color: color-mix(in srgb, var(--error-color) 50%, var(--text-primary));
 }
 
 .app-menu-dialog-actions button:disabled {

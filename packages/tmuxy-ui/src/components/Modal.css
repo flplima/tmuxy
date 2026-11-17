@@ -6,6 +6,15 @@
   z-index: calc(var(--z-float) + var(--float-stack, 0));
 }
 
+/* A dialog: no placement of its own, so it is centred in the viewport both
+   ways, whatever it is rendered inside. */
+.modal-overlay-centered {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .modal-backdrop {
   position: absolute;
   inset: 0;
@@ -22,16 +31,34 @@
   background: transparent;
 }
 
-/* Placed by the caller's `containerStyle`. */
+/* Placed by the caller's `containerStyle`, or centred by the overlay. The
+   terminal's font and the colour scheme's own variables, so every dialog reads
+   as part of the app in a light face and a dark one. */
 .modal-container {
   position: absolute;
   background: var(--bg-black);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   pointer-events: auto;
+}
+
+.modal-overlay-centered .modal-container {
+  position: relative;
+  border: 1px solid var(--border-light);
+  font-size: var(--font-size-base);
+  max-width: calc(100% - 2 * var(--spacing-lg));
+  max-height: calc(100% - 2 * var(--spacing-lg));
+}
+
+.modal-container button,
+.modal-container input,
+.modal-container textarea {
+  font: inherit;
 }
 
 .modal-header {

@@ -48,13 +48,16 @@ export function Modal({
         : 'modal-backdrop';
 
   const showHeader = !hideHeader && title !== undefined;
+  // A caller that places the box itself (a float, a drawer) passes
+  // `containerStyle`; every other modal is a dialog, centred in the viewport.
+  const centered = containerStyle === undefined;
 
-  // Rendered in place, not portaled: the overlay is positioned against the
-  // pane container, which keeps the backdrop over the tab's content only.
-  // Portaled to the body it dimmed the sidebars, tab strip and status line.
+  // Rendered in place, not portaled: a float's overlay is positioned against
+  // the pane container, which keeps its backdrop over the tab's content only.
+  // A dialog's is fixed to the viewport (`.modal-overlay-centered`).
   return (
     <div
-      className={`modal-overlay${className ? ` ${className}` : ''}`}
+      className={`modal-overlay${centered ? ' modal-overlay-centered' : ''}${className ? ` ${className}` : ''}`}
       style={{ '--float-stack': stack } as React.CSSProperties}
     >
       <div className={backdropClass} onClick={handleBackdropClick} />
