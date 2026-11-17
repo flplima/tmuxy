@@ -41,6 +41,7 @@ One per CLI command, each the same operation (`packages/tmuxy-server/src/mcp/too
 | `open_preview`   | `tmuxy open <file>`            | yes             |
 | `pane_kill`      | `tmuxy pane kill`              | yes             |
 
+- **`pane_list`** answers what `pane list --all --json` does for each pane: `id`, `tab`, `width`, `height`, `command`, `title`, `label`, `state` (its `@tmuxy-pane-state` word, empty when unset) and `cwd` (its folder), plus its `kind` (tab, float or sidebar). Its `active` is the one pane the user has focused, where the CLI's marks each tab's own.
 - **`pane_capture`** answers plain text, wrapped lines joined and trailing blanks dropped, with the cursor position and the pane's size, read in one command list so they describe the same moment. Colours are left out: a model reads text.
 - **`pane_wait_for`** waits until a pane's screen matches a regular expression, polling a few times a second, up to a timeout. `^` and `$` match at each line. A timeout answers the screen's last lines, which is usually why.
 - **Nothing moves the user's focus.** A split, a tab and a float open beside what the user is doing, without taking the keyboard.

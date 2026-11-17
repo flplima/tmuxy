@@ -188,21 +188,30 @@ async fn a_bad_session_name_is_refused_before_anything_runs() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
+/// What a client follows an agent by: the state the pane declares, empty
+/// when it declares none, and its folder whole, a tab in it included.
 #[test]
-fn panes_are_read_with_their_free_text_intact() {
-    let listing = "%1\t@1\t80\t24\t1\t\tzsh\t\tbuild\n\
-                   %2\t@1\t80\t24\t0\t\tnpm\tlogs\twith\ta tab\n\
-                   %9\t@4\t60\t15\t0\tfloat\tbash\t\t\n\
-                   %3\t@5\t30\t50\t0\tsidebar-left\ttree\t\t\n\
+fn panes_are_read_with_their_state_and_folder_intact() {
+    let listing = "%1\t@1\t80\t24\t1\t\t\tzsh\t\tbuild\t/home/me\n\
+                   %2\t@1\t80\t24\t0\t\tworking\tclaude\tlogs\t\t/home/me/with\ta tab\n\
+                   %9\t@4\t60\t15\t0\tfloat\t\tbash\t\t\t/\n\
+                   %3\t@5\t30\t50\t0\tsidebar-left\t\ttree\t\t\t/\n\
                    garbage line\n";
     let panes = parse_panes(listing);
     assert_eq!(panes.len(), 4);
     assert!(panes[0].active);
     assert_eq!(panes[0].title, "build");
+    assert_eq!(panes[0].state, "");
+    assert_eq!(panes[0].cwd, "/home/me");
     assert_eq!(panes[1].label, "logs");
-    assert_eq!(panes[1].title, "with\ta tab");
+    assert_eq!(panes[1].command, "claude");
+    assert_eq!(panes[1].state, "working");
+    assert_eq!(panes[1].cwd, "/home/me/with\ta tab");
     assert_eq!(panes[2].kind, PaneKind::Float);
     assert_eq!(panes[3].kind, PaneKind::Sidebar);
+    let row = serde_json::to_value(&panes[1]).unwrap();
+    assert_eq!(row["state"], "working");
+    assert_eq!(row["cwd"], "/home/me/with\ta tab");
 }
 
 #[test]
@@ -218,10 +227,10 @@ fn tabs_leave_out_floats_and_sidebars() {
 #[test]
 fn a_target_is_an_id_a_label_or_a_title_and_never_a_guess() {
     let panes = parse_panes(
-        "%1\t@1\t80\t24\t0\t\tzsh\t\tbuild\n\
-         %2\t@1\t80\t24\t1\t\tnpm\tlogs\tbuild\n\
-         %3\t@2\t80\t24\t0\t\tnpm\tdup\t\n\
-         %4\t@2\t80\t24\t0\t\tnpm\tdup\t\n",
+        "%1\t@1\t80\t24\t0\t\t\tzsh\t\tbuild\t/\n\
+         %2\t@1\t80\t24\t1\t\t\tnpm\tlogs\tbuild\t/\n\
+         %3\t@2\t80\t24\t0\t\t\tnpm\tdup\t\t/\n\
+         %4\t@2\t80\t24\t0\t\t\tnpm\tdup\t\t/\n",
     );
     let id = |t: Option<&str>| resolve_pane(panes.clone(), t).map(|p| p.id.to_string());
     assert_eq!(id(None).unwrap(), "%2", "no target is the focused pane");
