@@ -10,11 +10,20 @@
  * Each composition is a new URL, so the frame loads it afresh — at the scroll
  * position the bridge last reported, so a change to the file redraws the page
  * where the reader was.
+ *
+ * What the page hands to `tmuxy.emit` goes to `onEmit`, at most as often as
+ * `EMIT_RATE` allows: past that an emit is dropped, here as in the bridge.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { composePage } from './previewPage';
-import { newBridgeChannel, readBridgeMessage, type BridgeMessage } from './previewBridge';
+import {
+  EMIT_RATE,
+  emitBudget,
+  newBridgeChannel,
+  readBridgeMessage,
+  type BridgeMessage,
+} from './previewBridge';
 import { markReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { useKeyedRequest } from './useKeyedRequest';
 import type { PreviewSource } from './previewSource';
@@ -84,13 +93,18 @@ export function HtmlPreview({
   doc,
   theme,
   source,
+  onEmit,
 }: {
   doc: PreviewDocument;
   /** Null when opened with `--no-theme`. */
   theme: PreviewTheme | null;
   source: PreviewSource;
+  /** A value the page emitted, as one line of JSON. */
+  onEmit?: (json: string) => void;
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const onEmitRef = useRef(onEmit);
+  onEmitRef.current = onEmit;
   const scrollRef = useRef({ x: 0, y: 0 });
   const tokenRef = useRef<string | null>(null);
   const [title, setTitle] = useState('');
@@ -108,6 +122,7 @@ export function HtmlPreview({
   tokenRef.current = page.value?.token ?? null;
 
   useEffect(() => {
+    const takeEmit = emitBudget(EMIT_RATE.burst, EMIT_RATE.perSecond, () => performance.now());
     const onMessage = (e: MessageEvent) => {
       const frame = frameRef.current;
       const expectedToken = tokenRef.current;
@@ -127,6 +142,9 @@ export function HtmlPreview({
           return;
         case 'key':
           replayKey(frame, message);
+          return;
+        case 'emit':
+          if (takeEmit()) onEmitRef.current?.(message.json);
           return;
       }
     };

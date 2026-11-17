@@ -28,12 +28,13 @@ export function PreviewWidget({ paneId, lines }: WidgetProps) {
   const active = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const doc = useKeyedRequest(rev || null, source.readDocument);
   useSwallowedTyping(active);
+  // What a form control or the page says, typed into this pane as one line
+  // for `tmuxy-widget-preview`, and only while tmux finds it previewing.
   const onInput = useCallback(
-    (json: string) => {
-      send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: paneId, text: `${json}\n` }) });
-    },
+    (json: string) => send({ type: 'DISPATCH_OP', op: TmuxOp.SendPreviewLine({ paneId, json }) }),
     [send, paneId],
   );
+  const onEmit = useCallback((json: string) => onInput(`{"emit":${json}}`), [onInput]);
 
   if (!doc.value) {
     return <div className="preview-message">{doc.error ?? 'Reading the file…'}</div>;
@@ -50,7 +51,12 @@ export function PreviewWidget({ paneId, lines }: WidgetProps) {
           onInput={onInput}
         />
       ) : (
-        <HtmlPreview doc={doc.value} theme={themed ? theme : null} source={source} />
+        <HtmlPreview
+          doc={doc.value}
+          theme={themed ? theme : null}
+          source={source}
+          onEmit={onEmit}
+        />
       )}
     </div>
   );

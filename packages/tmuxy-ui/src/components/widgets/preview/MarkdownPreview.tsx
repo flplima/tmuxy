@@ -12,9 +12,9 @@
  * its host the document was opened, and without a referrer.
  *
  * Interactive `<input>`, `<select>` and `<textarea>` controls emit a JSON line
- * (`{"input":"…","type":"…","value":…}`) to the preview pane's console output
- * whenever changed, so an agent or script watching the pane can react in real
- * time.
+ * (`{"input":"…","type":"…","value":…}`) into the preview's pane whenever
+ * changed (`onInput`, which tmux types only while the pane previews), so an
+ * agent or script listening (`tmuxy pane listen`) can react in real time.
  */
 
 import { useEffect, useMemo, useRef } from 'react';

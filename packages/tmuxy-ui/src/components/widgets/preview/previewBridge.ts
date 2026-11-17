@@ -13,12 +13,16 @@
  *   keyboard while the user is in it, so without this Ctrl+C would never
  *   reach the widget (it quits the preview) and the prefix would never reach
  *   the app. A copy with something to copy stays the page's (`pageChord`);
- * - **open** — a link the user followed, handed to the system browser.
+ * - **open** — a link the user followed, handed to the system browser;
+ * - **emit** — a value the page handed to `window.tmuxy.emit`, as one line of
+ *   JSON, which the app types into the preview's own pane (`{"emit":…}`).
  *
  * The page is not trusted, and anything can post a message, so the app reads
  * each one through `readBridgeMessage` and acts on a key only when it is
  * plausible the user pressed it (see `HtmlPreview`).
  */
+
+import { asciiJson } from '../../../domain/commandHelpers';
 
 export type BridgeMessage =
   | { type: 'scroll'; x: number; y: number }
@@ -31,7 +35,109 @@ export type BridgeMessage =
       altKey: boolean;
       shiftKey: boolean;
     }
-  | { type: 'open'; url: string };
+  | { type: 'open'; url: string }
+  | { type: 'emit'; json: string };
+
+/** The longest line a `tmuxy.emit` value may travel as, in bytes (ASCII). */
+export const EMIT_MAX_BYTES = 16 * 1024;
+
+/** How often a page may emit: a burst, then so many a second; the rest are dropped. */
+export const EMIT_RATE = { burst: 20, perSecond: 10 } as const;
+
+/**
+ * The line `value` travels as: its JSON, every character outside printable
+ * ASCII escaped (`ascii`, `asciiJson`), at most `maxBytes` long. Throws a
+ * `TypeError` for a value JSON cannot hold (`undefined`, a function, a cycle,
+ * a BigInt) and a `RangeError` for one too long.
+ *
+ * The bridge runs it in the page, so a page learns at once that an emit was
+ * refused; the app runs it again on what arrives, since the page's realm is
+ * the page's to tamper with. In the page it is handed to `bridge` by
+ * `bridgeScript`, so it may use nothing outside itself.
+ */
+export function emitLine(
+  value: unknown,
+  stringify: (value: unknown) => string | undefined,
+  ascii: (json: string) => string,
+  maxBytes: number,
+): string {
+  let json: string | undefined;
+  try {
+    json = stringify(value);
+  } catch {
+    json = undefined;
+  }
+  if (typeof json !== 'string') {
+    throw new TypeError('tmuxy.emit: the value cannot be written as JSON');
+  }
+  const line = ascii(json);
+  if (line.length > maxBytes) {
+    throw new RangeError(`tmuxy.emit: the value is over ${maxBytes} bytes as JSON`);
+  }
+  return line;
+}
+
+/**
+ * A budget of `burst` emits, refilled at `perSecond`: each call takes one,
+ * true, or finds none left, false. Also run in the page, by the bridge.
+ */
+export function emitBudget(burst: number, perSecond: number, now: () => number): () => boolean {
+  let tokens = burst;
+  let last = now();
+  return () => {
+    const t = now();
+    tokens = Math.min(burst, tokens + ((t - last) / 1000) * perSecond);
+    last = t;
+    if (tokens < 1) return false;
+    tokens -= 1;
+    return true;
+  };
+}
+
+/** What the bridge runs in the page besides itself, each standalone. */
+interface PageHelpers {
+  chordOf: typeof pageChord;
+  lineOf: typeof emitLine;
+  ascii: typeof asciiJson;
+  budgetOf: typeof emitBudget;
+  emitIn: typeof installEmit;
+}
+
+/** How long and how often an emit may be: `EMIT_MAX_BYTES`, `EMIT_RATE`. */
+interface EmitLimits {
+  maxBytes: number;
+  burst: number;
+  perSecond: number;
+}
+
+/**
+ * `window.tmuxy.emit(value)` in the page: true once handed to the app (by
+ * `post`), false when the page emits faster than the app takes (dropped, not
+ * queued); throws for a value that is not JSON, or too long. The global is
+ * replaceable, like any the page may want for itself: the bridge keeps its
+ * own copy. Run by the bridge before the page's scripts, so what it takes
+ * (`JSON.stringify`, the clock) is the browser's; standalone.
+ */
+function installEmit(
+  post: (message: unknown) => void,
+  limits: EmitLimits,
+  helpers: Pick<PageHelpers, 'lineOf' | 'ascii' | 'budgetOf'>,
+): void {
+  const { lineOf, ascii, budgetOf } = helpers;
+  const stringify = JSON.stringify.bind(JSON);
+  const take = budgetOf(limits.burst, limits.perSecond, performance.now.bind(performance));
+  const emit = (value: unknown) => {
+    const json = lineOf(value, stringify, ascii, limits.maxBytes);
+    if (!take()) return false;
+    post({ type: 'emit', json });
+    return true;
+  };
+  Object.defineProperty(window, 'tmuxy', {
+    value: Object.freeze({ emit }),
+    configurable: true,
+    writable: true,
+  });
+}
 
 /**
  * What one composed page's bridge signs its messages with, and where it sends
@@ -85,13 +191,15 @@ export function pageChord(
 function bridge(
   start: { x: number; y: number },
   channel: BridgeChannel,
-  chordOf: typeof pageChord,
+  limits: EmitLimits,
+  helpers: PageHelpers,
 ) {
   // Remove our own <script> element and take what we call before any page
   // script runs, so the page can neither read the token from the DOM nor
   // replace the functions we post and listen with. `isTrusted` needs no
   // capture: it is an unforgeable own property of every event.
   document.currentScript?.remove();
+  const { chordOf, emitIn } = helpers;
   const { token, targetOrigin } = channel;
   const postToParent = parent.postMessage.bind(parent);
   const addWin = window.addEventListener.bind(window);
@@ -103,6 +211,7 @@ function bridge(
       'input, textarea, [contenteditable]:not([contenteditable="false"])',
     );
   const post = (message: unknown) => postToParent({ tmuxyPreview: message, token }, targetOrigin);
+  emitIn(post, limits, helpers);
   const restore = () => window.scrollTo(start.x, start.y);
   addDoc('DOMContentLoaded', restore);
   addWin('load', () => {
@@ -162,7 +271,9 @@ function bridge(
 
 /** The `<script>` that runs `bridge`, first in the page, scrolled to `start`. */
 export function bridgeScript(start: { x: number; y: number }, channel: BridgeChannel): string {
-  return `(${bridge.toString()})(${JSON.stringify(start)},${JSON.stringify(channel)},${pageChord.toString()});`;
+  const limits = { maxBytes: EMIT_MAX_BYTES, ...EMIT_RATE };
+  const helpers = `{chordOf:${pageChord.toString()},lineOf:${emitLine.toString()},ascii:${asciiJson.toString()},budgetOf:${emitBudget.toString()},emitIn:${installEmit.toString()}}`;
+  return `(${bridge.toString()})(${JSON.stringify(start)},${JSON.stringify(channel)},${JSON.stringify(limits)},${helpers});`;
 }
 
 const MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta']);
@@ -197,7 +308,29 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
     }
     case 'open':
       return short(message.url, 4096) ? { type: 'open', url: message.url } : null;
+    case 'emit':
+      return readEmit(message.json);
     default:
       return null;
+  }
+}
+
+/**
+ * An emit's line as the app will type it, or null: what arrives must parse as
+ * JSON, and is written out again here — one line of printable ASCII, within
+ * the limit — whatever the page's realm did to the bridge's copy.
+ */
+function readEmit(json: unknown): BridgeMessage | null {
+  if (!short(json, EMIT_MAX_BYTES)) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  try {
+    return { type: 'emit', json: emitLine(value, JSON.stringify, asciiJson, EMIT_MAX_BYTES) };
+  } catch {
+    return null;
   }
 }

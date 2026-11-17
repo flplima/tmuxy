@@ -20,6 +20,7 @@ import {
   type MouseReport,
   NAV_WORD,
   pastedText,
+  previewLine,
   reviewInto,
   pluginAction,
   script,
@@ -134,6 +135,8 @@ export type TmuxOp = Data.TaggedEnum<{
   PasteText: { readonly target: PaneId | string; readonly text: string };
   /** A diff review pasted and entered for the agent in a pane, only if tmux finds it ready. */
   SendReview: { readonly target: PaneId; readonly text: string; readonly id: string };
+  /** A JSON line for the preview widget in a pane, entered only while tmux finds it previewing. */
+  SendPreviewLine: { readonly paneId: PaneId; readonly json: string };
   /** SGR mouse reports for a mouse-tracking pane, in the order they happened. */
   SendMouse: { readonly paneId: PaneId; readonly reports: ReadonlyArray<MouseReport> };
   EnterCopyMode: { readonly paneId: PaneId | null };
@@ -297,6 +300,8 @@ export function toTmuxCommand(op: TmuxOp): string {
       return pastedText(op.target, op.text);
     case 'SendReview':
       return reviewInto(op.target, op.text, op.id);
+    case 'SendPreviewLine':
+      return previewLine(op.paneId, op.json);
     case 'SendMouse':
       return mouseReports(op.paneId, op.reports);
     case 'EnterCopyMode':
