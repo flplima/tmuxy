@@ -266,6 +266,26 @@ _listen_read() {
   LISTEN_SOCKET="${rest#*$'\t'}"
 }
 
+# The inode of a file, or nothing: what tells a log that started over (a new
+# file put in its place) from the one open on fd 5. `[ -ef /dev/fd/5 ]`
+# would do it on Linux, but bash on macOS never finds the two the same.
+_listen_inode() {
+  ls -di -- "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# Open the log on fd 5, and keep the inode of the file opened: taken on both
+# sides of the open, until the two agree, so a log replaced in that moment is
+# never mistaken for the one open.
+_listen_open() {
+  local before
+  while :; do
+    before="$(_listen_inode "$1")"
+    exec 5<"$1"
+    LISTEN_INODE="$(_listen_inode "$1")"
+    [ "$before" != "$LISTEN_INODE" ] || break
+  done
+}
+
 # Print the lines of the log on fd 5 that are complete, the last one cut
 # short by the end of the file kept in LISTEN_PARTIAL for the next pass.
 _listen_print() {
@@ -333,7 +353,7 @@ EOF2
     [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $id"
   done
 
-  exec 5<"$log"
+  _listen_open "$log"
   LISTEN_PARTIAL=""
   # Joining a preview that is under way: from what arrives next, unless
   # asked for all of it. A listener that waited for the preview missed
@@ -349,10 +369,10 @@ EOF2
   local naps=0
   while :; do
     _listen_print
-    if [ -f "$log" ] && [ ! "$log" -ef /dev/fd/5 ]; then
+    if [ -f "$log" ] && [ "$(_listen_inode "$log")" != "$LISTEN_INODE" ]; then
       _listen_print
       [ -z "$LISTEN_PARTIAL" ] || printf '%s\n' "$LISTEN_PARTIAL"
-      exec 5<"$log"
+      _listen_open "$log"
       LISTEN_PARTIAL=""
       continue
     fi
