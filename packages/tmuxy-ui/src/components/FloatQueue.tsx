@@ -1,5 +1,6 @@
 /**
- * The tab's minimized floats, as pills along its bottom edge
+ * The tab's minimized floats, as pills at the right end of its bottom edge,
+ * the first minimized against the edge and the rest growing leftwards
  * (`@tmuxy-float-minimized`). Their panes keep running: a dev server or a
  * log tail stays one click away without covering the panes. A click brings
  * the float back, and its ✕ closes it.
@@ -47,7 +48,8 @@ export function FloatQueue() {
   if (minimized.length === 0) return null;
   return (
     <div className="float-queue" role="toolbar" aria-label="Minimized floats">
-      {minimized.map((float) => (
+      {/* Newest first, so the DOM reads left to right as the pills sit. */}
+      {[...minimized].reverse().map((float) => (
         <FloatPill key={float.paneId} paneId={float.paneId} />
       ))}
     </div>

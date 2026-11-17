@@ -1,15 +1,17 @@
-/* The tab's minimized floats (FloatQueue.tsx): pills along its bottom edge,
-   over the panes, leaving the rest of the edge clickable. */
+/* The tab's minimized floats (FloatQueue.tsx): pills side by side at the right
+   end of its bottom edge, over the panes, leaving the rest of the edge
+   clickable. The first minimized sits against the edge and later ones grow
+   leftwards, so a pill never moves when another is added or restored. */
 .float-queue {
   position: absolute;
-  left: 50%;
+  right: var(--spacing-lg);
   bottom: var(--spacing-lg);
   z-index: 20;
   display: flex;
+  justify-content: safe flex-end;
   gap: var(--spacing-md);
-  max-width: 90%;
+  max-width: calc(100% - 2 * var(--spacing-lg));
   overflow-x: auto;
-  transform: translateX(-50%);
   pointer-events: none;
 }
 

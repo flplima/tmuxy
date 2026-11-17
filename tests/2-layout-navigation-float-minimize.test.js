@@ -99,4 +99,60 @@ describeE2E('Scenario 6f: Minimized floats', {}, (ctx) => {
       "the pill's ✕ to close the float",
     );
   }, 90000);
+  /** Every pill's box, by pane id, with the box of the tab area the queue sits in. */
+  const pillBoxes = (page) =>
+    page.evaluate(() => {
+      const queue = document.querySelector('.float-queue');
+      const area = queue.offsetParent.getBoundingClientRect();
+      const boxes = {};
+      for (const el of document.querySelectorAll('[data-float-pill]')) {
+        const { left, right, top, bottom, width, height } = el.getBoundingClientRect();
+        boxes[el.dataset.floatPill] = { left, right, top, bottom, width, height };
+      }
+      return { areaRight: area.right, boxes };
+    });
+
+  test('three minimized floats → side by side on one row at the right end, the first against the edge → restoring one leaves the others where they were', async () => {
+    await ctx.setupPage();
+    const ids = [];
+    for (let i = 0; i < 3; i++) {
+      ids.push(await openFloatFromCli(ctx));
+      await ctx.page.click('.float-container .pane-header-minimize');
+      await waitForNoModal(ctx.page);
+      await waitForCondition(
+        ctx.page,
+        async () => (await pills(ctx.page)).length === i + 1,
+        10000,
+        `${i + 1} pill(s) on screen`,
+      );
+    }
+    expect(new Set(ids).size).toBe(3);
+
+    const { areaRight, boxes } = await pillBoxes(ctx.page);
+    const [first, second, third] = ids.map((id) => boxes[id]);
+    // One row: the same top, none over another.
+    expect(second.top).toBeCloseTo(first.top, 0);
+    expect(third.top).toBeCloseTo(first.top, 0);
+    // In the order they were minimized, from the right edge leftwards.
+    expect(second.right).toBeLessThanOrEqual(first.left);
+    expect(third.right).toBeLessThanOrEqual(second.left);
+    // The first sits at the tab area's right end.
+    expect(areaRight - first.right).toBeGreaterThanOrEqual(0);
+    expect(areaRight - first.right).toBeLessThan(40);
+
+    await ctx.page.click(`[data-float-pill="${ids[1]}"] .float-queue-restore`);
+    await waitForFloatModal(ctx.page);
+    await waitForCondition(
+      ctx.page,
+      async () => !(await pills(ctx.page)).includes(ids[1]),
+      10000,
+      'the restored float to leave the queue',
+    );
+    const after = await pillBoxes(ctx.page);
+    expect(Object.keys(after.boxes).sort()).toEqual([ids[0], ids[2]].sort());
+    expect(after.boxes[ids[0]].right).toBeCloseTo(first.right, 0);
+    expect(after.boxes[ids[2]].top).toBeCloseTo(first.top, 0);
+    expect(after.boxes[ids[2]].right).toBeLessThanOrEqual(after.boxes[ids[0]].left);
+    expect(after.areaRight - after.boxes[ids[0]].right).toBeLessThan(40);
+  }, 180000);
 });
