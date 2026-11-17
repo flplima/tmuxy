@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use tmuxy_core::command_router::Route;
 use tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
+use tmuxy_core::constants::tmux_options::PANE_STATE;
 use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::session::SessionName;
 use tmuxy_core::{tmux_quote, CommandError, PaneId, WindowType};
@@ -159,6 +160,10 @@ pub(super) struct Pane {
     pub title: String,
     /// `@tmuxy-label` (`tmuxy pane run --label`).
     pub label: String,
+    /// What the pane says it is doing (`@tmuxy-pane-state`); empty when unset.
+    pub state: String,
+    /// The pane's current folder.
+    pub cwd: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -170,13 +175,15 @@ pub(super) struct Tab {
     pub active: bool,
 }
 
-/// The fields `parse_panes` reads, tab-separated, free text last: a tab in a
-/// title or label stays in it.
+/// The fields `parse_panes` reads, tab-separated, as `tmuxy pane list --json`
+/// reads them. The folder goes last, so a tab in it stays in it: a client
+/// compares it with a path, where every character counts.
 fn pane_format() -> String {
     format!(
         "#{{pane_id}}\t#{{window_id}}\t#{{pane_width}}\t#{{pane_height}}\t\
          #{{&&:#{{pane_active}},#{{window_active}}}}\t#{{@tmuxy-window-type}}\t\
-         #{{pane_current_command}}\t#{{@tmuxy-label}}\t{APP_PANE_TITLE}"
+         #{{{PANE_STATE}}}\t#{{pane_current_command}}\t#{{@tmuxy-label}}\t{APP_PANE_TITLE}\t\
+         #{{pane_current_path}}"
     )
 }
 
@@ -187,8 +194,10 @@ pub(super) fn parse_panes(listing: &str) -> Vec<Pane> {
     listing
         .lines()
         .filter_map(|line| {
-            let f: Vec<&str> = line.splitn(9, '\t').collect();
-            let [id, tab, width, height, active, window_type, command, label, title] = f[..] else {
+            let f: Vec<&str> = line.splitn(11, '\t').collect();
+            let [id, tab, width, height, active, window_type, state, command, label, title, cwd] =
+                f[..]
+            else {
                 return None;
             };
             Some(Pane {
@@ -201,6 +210,8 @@ pub(super) fn parse_panes(listing: &str) -> Vec<Pane> {
                 active: active == "1",
                 title: title.to_string(),
                 label: label.to_string(),
+                state: state.to_string(),
+                cwd: cwd.to_string(),
             })
         })
         .collect()

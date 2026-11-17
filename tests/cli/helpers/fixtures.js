@@ -3,12 +3,13 @@
  */
 
 // Rows of LIST_PANES_JSON_FMT (packages/tmuxy-cli/bin/tmuxy-cli), TAB-separated
-// since the command, the app-set title and the label are free text. The second
-// pane has a title and a label, so the escaping path is covered too.
-// cli-pane.test.js holds the column count to the format the CLI asks for.
+// since the command, the app-set title, the label and the folder are free
+// text. The first pane declares no state; the second has a title, a label and
+// a state, so the escaping path is covered too. cli-pane.test.js holds the
+// column count to the format the CLI asks for.
 const LIST_PANES_OUTPUT = [
-  '%0\t@0\t120\t40\tzsh\t1\t\t',
-  '%1\t@0\t80\t30\tvim\t0\tREADME.md\tlogs',
+  '%0\t@0\t120\t40\tzsh\t1\t\t\t\t/home/me',
+  '%1\t@0\t80\t30\tvim\t0\tREADME.md\tlogs\tworking\t/home/me/"repo"',
 ].join('\n');
 
 const LIST_PANES_JSON = [
@@ -21,6 +22,8 @@ const LIST_PANES_JSON = [
     active: true,
     title: '',
     label: '',
+    state: '',
+    cwd: '/home/me',
   },
   {
     id: '%1',
@@ -31,6 +34,8 @@ const LIST_PANES_JSON = [
     active: false,
     title: 'README.md',
     label: 'logs',
+    state: 'working',
+    cwd: '/home/me/"repo"',
   },
 ];
 

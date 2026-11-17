@@ -29,6 +29,27 @@ describe('CLI pane subcommands', () => {
       expect(JSON.parse(stdout)).toEqual(LIST_PANES_JSON);
     });
 
+    /**
+     * What a plugin reads to follow an agent: the state it declares, and the
+     * folder it works in, last on the row so a tab in a folder's name stays
+     * in it.
+     */
+    test('lists each pane --json with its state and folder, a tab in the folder kept', () => {
+      const row = '%2\t@1\t80\t24\tclaude\t1\t\t\tneeds-input\t/tmp/a\tb\\c';
+      const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'list', '--json'], {
+        env: { MOCK_TMUX_LIST_PANES: row },
+      });
+      expect(exitCode).toBe(0);
+      const { args } = tmuxCalls[0];
+      expect(args[args.indexOf('-F') + 1].split('\t').slice(-2)).toEqual([
+        '#{@tmuxy-pane-state}',
+        '#{pane_current_path}',
+      ]);
+      expect(JSON.parse(stdout)).toEqual([
+        expect.objectContaining({ id: '%2', state: 'needs-input', cwd: '/tmp/a\tb\\c' }),
+      ]);
+    });
+
     test('lists panes --all --json', () => {
       const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'list', '--all', '--json'], {
         env: { MOCK_TMUX_LIST_PANES: LIST_PANES_OUTPUT },

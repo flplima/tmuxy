@@ -118,6 +118,12 @@ fn typescript() -> String {
     );
     let _ = writeln!(
         out,
+        "\n/** True while a pane runs the preview widget (`preview::pane_previews_format`). */\n\
+         export const PANE_PREVIEWS = {};",
+        quoted(&tmuxy_core::preview::pane_previews_format())
+    );
+    let _ = writeln!(
+        out,
         "\n/** The window types tmuxy's chrome is tagged with (`WindowType`); an untagged window is a tab. */\n\
          export const CHROME_WINDOW_TYPES = [{}] as const;",
         [

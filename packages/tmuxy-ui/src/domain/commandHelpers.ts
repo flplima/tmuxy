@@ -5,6 +5,7 @@ import { isPluginName } from './plugins';
 import {
   AGENT_TAKES_INPUT,
   CLI_PATH,
+  PANE_PREVIEWS,
   PASTE_BUFFER,
   SCRIPT_EFFECT_TAGS,
   SCRIPTS_DIR,
@@ -249,6 +250,38 @@ export function reviewInto(to: PaneId, text: string, id: string): string {
 /** What tmux says when it refuses a review (no `%` or `#`: the message is expanded). */
 export const REVIEW_REFUSED =
   'Review not sent: the agent is waiting for an answer, or is gone. Restore brings your comments back.';
+
+/**
+ * `json` as one line of printable ASCII: every other character a `\uXXXX`
+ * escape. The same JSON value, since JSON text has such a character only
+ * inside a string, where the escape means the character itself.
+ */
+export function asciiJson(json: string): string {
+  return json.replace(
+    /[^\x20-\x7e]/g,
+    (ch) => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'),
+  );
+}
+
+/**
+ * A JSON line typed into the preview in pane `to`, and Enter: what a markdown
+ * form control or a page's `tmuxy.emit` says to the widget, which reads it on
+ * its input. A page is untrusted, and a pane whose widget has ended is a
+ * shell, which would run the line. So the line is staged, and pasted only if
+ * tmux, in the same command list, finds the pane still previewing; else the
+ * staged line is dropped. The line goes as printable ASCII, its Enter as the
+ * paste's own carriage return (a `send-keys Enter` would reach every pane of
+ * a synchronized window), to that pane alone.
+ */
+export function previewLine(to: PaneId, json: string): string {
+  if (!/^%\d+$/.test(to)) return '';
+  const buffer = `tmuxy-preview-${to.slice(1)}`;
+  const commands = staged(buffer, `${asciiJson(json)}\n`);
+  const send = `paste-buffer -d -b ${buffer} -t ${to}`;
+  const refuse = `delete-buffer -b ${buffer}`;
+  commands.push(`if-shell -F -t ${to} '${PANE_PREVIEWS}' { ${send} } { ${refuse} }`);
+  return commands.join('\n');
+}
 
 /**
  * The staged paste delivered to `to`, or to every synchronized pane of its

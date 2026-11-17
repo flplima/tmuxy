@@ -197,6 +197,7 @@
       "allow": [
         "packages/tmuxy-cli/bin/tmuxy/_options",
         "packages/tmuxy-core/src/constants/tmux_options.rs",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts",
         "packages/tmuxy-ui/src/infra/transport/drivers/guest/guestPreview.ts"
       ]
     },

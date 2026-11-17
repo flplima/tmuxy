@@ -54,8 +54,9 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "pane_list",
         title: "List panes",
         description: "Every pane of the session — in tabs, floats and sidebars — with its id, \
-                      tab, kind, size, the program in front, its title and label, and which \
-                      one the user has focused (active).",
+                      tab, kind, size, the program in front, its title and label, what it \
+                      says it is doing (state, empty when it says nothing), its folder (cwd), \
+                      and which one the user has focused (active).",
         changes: false,
         destructive: false,
         schema: pane_list_schema,

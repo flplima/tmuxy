@@ -53,3 +53,4 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | W3 | A checkout's changes in a pane, by scope, with line comments sent to its agent as one review | — | — | — | `tmuxy widget diff` | — | `tests/14-widget-diff.test.js` |
 | W4 | The last turn: what an agent changed while it worked | — | — | — | `tmuxy widget diff` | — | `tests/14-widget-diff-turn.test.js` |
 | W5 | Stage, unstage or revert one hunk, with an undo | — | — | — | `tmuxy widget diff` | — | `tests/14-widget-diff-hunks.test.js` |
+| W6 | A page or a markdown form talks back: `tmuxy.emit` and form controls type a line into the preview's own pane, which a plugin's handler reads | a page's own button; a form control | — | — | `tmuxy pane listen` | — | `tests/14-widget-preview-emit.test.js` |

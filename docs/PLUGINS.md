@@ -282,8 +282,34 @@ into its README.
 **Ref and commit.** `owner/repo@v1.2` follows a tag or branch: `update` moves
 to its latest commit. `owner/repo@<40-hex>` pins a commit.
 
+## Two-way pages
+
+A plugin's UI can be an HTML page shown in a pane with `tmuxy open`. Data
+goes into the page as the file: the plugin writes it again and the preview
+reloads, scrolled where the reader was. Data comes out of the page as lines:
+`tmuxy.emit(value)` in the page types `{"emit":<value as JSON>}` into the
+pane, and `tmuxy pane listen` hands each line to a handler. The pattern, in
+the action's command:
+
+```sh
+render >page.html                                  # the first state
+tmuxy pane listen "$TMUX_PANE" | handler >>"$TMUXY_PLUGIN_STATE_DIR/handler.log" 2>&1 &
+exec tmuxy open page.html
+```
+
+The listener goes first and waits for the preview (10 s at most), so it
+misses no line; it ends when the preview does (Ctrl+C, or the pane closed),
+and with it the handler's input. The handler reads one JSON object a line,
+acts, and answers by rendering `page.html` again. Its output goes to a file,
+not the pane, where the preview draws. A line is what a page said, so the
+handler treats it as data from an untrusted source: parse it, never run it.
+`tmuxy.emit` returns `true` once the line is handed to the app, `false` when
+the page emits faster than 20 at once then 10 a second (that one is
+dropped), and throws for a value JSON cannot hold or longer than 16 KiB as
+JSON; [PLUGIN-API.md](PLUGIN-API.md#preview-pages) has the contract.
+
 ## Not yet
 
-Planned: reactive plugins (`tmuxy events`, `[[services]]`), two-way plugin
-pages, a settings UI (settings are set with `tmuxy plugin config` for now),
-and link handlers inside preview pages.
+Planned: reactive plugins (`tmuxy events`, `[[services]]`), a settings UI
+(settings are set with `tmuxy plugin config` for now), and link handlers
+inside preview pages.

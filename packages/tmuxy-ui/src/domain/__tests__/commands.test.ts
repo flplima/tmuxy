@@ -14,6 +14,7 @@ import {
   toTmuxCommand,
 } from '../commands';
 import { quote } from '../commandHelpers';
+import { PANE_PREVIEWS } from '../tmuxyConstants.gen';
 import { pid, wid } from '../../test/wire';
 
 const S = '$TMUXY_DATA_DIR/bin/tmuxy';
@@ -315,6 +316,43 @@ describe('toTmuxCommand', () => {
     expect(toTmuxCommand(TmuxOp.PasteText({ target: "x'; touch y; '", text: 'a' }))).toBe(
       `set-buffer -b tmuxy-paste "a"\npaste-buffer -p -d -b tmuxy-paste -t '=x'\\''; touch y; '\\'':'`,
     );
+  });
+
+  /**
+   * A line for the preview reaches the pane only while tmux, in the same
+   * command list, finds it previewing: a pane whose widget has ended is a
+   * shell, and would run a page's `{"x":"$(…)"}` as a command.
+   */
+  it('types a preview line only inside one tmux check that the pane still previews', () => {
+    const lines = toTmuxCommand(
+      TmuxOp.SendPreviewLine({ paneId: pid('%7'), json: '{"emit":{"x":"$(rm -rf ~)"}}' }),
+    ).split('\n');
+    expect(lines).toEqual([
+      'set-buffer -b tmuxy-preview-7 ' +
+        '"\\173\\042emit\\042:\\173\\042x\\042:\\042\\044(rm -rf \\176)\\042\\175\\175\\012"',
+      `if-shell -F -t %7 '${PANE_PREVIEWS}' ` +
+        '{ paste-buffer -d -b tmuxy-preview-7 -t %7 } { delete-buffer -b tmuxy-preview-7 }',
+    ]);
+    // Nothing reaches the pane outside the check: no send-keys at all (an
+    // Enter would reach every pane of a synchronized window), the newline
+    // is the paste's own.
+    expect(lines.filter((line) => /paste-buffer|send-keys/.test(line))).toHaveLength(1);
+  });
+
+  it('types a preview line as one line of printable ASCII, the same JSON value', () => {
+    const json = JSON.stringify({ input: 'note', value: 'a\u2028b\u009bc\u007fé😀' });
+    const [stage] = toTmuxCommand(TmuxOp.SendPreviewLine({ paneId: pid('%2'), json })).split('\n');
+    const typed = stage
+      .replace(/^set-buffer -b tmuxy-preview-2 "/, '')
+      .replace(/"$/, '')
+      .replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
+    expect(typed.endsWith('\n')).toBe(true);
+    expect(/^[\x20-\x7e]*$/.test(typed.slice(0, -1))).toBe(true);
+    expect(JSON.parse(typed)).toEqual(JSON.parse(json));
+  });
+
+  it('types a preview line into a pane id alone', () => {
+    expect(toTmuxCommand(TmuxOp.SendPreviewLine({ paneId: 'main' as never, json: '{}' }))).toBe('');
   });
 
   it('stages a long paste in chunks, appending each after the first', () => {

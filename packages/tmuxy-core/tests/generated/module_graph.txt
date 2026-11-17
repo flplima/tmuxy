@@ -8,6 +8,7 @@ ask -> program
 ask -> random
 capture_html -> control_mode
 command_router -> control_mode
+command_router -> preview
 command_router -> tmux_command
 command_router -> tmux_compat
 control_mode -> argv

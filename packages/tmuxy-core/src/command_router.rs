@@ -325,6 +325,24 @@ mod tests {
         );
     }
 
+    /// A line for a preview (`previewLine` in the UI's `commandHelpers.ts`)
+    /// is staged, then pasted inside one `if-shell` on the pane's widget tag:
+    /// it reaches tmux as written, the check and the paste on one line, so
+    /// no rewrite can take the paste out of the check.
+    #[test]
+    fn a_preview_line_reaches_tmux_inside_its_check() {
+        let line = format!(
+            "set-buffer -b tmuxy-preview-7 \"\\173\\042emit\\042:\\173\\042x\\042:\\042\\044(rm -rf \\176)\\042\\175\\175\\012\"\n\
+             if-shell -F -t %7 '{}' \
+             {{ paste-buffer -d -b tmuxy-preview-7 -t %7 }} {{ delete-buffer -b tmuxy-preview-7 }}",
+            crate::preview::pane_previews_format()
+        );
+        assert_eq!(
+            route_command(&line, "tmuxy", None),
+            Route::ControlMode(line.clone())
+        );
+    }
+
     /// Typed text is one `send-keys` per line, and reaches tmux line for line;
     /// a blank line never does — an empty line detaches the control client.
     #[test]

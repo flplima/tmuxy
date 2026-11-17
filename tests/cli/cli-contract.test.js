@@ -281,9 +281,10 @@ describe('pane run', () => {
     expect(stderr).toContain('still running');
   });
 
-  test('a bad duration or split is a usage error', () => {
+  test('a bad duration, split or label is a usage error', () => {
     expect(runCLI(['pane', 'run', '--for', 'soon', '--', 'true']).exitCode).toBe(2);
     expect(runCLI(['pane', 'run', '--split', 'left', '--', 'true']).exitCode).toBe(2);
+    expect(runCLI(['pane', 'run', '--label', 'a\tb', '--', 'true']).exitCode).toBe(2);
   });
 });
 

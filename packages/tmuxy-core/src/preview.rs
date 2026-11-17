@@ -43,6 +43,15 @@ const STAGED_PAGES: usize = 16;
 
 const WIDGET: &str = "preview";
 
+/// True, for tmux, while a pane runs the preview widget: the check a line
+/// typed for the preview (a page's `tmuxy.emit`, a form control) is pasted
+/// under, in the same command list (`previewLine` in the UI's
+/// `commandHelpers.ts`, as `PANE_PREVIEWS` in `tmuxyConstants.gen.ts`). A
+/// pane whose widget has ended is a shell, which would run the line.
+pub fn pane_previews_format() -> String {
+    format!("#{{==:#{{{PANE_WIDGET}}},{WIDGET}}}")
+}
+
 /// What tmux says a pane may preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Authorisation {

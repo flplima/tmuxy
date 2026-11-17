@@ -82,6 +82,11 @@ cmd_pane_run() {
     esac
   done
   [ ${#cmd[@]} -gt 0 ] || _die_usage "command required (after --)" usage_pane_run
+  # A label is one field of `pane list`'s tab-separated rows: a tab or a
+  # newline in it would shift the fields after it.
+  case "$label" in
+    *[[:cntrl:]]*) _die_usage "--label takes no control characters" usage_pane_run ;;
+  esac
   local deadline=""
   if [ -n "$for" ]; then
     local seconds
@@ -246,4 +251,140 @@ EOF
   else
     printf '%s\n' "$content"
   fi
+}
+
+# A pane's id, widget tag and server socket, as LISTEN_ID, LISTEN_WIDGET and
+# LISTEN_SOCKET: what `pane listen` needs to find the widget's message log
+# and to see it end. Split by hand: `read` would merge the two tabs around
+# an empty tag, a tab being whitespace to it.
+_listen_read() {
+  local said rest
+  said="$(_pane_read "$1" "#{pane_id}"$'\t'"#{$OPT_PANE_WIDGET}"$'\t''#{socket_path}' 2>/dev/null)" || return $?
+  LISTEN_ID="${said%%$'\t'*}"
+  rest="${said#*$'\t'}"
+  LISTEN_WIDGET="${rest%%$'\t'*}"
+  LISTEN_SOCKET="${rest#*$'\t'}"
+}
+
+# The inode of a file, or nothing: what tells a log that started over (a new
+# file put in its place) from the one open on fd 5. `[ -ef /dev/fd/5 ]`
+# would do it on Linux, but bash on macOS never finds the two the same.
+_listen_inode() {
+  ls -di -- "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# Open the log on fd 5, and keep the inode of the file opened: taken on both
+# sides of the open, until the two agree, so a log replaced in that moment is
+# never mistaken for the one open.
+_listen_open() {
+  local before
+  while :; do
+    before="$(_listen_inode "$1")"
+    exec 5<"$1"
+    LISTEN_INODE="$(_listen_inode "$1")"
+    [ "$before" != "$LISTEN_INODE" ] || break
+  done
+}
+
+# Print the lines of the log on fd 5 that are complete, the last one cut
+# short by the end of the file kept in LISTEN_PARTIAL for the next pass.
+_listen_print() {
+  local line
+  while IFS= read -r line <&5; do
+    printf '%s\n' "$LISTEN_PARTIAL$line"
+    LISTEN_PARTIAL=""
+  done
+  LISTEN_PARTIAL="$LISTEN_PARTIAL$line"
+}
+
+cmd_pane_listen() {
+  local target="" from_start=false wait=10s
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --help|-h)
+        cat <<'EOF2'
+Usage: tmuxy pane listen [target] [--from-start] [--wait DURATION] [--json]
+
+Print the lines the preview in a pane (tmuxy open) receives, one JSON object
+per line, as they arrive: {"emit":…} from a page's tmuxy.emit(), and
+{"input":…} from a markdown form control. Exits 0 when the preview ends.
+
+The target defaults to this pane. A listener started before its preview
+waits for it (--wait, 10s by default; 0 does not wait) and then prints
+every line the preview receives. One started while a preview shows prints
+what arrives from then on; --from-start prints what came before first.
+
+Exit codes: 3 no such pane, 1 the pane shows no preview.
+EOF2
+        return
+        ;;
+      --from-start) from_start=true; shift ;;
+      --wait) [ -n "${2:-}" ] || _die_usage "--wait needs a duration"; wait="$2"; shift 2 ;;
+      -*) _die_usage "unknown option '$1'" ;;
+      *) [ -z "$target" ] || _die_usage "one target only"; target="$1"; shift ;;
+    esac
+  done
+  local pane_id="${TMUXY_CALLER_PANE:-}"
+  if [ -n "$target" ]; then
+    pane_id="$(_resolve_target "$target")" || exit $?
+  fi
+  [ -n "$pane_id" ] || _die_usage "target required outside a pane (a pane id or label)"
+  local seconds deadline
+  seconds="$(_duration_seconds "$wait")" || exit $?
+  deadline=$(($(date +%s) + seconds))
+
+  # The preview, or a short wait for one: a plugin starts its listener in
+  # the pane, then the preview there.
+  local rc=0 waited=false
+  _listen_read "$pane_id" || rc=$?
+  _exit_if_no_server "$rc"
+  [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: ${target:-$pane_id}"
+  local id="$LISTEN_ID" log
+  log="$(preview_message_log "$LISTEN_SOCKET" "$id")"
+  # The widget makes its log before it tags the pane, so once the tag says
+  # preview the log there is this preview's.
+  while [ "$LISTEN_WIDGET" != preview ] || [ ! -f "$log" ]; do
+    [ "$(date +%s)" -lt "$deadline" ] || _fail "$EXIT_FAILED" "$id shows no preview"
+    waited=true
+    _wait_nap
+    rc=0
+    _listen_read "$id" || rc=$?
+    _exit_if_no_server "$rc"
+    [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $id"
+  done
+
+  _listen_open "$log"
+  LISTEN_PARTIAL=""
+  # Joining a preview that is under way: from what arrives next, unless
+  # asked for all of it. A listener that waited for the preview missed
+  # nothing by starting at the top. A line still being written is the next.
+  if ! $from_start && ! $waited; then
+    local skipped=""
+    while IFS= read -r skipped <&5; do :; done
+    LISTEN_PARTIAL="$skipped"
+  fi
+  # Until the preview ends: the log read every nap, the tag about once a
+  # second, or at once when the log is gone. A log that is another file now
+  # has started over: the old one is read to its end, the new from its top.
+  local naps=0
+  while :; do
+    _listen_print
+    if [ -f "$log" ] && [ "$(_listen_inode "$log")" != "$LISTEN_INODE" ]; then
+      _listen_print
+      [ -z "$LISTEN_PARTIAL" ] || printf '%s\n' "$LISTEN_PARTIAL"
+      _listen_open "$log"
+      LISTEN_PARTIAL=""
+      continue
+    fi
+    if [ ! -f "$log" ] || [ $((naps % 7)) -eq 6 ]; then
+      _listen_read "$id" || break
+      [ "$LISTEN_WIDGET" = preview ] || break
+    fi
+    naps=$((naps + 1))
+    _wait_nap
+  done
+  # What it wrote before the tag went.
+  _listen_print
+  [ -z "$LISTEN_PARTIAL" ] || printf '%s\n' "$LISTEN_PARTIAL"
+  exec 5<&-
 }
