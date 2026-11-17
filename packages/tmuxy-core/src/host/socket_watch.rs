@@ -51,33 +51,12 @@ pub struct PaneRow {
     pub widget: String,
 }
 
-/// Whose finished work a pane's `unread` is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResultFrom {
-    /// A program said `done` for itself (OSC 7501).
-    Program,
-    /// The shell's long command ended (OSC 133).
-    Shell,
-}
-
 impl PaneRow {
-    /// Whose result the pane's `unread` is. `None` when nothing reported
-    /// one: the state was set some other way (a send that skipped its
-    /// question marks the pane it typed into), and nothing finished.
-    pub fn result(&self) -> Option<ResultFrom> {
-        use crate::control_mode::{command_finish, program_status};
-        if !program_status::status_is_for(&self.status, Some(&self.state)) {
-            return None;
-        }
-        let shells = self
-            .status
-            .split(':')
-            .any(|pair| pair.strip_prefix("id=") == Some(command_finish::RECORD_ID));
-        Some(if shells {
-            ResultFrom::Shell
-        } else {
-            ResultFrom::Program
-        })
+    /// Whether a program reported the pane's `unread` as its own `done`
+    /// (OSC 7501). Not when the state was set some other way (a send that
+    /// skipped its question marks the pane it typed into): nothing finished.
+    pub fn has_result(&self) -> bool {
+        crate::control_mode::program_status::status_is_for(&self.status, Some(&self.state))
     }
 }
 

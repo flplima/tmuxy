@@ -331,23 +331,6 @@ fn a_result_nobody_has_seen_by_the_next_read_is_one_notice() {
         .is_empty());
 }
 
-/// After a shell's long command the pane's program is the shell again: the
-/// notice does not say the shell finished.
-#[test]
-fn a_shells_finished_command_is_not_named_after_the_shell() {
-    let ended = [(
-        "%1",
-        "unread",
-        "state=done:id=tmuxy.command:msg=RmluaXNoZWQ=",
-    )];
-    let mut watch = Watch::default();
-    watch.update(&rows(&[("%1", "")], "on"), "");
-    watch.update(&rows_reporting(&ended, "on"), "");
-    let notices = watch.update(&rows_reporting(&ended, "on"), "");
-    assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].title, "A command finished");
-}
-
 /// `unread` is also what a send leaves on the pane it typed into, and what a
 /// state outlived by its text looks like. Nothing finished there.
 #[test]

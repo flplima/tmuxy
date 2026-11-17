@@ -75,7 +75,7 @@ impl PaneState {
             self.set_title(title);
         }
         let status = self.terminal.callbacks_mut().take_status();
-        self.program_status.read(status, Instant::now());
+        self.program_status.read(status);
 
         let screen = self.terminal.screen();
         let (row, col) = screen.cursor_position();
