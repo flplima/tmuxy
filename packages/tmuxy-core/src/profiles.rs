@@ -228,7 +228,7 @@ pub fn save(dir: &Path, name: &str, profile: &Profile) -> Result<(), ProfileErro
     check_values(name, profile)?;
     let text = serde_json::to_string_pretty(profile)
         .map_err(|e| ProfileError::Unreadable(e.to_string()))?;
-    crate::private_files::write(&path, format!("{text}\n"))
+    crate::private_files::replace(&path, format!("{text}\n"))
         .map_err(|e| ProfileError::Unreadable(format!("{}: {e}", path.display())))
 }
 
