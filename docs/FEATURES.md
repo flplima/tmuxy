@@ -1,6 +1,6 @@
 # Features
 
-Everything a user or an agent can do in tmuxy, one row per capability, with how each of the five surfaces reaches it and the test that holds it. [INVARIANTS.md](INVARIANTS.md) is the engine's promises; this is the user's. [NON-GOALS.md](NON-GOALS.md) is what tmuxy leaves out.
+Everything a user or an agent can do in tmuxy, one row per capability, with how each of the five surfaces reaches it and the test that holds it. [INVARIANTS.md](INVARIANTS.md) is the engine's promises; this is the user's. [NON-GOALS.md](NON-GOALS.md) is what tmuxy leaves out. The flags of each CLI verb are in [CLI.md](CLI.md).
 
 The catalog is in three parts: panes, groups, floats and sidebars here; tabs, sessions, copy mode and widgets in [FEATURES-TABS.md](FEATURES-TABS.md); rendering, the desktop app, agents and the CLI, and configuration in [FEATURES-APP.md](FEATURES-APP.md).
 

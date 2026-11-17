@@ -20,7 +20,7 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 | `ci` | Read the run page: the step is a `jq` filter over the jobs' results, in the workflow | Runs last, always: red when any job failed or was cancelled (a skipped one passes) |
 | `unit-tests` | `npm test` | UI unit tests, and the tests of the scripts under `bin/` and the demo's |
 | `cli-tests` | `npm run test:cli` | CLI dispatcher behavior, and the guests' `tmuxy-verbs` binary (`cli-guest-verbs.test.js` builds it with cargo) |
-| `rust-tests` | `cargo test --workspace` | Rust unit/integration |
+| `rust-tests` | `cargo test --workspace`, then `cargo build -p tmuxy-server` and `npm run check:cli-doc` | Rust unit/integration; and [CLI.md](CLI.md) and its companions against the CLI's `--help` (a red check names the command; `npm run gen:cli-doc` rewrites them, with the server built) |
 | `e2e (<shard>)` | `npx jest <the shard's files>`; the shard → files map is the Suites table in [TESTS-E2E.md](TESTS-E2E.md#suites) | Browser + tmux integration; `e2e (tmux-3.4)` reruns the snapshot, alternate-screen and `run-shell` regression suites against tmux 3.4 (`tests/e2e-suites.json`, the `tmux` field) |
 | `desktop` | `npm run test:tauri` (the debug build) + `node tests/smoke/smoke-test.js target/debug/tmuxy`; skipped when the push touched nothing the app is built from or tested by (`changes`) | Desktop IPC, Tauri runtime, the launch path |
 | `storybook-probe` / `storybook-v86-probe` | `PROBE_TIER=commit npm run test-storybook -w tmuxy-ui` (the axe pass included) / `PROBE_TIER=gate npm run test-storybook:v86 -w tmuxy-ui`; the v86 probe is skipped when the push touched nothing it loads (`changes`) | Story play-function and accessibility regressions |
