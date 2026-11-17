@@ -1,22 +1,21 @@
-//! A new linked worktree for a task: its branch named after the task, its
-//! directory beside the repository's main one.
+//! The new worktree a fork lives in: made beside the repository's main one on
+//! a new branch, then given the uncommitted work of the pane it forks.
 //!
-//! git runs as it does for a removal ([`super::guard`]): nothing the
-//! repository's config names is run. That includes the checkout's filters
-//! and hooks, so a repository that needs them (Git LFS, a post-checkout
-//! step) gets a checkout without them, and its own setup has to follow.
+//! git runs through `safe_git`: nothing the repository's config names is
+//! run. That includes the checkout's filters and hooks, so a repository that
+//! needs them (Git LFS, a post-checkout step) gets a checkout without them,
+//! and its own setup has to follow.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use tmuxy_core::safe_git;
 
-use super::guard::{read, GuardError};
+/// How long one git call may take, and the most it may print.
+const TIME_LIMIT: Duration = Duration::from_secs(10);
+const OUTPUT_CAP: usize = 16 * 1024 * 1024;
 
-/// The most characters of a task taken into a branch name.
-const SLUG_CHARS: usize = 40;
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Created {
     pub path: String,
     pub branch: String,
@@ -24,40 +23,34 @@ pub struct Created {
     pub repository: String,
 }
 
-/// A branch name's last part from a task in words: lowercase letters and
-/// digits (accented ones too: `navegação` stays whole), the rest one `-`, at
-/// most [`SLUG_CHARS`] characters and cut at a word. "Fix the login
-/// redirect!" is `fix-the-login-redirect`.
-pub fn slug(task: &str) -> String {
-    let mut slug = String::new();
-    for c in task.chars().flat_map(char::to_lowercase) {
-        if c.is_alphanumeric() {
-            slug.push(c);
-        } else if !slug.is_empty() && !slug.ends_with('-') {
-            slug.push('-');
-        }
+/// What `args` printed when git, run in `dir`, ended well.
+fn read(dir: &Path, operation: &str, args: &[&str]) -> Result<String, String> {
+    let failed = || format!("git {operation} failed in {}", dir.display());
+    let deadline = Instant::now() + TIME_LIMIT;
+    let off = safe_git::filters_off(dir, deadline).ok_or_else(failed)?;
+    let said = safe_git::run(safe_git::command(dir, &off, args), deadline, OUTPUT_CAP)
+        .ok_or_else(failed)?;
+    if said.success && !said.cut {
+        Ok(String::from_utf8_lossy(&said.stdout).into_owned())
+    } else {
+        Err(failed())
     }
-    let slug = slug.trim_end_matches('-');
-    let Some((limit, _)) = slug.char_indices().nth(SLUG_CHARS) else {
-        return slug.to_string();
-    };
-    let cut = slug[..limit].rfind('-').unwrap_or(limit);
-    slug[..cut].to_string()
 }
 
 /// The main worktree of the repository `path` is in.
-fn main_worktree(path: &Path) -> Result<PathBuf, GuardError> {
+fn main_worktree(path: &Path) -> Result<PathBuf, String> {
+    let not_git = || format!("{} is not in a git worktree", path.display());
     let listing = read(
         path,
         "worktree list",
         &["worktree", "list", "--porcelain", "-z"],
     )
-    .map_err(|_| GuardError::NotAWorktree(path.display().to_string()))?;
+    .map_err(|_| not_git())?;
     let first = listing.split('\0').next().unwrap_or_default();
     first
         .strip_prefix("worktree ")
         .map(PathBuf::from)
-        .ok_or_else(|| GuardError::NotAWorktree(path.display().to_string()))
+        .ok_or_else(not_git)
 }
 
 /// Whether `branch` is a name git takes for a new branch.
@@ -74,33 +67,25 @@ fn valid_branch(path: &Path, branch: &str) -> bool {
 /// started from `base` (the repository's `HEAD` when not given), in
 /// `<main>-<last part of the branch>` beside the main worktree. Refused when
 /// that directory or that branch already exists.
-pub fn create(path: &Path, branch: &str, base: Option<&str>) -> Result<Created, GuardError> {
+pub fn create(path: &Path, branch: &str, base: Option<&str>) -> Result<Created, String> {
     let main = main_worktree(path)?;
     if !valid_branch(&main, branch) {
-        return Err(GuardError::Git {
-            operation: "check-ref-format",
-            path: main.display().to_string(),
-            message: format!("{branch:?} is not a branch name git takes"),
-        });
+        return Err(format!("{branch:?} is not a branch name git takes"));
     }
     let name = main
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let tail = slug(branch.rsplit('/').next().unwrap_or(branch));
+    let tail = branch.rsplit('/').next().unwrap_or(branch);
     let target = main.with_file_name(format!("{name}-{tail}"));
     #[cfg(test)]
     assert!(
-        target.starts_with(super::guard::scratch_root()),
+        target.starts_with(scratch_root()),
         "a test made a worktree outside the temp dir: {}",
         target.display()
     );
     if target.exists() {
-        return Err(GuardError::Git {
-            operation: "worktree add",
-            path: main.display().to_string(),
-            message: format!("{} is already there", target.display()),
-        });
+        return Err(format!("{} is already there", target.display()));
     }
     let target_arg = target.to_string_lossy();
     // After `--`, a base like `-x` is a commit to start from, not an option.
@@ -116,8 +101,18 @@ pub fn create(path: &Path, branch: &str, base: Option<&str>) -> Result<Created, 
     })
 }
 
+/// Take a worktree [`create`] made back out, with whatever was copied in.
+pub fn discard(created: &Created) -> Result<(), String> {
+    read(
+        Path::new(&created.repository),
+        "worktree remove",
+        &["worktree", "remove", "--force", &created.path],
+    )
+    .map(drop)
+}
+
 /// The commit the worktree `path` is on: what a copy of it starts from.
-pub fn head(path: &Path) -> Result<String, GuardError> {
+pub fn head(path: &Path) -> Result<String, String> {
     read(
         path,
         "rev-parse",
@@ -200,7 +195,7 @@ fn copy_file(from: &Path, to: &Path, name: &str) -> bool {
 /// Only regular files inside the worktree are copied; anything else (a
 /// symlink, a path that would leave it) is left behind and listed in
 /// `skipped`. Nothing in `from` changes.
-pub fn carry(from: &Path, to: &Path, untracked: bool) -> Result<Carried, GuardError> {
+pub fn carry(from: &Path, to: &Path, untracked: bool) -> Result<Carried, String> {
     // The pane may sit in a subdirectory: git names the changes from the top
     // of the worktree, and `ls-files` from where it runs, so both run there.
     let top = read(from, "rev-parse", &["rev-parse", "--show-toplevel"])?;
@@ -247,5 +242,10 @@ pub fn carry(from: &Path, to: &Path, untracked: bool) -> Result<Carried, GuardEr
 }
 
 #[cfg(test)]
-#[path = "create_tests.rs"]
+fn scratch_root() -> PathBuf {
+    std::fs::canonicalize(std::env::temp_dir()).unwrap_or_else(|_| std::env::temp_dir())
+}
+
+#[cfg(test)]
+#[path = "checkout_tests.rs"]
 mod tests;

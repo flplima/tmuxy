@@ -16,8 +16,6 @@ use serde::Serialize;
 use thiserror::Error;
 
 mod changes;
-pub mod create;
-pub mod guard;
 
 pub use changes::GitChanges;
 
