@@ -183,10 +183,6 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             let tx = runtime.channel().await?;
             to_json(requests::git_worktrees(&tx).await?, "worktrees")
         }
-        ClientCommand::ListPanePorts => {
-            let tx = runtime.channel().await?;
-            to_json(requests::pane_ports(&tx).await?, "ports")
-        }
         ClientCommand::ListSnapshots => to_json(requests::list_snapshots().await?, "snapshots"),
         ClientCommand::RestoreSession { session } => {
             let tx = runtime.channel().await?;

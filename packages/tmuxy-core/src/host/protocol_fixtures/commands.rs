@@ -14,7 +14,7 @@ use crate::host::{ClientCommand, ConnectionInfo, HostEvent};
 use crate::PaneId;
 
 /// How many variants `ClientCommand` has; [`variant`] numbers them.
-const COMMANDS: usize = 41;
+const COMMANDS: usize = 40;
 
 /// Each variant's number, `0..COMMANDS`. Exhaustive, so a new command does
 /// not compile until it is numbered here, and then the tests below want a
@@ -53,16 +53,15 @@ fn variant(cmd: &ClientCommand) -> usize {
         C::OpenText { .. } => 28,
         C::Greeting => 29,
         C::GetTraceShare { .. } => 30,
-        C::ListPanePorts => 31,
-        C::GetPromptMarks { .. } => 32,
-        C::GetLastCommandOutput { .. } => 33,
-        C::OwnTmuxOffer => 34,
-        C::CloseOwnTmuxOffer => 35,
-        C::ListProfiles => 36,
-        C::UseProfile { .. } => 37,
-        C::CreateProfile { .. } => 38,
-        C::RenameProfile { .. } => 39,
-        C::DeleteProfile { .. } => 40,
+        C::GetPromptMarks { .. } => 31,
+        C::GetLastCommandOutput { .. } => 32,
+        C::OwnTmuxOffer => 33,
+        C::CloseOwnTmuxOffer => 34,
+        C::ListProfiles => 35,
+        C::UseProfile { .. } => 36,
+        C::CreateProfile { .. } => 37,
+        C::RenameProfile { .. } => 38,
+        C::DeleteProfile { .. } => 39,
     }
 }
 
@@ -136,7 +135,6 @@ fn every_request() -> Vec<ClientCommand> {
         C::SetSendAsk { enabled: false },
         C::SetTransparency { enabled: true },
         C::ListGitWorktrees,
-        C::ListPanePorts,
         C::ListSnapshots,
         C::RestoreSession { session: s("work") },
         C::GetTraceSettings,
@@ -307,15 +305,7 @@ fn every_command_answer_matches_its_fixture() {
                     bare: false,
                     locked: false,
                     prunable: false,
-                    changes: None,
                 }],
-            }]),
-        ),
-        (
-            "list_pane_ports",
-            json(&vec![crate::ports::PanePorts {
-                pane_id: "%2".to_string(),
-                ports: vec![5173, 8123],
             }]),
         ),
         (

@@ -119,17 +119,6 @@ pub const SEND_INBOX: &str = "@tmuxy-send-inbox";
 /// never the session's token.
 pub const AGENT_INBOX: &str = "@tmuxy-agent-inbox";
 
-/// A pane's custom fields (`tmuxy pane meta`, `crate::pane_meta`): base64
-/// of a JSON object, so any text survives the tab-separated pane listing
-/// the sidebar tree reads them from. Unset for none.
-pub const PANE_META: &str = "@tmuxy-meta";
-
-/// Which items a pane's row in the sidebar tree shows, on which lines
-/// (`set -g @tmuxy-tree-row 'process ports id / cwd branch / title /
-/// fields'`). The user's to set; the client reads it with the sessions
-/// poll (`tmuxy-ui/src/domain/rowTemplate.ts`). Unset for the default.
-pub const TREE_ROW: &str = "@tmuxy-tree-row";
-
 /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
 /// accepts as a target in place of the pane id (`_resolve_target` in the
 /// shell scripts' `_contract`).

@@ -117,9 +117,6 @@
     "cmd": "list_git_worktrees"
   },
   {
-    "cmd": "list_pane_ports"
-  },
-  {
     "cmd": "list_snapshots"
   },
   {

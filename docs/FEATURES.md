@@ -81,4 +81,3 @@ App-answered keys (`app …`), mouse gestures and `Enforced by` paths are not re
 | B2 | Move panes and tabs in the tree | drag a row | — | — | — | — | `tests/2-layout-navigation-tree-drag.test.js` |
 | B3 | The right sidebar, a dock for a shell | click to dock | — | `app prefix S` | — | — | `tests/2-layout-navigation-dock.test.js` |
 | B4 | The keys view | — | — | `app prefix ?` | — | — | `tests/2-layout-navigation-tree-drag.test.js` |
-| B5 | A pane's tree row: the lines its checkout changed, the ports its programs listen on, fields a script sets, and which items show where | click a port | — | — | `tmuxy pane meta` | `@tmuxy-tree-row` | `tests/2-layout-navigation-tree-fields.test.js` |

@@ -100,15 +100,6 @@ fn typescript() -> String {
     );
     let _ = writeln!(
         out,
-        "\n/** The option a pane's custom fields are kept in (`tmux_options::PANE_META`). */\n\
-         export const PANE_META_OPTION = {};\n\n\
-         /** The user's option for what a tree row shows (`tmux_options::TREE_ROW`). */\n\
-         export const TREE_ROW_OPTION = {};",
-        quoted(tmuxy_core::constants::tmux_options::PANE_META),
-        quoted(tmuxy_core::constants::tmux_options::TREE_ROW)
-    );
-    let _ = writeln!(
-        out,
         "\n/** A pane's title with tmux's host-name seed filtered out (`tmux_formats::APP_PANE_TITLE`). */\n\
          export const APP_PANE_TITLE = {};",
         quoted(APP_PANE_TITLE)
@@ -379,7 +370,6 @@ fn shell_tmux_names(out: &mut String) {
         ("GROUP_ID", o::GROUP_ID),
         ("PANE_RESTORE", o::PANE_RESTORE),
         ("PANE_STATE", o::PANE_STATE),
-        ("PANE_META", o::PANE_META),
         ("PANE_LABEL", o::PANE_LABEL),
         ("PANE_WIDGET", o::PANE_WIDGET),
         ("PANE_PREVIEW", o::PANE_PREVIEW),
