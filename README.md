@@ -135,7 +135,7 @@ Without the prefix:
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab                 |
 | `Ctrl+1`…`9`                  | Go to tab 1…9                       |
 | `Ctrl+0`                      | Show every tab (Tab Overview)       |
-| `Ctrl+Shift+P`                | Command palette                     |
+| `Ctrl+Shift+K`                | Command palette                     |
 | `Ctrl` / `Cmd` `+` `-`        | Font size (`Cmd+0` resets it)       |
 | `Ctrl+Shift+A`                | Select the pane's scrollback        |
 | `Ctrl+Shift+C`                | Copy the selection                  |
@@ -144,7 +144,7 @@ Without the prefix:
 | `Ctrl+Shift+1`…`9`            | Focus window 1…9 (desktop app)      |
 
 On macOS the last five are the `Cmd` shortcuts you would expect: `Cmd+A`,
-`Cmd+C`, `Cmd+V`, `Cmd+N` and `Cmd+1`…`9`, and the palette is also `Cmd+Shift+P`. A _window_ here is an OS window — several can
+`Cmd+C`, `Cmd+V`, `Cmd+N` and `Cmd+1`…`9`, and the palette is `Cmd+K`. A _window_ here is an OS window — several can
 watch one session, each on its own tab (Window ▸ New Window).
 
 With the prefix (`Ctrl+a`):
@@ -162,7 +162,7 @@ With the prefix (`Ctrl+a`):
 | `<` / `>`        | Swap with the previous / next pane                                       |
 | `z`              | Zoom / unzoom                                                            |
 | `?`              | Every key, table by table                                                |
-| `P`              | Command palette (for a browser that keeps `Ctrl+Shift+P` to itself)      |
+| `P`              | Command palette (for a browser that keeps `Ctrl+Shift+K` to itself)      |
 | `g`              | Go to a session, tab or pane by name                                     |
 
 The command palette searches every menu item and every session, tab and pane:

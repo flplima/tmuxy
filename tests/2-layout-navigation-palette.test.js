@@ -1,5 +1,5 @@
 /**
- * The command palette: Ctrl+Shift+P, type, Enter. Every step is the user's
+ * The command palette: Ctrl+Shift+K, type, Enter. Every step is the user's
  * own — the keys they press and the rows they read on screen — and what is
  * checked is what the palette did to the panes and the session.
  */
@@ -114,11 +114,11 @@ const screenText = (page) =>
   );
 
 describeE2E('Command palette', {}, (ctx) => {
-  test('Ctrl+Shift+P opens it → "split" offers both splits with their keys → Enter splits the pane', async () => {
+  test('Ctrl+Shift+K opens it → "split" offers both splits with their keys → Enter splits the pane', async () => {
     await ctx.setupPage();
     await waitForPaneCount(ctx.page, 1, 15000);
 
-    await ctx.page.keyboard.press('Control+Shift+P');
+    await ctx.page.keyboard.press('Control+Shift+K');
     const opened = await waitForPalette(ctx.page);
     expect(opened.mode).toBe('all');
 
@@ -254,7 +254,7 @@ describeE2E('Command palette', {}, (ctx) => {
       // From here, the sleeping pane is one search away. The sibling was left
       // a moment ago, so its monitor is still up and idle: a page that only
       // waited to be sent its state stayed empty here.
-      await ctx.page.keyboard.press('Control+Shift+P');
+      await ctx.page.keyboard.press('Control+Shift+K');
       await waitForPalette(ctx.page);
       await ctx.page.keyboard.type('sleep');
       const rows = await waitForRows(

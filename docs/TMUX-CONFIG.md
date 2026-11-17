@@ -174,7 +174,7 @@ as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
 `prefix ?` (the keys view), `prefix A` / `U` (the activity inbox and the jump to the pane that needs you, [ACTIVITY.md](ACTIVITY.md)), and TAB's `<` / `>` (move the tab along the strip,
 which skips the windows floats and sidebars occupy where a relative
 `swap-window` would not). `prefix P` (the command palette, also
-`ctrl+shift+p`) and `prefix g` (the palette on sessions, tabs and panes alone)
+`ctrl+shift+k`, `cmd+k` on a Mac) and `prefix g` (the palette on sessions, tabs and panes alone)
 are client keys too, but on keys tmux binds nothing to (tmux 3.8 binds `g` to
 its floating-pane move table; `tmuxy.defaults.conf` unbinds it): a binding a
 later config file or a plugin puts on `P` or `g` runs instead, and the palette

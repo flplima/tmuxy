@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { paletteKeyOf } from '../paletteKeys';
 
 const NONE = { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false };
@@ -6,10 +6,13 @@ const key = (name: string, modifiers: Partial<typeof NONE> = {}) =>
   paletteKeyOf({ key: name, ...NONE, ...modifiers });
 
 describe('paletteKeyOf', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('closes on Escape and on the chord that opened the palette', () => {
     expect(key('Escape')).toEqual({ kind: 'close' });
-    expect(key('P', { ctrlKey: true, shiftKey: true })).toEqual({ kind: 'close' });
-    expect(key('P', { metaKey: true, shiftKey: true })).toEqual({ kind: 'close' });
+    expect(key('K', { ctrlKey: true, shiftKey: true })).toEqual({ kind: 'close' });
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    expect(key('k', { metaKey: true })).toEqual({ kind: 'close' });
   });
 
   it('runs on Enter and keeps Tab in the box', () => {

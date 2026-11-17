@@ -8,7 +8,7 @@ import type { AppMachineContext } from '../../../machines/types/context';
 import type { TraceLevel, ThemeInfo, ThemeMode } from '../../../domain/wireSettings';
 import { renameSessionPrompt, TmuxOp } from '../../../domain/commands';
 import { PINNABLE, pinnedLabel } from '../../../domain/pins';
-import { keyHint } from '../../../domain/keyLabels';
+import { clientKeyHint, keyHint } from '../../../domain/keyLabels';
 import type { MenuIconName } from '../../../domain/menus/icons';
 import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
 import { paneMenuSpec } from './paneMenu';
@@ -103,8 +103,7 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec 
       id: PALETTE_ITEM_IDS.all,
       label: 'Command Palette…',
       icon: 'search',
-      // The chord is the Mac's own modifier there; Ctrl+Shift+P works too.
-      keyHint: env.isMac ? 'cmd+shift+p' : commandHint(ctx.keybindings, 'palette'),
+      keyHint: clientKeyHint(ctx.keybindings, 'command-palette', env.isMac),
       action: command('palette'),
     },
     {

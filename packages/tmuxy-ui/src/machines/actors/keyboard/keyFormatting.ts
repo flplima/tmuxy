@@ -1,4 +1,5 @@
 import { getMobileInput } from '../../../infra/dom/mobileKeyboard';
+import { isMacPlatform } from '../../../infra/platform';
 
 export const KEY_MAP: Record<string, string> = {
   Enter: 'Enter',
@@ -145,18 +146,17 @@ export function windowShortcut(event: KeyboardEvent): boolean {
 }
 
 /**
- * The command palette's chord: Ctrl+Shift+P, or Cmd+Shift+P. Read from the
- * key, not its position, so it is the P of the user's own layout.
+ * The command palette's chord: Cmd+K on a Mac, Ctrl+Shift+K elsewhere. Read
+ * from the key, not its position, so it is the K of the user's own layout.
  */
 export function isPaletteChord(
   event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>,
+  mac: boolean = isMacPlatform(),
 ): boolean {
-  return (
-    event.shiftKey &&
-    !event.altKey &&
-    event.ctrlKey !== event.metaKey &&
-    event.key.toLowerCase() === 'p'
-  );
+  if (event.altKey || event.key.toLowerCase() !== 'k') return false;
+  return mac
+    ? event.metaKey && !event.ctrlKey && !event.shiftKey
+    : event.ctrlKey && event.shiftKey && !event.metaKey;
 }
 
 /**
