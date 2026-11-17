@@ -28,6 +28,7 @@ machine (`--json` for a script).
 | `tmuxy-plugin.toml` | config | you | yes | yes | Your own actions and verbs: the `user` plugin (see Plugins below). |
 | `plugins.json` | config | you | yes | yes | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
 | `plugins/<name>/` | config | you | yes | yes | Each plugin's `settings.toml` (`tmuxy plugin config`) and credentials; kept unless `remove --purge`. |
+| `server.env` | config | you | yes | yes | The web server `tmuxy server install` keeps running reads `TMUXY_PASSWORD=…` from here. Create it with mode 0600. |
 | `tmuxy.defaults.conf` | data | tmuxy | no | no | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults. |
 | `tmuxy.essentials.conf` | data | tmuxy | no | no | The settings tmuxy cannot work without, sourced first and last. |
 | `tmuxy.conf.example` | data | tmuxy | no | no | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir. |
@@ -43,6 +44,7 @@ machine (`--json` for a script).
 | `tmuxy.log` | state | tmuxy | no | no | The desktop app's log: what a bug report attaches (Help ▸ Reveal Log File). |
 | `launcher` | state | tmuxy | no | no | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs. |
 | `tmuxy-<port>.pid` | state | tmuxy | no | no | The pid of the web server on that port. |
+| `server.log` | state | tmuxy | no | no | The log of the macOS launchd agent `tmuxy server install` writes (on Linux the journal has it). |
 | `config-reload` | state | tmuxy | no | no | Touched by `tmuxy config reload`; the app re-sources the chain when it changes. |
 | `plugins/` | state | tmuxy | no | no | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens. |
 | `sessions/` | state | tmuxy | no | no | Session snapshots, one directory per tmux socket; a restart restores the latest. |

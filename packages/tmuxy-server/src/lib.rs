@@ -8,5 +8,7 @@ mod mcp;
 mod push;
 mod request_guard;
 pub mod server;
+mod service;
+mod service_cli;
 mod sse;
 mod state;

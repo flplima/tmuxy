@@ -382,6 +382,7 @@
         "packages/tmuxy-server/src/dev.rs",
         "packages/tmuxy-server/src/server/lifecycle.rs",
         "packages/tmuxy-server/src/server/listener.rs",
+        "packages/tmuxy-server/src/service_cli.rs",
         "packages/tmuxy-tauri-app/src/commands/helpers.rs",
         "packages/tmuxy-tauri-app/src/desktop.rs",
         "packages/tmuxy-tauri-app/src/windows/attach.rs",
