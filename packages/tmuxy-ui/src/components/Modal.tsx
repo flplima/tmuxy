@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Tooltip } from './Tooltip';
 import './Modal.css';
 
@@ -38,6 +38,26 @@ export function Modal({
     if (closable) onClose();
   }, [closable, onClose]);
 
+  // A caller that places the box itself (a float, a drawer) passes
+  // `containerStyle`; every other modal is a dialog, centred in the viewport.
+  const centered = containerStyle === undefined;
+
+  // Escape dismisses a dialog wherever the focus is. The keyboard actor
+  // listens on the window too, in the bubble phase, and would type the key
+  // into the pane behind the dialog; capturing first keeps it out of there.
+  // A float's Escape is its program's.
+  useEffect(() => {
+    if (!open || !centered || !closable) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', dismiss, true);
+    return () => window.removeEventListener('keydown', dismiss, true);
+  }, [open, centered, closable, onClose]);
+
   if (!open) return null;
 
   const backdropClass =
@@ -48,9 +68,6 @@ export function Modal({
         : 'modal-backdrop';
 
   const showHeader = !hideHeader && title !== undefined;
-  // A caller that places the box itself (a float, a drawer) passes
-  // `containerStyle`; every other modal is a dialog, centred in the viewport.
-  const centered = containerStyle === undefined;
 
   // Rendered in place, not portaled: a float's overlay is positioned against
   // the pane container, which keeps its backdrop over the tab's content only.

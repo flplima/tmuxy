@@ -97,6 +97,28 @@ const Dialog = () => (
   </Modal>
 );
 
+/** Escape dismisses a dialog, even with the focus outside it, and the key goes no further. */
+export const EscapeClosesADialog: Story = {
+  render: () => <Demo title="Copy Trace" />,
+  play: async () => {
+    const body = within(document.body);
+    expect(body.getByText('Copy Trace')).toBeInTheDocument();
+    let reachedWindow = false;
+    const behind = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') reachedWindow = true;
+    };
+    window.addEventListener('keydown', behind);
+    try {
+      (document.activeElement as HTMLElement | null)?.blur();
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(body.queryByText('Copy Trace')).toBeNull());
+      expect(reachedWindow).toBe(false);
+    } finally {
+      window.removeEventListener('keydown', behind);
+    }
+  },
+};
+
 const root = document.documentElement;
 
 /** A dialog sits in the middle of the window both ways, in the terminal's font. */
