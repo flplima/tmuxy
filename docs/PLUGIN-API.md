@@ -74,7 +74,8 @@ A plugin may call any `tmuxy` verb a user may; these are the ones whose
 | `tmuxy pane send -t <pane> <keys…>` | Type into a pane (asks the user there first). |
 | `tmuxy pane run [--wait] -- <cmd…>` | Run a command in a new pane. |
 | `tmuxy pane float [cmd…]`, `tmuxy tab create [--json]` | Open a float or a tab. |
-| `tmuxy open <file.md\|file.html>` | Show a document or a page in a pane (read-only, sandboxed). |
+| `tmuxy open <file.md\|file.html>` | Show a document or a page in a pane (sandboxed; a page talks back through `tmuxy.emit`, below). |
+| `tmuxy pane listen [<pane>] [--from-start] [--wait <duration>]` | The lines a preview pane receives, one JSON object a line, until the preview ends (exit `0`); `1` when the pane shows no preview within `--wait` (10 s). |
 | `tmuxy plugin action <plugin>:<id> [--pane %N] [--wait] [-- args…]` | Run an action, this plugin's or another's. |
 | `tmuxy plugin path <name>` | The directory a plugin (a dependency) is installed in. |
 | `tmuxy plugin config <name> [<key> [<value>]] [--json]` | Read or set this plugin's settings. |
@@ -83,6 +84,20 @@ Exit codes, for every verb: `0` ok, `1` failed (or declined), `2` bad command
 line, `3` target not found, `4` no tmux server, `130` interrupted; `--wait`
 exits with the command's own status. A failure under `--json` is one object,
 `{"ok":false,"error":"…","code":N}`.
+
+## Preview pages
+
+A page shown with `tmuxy open` gets one global before its own scripts run:
+
+| In the page | What it does |
+| --- | --- |
+| `tmuxy.emit(value)` | Types `{"emit":<value>}` and Enter into the page's own pane, `value` as one line of JSON (every character outside printable ASCII a `\uXXXX` escape). Returns `true` once the app has it, `false` when it is dropped: more than 20 at once, or 10 a second after that. Throws a `TypeError` for a value JSON cannot hold (`undefined`, a function, a cycle, a BigInt) and a `RangeError` for one over 16,384 bytes as JSON. |
+
+The app types the line only while the pane runs the preview: a line emitted
+after the preview ended goes nowhere. A markdown document's form controls
+type `{"input":<name>,"type":<type>,"value":<value>}` the same way.
+`tmuxy pane listen` prints every such line, one per line; a plugin must ignore
+an object whose key it does not know.
 
 ## The tmux options
 
@@ -96,5 +111,7 @@ writes them.
 
 `tests/cli/cli-plugin.test.js` (dispatch, the reserved nouns),
 `packages/tmuxy-server/tests/plugin_install.rs` (install, the gate, the
-lockfile), `tmuxy_core::plugins` unit tests (manifest, context, tokens) and
-`tests/17-plugins.test.js` (the menus, every surface, the selection file).
+lockfile), `tmuxy_core::plugins` unit tests (manifest, context, tokens),
+`tests/17-plugins.test.js` (the menus, every surface, the selection file),
+`previewBridge.test.ts` and `tests/14-widget-preview-emit.test.js` (`tmuxy.emit`)
+and `tests/cli/cli-pane-listen.test.js` (`pane listen`).
