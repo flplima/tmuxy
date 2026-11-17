@@ -7,7 +7,6 @@
 
 import { Schema } from 'effect';
 import type { PaneId, WindowId } from './ids';
-import type { PaneField } from './paneMeta';
 
 export interface SessionTreeWindow {
   id: WindowId;
@@ -24,8 +23,6 @@ export interface SessionTreePane {
   /** Working directory tmux reports for the pane (`#{pane_current_path}`). */
   cwd: string;
   active: boolean;
-  /** The fields shown on its row (`tmuxy pane meta`), as the poll found them. */
-  fields: PaneField[];
 }
 
 /**
@@ -43,9 +40,6 @@ export const GitWorktree = Schema.Struct({
   bare: Schema.Boolean,
   locked: Schema.Boolean,
   prunable: Schema.Boolean,
-  /** Lines changed against HEAD. Only for a checkout a pane sits in, and
-   *  only where git could say (`tmuxy-core/src/worktrees/changes.rs`). */
-  changes: Schema.optional(Schema.Struct({ added: Schema.Number, removed: Schema.Number })),
 });
 export type GitWorktree = Schema.Schema.Type<typeof GitWorktree>;
 
@@ -57,14 +51,6 @@ export const GitRepository = Schema.Struct({
   worktrees: Schema.Array(GitWorktree),
 });
 export type GitRepository = Schema.Schema.Type<typeof GitRepository>;
-
-/** The TCP ports one pane's programs listen on, lowest first
- *  (`list_pane_ports`, `tmuxy-core/src/ports.rs`). */
-export const PanePorts = Schema.Struct({
-  paneId: Schema.String,
-  ports: Schema.Array(Schema.Number),
-});
-export type PanePorts = Schema.Schema.Type<typeof PanePorts>;
 
 /**
  * SSH details for a remote tmux server — the wire shape of

@@ -24,14 +24,7 @@ import {
 } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes } from '../machines/selectors/layout';
-import {
-  selectSessions,
-  selectRepositories,
-  selectPanePorts,
-  selectTreeRowTemplate,
-} from '../machines/selectors/ui';
-import { DEFAULT_ROW_TEMPLATE, parseRowTemplate } from '../domain/rowTemplate';
-import { portsByPane } from './panePorts';
+import { selectSessions, selectRepositories } from '../machines/selectors/ui';
 import { tabPaneStates } from '../domain/paneState';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
@@ -43,7 +36,6 @@ import {
   rowDomId,
   rowKey,
   useSidebarGitContext,
-  fieldsByPane,
   type MenuState,
   type Row,
   type TabGroup,
@@ -88,12 +80,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const panes = useAppSelectorShallow(selectPanes);
   const sessions = useAppSelectorShallow(selectSessions);
   const repositories = useAppSelectorShallow(selectRepositories);
-  const panePorts = useAppSelector(selectPanePorts);
-  const treeRowOption = useAppSelector(selectTreeRowTemplate);
-  const rowTemplate = useMemo(
-    () => parseRowTemplate(treeRowOption) ?? DEFAULT_ROW_TEMPLATE,
-    [treeRowOption],
-  );
   const collapsedTabIds = useAppSelectorShallow((ctx) => ctx.collapsedTabIds);
   const paneGroups = useAppSelector((ctx) => ctx.paneGroups);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
@@ -103,8 +89,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
 
   const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
   const { cwdByPane, branchOf } = useSidebarGitContext(sessions, sessionName, repositories);
-  const portsOf = useMemo(() => portsByPane(panePorts), [panePorts]);
-  const fieldsOf = useMemo(() => fieldsByPane(sessions, sessionName), [sessions, sessionName]);
 
   const tabSummaries = useMemo(
     () =>
@@ -330,9 +314,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       setDropWindowId={setDropWindowId}
       cwdByPane={cwdByPane}
       branchOf={branchOf}
-      portsOf={portsOf}
-      fieldsOf={fieldsOf}
-      rowTemplate={rowTemplate}
       activate={activate}
       toggleCollapse={toggleCollapse}
       movePaneToTab={movePaneToTab}

@@ -60,7 +60,7 @@ pub struct SendArgs {
 /// The CLI's own `Tmux`: reads as tmux subprocesses, which tmux runs safely
 /// beside an attached control-mode client, and every change inside
 /// `run-shell` (docs/TMUX.md).
-pub(crate) struct CliTmux;
+struct CliTmux;
 
 impl ask::Tmux for CliTmux {
     async fn read(&self, argv: Argv) -> Result<String, CommandError> {
