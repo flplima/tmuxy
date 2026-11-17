@@ -37,7 +37,7 @@ The frame is the same hole in the event surface the old browser widget was, and 
 
 ### A pane group's header
 
-A group shares one header between its members: each gets an equal share of the width, its title at the left of that share and its own ⋮ and ✕ at the right, with the member not in view dimmed by a darker ground. Per-member controls are what let a parked member be closed without showing it first. An ungrouped pane keeps the plain shape: one title across the header and its buttons at the header's own right edge.
+A group shares one header between its members: each gets an equal share of the width, its icon (which opens the pane menu) and title at the left of that share and its own ✕ at the right, with the member not in view dimmed by a darker ground. Per-member controls are what let a parked member be closed without showing it first. An ungrouped pane keeps the plain shape: its icon (the pane menu's button) and one title across the header and its buttons at the header's own right edge.
 
 ### A parked widget's name
 
@@ -47,7 +47,7 @@ A pane PARKED in a pane group streams no content, so there is no widget to ask f
 
 A widget is a **definition**, not just a component, so it can furnish the parts of the pane
 chrome it does not own: its tab `icon`, a `selectTitle` for the tab, and a `selectMenuItems`
-section that leads the pane's ⋮ menu. Each is a pure function of machine context plus the pane's
+section that leads the pane's menu. Each is a pure function of machine context plus the pane's
 widget content, so a menu that is not the widget's own child can still ask the widget what it can
 currently do. Adding a widget means writing a definition and naming it in the table in
 `components/widgets/registry.ts`; no shared component needs to learn its name.

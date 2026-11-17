@@ -1,6 +1,6 @@
 /**
  * The pane menu: the hamburger's Pane submenu, the native Pane menu, a
- * pane header's right-click and ⋮ menu, and the sidebar tree's pane rows —
+ * pane header's right-click and icon menu, and the sidebar tree's pane rows —
  * one list, with the parts a surface leaves out named by the options.
  */
 

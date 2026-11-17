@@ -47,8 +47,8 @@ describeE2E('Scenario 5: Pane Groups', {}, (ctx) => {
     const header = await ctx.page.$('.pane-tab');
     expect(header).not.toBeNull();
 
-    // Step 2: Menu button exists (pane group add is via ⋮ menu)
-    const menuButton = await ctx.page.$('.pane-header-menu');
+    // Step 2: Menu button exists (pane group add is via the pane menu, from the header's icon)
+    const menuButton = await ctx.page.$('.pane-header-icon-menu');
     expect(menuButton).not.toBeNull();
 
     // Step 3: Record original (ALPHA) pane ID and stamp its CONTENT with a
@@ -83,13 +83,20 @@ describeE2E('Scenario 5: Pane Groups', {}, (ctx) => {
     expect(tabs.filter((t) => !t.active).map((t) => t.color)).not.toContain(accent);
 
     // The header is SHARED between the members: an equal share each, with the
-    // member's own ⋮ and ✕ at the right of its own share. One pair of buttons
-    // for the whole strip belonged to whichever member happened to be showing,
+    // member's own icon (the pane menu) at the left and ✕ at the right of its
+    // own share. One ✕ for the whole strip belonged to whichever member happened to be showing,
     // and could never close a parked one.
     for (const tab of tabs) {
-      expect(tab.controls).toEqual(['⋮', '✕']);
+      expect(tab.controls).toEqual(['✕']);
       expect(tab.controlsAfterTitle).toBe(true);
     }
+    const faces = await ctx.page.evaluate(() =>
+      [...document.querySelectorAll('.pane-tab .pane-tab-face-menu')].map((face) => {
+        const title = face.closest('.pane-tab').querySelector('.pane-tab-title');
+        return face.getBoundingClientRect().right <= title.getBoundingClientRect().left + 1;
+      }),
+    );
+    expect(faces).toEqual([true, true]);
     const widths = tabs.map((t) => t.width);
     expect(Math.abs(widths[0] - widths[1])).toBeLessThan(widths[0] * 0.25);
     // ...and the parked member's share is dimmed by its ground, so the two

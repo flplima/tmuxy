@@ -10,7 +10,7 @@ import type { KeyBindings } from '../../domain/wire';
 import { getMobileInput, markKeyboardTarget } from '../../infra/dom/mobileKeyboard';
 import { TmuxOp } from '../../domain/commands';
 import { clientKeyFor, type ClientKey, splitTableSwitch } from '../../domain/keyTables';
-import { tabWalksChrome } from '../../infra/dom/chromeTab';
+import { activatesChromeButton, tabWalksChrome } from '../../infra/dom/chromeTab';
 import {
   bindingKeyOf,
   formatTmuxKey,
@@ -211,6 +211,7 @@ export function createKeyboardActor() {
       ) {
         return;
       }
+      if (activatesChromeButton(event)) return;
 
       if (imeClipboard.isComposing() || event.isComposing) return;
       if (event.keyCode === 229 && !isTextKey(event)) return;

@@ -56,7 +56,7 @@ describeE2E('Scenario 6: Float Pane Lifecycle', { snapshot: true }, (ctx) => {
       return {
         hasHeader: !!fc.querySelector('.pane-header'),
         hasCloseButton: !!fc.querySelector('.pane-header-close'),
-        hasMenuButton: !!fc.querySelector('.pane-header-menu'),
+        hasMenuButton: !!fc.querySelector('.pane-header-icon-menu'),
       };
     });
     expect(headerInfo).not.toBeNull();

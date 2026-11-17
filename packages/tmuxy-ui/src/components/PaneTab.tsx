@@ -5,6 +5,7 @@ import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor } from '../domain/paneState';
 import { paneStateLabel } from '../domain/paneStatus';
 import { InlineRename } from './InlineRename';
+import { Tooltip } from './Tooltip';
 import type { TmuxPane } from '../domain/client';
 
 interface PaneTabInteraction {
@@ -16,11 +17,19 @@ interface PaneTabInteraction {
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   /**
-   * The member's own ⋮ and ✕, in its share of a group's header: one pair at
-   * the far right would belong to whichever member happened to be showing.
-   * Null for an ungrouped pane.
+   * The member's own ✕, in its share of a group's header: one at the far
+   * right would belong to whichever member happened to be showing. Null for an
+   * ungrouped pane.
    */
   controls: ReactNode;
+  /**
+   * Opens the pane menu from the tab's icon. A tab may hold no control
+   * (ARIA), so a member's icon is a pointer target and the tab's context menu
+   * key reaches the same menu.
+   */
+  onFaceClick: (e: React.MouseEvent) => void;
+  /** True for an ungrouped pane, whose header draws the icon as a button of its own. */
+  faceless: boolean;
   /** Where a pane being dragged over this header would land, against this tab. */
   dropMark: 'onto' | 'before' | 'after' | null;
   dragging: boolean;
@@ -36,25 +45,28 @@ type PaneTabProps = {
   | { still: true }
 );
 
+/** What leads a pane's title: its state while it has one, else its program's icon. */
+export function PaneFace({ pane, titleOverride }: { pane: TmuxPane; titleOverride?: string }) {
+  const state = paneStateFor(pane);
+  return state !== 'idle' ? (
+    <PaneStateMark
+      state={state}
+      label={paneStateLabel(state, pane)}
+      className="pane-tab-icon pane-tab-state"
+    />
+  ) : (
+    <PaneIcon
+      pane={pane}
+      titleOverride={titleOverride}
+      className="pane-tab-icon pane-tab-icon-static"
+    />
+  );
+}
+
 export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
   const { pane, isActivePane, titleOverride } = props;
   const text = getTabLabel(pane, titleOverride);
-  const state = paneStateFor(pane);
-
-  const face =
-    state !== 'idle' ? (
-      <PaneStateMark
-        state={state}
-        label={paneStateLabel(state, pane)}
-        className="pane-tab-icon pane-tab-state"
-      />
-    ) : (
-      <PaneIcon
-        pane={pane}
-        titleOverride={titleOverride}
-        className="pane-tab-icon pane-tab-icon-static"
-      />
-    );
+  const face = <PaneFace pane={pane} titleOverride={titleOverride} />;
 
   if ('still' in props) {
     return (
@@ -72,6 +84,8 @@ export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
     onClick,
     onContextMenu,
     controls,
+    onFaceClick,
+    faceless,
     dropMark,
     dragging,
   } = props;
@@ -87,7 +101,13 @@ export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
       aria-label={`Pane ${pane.tmuxId}`}
       data-pane-tab={pane.tmuxId}
     >
-      {face}
+      {!faceless && (
+        <Tooltip label="Pane menu">
+          <span className="pane-tab-face-menu" aria-hidden="true" onClick={onFaceClick}>
+            {face}
+          </span>
+        </Tooltip>
+      )}
       {renaming ? (
         <InlineRename
           className="pane-tab-input"

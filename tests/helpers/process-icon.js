@@ -7,8 +7,10 @@
  */
 async function iconPixels(page, paneId) {
   const info = await page.evaluate((id) => {
-    const el = document.querySelector(`[data-pane-tab="${id}"] .process-icon-svg`);
-    const tab = el?.closest('.pane-tab');
+    const el = document.querySelector(
+      `[data-pane-tab="${id}"] .process-icon-svg, [data-pane-id="${id}"] .pane-header-icon-menu .process-icon-svg`,
+    );
+    const tab = el?.closest('.pane-tab, .pane-header');
     const box = el?.getBoundingClientRect();
     if (!el || !tab || !box || box.width === 0) return null;
     const tabBox = tab.getBoundingClientRect();
