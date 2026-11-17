@@ -176,3 +176,19 @@
   color: var(--text-secondary);
   background-color: var(--bg-medium);
 }
+
+/* A button in the line's own font and colours, the emoji its icon. */
+.statusline-inbox {
+  display: flex;
+  gap: 1ch;
+  appearance: none;
+  background: none;
+  border: none;
+  margin: 0;
+  color: var(--text-dark);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-small-font-size);
+  line-height: inherit;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-md);
+}

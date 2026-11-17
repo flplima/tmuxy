@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  activityCounts,
+  activityCountsLabel,
   activityPlace,
+  countedPane,
   filterActivity,
   LIST_ACTIVITY_COMMAND,
   mostUrgent,
@@ -138,5 +141,33 @@ describe('mostUrgent', () => {
     const quiet = rows.filter((r) => r.state === 'working' || r.state === 'idle');
     expect(mostUrgent(quiet, null)).toBeNull();
     expect(mostUrgent([], null)).toBeNull();
+  });
+});
+
+describe('the status line counts', () => {
+  const rows = parseActivity(LISTING);
+  const only = (state: string) => rows.filter((r) => r.state === state);
+
+  it('count the panes that wait and the panes that failed, across sessions', () => {
+    const counts = activityCounts(rows);
+    expect(counts.waiting).toBe(only('needs-input').length);
+    expect(counts.failed).toBe(only('error').length);
+    expect(activityCounts([])).toEqual({ waiting: 0, failed: 0 });
+    expect(activityCounts(only('working'))).toEqual({ waiting: 0, failed: 0 });
+  });
+
+  it('go to the pane they count when it is the only one, else to the inbox', () => {
+    const [waiting] = only('needs-input');
+    const [failed] = only('error');
+    expect(countedPane([waiting, ...only('working')])).toBe(waiting);
+    expect(countedPane([failed])).toBe(failed);
+    expect(countedPane([waiting, failed])).toBeNull();
+    expect(countedPane([])).toBeNull();
+  });
+
+  it('read out loud as the number of each', () => {
+    expect(activityCountsLabel({ waiting: 2, failed: 1 })).toBe('2 panes need you, 1 failed');
+    expect(activityCountsLabel({ waiting: 1, failed: 0 })).toBe('1 pane needs you');
+    expect(activityCountsLabel({ waiting: 0, failed: 3 })).toBe('3 failed');
   });
 });

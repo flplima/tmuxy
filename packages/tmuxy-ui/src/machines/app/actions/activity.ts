@@ -37,8 +37,9 @@ export const activityActions = {
     if (!context.activityOpen) fetch(enqueue);
   }),
 
-  activity_refresh: act(({ context, enqueue }) => {
-    if (context.activityOpen) fetch(enqueue);
+  /** Asked by the open inbox, and by the status line's counts, which stay current without it. */
+  activity_refresh: act(({ enqueue }) => {
+    fetch(enqueue);
   }),
 
   activity_loaded: act(({ event, context, enqueue }) => {

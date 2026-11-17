@@ -38,14 +38,14 @@ describe('activity state', () => {
     expect(asked('FETCH_ACTIVITY')).toHaveLength(1);
   });
 
-  it('reads again only while it is open, and keeps what tmux answered', () => {
+  it('reads again when asked, open or not, and keeps what tmux answered', () => {
     const { actor, asked } = mount();
     sendAndGetContext(actor, { type: 'REFRESH_ACTIVITY' });
-    expect(asked('FETCH_ACTIVITY')).toHaveLength(0);
+    expect(asked('FETCH_ACTIVITY')).toHaveLength(1);
 
     sendAndGetContext(actor, { type: 'TOGGLE_ACTIVITY' });
     sendAndGetContext(actor, { type: 'REFRESH_ACTIVITY' });
-    expect(asked('FETCH_ACTIVITY')).toHaveLength(2);
+    expect(asked('FETCH_ACTIVITY')).toHaveLength(3);
 
     const rows = [row('%7', 'play', 'needs-input')];
     expect(sendAndGetContext(actor, { type: 'ACTIVITY_LOADED', rows }).activityRows).toEqual(rows);

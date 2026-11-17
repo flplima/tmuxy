@@ -115,3 +115,36 @@ export function mostUrgent(
 export function activityPlace(row: ActivityRow): string {
   return [row.session, row.tab].filter(Boolean).join(' · ');
 }
+
+/** What the status line says of the inbox: the panes that wait and the panes that failed. */
+export interface ActivityCounts {
+  waiting: number;
+  failed: number;
+}
+
+/** The two most urgent states, which `PANE_STATES` lists first: waiting, then failed. */
+const [WAITING, FAILED] = PANE_STATES;
+
+export function activityCounts(rows: readonly ActivityRow[]): ActivityCounts {
+  return {
+    waiting: rows.filter((row) => row.state === WAITING).length,
+    failed: rows.filter((row) => row.state === FAILED).length,
+  };
+}
+
+/**
+ * Where a click on the status line's counts goes: the one pane they count,
+ * else (several, or none) null, and the caller opens the inbox.
+ */
+export function countedPane(rows: readonly ActivityRow[]): ActivityRow | null {
+  const counted = rows.filter((row) => row.state === WAITING || row.state === FAILED);
+  return counted.length === 1 ? counted[0] : null;
+}
+
+/** The counts in words, for a screen reader: "2 panes need you, 1 failed". */
+export function activityCountsLabel({ waiting, failed }: ActivityCounts): string {
+  const parts: string[] = [];
+  if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? 'pane needs' : 'panes need'} you`);
+  if (failed > 0) parts.push(`${failed} failed`);
+  return parts.join(', ');
+}
