@@ -16,7 +16,7 @@
 
 import type { TmuxPane } from './client';
 import { isPlaceholderId, type WindowId } from './ids';
-import { paneSendFor } from './paneAsk';
+import { paneOverlayAskFor } from './paneAsk';
 import { PANE_STATES } from './tmuxyConstants.gen';
 
 export type PaneStateName = (typeof PANE_STATES)[number];
@@ -80,16 +80,16 @@ export function readPaneState(raw: string | null | undefined): PaneStateName {
  * only ever works while tmux's `remain-on-exit` is on, and that keeps every
  * finished pane on screen forever.
  *
- * The one thing tmuxy reads rather than takes on trust is a pending
- * `tmuxy pane send -t`: a pane showing a question IS waiting on the user, whatever it
- * last declared about itself, and it outranks that declaration so the tab
+ * The one thing tmuxy reads rather than takes on trust is a question drawn
+ * over the pane (a pending `tmuxy pane send -t`, a `tmuxy pane ask`): a pane
+ * showing one IS waiting on the user, whatever it last declared about itself, and it outranks that declaration so the tab
  * holding the question is the one the tree points at.
  *
  * An agent that finishes is `idle`, whether or not the user was looking: its
  * pane wears its process icon again, and nothing is left to dismiss.
  */
 export function paneStateFor(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): PaneStateName {
-  if (paneSendFor(pane)) return 'needs-input';
+  if (paneOverlayAskFor(pane)) return 'needs-input';
   return readPaneState(pane.paneState);
 }
 

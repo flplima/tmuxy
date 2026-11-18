@@ -72,7 +72,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [SUB-AGENTS.md](SUB-AGENTS.md) | Agents that start and wait on other agents in panes: `agent spawn` and `agent wait` | An orchestrator, `@tmuxy-spawned-by`, `@tmuxy-agent` |
 | [SCREEN-RULES.md](SCREEN-RULES.md) | A state for agents without hooks, from their screens, and why it never overwrites a declared one | Agents with no hooks (Gemini CLI, Aider…), the socket watch |
 | [AGENT-SETUP.md](AGENT-SETUP.md) | `tmuxy agent install`: what goes where for each agent, and what `status` says of it | Adding an agent, changing the hooks or the skill, `tmuxy agent status` |
-| [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md) | The two sidebar columns and `tmuxy pane send -t`, both built on the tags | The tree, the dock, cross-pane sends |
+| [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md) | The two sidebar columns, `tmuxy pane send -t` and `tmuxy pane ask`, all built on the tags | The tree, the dock, cross-pane sends, questions to the person |
 | [TMUX-CONFIG.md](TMUX-CONFIG.md) | The dedicated socket, the config chain, session groups, servers and client-side key tables | The socket, the config chain and pins, PANE/TAB modes, remote servers |
 | [PROFILES.md](PROFILES.md) | Named sets of the menus' settings, one per tmux session, and the Default Profile that changes nothing | Profiles; settings that differ by session |
 | [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) | Version-specific tmux behaviour tmuxy depends on or works around, 3.2 to HEAD | A bug that shows on one tmux version |

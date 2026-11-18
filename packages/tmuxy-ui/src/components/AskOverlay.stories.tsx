@@ -1,16 +1,20 @@
 /**
- * Over a recording of real tmux (`fixtures/scenarios/ask-and-offer.ts`) that
- * hangs the question the way the CLI does (`set-option -p -t %0 @tmuxy-ask
- * <base64>`), so the chain under test is tmux option → model → overlay →
- * answer → option cleared. The round trip from a real `tmuxy pane send` is
- * tests/13-send-permission.test.js.
+ * Over recordings of real tmux (`fixtures/scenarios/ask-and-offer.ts`,
+ * `fixtures/scenarios/pane-question.ts`) that hang the question the way the
+ * CLI does (`set-option -p -t %0 @tmuxy-ask <base64>`), so the chain under
+ * test is tmux option → model → overlay → answer → option cleared. The round
+ * trips from a real `tmuxy pane send` and `tmuxy pane ask` are
+ * tests/13-send-permission.test.js and tests/13-pane-ask.test.js.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor } from 'storybook/test';
-import { FixtureApp } from '../stories/FixtureHarness';
+import { TmuxyApp } from '../lib';
+import { FixtureApp, FixtureProvider } from '../stories/FixtureHarness';
 import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
 import ask from '../stories/fixtures/gen/ask-and-offer.json';
+import question from '../stories/fixtures/gen/pane-question.json';
+import { decodeBase64Text } from '../domain/base64';
 
 const held = adapterHolder();
 
@@ -149,5 +153,156 @@ export const RestoreOfferIsABannerAnyKeyDismisses: Story = {
     await user.keyboard('l');
     await waitFor(() => expect(banner()).toBeNull(), { timeout: 8000, interval: 100 });
     expect(held.adapter!.commands.slice(sentBefore)).toContain("send-keys -t %0 -l -- 'l'");
+  },
+};
+
+/** Every one of `elements` lies inside pane %0's terminal area, with room to read and press. */
+function insidePane(elements: Element[]) {
+  const pane = document.querySelector('[data-pane-id="%0"] .pane-content')!.getBoundingClientRect();
+  for (const el of elements) {
+    const box = el.getBoundingClientRect();
+    expect(box.width).toBeGreaterThan(20);
+    expect(box.height).toBeGreaterThan(10);
+    expect(box.left).toBeGreaterThanOrEqual(pane.left - 1);
+    expect(box.right).toBeLessThanOrEqual(pane.right + 1);
+    expect(box.top).toBeGreaterThanOrEqual(pane.top - 1);
+    expect(box.bottom).toBeLessThanOrEqual(pane.bottom + 1);
+  }
+}
+
+const sentKeys = () => held.adapter!.commands.filter((c) => c.startsWith('send-keys'));
+
+export const QuestionWithChoices: Story = {
+  args: {
+    fixture: asFixture(question),
+    start: 'question-choices',
+    transitions: answered('question-answered'),
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          '`tmuxy pane ask "Deploy main to production?" --choice deploy --choice wait`: who asks, the question as the script wrote it (markup shows as text), and one numbered button a choice, the first highlighted. ↓/↑ or a digit move the highlight, Enter takes it, Escape dismisses, a click picks; none of those keys reach the shell underneath.',
+      },
+    },
+  },
+  play: async () => {
+    const overlay = await waitForOverlay('%0');
+    expect(overlay.querySelector('.ask-overlay-question')?.textContent).toBe('claude asks:');
+    const prompt = overlay.querySelector('.ask-overlay-prompt') as HTMLElement;
+    expect(prompt.textContent).toBe('Deploy <b>main</b> to production?');
+    expect(prompt.querySelector('b')).toBeNull();
+    const answers = [...overlay.querySelectorAll<HTMLElement>('[data-ask-choice]')];
+    expect(answers.map((a) => a.textContent)).toEqual(['1.deploy', '2.wait']);
+    const dismiss = overlay.querySelector('[data-ask-dismiss]')!;
+    insidePane([prompt, ...answers, dismiss]);
+    // Real buttons, reachable by Tab from the app's chrome.
+    expect(answers.map((a) => a.tabIndex)).toEqual([0, 0]);
+    expect(selected()).toBe('0');
+
+    const user = userEvent.setup({ delay: 5 });
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => expect(selected()).toBe('1'));
+    await user.keyboard('{Escape}');
+    await waitForNoOverlay('%0');
+    expect(lastAnswer()).toBe('tok-q:no');
+
+    // Enter takes the first choice, untouched.
+    held.adapter!.goTo('question-choices');
+    await waitForOverlay('%0');
+    await user.keyboard('{Enter}');
+    await waitForNoOverlay('%0');
+    expect(lastAnswer()).toBe('tok-q:choice:0');
+
+    held.adapter!.goTo('question-choices');
+    await waitForOverlay('%0');
+    await user.click(document.querySelector('[data-pane-ask="%0"] [data-ask-choice="1"]')!);
+    await waitForNoOverlay('%0');
+    expect(lastAnswer()).toBe('tok-q:choice:1');
+    expect(sentKeys()).toEqual([]);
+  },
+};
+
+export const QuestionWithATextField: Story = {
+  args: {
+    fixture: asFixture(question),
+    start: 'question-text',
+    transitions: answered('text-answered'),
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          '`tmuxy pane ask "Name the release branch" --text`: one line to type, focused while the pane holds the keyboard, and Submit. Enter submits what was typed, Escape dismisses; what is typed stays in the field and never reaches the shell.',
+      },
+    },
+  },
+  play: async () => {
+    const overlay = await waitForOverlay('%0');
+    const field = overlay.querySelector<HTMLInputElement>('[data-ask-text]')!;
+    const submit = overlay.querySelector('[data-ask-submit]')!;
+    insidePane([field, submit]);
+    await waitFor(() => expect(document.activeElement).toBe(field), { timeout: 8000 });
+
+    const user = userEvent.setup({ delay: 5 });
+    await user.keyboard('release/1.4, ação');
+    expect(field.value).toBe('release/1.4, ação');
+    await user.keyboard('{Enter}');
+    await waitForNoOverlay('%0');
+    const answer = lastAnswer()!;
+    expect(answer.startsWith('tok-t:text:')).toBe(true);
+    expect(decodeBase64Text(answer.slice('tok-t:text:'.length))).toBe('release/1.4, ação');
+
+    held.adapter!.goTo('question-text');
+    await waitForOverlay('%0');
+    await waitFor(() => expect(document.activeElement?.matches('[data-ask-text]')).toBe(true));
+    await user.keyboard('{Escape}');
+    await waitForNoOverlay('%0');
+    expect(lastAnswer()).toBe('tok-t:no');
+    expect(sentKeys()).toEqual([]);
+  },
+};
+
+export const QuestionOnAPhone: Story = {
+  args: {
+    fixture: asFixture(question),
+    start: 'question-choices',
+    transitions: answered('question-answered'),
+    config: { phoneLayout: true },
+  },
+  render: ({ fixture, start, transitions, config }) => (
+    <FixtureProvider
+      fixture={fixture}
+      start={start}
+      transitions={transitions}
+      config={config}
+      onAdapterReady={held.keep}
+      width={390}
+      height={844}
+    >
+      <TmuxyApp />
+    </FixtureProvider>
+  ),
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 844 },
+      description: {
+        story:
+          'The same question at a 390 × 844 phone’s width: the question, a row a finger can hit for each choice, and a dismiss in place of the Escape a phone has no key for.',
+      },
+    },
+  },
+  play: async () => {
+    const overlay = await waitForOverlay('%0');
+    const answers = [...overlay.querySelectorAll('[data-ask-choice]')];
+    const dismiss = overlay.querySelector('[data-ask-dismiss]')!;
+    insidePane([overlay.querySelector('.ask-overlay-prompt')!, ...answers, dismiss]);
+    for (const target of [...answers, dismiss]) {
+      expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(40);
+    }
+    const user = userEvent.setup({ delay: 5 });
+    await user.click(dismiss);
+    await waitForNoOverlay('%0');
+    expect(lastAnswer()).toBe('tok-q:no');
   },
 };

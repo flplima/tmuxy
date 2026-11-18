@@ -10,7 +10,7 @@ import type {
 } from '../../domain/wireSettings';
 import type { ProfileCall } from '../../domain/backendCalls';
 import type { TabStripGeometry } from '../drag/tabStripDrop';
-import type { AskAnswer } from '../../domain/paneAsk';
+import type { AskAnswer, QuestionReply } from '../../domain/paneAsk';
 import type { PromptDirection } from '../../domain/promptMarks';
 import type { ActivityRow, ActivityTarget } from '../../domain/activity';
 import type { PaneId, WindowId } from '../../domain/ids';
@@ -182,9 +182,11 @@ export type AppMachineEvent =
   | { type: 'CREATE_TAB' }
   | { type: 'ZOOM_PANE'; paneId: PaneId }
 
-  // Pending confirmations (`tmuxy pane send -t`) — see domain/paneAsk.ts.
-  | { type: 'MOVE_ASK_SELECTION'; paneId: PaneId; to: AskAnswer }
+  // Questions on a pane (`tmuxy pane send -t`, `tmuxy pane ask`) — see domain/paneAsk.ts.
+  /** Highlight an answer by its place: Yes then No for a send, the choices for a question. */
+  | { type: 'MOVE_ASK_SELECTION'; paneId: PaneId; to: number }
   | { type: 'ANSWER_ASK'; paneId: PaneId; answer: AskAnswer }
+  | { type: 'ANSWER_QUESTION'; paneId: PaneId; reply: QuestionReply }
   | { type: 'ANSWER_VISIBLE_ASKS'; answer: AskAnswer }
   /** A plain key typed into a pane with a question on it; the ask slice decides what it does. */
   | { type: 'ASK_KEY'; paneId: PaneId; key: string }

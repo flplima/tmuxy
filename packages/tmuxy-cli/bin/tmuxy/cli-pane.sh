@@ -274,6 +274,10 @@ cmd_pane() {
       JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/send" "$@"
       ;;
 
+    ask)
+      JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/ask" "$@"
+      ;;
+
     queue)
       local args=()
       while [ $# -gt 0 ]; do

@@ -113,7 +113,7 @@ export function handleModalOrCopyKeyDown(
   const plainKey = !event.ctrlKey && !event.metaKey && !event.altKey;
   if (keys.ask && keys.focusPaneId && plainKey) {
     parent.send({ type: 'ASK_KEY', paneId: keys.focusPaneId, key: event.key });
-    if (keys.ask.kind === 'send' || event.key === 'Enter' || event.key === 'Escape') {
+    if (keys.ask.kind !== 'offer' || event.key === 'Enter' || event.key === 'Escape') {
       event.preventDefault();
       return true;
     }

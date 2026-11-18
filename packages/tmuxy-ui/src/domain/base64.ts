@@ -6,3 +6,10 @@
 export function decodeBase64Text(b64: string): string {
   return new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
 }
+
+/** Text to base64, as UTF-8: the inverse of `decodeBase64Text`. */
+export function encodeBase64Text(text: string): string {
+  let binary = '';
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}

@@ -73,6 +73,23 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     ]);
   });
 
+  // What `tmuxy pane ask` refuses is the verb's to judge: the shell hands
+  // the question on, and nothing is put over the pane.
+  test('pane ask refuses a question it could not show as asked, and asks nothing', () => {
+    for (const [args, says] of [
+      [['Deploy?', '--choice', 'yes', '--text'], '--choice and --text do not go together'],
+      [['Deploy\u001b[2J?'], 'control character'],
+      [['x'.repeat(501)], 'at most 500'],
+    ]) {
+      const { exitCode, stderr, tmuxCalls } = guest(['pane', 'ask', ...args], {
+        MOCK_TMUX_PANE_PID: String(process.pid),
+      });
+      expect({ args, exitCode }).toEqual({ args, exitCode: 2 });
+      expect(stderr).toContain(says);
+      expect(tmuxCalls.filter((c) => c.args.join(' ').includes('@tmuxy-ask'))).toEqual([]);
+    }
+  });
+
   test('config paths answers the files', () => {
     const { stdout, exitCode } = guest(['config', 'paths', '--json']);
     expect(exitCode).toBe(0);

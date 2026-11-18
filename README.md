@@ -204,6 +204,7 @@ tmuxy pane group move %4 0       # move a group member to the front
 tmuxy pane group all             # every pane in the tab into one group
 tmuxy pane group ungroup         # ...and back out into splits
 tmuxy pane send -t %3 make Enter # type into %3; the user allows it there first
+tmuxy pane ask "Deploy?"         # ask the person over this pane, on every client; prints Yes or No
 tmuxy session save               # snapshot the session (restored on the next start)
 tmuxy widget tree                # the session/tab/pane tree, as a pane
 tmuxy open notes.md              # preview a markdown file or a page, following it as it changes

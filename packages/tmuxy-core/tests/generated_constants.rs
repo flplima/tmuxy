@@ -8,6 +8,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use tmuxy_core::ask::prompt;
 use tmuxy_core::constants::sidebar_dock;
 use tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
 use tmuxy_core::constants::{SIDEBAR_WINDOW_PREFIX, STASH_SESSION};
@@ -129,6 +130,16 @@ fn typescript() -> String {
         PaneStateName::ALL
             .map(|s| quoted(s.as_str()))
             .join(", ")
+    );
+    let _ = writeln!(
+        out,
+        "\n/** What `tmuxy pane ask` holds a question and its answer to, in characters (`ask::prompt`). */\n\
+         export const QUESTION_LIMITS = {{\n  questionChars: {},\n  choices: {},\n  choiceChars: {},\n  callerChars: {},\n  answerChars: {},\n}} as const;",
+        prompt::QUESTION_MAX_CHARS,
+        prompt::CHOICES_MAX,
+        prompt::CHOICE_MAX_CHARS,
+        prompt::CALLER_MAX_CHARS,
+        prompt::ANSWER_MAX_CHARS
     );
     let _ = writeln!(
         out,

@@ -24,23 +24,10 @@ const {
   waitForPaneCount,
   waitForCondition,
   killPaneKeyboard,
+  paneHeaderMark: headerMark,
 } = require('./helpers');
 const { tmuxyCli, tmuxyCliAsync, tmuxRunAsOperator } = require('./helpers/cli');
 const { expectDialogCentredInMonospace } = require('./helpers/dialog');
-
-/** The state mark a pane's header shows, if it shows one. */
-async function headerMark(page, paneId) {
-  return page.evaluate((id) => {
-    // A group's member wears its mark in its tab; a lone pane's header
-    // draws it as the button that opens the pane menu.
-    const mark = document.querySelector(
-      `[data-pane-tab="${id}"] .pane-state-mark, [data-pane-id="${id}"] .pane-header-icon-menu .pane-state-mark`,
-    );
-    const box = mark?.getBoundingClientRect();
-    if (!mark || !box || box.width === 0) return null;
-    return [...mark.classList].find((c) => c.startsWith('is-'))?.slice(3) ?? null;
-  }, paneId);
-}
 
 /** What a wait reports when it times out: the mark, and the pane's screen. */
 async function seen(page, paneId, waitingFor) {

@@ -36,6 +36,15 @@ export const CHROME_WINDOW_TYPES = ['float', 'sidebar-left', 'sidebar-right'] as
 /** The `@tmuxy-pane-state` words tmuxy knows, in attention order (`PaneStateName`). */
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
 
+/** What `tmuxy pane ask` holds a question and its answer to, in characters (`ask::prompt`). */
+export const QUESTION_LIMITS = {
+  questionChars: 500,
+  choices: 6,
+  choiceChars: 60,
+  callerChars: 60,
+  answerChars: 1000,
+} as const;
+
 /** Sidebar column widths and drag bounds, in cells (`sidebar_dock`). */
 export const SIDEBAR_DOCK = {
   leftCols: 30,

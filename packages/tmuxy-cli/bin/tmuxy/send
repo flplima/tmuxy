@@ -165,34 +165,10 @@ if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
   _die_usage "--timeout takes a positive whole number of seconds"
 fi
 
-# The pane the caller runs in, as it was before the CLI resolved a default
-# for callers outside any pane (packages/tmuxy-cli/bin/tmuxy-cli exports it),
-# and only if the caller really runs there (`verified_own_pane`).
-OWN_PANE="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
-
-# No -t: the caller's own pane. A caller in no pane (cron, ssh, a script) has
-# none, and its keys go to the pane the CLI resolved — the one the user is
-# looking at — which is someone else's, so it is asked like any other.
-if [ -z "$TARGET" ]; then
-  TARGET="${OWN_PANE:-${TMUX_PANE:-}}"
-  if [ -z "$TARGET" ]; then
-    _die_usage "no pane to send to (pass -t)"
-  fi
-fi
-
-# The target has to exist before a question is hung on it —
-# a typo'd pane id would otherwise block forever on an option nothing can
-# ever answer.
-TARGET="$(_resolve_target "$TARGET")" || exit $?
-rc=0
-resolved="$(_pane_read "$TARGET" '#{pane_id}' 2>/dev/null)" || rc=$?
-_exit_if_no_server "$rc"
-[ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $TARGET"
-[ -n "$resolved" ] && TARGET="$resolved"
-
-# Who is asking, when the caller runs in no pane: its parent process. The
-# verb names a caller in a pane by the program in front there.
-CALLER_PROCESS="$(basename "$(ps -o comm= -p "$PPID" 2>/dev/null || true)")"
+# No -t: the caller's own pane. A caller in no pane sends to the pane in
+# view, someone else's, so it is asked like any other. The verb names a
+# caller in a pane by the program in front there.
+resolve_caller_and_target "$TARGET" "send to"
 
 find_server_cmd || exit "$EXIT_FAILED"
 if $LIST_QUEUE; then

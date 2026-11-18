@@ -23,7 +23,7 @@ The browser + tmux suites, the latency gate and the Tauri suite. Part of [TESTS.
 | `tmux-3.4` (`tmux: "3.4"`) | `snapshots/snapshot`, `8-tui-alternate-screen`, `7-regression-bugs-run-shell` | The same files on the tmux Ubuntu ships; the one rerun a file may have |
 | `webkit` (`webkit: true`) | `11-webkit` | Selection, copy and focus under Playwright WebKit, CI's one proxy for WKWebView; a todo where WebKit is absent unless `TMUXY_E2E_REQUIRE_WEBKIT=1` (set on that runner) |
 | `touch` | `12-touch` and `-divider`, `-dock`, `-gestures`, `-keys`, `-menu`, `-sideways`, `-zoom` | `hasTouch` phone contexts, portrait and sideways: tap, swipe to scrollback, tree, menu, divider zoom/fold, cursor in view under a keyboard |
-| `permissions` | `13-send-permission`, `14-widget-authorisation`, `14-widget-preview` | `tmuxy pane send -t` asking the target pane; a widget marker from a shell draws nothing while `tmuxy widget tree` does; `tmuxy open` on a document and a page |
+| `permissions` | `13-send-permission`, `13-pane-ask`, `14-widget-authorisation`, `14-widget-preview` | `tmuxy pane send -t` asking the target pane; `tmuxy pane ask` answered with a click; a widget marker from a shell draws nothing while `tmuxy widget tree` does; `tmuxy open` on a document and a page |
 | `personalization-plugins` | `16-personalization`, `17-plugins`, `18-plugin-links-keys-themes` | Themes, keys and the plugin install gate and actions |
 | `services` | `19-mcp`, `20-push`, `23-kindle` | The `/mcp` endpoint, push notifications, the Kindle view |
 | `agents` | `21-agent-states`, `22-process-icons` | Agent state badges and process icons in the tree |

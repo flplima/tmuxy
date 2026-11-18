@@ -121,3 +121,78 @@
   color: var(--term-black);
   font-weight: 700;
 }
+
+.ask-overlay-choice:focus-visible {
+  outline: 1px solid var(--theme-accent);
+  outline-offset: 1px;
+}
+
+/* A `tmuxy pane ask` question: a script's own words, shown whole. Like a long
+   send, it scrolls and gives up height first, so the answers never leave the
+   pane. */
+.ask-overlay-prompt {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 160px;
+  margin: 0;
+  overflow: auto;
+  color: var(--term-bright-white);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.ask-overlay-form {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 1ch;
+  margin-top: 2px;
+}
+
+.ask-overlay-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: color-mix(in srgb, var(--term-background) 80%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  /* Under 16px a phone zooms the page in on focus. */
+  font-size: max(16px, 1em);
+}
+
+.ask-overlay-input:focus {
+  outline: none;
+  border-color: var(--theme-accent);
+}
+
+.ask-overlay-submit {
+  flex: 0 0 auto;
+  border-color: var(--theme-accent);
+}
+
+.ask-overlay-dismiss {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.ask-overlay-dismiss:hover,
+.ask-overlay-dismiss:focus-visible {
+  color: var(--text-primary);
+}
+
+/* On a phone an answer is a finger's tap: each one a full row of its own. */
+.app-body-phone .ask-overlay-choice,
+.app-body-phone .ask-overlay-dismiss {
+  min-height: 40px;
+  align-items: center;
+}

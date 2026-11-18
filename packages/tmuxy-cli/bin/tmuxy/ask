@@ -1,0 +1,114 @@
+#!/bin/bash
+# `tmuxy pane ask`: a question over a pane, answered on any client, and the
+# answer on stdout. This resolves the target and the caller as `send` does
+# and hands the rest to the server binary's `ask` verb, which checks the
+# question and speaks the protocol `tmuxy_core::ask` holds.
+
+set -euo pipefail
+
+# shellcheck source=_lib
+source "${0%/*}/_lib"
+
+usage() {
+  cat <<'EOF'
+Usage: tmuxy pane ask <question> [--choice TEXT]... [--text] [-t <pane>] [--for DURATION]
+
+Ask the person a question over a pane and wait for the answer. Every app
+connected to the session shows it (desktop, browser, phone); the first
+answer given ends it on all of them. While it is up the pane says it needs
+the person, and gets its own state back after.
+
+Options:
+  --choice TEXT     A button; repeat for more (at most 6, 60 characters
+                    each). Prints the chosen one's text.
+  --text            A line of text to type instead, with Submit. Prints it.
+                    With neither: the choices are Yes and No.
+  -t <pane>         The pane to ask over. Default: your own.
+  --for DURATION    Take the question down unanswered after this long
+                    (30s, 10m, 2h). Default: wait for the answer.
+  --json            {"ok":true,"answer":"..."}
+  --                Everything after it is the question, even a word
+                    starting with -.
+
+The question is at most 500 characters of one line: no newline, tab or
+other control character. A pane already showing a question (a send's, or
+another ask) is asked once that one is answered.
+
+Exit status: 0 answered (the answer on stdout); 1 dismissed (Escape), no
+answer within --for, or the pane was still asking another question then;
+2 bad usage; 3 no such pane; 130 interrupted (the question comes down).
+
+Examples:
+  tmuxy pane ask "Deploy to production?" --choice deploy --choice cancel
+  [ "$(tmuxy pane ask 'Delete the old builds?')" = Yes ] && rm -rf old-builds
+  branch=$(tmuxy pane ask "Branch name?" --text --for 10m)
+EOF
+}
+
+TARGET=""
+WAIT_FOR=""
+TEXT=false
+CHOICES=()
+QUESTION=()
+
+# A flag's value: `$2` when there is one, else a usage error.
+value_of() {
+  [ "$2" -ge 2 ] || _die_usage "$1 needs a value"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help | -h)
+      usage
+      exit 0
+      ;;
+    -t)
+      value_of -t $#
+      TARGET="$2"
+      shift 2
+      ;;
+    -t*)
+      TARGET="${1#-t}"
+      shift
+      ;;
+    --choice)
+      value_of --choice $#
+      CHOICES+=(--choice "$2")
+      shift 2
+      ;;
+    --text)
+      TEXT=true
+      shift
+      ;;
+    --for)
+      value_of --for $#
+      WAIT_FOR="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      QUESTION+=("$@")
+      break
+      ;;
+    -?*)
+      _die_usage "unknown option '$1' (a question that starts with '-' goes after --)"
+      ;;
+    *)
+      QUESTION+=("$1")
+      shift
+      ;;
+  esac
+done
+
+[ ${#QUESTION[@]} -gt 0 ] || _die_usage "a question is required"
+
+# No -t: the caller's own pane, the one it waits in.
+resolve_caller_and_target "$TARGET" "ask in"
+
+find_server_cmd || exit "$EXIT_FAILED"
+ask_args=(ask --target "$TARGET" --caller-pane "$OWN_PANE" --caller-process "$CALLER_PROCESS")
+ask_args+=(${CHOICES[@]+"${CHOICES[@]}"})
+$TEXT && ask_args+=(--text)
+[ -n "$WAIT_FOR" ] && ask_args+=(--for "$WAIT_FOR")
+[ "$JSON_OUT" = true ] && ask_args+=(--json)
+exec "${SERVER_CMD[@]}" "${ask_args[@]}" -- "${QUESTION[*]}"

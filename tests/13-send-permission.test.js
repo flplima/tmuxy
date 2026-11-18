@@ -21,6 +21,7 @@ const {
   splitPaneKeyboard,
   waitForPaneCount,
   waitForCondition,
+  paneHeaderMark: headerMark,
 } = require('./helpers');
 const { tmuxPane, tmuxPanes } = require('./helpers/tmux-read');
 const { tmuxEnv } = require('./helpers/tmux-socket');
@@ -100,18 +101,6 @@ async function waitForNoAskOverlay(page, paneId) {
     15000,
     'the answered question to leave the screen',
   );
-}
-
-/** The state mark a pane's header shows, if it is drawn. */
-async function headerMark(page, paneId) {
-  return page.evaluate((id) => {
-    const mark = document.querySelector(
-      `[data-pane-tab="${id}"] .pane-state-mark, [data-pane-id="${id}"] .pane-header-icon-menu .pane-state-mark`,
-    );
-    const box = mark?.getBoundingClientRect();
-    if (!mark || !box || box.width === 0) return null;
-    return [...mark.classList].find((c) => c.startsWith('is-'))?.slice(3) ?? null;
-  }, paneId);
 }
 
 describeE2E('Scenario: tmuxy pane send asks before typing into another pane', {}, (ctx) => {
