@@ -177,7 +177,14 @@
   background-color: var(--bg-medium);
 }
 
-/* A button in the line's own font and colours, the emoji its icon. */
+/* A button in the line's own font and colours; each count leads with its
+   state's icon. */
+.statusline-inbox-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25ch;
+}
+
 .statusline-inbox {
   display: flex;
   gap: 1ch;

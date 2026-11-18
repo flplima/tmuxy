@@ -123,7 +123,7 @@ export interface ActivityCounts {
 }
 
 /** The two most urgent states, which `PANE_STATES` lists first: waiting, then failed. */
-const [WAITING, FAILED] = PANE_STATES;
+export const [WAITING, FAILED] = PANE_STATES;
 
 export function activityCounts(rows: readonly ActivityRow[]): ActivityCounts {
   return {

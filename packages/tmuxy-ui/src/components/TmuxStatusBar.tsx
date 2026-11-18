@@ -24,7 +24,14 @@ import { selectGridDimensions } from '../machines/selectors/layout';
 import { gridPixelSize } from '../domain/paneGeometry';
 import { HINT_SEPARATOR, modeHints, normalHints, type Hint } from './statusLineHints';
 import { serverHostLabel } from '../domain/servers';
-import { activityCounts, activityCountsLabel, countedPane } from '../domain/activity';
+import {
+  activityCounts,
+  activityCountsLabel,
+  countedPane,
+  FAILED,
+  WAITING,
+} from '../domain/activity';
+import { PANE_STATE_GLYPH, type PaneStateName } from '../domain/paneState';
 import { SessionMenu } from './SessionMenu';
 import './TmuxStatusBar.css';
 
@@ -107,8 +114,32 @@ function CommandModeInput({
 const COUNTS_REFRESH_MS = 5000;
 
 /**
- * `⚠️ 1  ❌ 2`: the panes that wait for the user and the panes that failed,
- * across sessions. One pane is a click away; more open the inbox.
+ * One count: the icon a pane's own mark draws for the state (the terminal
+ * font's warning triangle or circled x), then the number. Both take the line's
+ * colour, which the tmux status style sets, so the icon reads on any of them.
+ */
+function InboxCount({
+  state,
+  count,
+  testId,
+}: {
+  state: PaneStateName;
+  count: number;
+  testId: string;
+}) {
+  return (
+    <span className="statusline-inbox-count" data-testid={testId}>
+      <span className="pane-state-mark" aria-hidden="true">
+        {PANE_STATE_GLYPH[state]}
+      </span>
+      {count}
+    </span>
+  );
+}
+
+/**
+ * The panes that wait for the user and the panes that failed, across
+ * sessions. One pane is a click away; more open the inbox.
  */
 function InboxCounts() {
   const rows = useAppSelector((ctx) => ctx.activityRows);
@@ -133,9 +164,11 @@ function InboxCounts() {
       onClick={() => send(only ? { type: 'ACTIVITY_GO', row: only } : { type: 'TOGGLE_ACTIVITY' })}
     >
       {counts.waiting > 0 && (
-        <span data-testid="statusline-inbox-waiting">⚠️ {counts.waiting}</span>
+        <InboxCount state={WAITING} count={counts.waiting} testId="statusline-inbox-waiting" />
       )}
-      {counts.failed > 0 && <span data-testid="statusline-inbox-failed">❌ {counts.failed}</span>}
+      {counts.failed > 0 && (
+        <InboxCount state={FAILED} count={counts.failed} testId="statusline-inbox-failed" />
+      )}
     </button>
   );
 }

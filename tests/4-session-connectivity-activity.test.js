@@ -43,6 +43,11 @@ function inboxRows(page) {
   });
 }
 
+// The icons a pane's own mark draws (domain/paneState.ts): the terminal
+// font's warning triangle and circled x.
+const WAITING_ICON = '\u{f071}';
+const FAILED_ICON = '\u{f057}';
+
 /** The status line's counts as they are drawn; null while there are none. */
 function statusCounts(page) {
   return page.evaluate(() => {
@@ -189,8 +194,8 @@ describeE2E('Scenario: the activity inbox', {}, (ctx) => {
     // One failed pane, not the one in front: a click goes to it.
     tmuxyCli(['pane', 'state', 'error', behind]);
     const one = await waitForCounts((c) => c?.shown, 'one failure to show');
-    expect(one.text).toContain('❌ 1');
-    expect(one.text).not.toContain('⚠️');
+    expect(one.text).toBe(`${FAILED_ICON}1`);
+    expect(one.text).not.toMatch(/\p{Extended_Pictographic}/u);
     expect(one.label).toBe('1 failed');
     expect(one.leftOfHost).toBe(true);
     await page.click('[data-testid="statusline-inbox"]');
@@ -205,7 +210,7 @@ describeE2E('Scenario: the activity inbox', {}, (ctx) => {
     // A pane that waits as well: two panes, so a click opens the list.
     tmuxyCli(['pane', 'state', 'needs-input', front]);
     const both = await waitForCounts(
-      (c) => c?.text.includes('⚠️ 1') && c.text.includes('❌ 1'),
+      (c) => c?.text === `${WAITING_ICON}1${FAILED_ICON}1`,
       'both counts',
     );
     expect(both.label).toBe('1 pane needs you, 1 failed');
