@@ -113,6 +113,12 @@ Browser → HTTPS → nginx/Caddy (+ auth) → HTTP → tmuxy server → tmux
    - Proxy pass to `http://127.0.0.1:9000`
    - SSE support enabled (no response buffering)
 
+### Keeping It Running (`tmuxy server install`)
+
+A phone or a remote browser needs the server up after a logout and a reboot. `tmuxy server install` does it without root: on Linux it writes a systemd **user** unit (`~/.config/systemd/user/tmuxy.service`), enables and starts it, and runs `loginctl enable-linger` so the server starts at boot and survives logout (`--no-linger` keeps it to the time you are logged in; if lingering cannot be turned on, the install still succeeds and prints the `sudo loginctl enable-linger <user>` an admin can run). On macOS it writes a launchd agent (`~/Library/LaunchAgents/sh.tmuxy.server.plist`), which starts at login. It prints every file and command before it acts, `--dry-run` changes nothing, and running it again updates the service to the current binary and flags. It never touches a unit or plist of the same name that it did not write (they carry a `tmuxy-managed` marker): it fails and names the file. `tmuxy server uninstall` stops the service and removes only that file; lingering stays on, since other services may need it.
+
+The unit never holds a password. A non-loopback `--host` needs one, exactly as `tmuxy server` does, and the install refuses without it: create `server.env` in tmuxy's config dir (`tmuxy config paths` shows it) with a line `TMUXY_PASSWORD=<secret>` and mode 0600 (`chmod 600`); the unit reads it with `EnvironmentFile`, the launchd agent sources it through `sh`. The default host stays `127.0.0.1`. The code is `tmuxy-server/src/service.rs` (pure: the unit text, the commands, the checks) and `service_cli.rs`.
+
 ### What NOT to Do
 
 - **Do NOT** expose tmuxy directly on a public IP

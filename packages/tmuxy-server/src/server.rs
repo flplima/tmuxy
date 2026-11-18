@@ -12,7 +12,9 @@ use crate::state::AppState;
 mod delivery;
 mod lifecycle;
 mod listener;
+mod pidfile;
 use lifecycle::*;
+use pidfile::*;
 
 #[cfg(test)]
 mod tests;
@@ -101,16 +103,16 @@ fn with_optional_auth(
 
 /// Where the server listens, and which `Host` names its API answers.
 #[derive(Debug, PartialEq, Eq)]
-struct Listen {
+pub(crate) struct Listen {
     ip: IpAddr,
-    policy: HostPolicy,
+    pub(crate) policy: HostPolicy,
 }
 
 /// Resolve `--host` against the auth settings. A loopback address is served as
 /// it is. Any other address puts a shell on the network, so it needs a
 /// password — or `--no-auth`, saying out loud that the network is trusted.
 /// See docs/SECURITY.md.
-fn resolve_listen(
+pub(crate) fn resolve_listen(
     host: &str,
     password_set: bool,
     no_auth: bool,
@@ -202,8 +204,15 @@ fn announce_security(listen: &Listen, password_set: bool) {
 pub enum ServerAction {
     /// Stop the running server
     Stop,
-    /// Show server status
-    Status,
+    /// Show server status: whether it runs, and whether the service is
+    /// installed and active
+    Status(crate::service_cli::StatusArgs),
+    /// Keep the server running at login (and, on Linux, at boot), as a
+    /// systemd user service or a launchd agent. A non-loopback --host needs
+    /// a password in `server.env` in tmuxy's config dir.
+    Install(crate::service_cli::InstallArgs),
+    /// Stop the service and remove the file `install` wrote
+    Uninstall(crate::service_cli::UninstallArgs),
     #[command(flatten)]
     Verb(tmuxy_verbs::Verb),
 }
@@ -258,7 +267,9 @@ pub async fn run(args: ServerArgs) {
             serve(frontend, args.port, listen, password, state, args.trace).await
         }
         Some(ServerAction::Stop) => stop_server(args.port),
-        Some(ServerAction::Status) => server_status(args.port),
+        Some(ServerAction::Status(status)) => server_status(args.port, status.json),
+        Some(ServerAction::Install(install)) => crate::service_cli::install(install),
+        Some(ServerAction::Uninstall(uninstall)) => crate::service_cli::uninstall(uninstall),
         Some(ServerAction::Verb(verb)) => tmuxy_verbs::run(verb).await,
     }
 }

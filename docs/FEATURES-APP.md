@@ -36,7 +36,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | A4 | The MCP endpoint | — | — | — | `tmuxy mcp` | — | `tests/19-mcp.test.js` |
 | A5 | A safe raw tmux command | — | — | — | `tmuxy run` | — | `tests/cli/cli-run.test.js` |
 | A6 | Reap orphan shells | — | — | — | `tmuxy cleanup` | — | `tests/cli/cli-cleanup.test.js` |
-| A7 | The web server | — | — | — | `tmuxy server` | — | `tests/cli/cli-server.test.js` |
+| A7 | The web server | — | — | — | `tmuxy server` `tmuxy server install` `tmuxy server uninstall` `tmuxy server status` | — | `tests/cli/cli-server.test.js` |
 | A8 | Traces | — | `menu-debug` `trace-enabled` `trace-level` `trace-open` `trace-copy-path` `debug-copy-state` `trace-copy-share` | — | `tmuxy trace` | — | — |
 | A9 | Plugins: actions, links, keys, themes, CLI verbs | — | — | — | `tmuxy plugin` | — | `tests/17-plugins.test.js` |
 | A10 | Copy a bug report snippet | — | `debug-copy-report` | — | — | — | `tests/26-bug-report.test.js` |

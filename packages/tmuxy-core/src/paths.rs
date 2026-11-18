@@ -286,6 +286,10 @@ pub const PLUGIN_CONFIG: File = File::config(
     "plugins/",
     "Each plugin's own config (TMUXY_PLUGIN_CONFIG_DIR); kept on update and on remove unless --purge.",
 );
+pub const SERVER_ENV: File = File::config(
+    "server.env",
+    "The environment of the web server `tmuxy server install` keeps running: TMUXY_PASSWORD=… (mode 0600). You write it.",
+);
 pub const DEFAULTS_CONF: File = File::data(
     "tmuxy.defaults.conf",
     "tmuxy's taste: prefix, status line, bindings, the @tmuxy-* defaults.",
@@ -342,6 +346,11 @@ pub const PID: File = File::state(
     false,
     "The pid of the web server on <port>.",
 );
+pub const SERVER_LOG: File = File::state(
+    "server.log",
+    false,
+    "What the launchd agent `tmuxy server install` writes on macOS logs (systemd logs to the journal).",
+);
 pub const RELOAD_MARKER: File =
     File::state("config-reload", false, "Touched by `tmuxy config reload`.");
 pub const PLUGINS_STATE: File = File::state(
@@ -371,6 +380,7 @@ pub const FILES: &[File] = &[
     USER_PLUGIN_MANIFEST,
     LOCKFILE,
     PLUGIN_CONFIG,
+    SERVER_ENV,
     DEFAULTS_CONF,
     ESSENTIALS_CONF,
     EXAMPLE_CONF,
@@ -386,6 +396,7 @@ pub const FILES: &[File] = &[
     LOG,
     LAUNCHER,
     PID,
+    SERVER_LOG,
     RELOAD_MARKER,
     PLUGINS_STATE,
     SESSIONS,

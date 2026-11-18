@@ -70,6 +70,8 @@ tmuxy's files live in three directories, split by owner so each has one rule. `t
 | `tmuxy.defaults.conf`, `tmuxy.essentials.conf`, `tmuxy.conf.example`, `README.md` | data | app | rewritten to this build's copy, headed as generated |
 | `themes/<built-in>.css`, `bin/` | data | app | rewritten, headed as generated; a retired built-in is removed |
 | `tmuxy.entry.conf` | state | app | rebuilt before every use: the config chain (see [TMUX-CONFIG.md](TMUX-CONFIG.md#the-config-chain-and-where-a-users-own-tmuxconf-fits)) |
+| `server.env` | config | user | the environment (`TMUXY_PASSWORD=…`, mode 0600) of the service `tmuxy server install` writes; never created by tmuxy |
+| `server.log` | state | app | the log of the launchd agent `tmuxy server install` writes on macOS |
 | `tmuxy.adopted.conf` | state | app | the chain for the user's own tmux server, when the app is pointed at it: the essentials alone |
 | `tmuxy.state.json`, `trace.json`, `servers.json` | state | app | written when the menus, the launch notice's answer, the Debug menu or `tmuxy session connect` change them, each replaced whole (`private_files::replace`) |
 | `trace.ndjson`, `tmuxy.log`, `sessions/`, `push/` | state | app | the trace while tracing is on; the desktop app's log; session snapshots per socket; the web server's push key and subscriptions |
