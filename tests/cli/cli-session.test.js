@@ -165,3 +165,117 @@ describe('tmuxy session switch: new', () => {
     expect(PAIRS).toContain(name.replace(/-3$/, ''));
   });
 });
+
+describe('tmuxy session new | rename | kill', () => {
+  const sessionsEnv = (...names) => ({ MOCK_TMUX_LIST_SESSIONS: names.join('\\n') });
+  const runShells = (tmuxCalls) => tmuxCalls.filter((call) => call.args[0] === 'run-shell');
+
+  test('new makes a detached session under a memorable name, through run-shell', () => {
+    const { exitCode, stdout, tmuxCalls } = runCLI(['session', 'new'], {
+      env: sessionsEnv('tmuxy'),
+    });
+    expect(exitCode).toBe(0);
+    const name = stdout.trim();
+    expect(PAIRS).toContain(name);
+    expect(runShells(tmuxCalls)).toHaveLength(1);
+    expect(runShells(tmuxCalls)[0].args[1]).toBe(`tmux -L ${SOCKET} new-session -d -s '${name}'`);
+  });
+
+  test('new takes a name, a --cwd and a command for the first pane', () => {
+    const { exitCode, stdout, tmuxCalls } = runCLI(
+      ['session', 'new', 'build', '--cwd', '/tmp', '--', 'npm', 'run', 'it is'],
+      { env: sessionsEnv('tmuxy') },
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe('build');
+    expect(runShells(tmuxCalls)[0].args[1]).toBe(
+      `tmux -L ${SOCKET} new-session -d -s 'build' -c '/tmp' ` +
+        String.raw`''\''npm'\'' '\''run'\'' '\''it is'\'''`,
+    );
+  });
+
+  test('new --json answers the name', () => {
+    const { exitCode, stdout } = runCLI(['session', 'new', 'build', '--json'], {
+      env: sessionsEnv('tmuxy'),
+    });
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ ok: true, session: 'build' });
+  });
+
+  test('new with a name that exists exits 1 and creates nothing', () => {
+    const { exitCode, stderr, tmuxCalls } = runCLI(['session', 'new', 'work'], {
+      env: sessionsEnv('tmuxy', 'work'),
+    });
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("a session named 'work' exists");
+    expect(runShells(tmuxCalls)).toHaveLength(0);
+  });
+
+  test('new --cwd with no such directory exits 2; a bad name exits 2', () => {
+    const missing = runCLI(['session', 'new', 'a', '--cwd', '/no/such/dir']);
+    expect(missing.exitCode).toBe(2);
+    expect(runShells(missing.tmuxCalls)).toHaveLength(0);
+    expect(runCLI(['session', 'new', 'a.b']).exitCode).toBe(2);
+    expect(runCLI(['session', 'new', '__tmuxy_stash']).exitCode).toBe(2);
+  });
+
+  test('rename acts on the named session, or on the current one', () => {
+    const named = runCLI(['session', 'rename', 'work', 'play', '--json'], {
+      env: sessionsEnv('tmuxy', 'work'),
+    });
+    expect(named.exitCode).toBe(0);
+    expect(JSON.parse(named.stdout)).toEqual({ ok: true, session: 'play' });
+    expect(runShells(named.tmuxCalls)[0].args[1]).toBe(
+      `tmux -L ${SOCKET} rename-session -t '=work' 'play'`,
+    );
+    const current = runCLI(['session', 'rename', 'play'], {
+      env: { ...sessionsEnv('tmuxy'), MOCK_TMUX_SESSION: 'tmuxy' },
+    });
+    expect(current.exitCode).toBe(0);
+    expect(current.stdout.trim()).toBe('play');
+    expect(runShells(current.tmuxCalls)[0].args[1]).toBe(
+      `tmux -L ${SOCKET} rename-session -t '=tmuxy' 'play'`,
+    );
+  });
+
+  test('rename refuses an empty name, a taken one and a missing session', () => {
+    const env = sessionsEnv('tmuxy', 'work');
+    expect(runCLI(['session', 'rename', ''], { env }).exitCode).toBe(2);
+    const taken = runCLI(['session', 'rename', 'work', 'tmuxy'], { env });
+    expect(taken.exitCode).toBe(1);
+    expect(runShells(taken.tmuxCalls)).toHaveLength(0);
+    const missing = runCLI(['session', 'rename', 'gone', 'x'], { env });
+    expect(missing.exitCode).toBe(3);
+  });
+
+  test('kill takes a session by name, through run-shell', () => {
+    const { exitCode, stdout, tmuxCalls } = runCLI(['session', 'kill', 'work', '--json'], {
+      env: sessionsEnv('tmuxy', 'work'),
+    });
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ ok: true, session: 'work' });
+    expect(runShells(tmuxCalls)[0].args[1]).toBe(`tmux -L ${SOCKET} kill-session -t '=work'`);
+  });
+
+  test('kill with no name exits 2, with a missing session exits 3; nothing is killed', () => {
+    const none = runCLI(['session', 'kill'], { env: sessionsEnv('tmuxy') });
+    expect(none.exitCode).toBe(2);
+    const missing = runCLI(['session', 'kill', 'gone', '--json'], { env: sessionsEnv('tmuxy') });
+    expect(missing.exitCode).toBe(3);
+    expect(JSON.parse(missing.stdout)).toMatchObject({ ok: false, code: 3 });
+    expect(runShells(none.tmuxCalls)).toHaveLength(0);
+    expect(runShells(missing.tmuxCalls)).toHaveLength(0);
+  });
+
+  test('the help lists the three, each has its own, and kill says what happens to the snapshot', () => {
+    const { stdout } = runCLI(['session', '--help']);
+    for (const verb of ['new', 'rename', 'kill'])
+      expect(stdout).toMatch(new RegExp(`^  ${verb} `, 'm'));
+    for (const verb of ['new', 'rename', 'kill']) {
+      const help = runCLI(['session', verb, '--help']);
+      expect(help.exitCode).toBe(0);
+      expect(help.stdout).toContain(`Usage: tmuxy session ${verb}`);
+    }
+    expect(runCLI(['session', 'kill', '--help']).stdout).toContain('snapshot stays');
+  });
+});
