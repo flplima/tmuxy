@@ -265,6 +265,13 @@ jobs:
       - name: Cargo test
         run: cargo test --workspace
 
+      # docs/CLI.md is generated from the CLI's --help, and the help of some
+      # commands is the server binary's: the one job that builds it.
+      - name: CLI reference is current
+        run: |
+          cargo build -p tmuxy-server
+          node bin/ci/cli-reference.mjs --check
+
   e2e:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
