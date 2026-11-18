@@ -24,6 +24,7 @@ import { gridExtent } from '../../../../domain/paneGeometry';
 import { buildScrollbackState, fetchHistory, reconcilePaneMode } from '../copyMode/scrollback';
 import { pruneAskSelections } from '../ask';
 import { readPaneState } from '../../../../domain/paneState';
+import { paneStatesMoved } from '../../../../domain/activity';
 import { TmuxOp } from '../../../../domain/commands';
 import { reconcileFloats } from '../groupsAndFloats';
 import { reconcileSidebars } from '../sidebars';
@@ -286,6 +287,12 @@ export const layoutModelUpdateActions = {
           op: TmuxOp.ClearPaneState({ paneId: inFront.tmuxId }),
         }),
       );
+    }
+
+    // The status line's counts and an open inbox read every session's panes,
+    // polled; a state that moved in this session is read again at once.
+    if (paneStatesMoved(context.panes, transformed.panes)) {
+      enqueue(sendTo('tmux', { type: 'FETCH_ACTIVITY' as const }));
     }
 
     const grid = gridExtent(transformed.panes, transformed.activeWindowId, {
