@@ -30,7 +30,7 @@ The list is read when the inbox opens and every two seconds while it is open. Wh
 
 ## The counts on the status line
 
-At the status line's right end, just left of the host name, `⚠️ 1  ❌ 2` counts the panes in `needs-input` and in `error`, across every session: the same rows the inbox lists. A count shows only above zero, and with both at zero nothing is drawn.
+At the status line's right end, just left of the host name, two counts follow the panes in `needs-input` and in `error`, across every session: the same rows the inbox lists. Each leads with the icon a pane's own mark draws for its state (a warning triangle, a circled x), from the terminal font and in the line's own colour, so it reads on any status style; never a colour emoji. A count shows only above zero, and with both at zero nothing is drawn.
 
 - **One pane in all** (the total of the two counts is 1): a click goes to that pane, as a row's Enter does.
 - **More than one**: a click opens the inbox.

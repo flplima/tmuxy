@@ -33,7 +33,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | S9 | Size shared by several clients | — | — | — | — | `@tmuxy-size` | `tests/4-session-connectivity.test.js` |
 | S10 | Reconnect after a dropped connection | the overlay | — | — | — | — | `tests/4-session-connectivity.test.js` |
 | S11 | The activity inbox: every pane that needs you, across sessions, and the jump to the most urgent | — | `view-activity` `view-activity-most-urgent` | — | — | — | `tests/4-session-connectivity-activity.test.js` |
-| S12 | The inbox's counts on the status line: `⚠️` panes that need you, `❌` panes that failed; one goes to its pane, more open the inbox | the status line's counts | — | — | — | — | `tests/4-session-connectivity-activity.test.js` |
+| S12 | The inbox's counts on the status line: a warning triangle counts the panes that need you, a circled x the panes that failed; one goes to its pane, more open the inbox | the status line's counts | — | — | — | — | `tests/4-session-connectivity-activity.test.js` |
 
 ## Copy mode and scrollback
 

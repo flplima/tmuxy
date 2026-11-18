@@ -3,6 +3,7 @@ import { expect, within, waitFor } from 'storybook/test';
 import { TmuxStatusBar } from './TmuxStatusBar';
 import { ActivityInbox } from './ActivityInbox';
 import type { ActivityRow } from '../domain/activity';
+import { PANE_STATE_GLYPH } from '../domain/paneState';
 import { pid, wid } from '../test/wire';
 import { FixtureProvider } from '../stories/FixtureHarness';
 import { asFixture } from '../stories/fixtures/FixtureAdapter';
@@ -141,8 +142,20 @@ export const InboxCounts: Story = {
     });
     const chip = await waitFor(() => canvas.getByTestId('statusline-inbox'));
     expect(chip).toHaveAccessibleName('1 pane needs you, 2 failed');
-    expect(canvas.getByTestId('statusline-inbox-waiting')).toHaveTextContent('⚠️ 1');
-    expect(canvas.getByTestId('statusline-inbox-failed')).toHaveTextContent('❌ 2');
+    const waiting = canvas.getByTestId('statusline-inbox-waiting');
+    const failed = canvas.getByTestId('statusline-inbox-failed');
+    expect(waiting).toHaveTextContent(`${PANE_STATE_GLYPH['needs-input']}1`);
+    expect(failed).toHaveTextContent(`${PANE_STATE_GLYPH.error}2`);
+    // The pane marks' own icons in the terminal font, in the line's colour
+    // like the numbers, never a colour emoji.
+    expect(chip.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+    const waitingIcon = waiting.querySelector('.pane-state-mark')!;
+    const failedIcon = failed.querySelector('.pane-state-mark')!;
+    const colourOf = (el: Element) => getComputedStyle(el).color;
+    expect(colourOf(waitingIcon)).toBe(colourOf(chip));
+    expect(colourOf(failedIcon)).toBe(colourOf(chip));
+    expect(rectOf(waitingIcon).width).toBeGreaterThan(0);
+    expect(rectOf(waitingIcon).right).toBeLessThanOrEqual(rectOf(failedIcon).left);
     const host = canvasElement.querySelector('.statusline-host')!;
     expect(rectOf(chip).width).toBeGreaterThan(0);
     expect(rectOf(chip).right).toBeLessThanOrEqual(rectOf(host).left);
