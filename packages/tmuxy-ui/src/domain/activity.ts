@@ -8,6 +8,7 @@
  * special, and a pane in a session nobody has open is listed like any other.
  */
 
+import type { TmuxPane } from './client';
 import { listEveryPane } from './commandHelpers';
 import { isPaneId, isWindowId, type PaneId, type WindowId } from './ids';
 import { PANE_STATE_TIER, readPaneState, type PaneStateName } from './paneState';
@@ -147,4 +148,22 @@ export function activityCountsLabel({ waiting, failed }: ActivityCounts): string
   if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? 'pane needs' : 'panes need'} you`);
   if (failed > 0) parts.push(`${failed} failed`);
   return parts.join(', ');
+}
+
+type StatedPane = Pick<TmuxPane, 'tmuxId' | 'paneState'>;
+
+/**
+ * Whether a pane of the session in view took, changed or dropped its state,
+ * or left with one, between two looks at the session: the cue to read every
+ * session's panes again now rather than at the next poll.
+ */
+export function paneStatesMoved(
+  before: readonly StatedPane[],
+  after: readonly StatedPane[],
+): boolean {
+  const stated = (panes: readonly StatedPane[]) =>
+    new Map(panes.flatMap((p) => (p.paneState ? [[p.tmuxId, p.paneState] as const] : [])));
+  const was = stated(before);
+  const now = stated(after);
+  return was.size !== now.size || [...now].some(([id, state]) => was.get(id) !== state);
 }

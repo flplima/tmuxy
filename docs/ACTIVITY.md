@@ -36,7 +36,7 @@ At the status line's right end, just left of the host name, two counts follow th
 - **More than one**: a click opens the inbox.
 - It is a button, named like "2 panes need you, 1 failed".
 
-The status line reads the panes every five seconds, whether the inbox is open or not (nothing else tells the client that a pane in another session changed state). The demo does not read.
+When a pane of the session in view takes, changes or drops a state, the panes are read again at once, so the counts follow it as its header does, within about a second (tmux reports a pane's options about once a second). Nothing tells the client that a pane in another session changed state, so the status line also reads the panes every five seconds, whether the inbox is open or not. The demo does not poll.
 
 ## Using it
 
@@ -73,11 +73,13 @@ The highlight is a pane, not a position, so a row that moves as states change ke
 | `packages/tmuxy-ui/src/machines/app/actions/activity.ts` | Open, refresh, go to a pane, go to the most urgent |
 | `packages/tmuxy-ui/src/components/ActivityInbox.tsx` | The list and its keys |
 | `packages/tmuxy-ui/src/components/TmuxStatusBar.tsx` | The counts and their poll |
+| `packages/tmuxy-ui/src/machines/app/actions/layout/modelUpdate.ts` | The read again when a state in the session in view moves |
 | `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_ACTIVITY` and `GO_TO_PANE` on the transport |
 
 ## Tests
 
 - `packages/tmuxy-ui/src/domain/__tests__/activity.test.ts`: the order, what is left out, the names and the words.
 - `packages/tmuxy-ui/src/machines/app/states/__tests__/activity.test.ts`: opening reads, going closes, the jump skips the pane in front.
+- `packages/tmuxy-ui/src/machines/app/__tests__/activityFollowsPaneState.test.ts`: a state that moves in the session in view is read at once, an update that moves none is not.
 - `tests/4-session-connectivity-activity.test.js`: three panes in two sessions, and the status line's counts (one goes to its pane, two open the inbox, none shows nothing), in a browser against a real tmux.
 - `packages/tmuxy-ui/src/components/TmuxStatusBar.stories.tsx`: the counts, their click, and the phone's width.

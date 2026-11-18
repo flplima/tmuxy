@@ -7,8 +7,10 @@ import {
   filterActivity,
   LIST_ACTIVITY_COMMAND,
   mostUrgent,
+  paneStatesMoved,
   parseActivity,
 } from '../activity';
+import { pid } from '../../test/wire';
 import { STASH_SESSION } from '../tmuxyConstants.gen';
 
 /** One `list-panes -a` row, in the order the command asks for. */
@@ -169,5 +171,26 @@ describe('the status line counts', () => {
     expect(activityCountsLabel({ waiting: 2, failed: 1 })).toBe('2 panes need you, 1 failed');
     expect(activityCountsLabel({ waiting: 1, failed: 0 })).toBe('1 pane needs you');
     expect(activityCountsLabel({ waiting: 0, failed: 3 })).toBe('3 failed');
+  });
+});
+
+describe('a state moving in the session in view', () => {
+  const pane = (id: string, paneState: string | null = null) => ({ tmuxId: pid(id), paneState });
+
+  it('is a pane taking, changing or dropping its state', () => {
+    expect(paneStatesMoved([pane('%1')], [pane('%1', 'needs-input')])).toBe(true);
+    expect(paneStatesMoved([pane('%1', 'needs-input')], [pane('%1', 'error')])).toBe(true);
+    expect(paneStatesMoved([pane('%1', 'error')], [pane('%1')])).toBe(true);
+  });
+
+  it('is a pane with a state coming or going', () => {
+    expect(paneStatesMoved([pane('%1')], [pane('%1'), pane('%2', 'working')])).toBe(true);
+    expect(paneStatesMoved([pane('%1'), pane('%2', 'error')], [pane('%1')])).toBe(true);
+  });
+
+  it('is not a pane without one coming or going, nor the same states again', () => {
+    expect(paneStatesMoved([pane('%1')], [pane('%1'), pane('%2')])).toBe(false);
+    expect(paneStatesMoved([pane('%1', 'error'), pane('%2')], [pane('%1', 'error')])).toBe(false);
+    expect(paneStatesMoved([], [])).toBe(false);
   });
 });

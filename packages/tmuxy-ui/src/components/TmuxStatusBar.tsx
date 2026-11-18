@@ -110,7 +110,10 @@ function CommandModeInput({
   );
 }
 
-/** How often the status line's counts read the panes of every session. */
+/**
+ * How often the status line's counts read the panes of every session. A state
+ * that moves in the session in view is read at once, by the model update.
+ */
 const COUNTS_REFRESH_MS = 5000;
 
 /**
