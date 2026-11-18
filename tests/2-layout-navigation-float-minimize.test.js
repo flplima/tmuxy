@@ -13,6 +13,7 @@ const {
   waitForNoModal,
   focusedFloatPaneId,
   openFloatFromCli,
+  tmuxyCli,
 } = require('./helpers/layout-helpers');
 
 // ==================== Scenario 6f: Minimized floats ====================
@@ -99,6 +100,51 @@ describeE2E('Scenario 6f: Minimized floats', {}, (ctx) => {
       "the pill's ✕ to close the float",
     );
   }, 90000);
+  /**
+   * What leads a pill, as drawn: the state its mark shows (`is-<state>`),
+   * `icon` for the program's icon, or null while nothing with a box is there.
+   */
+  const pillFace = (page, floatId) =>
+    page.evaluate((id) => {
+      const face = document.querySelector(`[data-float-pill="${id}"] .pane-tab-icon`);
+      if (!face) return null;
+      const box = face.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) return null;
+      const state = [...face.classList].find((name) => name.startsWith('is-'));
+      if (state) return state.slice('is-'.length);
+      return face.querySelector('.process-icon-svg') || face.textContent.trim() ? 'icon' : null;
+    }, floatId);
+
+  test("a minimized float's pill leads with the pane's icon → it follows the pane's state: working, waiting, failed → back to the program's icon when the state clears", async () => {
+    await ctx.setupPage();
+    const floatId = await openFloatFromCli(ctx);
+    await ctx.page.click('.float-container .pane-header-minimize');
+    await waitForNoModal(ctx.page);
+    const faceBecomes = (want) =>
+      waitForCondition(
+        ctx.page,
+        async () => (await pillFace(ctx.page, floatId)) === want,
+        10000,
+        async () => `the pill to lead with ${want}; it shows ${await pillFace(ctx.page, floatId)}`,
+      );
+
+    await faceBecomes('icon');
+    for (const state of ['working', 'needs-input', 'error']) {
+      tmuxyCli(['pane', 'state', state, floatId]);
+      await faceBecomes(state);
+    }
+    tmuxyCli(['pane', 'state', 'clear', floatId]);
+    await faceBecomes('icon');
+
+    await ctx.page.click(`[data-float-pill="${floatId}"] .float-queue-close`);
+    await waitForCondition(
+      ctx.page,
+      async () => (await pills(ctx.page)).length === 0,
+      10000,
+      "the pill's ✕ to close the float",
+    );
+  }, 90000);
+
   /** Every pill's box, by pane id, with the box of the tab area the queue sits in. */
   const pillBoxes = (page) =>
     page.evaluate(() => {

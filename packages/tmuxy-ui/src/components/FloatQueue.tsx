@@ -2,15 +2,16 @@
  * The tab's minimized floats, as pills at the right end of its bottom edge,
  * the first minimized against the edge and the rest growing leftwards
  * (`@tmuxy-float-minimized`). Their panes keep running: a dev server or a
- * log tail stays one click away without covering the panes. A click brings
- * the float back, and its ✕ closes it.
+ * log tail stays one click away without covering the panes. A pill leads
+ * with the pane's face, as its header does: the state while the pane has one
+ * (working, waiting, failed, new output), else its program's icon. A click
+ * brings the float back, and its ✕ closes it.
  */
 
 import { useAppSend, useAppSelector, usePane } from '../machines/appHooks';
 import { selectMinimizedFloats } from '../machines/selectors/panesAndSidebars';
 import { getTabText } from './paneTabDisplay';
-import { PaneStateMark } from './PaneStateMark';
-import { paneStateFor } from '../domain/paneState';
+import { PaneFace } from './PaneTab';
 import type { PaneId } from '../domain/ids';
 import './FloatQueue.css';
 
@@ -19,7 +20,6 @@ function FloatPill({ paneId }: { paneId: PaneId }) {
   const send = useAppSend();
   if (!pane) return null;
   const title = getTabText(pane);
-  const state = paneStateFor(pane);
   return (
     <span className="float-queue-pill" data-float-pill={paneId}>
       <button
@@ -28,7 +28,7 @@ function FloatPill({ paneId }: { paneId: PaneId }) {
         aria-label={`Show ${title}`}
         onClick={() => send({ type: 'MINIMIZE_FLOAT', paneId, minimized: false })}
       >
-        {state !== 'idle' && <PaneStateMark state={state} className="float-queue-state" />}
+        <PaneFace pane={pane} />
         <span className="float-queue-title">{title}</span>
       </button>
       <button
