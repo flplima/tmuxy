@@ -131,12 +131,19 @@ export async function newWindowId(adapter, make) {
   }
 }
 
-/** Close the tab `windowId`, one the run made, by its id: whether it is gone. */
+/**
+ * Close the tab `windowId`, one the run made, by its id: whether tmux closed
+ * it. The client drops the tab as it sends the kill, before the kill has left
+ * the page, so the tab gone from the client says nothing until the client is
+ * also settled: a page closed in between took the kill with it, and the next
+ * run on the server found the tab still there.
+ */
 export async function closeWindow(adapter, windowId) {
   await tmux(adapter, `killw -t ${windowId}`);
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    if (!(await windowIds(adapter)).includes(windowId)) return true;
+    const settled = await adapter.evaluate(() => window.app.settled());
+    if (settled && !(await windowIds(adapter)).includes(windowId)) return true;
     await adapter.wait(100);
   }
   return false;

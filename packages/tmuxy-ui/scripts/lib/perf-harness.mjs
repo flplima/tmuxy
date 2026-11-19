@@ -75,10 +75,19 @@ function probeInstaller() {
   // terminal inside each pane, on floats, and on sidebar-tree rows, and
   // `role="tab"` is used by pane-group headers as well as the tab strip.
   // Counting either loosely double-counts a single pane or window.
+  //
+  // Panes of the tab on screen only: a hidden tab's panes stay in the tree,
+  // at no size. Counted with them, a session an earlier run left with three
+  // tabs seemed to have panes to spare, so shaping it typed `exit` until the
+  // tab on screen held one pane, where moving and zooming change nothing.
+  const shownPanes = () =>
+    [...document.querySelectorAll('.pane-layout-item[data-pane-id]')].filter(
+      (pane) => pane.getBoundingClientRect().width > 0,
+    );
   window.__perfProbes = {
     activePane: () =>
       document.querySelector('.pane-layout-item.pane-active')?.getAttribute('data-pane-id') ?? '',
-    paneCount: () => document.querySelectorAll('.pane-layout-item[data-pane-id]').length,
+    paneCount: () => shownPanes().length,
     zoomed: () => document.querySelectorAll('.pane-zoomed').length,
     activeTab: () =>
       document
@@ -229,8 +238,7 @@ export async function prefixKey(adapter, prefix, key) {
   await adapter.press(key);
 }
 
-export const paneCount = (adapter) =>
-  adapter.evaluate(() => document.querySelectorAll('.pane-layout-item[data-pane-id]').length);
+export const paneCount = (adapter) => adapter.evaluate(() => window.__perfProbes.paneCount());
 
 export const tabCount = (adapter) =>
   adapter.evaluate(() => document.querySelectorAll('.tab-list [role="tab"]').length);
