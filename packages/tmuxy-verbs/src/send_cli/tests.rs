@@ -281,6 +281,41 @@ async fn a_caller_in_no_pane_is_named_by_its_process() {
     assert!(!tmux.asked());
 }
 
+/// Typed at a prompt, the program in front in the caller's pane is this CLI
+/// itself: the caller is the shell it was typed into, not the CLI's binary.
+/// An agent in front still names itself.
+#[tokio::test]
+async fn a_send_typed_at_a_prompt_is_named_by_the_shell_and_not_the_cli() {
+    let pane = PaneId::parse("%1").unwrap();
+    let own_names: Vec<String> = own_names().collect();
+    assert!(!own_names.is_empty());
+    for own in own_names {
+        let typed = Fake {
+            caller_program: own.clone(),
+            ..Fake::default()
+        };
+        assert_eq!(
+            caller_name(&typed, Some(&pane), Some("zsh")).await,
+            "zsh",
+            "{own}"
+        );
+        // macOS's `ps` names a login shell `-zsh`.
+        assert_eq!(
+            caller_name(&typed, Some(&pane), Some("-zsh")).await,
+            "zsh",
+            "{own}"
+        );
+    }
+    let agent = Fake {
+        caller_program: "2.1.314".into(),
+        ..Fake::default()
+    };
+    assert_eq!(
+        caller_name(&agent, Some(&pane), Some("zsh")).await,
+        "claude"
+    );
+}
+
 /// A Claude Code approval dialog, as the bottom of its pane shows it.
 const DIALOG: &str = "Bash command\n  rm -rf build\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n";
 

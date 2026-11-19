@@ -21,6 +21,7 @@ const {
   paneHeaderMark,
 } = require('./helpers');
 const { tmuxyCli } = require('./helpers/cli');
+const { tmuxPane } = require('./helpers/tmux-read');
 
 /** What a pane's terminal shows. */
 async function screenOf(page, paneId) {
@@ -75,6 +76,10 @@ describeE2E(
         'the pane to show it is working',
       );
 
+      // The asker is the shell the command was typed into, as the pane's
+      // header names it: not the CLI's own binary.
+      const shell = tmuxPane(here).command;
+      expect(shell).toBeTruthy();
       await typeInTerminal(
         page,
         `a=$(${TMUXY_CLI} pane ask "Deploy?" --choice yes --choice no); echo "answer=[$a] exit=$?"`,
@@ -96,7 +101,7 @@ describeE2E(
         async () =>
           `the question over ${here} to be visible (${why}); the pane shows ${JSON.stringify((await screenOf(page, here)).slice(-600))}`,
       );
-      expect(question.caller).toBeTruthy();
+      expect(question.caller).toBe(shell);
       expect(question.prompt).toBe('Deploy?');
       expect(question.choices.map((c) => c.text)).toEqual(['1.yes', '2.no']);
       for (const { box } of question.choices) {
