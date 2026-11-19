@@ -22,6 +22,7 @@ const {
   waitForPaneCount,
   waitForCondition,
   paneHeaderMark: headerMark,
+  paneHeaderTitle: headerTitle,
 } = require('./helpers');
 const { tmuxPane, tmuxPanes } = require('./helpers/tmux-read');
 const { tmuxEnv } = require('./helpers/tmux-socket');
@@ -146,6 +147,9 @@ describeE2E('Scenario: tmuxy pane send asks before typing into another pane', {}
       'the target pane to show it needs input',
     );
     expect(await headerMark(page, here)).not.toBe('needs-input');
+    // The sender's header names it as the question does while the send
+    // waits: its shell, not the CLI's binary, the program in front there.
+    expect(await headerTitle(page, here)).toBe(shell);
     // Nothing has been sent yet: that is the point of asking.
     expect(await screenOf(page, there)).not.toContain('send-allowed');
 

@@ -274,7 +274,7 @@ pub(crate) async fn caller_name<T: ask::Tmux>(
         None => String::new(),
     };
     let from_pane = from_pane.trim();
-    let from_pane = if own_names().any(|own| own == from_pane) {
+    let from_pane = if tmuxy_core::program::is_own_name(from_pane) {
         ""
     } else {
         from_pane
@@ -286,20 +286,6 @@ pub(crate) async fn caller_name<T: ask::Tmux>(
         .find(|name| !name.is_empty())
         .map(|name| tmuxy_core::program::program_name(name).to_string());
     name.unwrap_or_else(|| "a script".to_string())
-}
-
-/// The names tmux can give this process as a pane's program: the file it was
-/// started as (`argv[0]`, what tmux reads on Linux), the file it runs (what
-/// macOS reads), and an AppImage's own file.
-fn own_names() -> impl Iterator<Item = String> {
-    let started_as = std::env::args_os().next().map(std::path::PathBuf::from);
-    let runs = std::env::current_exe().ok();
-    let appimage = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from);
-    [started_as, runs, appimage]
-        .into_iter()
-        .flatten()
-        .filter_map(|path| Some(path.file_name()?.to_string_lossy().into_owned()))
-        .filter(|name| !name.is_empty())
 }
 
 pub(crate) async fn interrupted() {

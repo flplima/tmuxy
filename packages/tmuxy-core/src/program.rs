@@ -16,6 +16,31 @@ pub fn program_name(command: &str) -> &str {
     }
 }
 
+/// The names tmux can give a tmuxy process as a pane's program: the file it
+/// was started as (`argv[0]`, what tmux reads on Linux), the file it runs
+/// (what macOS reads), and an AppImage's own file. The CLI runs its verbs as
+/// the binary of the app it talks to, so a tmuxy command typed at a prompt
+/// is named one of these while it runs.
+pub fn own_names() -> &'static [String] {
+    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let started_as = std::env::args_os().next().map(std::path::PathBuf::from);
+        let runs = std::env::current_exe().ok();
+        let appimage = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from);
+        [started_as, runs, appimage]
+            .into_iter()
+            .flatten()
+            .filter_map(|path| Some(path.file_name()?.to_string_lossy().into_owned()))
+            .filter(|name| !name.is_empty())
+            .collect()
+    })
+}
+
+/// Whether `command` (a `#{pane_current_command}`) is tmuxy itself.
+pub fn is_own_name(command: &str) -> bool {
+    own_names().iter().any(|own| own == command)
+}
+
 fn is_version(value: &str) -> bool {
     value.contains('.')
         && value

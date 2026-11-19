@@ -432,3 +432,22 @@ fn a_zoomed_pane_is_sized_once_to_what_is_drawn() {
         again.panes_needing_refresh
     );
 }
+
+/// A tmuxy command typed at a prompt runs as tmuxy's own binary: while it
+/// runs, the pane is named by the shell it was typed into, as a send's
+/// question names its caller, and by its program again once another runs.
+#[test]
+fn a_pane_running_tmuxy_itself_keeps_its_shells_name() {
+    let own = &crate::program::own_names()[0];
+    let row = |command: &str| {
+        pane_row_builder("%3", "@4")
+            .set(PaneColumn::Command, command)
+            .build()
+    };
+    let mut agg = StateAggregator::new();
+    agg.parse_list_panes_line(&row("bash"));
+    agg.parse_list_panes_line(&row(own));
+    assert_eq!(agg.panes.get("%3").expect("pane parsed").command, "bash");
+    agg.parse_list_panes_line(&row("vim"));
+    assert_eq!(agg.panes.get("%3").expect("pane parsed").command, "vim");
+}

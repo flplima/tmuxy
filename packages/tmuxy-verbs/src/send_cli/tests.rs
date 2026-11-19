@@ -287,7 +287,7 @@ async fn a_caller_in_no_pane_is_named_by_its_process() {
 #[tokio::test]
 async fn a_send_typed_at_a_prompt_is_named_by_the_shell_and_not_the_cli() {
     let pane = PaneId::parse("%1").unwrap();
-    let own_names: Vec<String> = own_names().collect();
+    let own_names = tmuxy_core::program::own_names();
     assert!(!own_names.is_empty());
     for own in own_names {
         let typed = Fake {
