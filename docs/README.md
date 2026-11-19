@@ -2,6 +2,8 @@
 
 This directory contains architectural and design documentation for the tmuxy project. It is written for both **human developers** and **AI coding agents** (Claude Code, Copilot, etc.) that work on this codebase.
 
+The guide for people who **use** tmuxy is `docs/wiki/`, published to the [GitHub wiki](https://github.com/flplima/tmuxy/wiki) by `.github/workflows/publish-wiki.yml`. Unlike the docs here, its pages are how-tos with snippets.
+
 ## Start here
 
 **Three programs over one crate.** `packages/tmuxy-core` is the library: the control-mode parser and state aggregator, the command router, the host runtime every program embeds. Around it sit the web server `packages/tmuxy-server` (Axum: SSE out, HTTP POST in), the desktop app `packages/tmuxy-tauri-app` (the same core over Tauri IPC) and the CLI — shell scripts in `packages/tmuxy-cli/bin/tmuxy/` behind the dispatcher `packages/tmuxy-cli/bin/tmuxy-cli`, with the verbs that need Rust in `packages/tmuxy-verbs`. The browser guests are the same core with no server at all: `packages/tmuxy-wasm` (the core compiled to wasm) reading a real tmux inside v86 or CheerpX, which the demo site `packages/tmuxy-demo` and the v86 stories run.

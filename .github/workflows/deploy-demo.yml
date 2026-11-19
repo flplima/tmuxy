@@ -26,6 +26,8 @@ on:
       - 'packages/tmuxy-core/assets/tmuxy.defaults.conf'
       # The docs for agents (/llms-full.txt, /search.json) are built from docs/.
       - 'docs/**'
+      # The user wiki is published by publish-wiki.yml, not with the demo.
+      - '!docs/wiki/**'
       - '.github/workflows/deploy-demo.yml'
   workflow_dispatch:
 
