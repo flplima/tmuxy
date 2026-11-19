@@ -1,6 +1,6 @@
 name: publish wiki
 
-# The wiki's pages live in wiki/, so they are reviewed like code. This copies
+# The wiki's pages live in docs/wiki/, so they are reviewed like code. This copies
 # them to the repository's wiki (a git repo of its own) when they change on
 # main. The wiki must already have a first page, made once in the GitHub UI:
 # until then there is no wiki repo to push to.
@@ -9,7 +9,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'wiki/**'
+      - 'docs/wiki/**'
       - '.github/workflows/publish-wiki.yml'
   workflow_dispatch:
 
@@ -27,14 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Copy wiki/ over the wiki repository
+      - name: Copy docs/wiki/ over the wiki repository
         env:
           GH_TOKEN: ${{ github.token }}
           WIKI_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.wiki.git
         run: |
           set -euo pipefail
           git clone --depth 1 "$WIKI_URL" "$RUNNER_TEMP/wiki"
-          rsync -a --delete --exclude .git wiki/ "$RUNNER_TEMP/wiki/"
+          rsync -a --delete --exclude .git docs/wiki/ "$RUNNER_TEMP/wiki/"
           cd "$RUNNER_TEMP/wiki"
           git add -A
           if git diff --cached --quiet; then

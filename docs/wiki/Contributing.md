@@ -36,7 +36,7 @@ Do not use a public issue. Use a [GitHub security advisory](https://github.com/f
 
 ## Edit this wiki
 
-The wiki's source is the `wiki/` folder of the repository. Send a pull request that changes those files. Please do not use the wiki's edit button.
+The wiki's source is the `docs/wiki/` folder of the repository. Send a pull request that changes those files. Please do not use the wiki's edit button.
 
 ## See also
 
