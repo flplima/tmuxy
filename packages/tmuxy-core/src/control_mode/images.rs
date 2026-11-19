@@ -22,7 +22,7 @@ mod kitty;
 mod kitty_placeholders;
 mod sixel_and_iterm;
 
-use escape_string::{ends_pending_escape, find_osc_end, last_terminator_start, string_end};
+use escape_string::{ends_pending_escape, find_osc_end, string_end, Ends};
 use escape_string::{StringEnd, StringKind};
 use kitty::rgba_to_png;
 use serde::{Deserialize, Serialize};
@@ -374,12 +374,7 @@ impl ImageParser {
             &joined
         };
 
-        // Where the chunk's last terminator starts: an escape at `i` has one
-        // after it exactly when that is at or past `i + 2`. Asking each escape
-        // to scan the rest of the chunk made a run of unterminated ones
-        // quadratic.
-        let last_terminator = last_terminator_start(content);
-        let terminated_after = |from: usize| last_terminator.is_some_and(|at| at >= from);
+        let ends = Ends::of(content);
 
         let mut output = Vec::with_capacity(content.len());
         let mut new_images = Vec::new();
@@ -417,9 +412,12 @@ impl ImageParser {
                                 && find_osc_end(&content[i + 2..]).is_some()
                         }
                         // Kitty Graphics Protocol: ESC _ G ... ESC \
-                        b'_' => content[i..].starts_with(b"\x1b_G") && terminated_after(i + 2),
+                        b'_' => {
+                            content[i..].starts_with(b"\x1b_G")
+                                && ends.after(i + 2, StringKind::Apc)
+                        }
                         // Sixel: ESC P ... q ... ESC \
-                        b'P' => terminated_after(i + 2),
+                        b'P' => ends.after(i + 2, StringKind::Dcs),
                         _ => false,
                     };
                 if flush_first {
@@ -433,8 +431,11 @@ impl ImageParser {
                     _ => None,
                 };
                 if let Some((consumed, image)) = parsed {
-                    new_images.extend(image);
                     output.extend_from_slice(STRIPPED_ESCAPE);
+                    if nxt == b'P' {
+                        output.extend(self.line_below(&image));
+                    }
+                    new_images.extend(image);
                     i += consumed;
                     continue;
                 }
@@ -442,7 +443,7 @@ impl ImageParser {
                 // An image-capable escape with no terminator in the rest of
                 // the chunk is split across `%output` lines: buffered, so its
                 // torn header never reaches vt100.
-                if matches!(nxt, b']' | b'_' | b'P') && !terminated_after(i + 2) {
+                if matches!(nxt, b']' | b'_' | b'P') && !ends.after(i + 2, StringKind::of(nxt)) {
                     let tail = &content[i..];
                     if tail.len() <= MAX_PENDING_IMAGE {
                         self.hold(tail, raw_from.saturating_sub(i));

@@ -162,7 +162,9 @@ describeE2E('Scenario 23: Terminal Image Protocols', {}, (ctx) => {
     //   #0;2;<r>;<g>;<b>  registers palette entry 0 (RGB scale 0-100)
     //   #0                selects color 0
     //   ~                 sixel char with all 6 vertical bits set
-    const cmd = `printf '\\ePq#0;2;100;0;0#0~~~\\e\\\\' && echo SIXEL_SENT`;
+    // The text right after it, on the picture's own line, is printed on the
+    // line below, as a terminal prints it, not under the picture.
+    const cmd = `printf '\\ePq#0;2;100;0;0#0~~~\\e\\\\SIXEL_%s\\n' SENT`;
     await runCommand(ctx.page, cmd, 'SIXEL_SENT');
 
     // Unconditional: the core unit test (images.rs sixel_decoded_to_png)
@@ -181,6 +183,19 @@ describeE2E('Scenario 23: Terminal Image Protocols', {}, (ctx) => {
       }),
     );
     expect(sixelEls.some((e) => e.protocol === 'sixel' && e.visible)).toBe(true);
+    const { pictureBottom, textTop } = await ctx.page.evaluate(() => {
+      const picture = [
+        ...document.querySelectorAll('.terminal-image[data-protocol="sixel"]'),
+      ].pop();
+      const text = [...document.querySelectorAll('.terminal-line')].find((line) =>
+        line.textContent.trim().startsWith('SIXEL_SENT'),
+      );
+      return {
+        pictureBottom: picture.getBoundingClientRect().bottom,
+        textTop: text.getBoundingClientRect().top,
+      };
+    });
+    expect(textTop).toBeGreaterThanOrEqual(pictureBottom - 1);
 
     // Either way, the terminal must remain usable.
     await runCommand(ctx.page, 'echo AFTER_SIXEL', 'AFTER_SIXEL');

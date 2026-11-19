@@ -164,6 +164,25 @@ impl ImageParser {
         ))
     }
 
+    /// What moves vt100's cursor past a Sixel picture just placed: to the
+    /// start of the line below it, where tmux built with Sixel and xterm
+    /// leave theirs, so the text after the picture is printed under it and
+    /// not hidden behind it. vt100 never sees the picture, so the move is
+    /// spelled out, a line feed per row: at the bottom of the screen those
+    /// scroll it, and the picture with it, as a terminal makes room for one.
+    pub(super) fn line_below(&self, image: &Option<(u32, StoredImage)>) -> Vec<u8> {
+        let rows = image
+            .as_ref()
+            .and_then(|(id, _)| self.placements.iter().find(|p| p.id == *id))
+            .map_or(0, |p| usize::from(p.height_cells));
+        if rows == 0 {
+            return Vec::new();
+        }
+        let mut bytes = vec![b'\r'];
+        bytes.extend(std::iter::repeat_n(b'\n', rows));
+        bytes
+    }
+
     /// Undo tmux's DCS passthrough — `ESC P tmux; <payload, every ESC doubled>
     /// ESC \` — so the payload is parsed as if the application had written it
     /// to the terminal itself. Returns `None` when there is nothing wrapped.
