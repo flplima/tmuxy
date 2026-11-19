@@ -3,7 +3,7 @@
  * queries go through tmuxExec in tmux-socket.js.
  */
 
-const { execFile, execFileSync, execSync } = require('child_process');
+const { execFileSync, execSync, spawn } = require('child_process');
 const path = require('path');
 
 const { WORKSPACE_ROOT, TMUXY_CLI, serverBinary } = require('./config');
@@ -109,14 +109,34 @@ function tmuxyCli(args, extraEnv = {}) {
  * @returns {Promise<{code: number, stdout: string, stderr: string}>}
  */
 function tmuxyCliAsync(args, extraEnv = {}) {
-  return new Promise((resolve) => {
-    execFile(
-      TMUXY_CLI,
-      args,
-      { cwd: WORKSPACE_ROOT, encoding: 'utf-8', timeout: 60000, env: { ...cliEnv(), ...extraEnv } },
-      (error, stdout, stderr) => resolve({ code: error ? (error.code ?? 1) : 0, stdout, stderr }),
-    );
+  return tmuxyCliStream(args, extraEnv).exited;
+}
+
+/**
+ * {@link tmuxyCliAsync} for a verb that prints as it goes (`pane listen`):
+ * what it has printed so far can be read while it runs, so a test can wait
+ * for a line before it acts.
+ *
+ * @param {string[]} args - The CLI's arguments
+ * @param {Record<string, string>} [extraEnv] - More environment for it
+ * @returns {{printed: () => string, exited: Promise<{code: number, stdout: string, stderr: string}>}}
+ */
+function tmuxyCliStream(args, extraEnv = {}) {
+  let stdout = '';
+  let stderr = '';
+  const child = spawn(TMUXY_CLI, args, {
+    cwd: WORKSPACE_ROOT,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 60000,
+    env: { ...cliEnv(), ...extraEnv },
   });
+  child.stdout.setEncoding('utf-8').on('data', (chunk) => (stdout += chunk));
+  child.stderr.setEncoding('utf-8').on('data', (chunk) => (stderr += chunk));
+  const exited = new Promise((resolve) => {
+    child.on('error', (error) => resolve({ code: 1, stdout, stderr: stderr + error.message }));
+    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });
+  return { printed: () => stdout, exited };
 }
 
 /**
@@ -144,5 +164,6 @@ module.exports = {
   tmuxRunAsOperator,
   tmuxyCli,
   tmuxyCliAsync,
+  tmuxyCliStream,
   TMUXY_CLI,
 };
