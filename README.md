@@ -176,8 +176,9 @@ defaults your `tmuxy.conf` replaced, and your own plugin's actions and verbs:
 `tmuxy keymap --table prefix t` says where `prefix t` comes from.
 
 A sidebar opens over the panes; pressing its key again while it is open docks
-it beside them, and again frees it. PANE and TAB are sticky modes: keys are
-plain letters and repeat until `Esc`, and the status line names the mode.
+it beside them, and again frees it. In PANE and TAB mode one plain letter runs
+its action and returns to normal (`Esc` leaves without running anything), and the
+status line names the mode.
 
 | PANE (`p`) | Action                       | TAB (`t`) | Action                    |
 | ---------- | ---------------------------- | --------- | ------------------------- |

@@ -1,0 +1,1 @@
+This wiki is published from the [`wiki/`](https://github.com/flplima/tmuxy/tree/main/wiki) folder of the repo. Found a mistake? Open a pull request there. [MIT](https://github.com/flplima/tmuxy/blob/main/LICENSE).
