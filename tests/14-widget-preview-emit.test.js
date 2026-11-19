@@ -17,7 +17,7 @@ const {
   waitForTerminalText,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
-const { tmuxyCliAsync } = require('./helpers/cli');
+const { tmuxyCliStream } = require('./helpers/cli');
 const { activePreview, openPreview, previewFrame } = require('./helpers/preview-widget');
 
 /**
@@ -90,7 +90,7 @@ describeE2E('Scenario: a page shown with tmuxy open talks back', {}, (ctx) => {
     const paneId = shown.paneId;
 
     // A plugin's handler, reading what the preview receives until it ends.
-    const listener = tmuxyCliAsync(['pane', 'listen', paneId, '--from-start']);
+    const listener = tmuxyCliStream(['pane', 'listen', paneId, '--from-start']);
 
     const frameBox = await (await ctx.page.$('iframe.preview-frame')).boundingBox();
     const button = await previewFrame(ctx.page).evaluate(() => {
@@ -111,6 +111,14 @@ describeE2E('Scenario: a page shown with tmuxy open talks back', {}, (ctx) => {
       10000,
       () => `the line under the preview (${tmuxExec(`capture-pane -p -t '${paneId}'`)})`,
     );
+    // The listener has it before the preview ends: one whose first look came
+    // after the end would find no preview to read, and print nothing.
+    await waitForCondition(
+      ctx.page,
+      async () => listener.printed().includes(line),
+      10000,
+      () => `the listener to print the line (${JSON.stringify(listener.printed())})`,
+    );
 
     // Ctrl+C from inside the page ends the preview, and the listener with it.
     await ctx.page.keyboard.press('Control+c');
@@ -121,9 +129,8 @@ describeE2E('Scenario: a page shown with tmuxy open talks back', {}, (ctx) => {
       'Ctrl+C in the page to close the preview',
     );
     await waitForShellPrompt(ctx.page);
-    const heard = await listener;
-    expect(heard.code).toBe(0);
-    expect(heard.stdout.split('\n').filter(Boolean)).toEqual([line]);
+    // Its stderr is compared too, so a listener that ended early says why.
+    expect(await listener.exited).toEqual({ code: 0, stdout: `${line}\n`, stderr: '' });
 
     // The pane is a shell now. A page's line that arrives late, sent as the
     // app sends one, is refused by tmux and the shell reads nothing: what
