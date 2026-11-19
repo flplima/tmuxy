@@ -36,6 +36,21 @@ async function paneHeaderMark(page, paneId) {
 }
 
 /**
+ * The name a pane's header shows, as drawn, or null when it draws none: a
+ * group's member in its tab, a lone pane in its own header.
+ */
+async function paneHeaderTitle(page, paneId) {
+  return page.evaluate((id) => {
+    const title = document.querySelector(
+      `[data-pane-tab="${id}"] .pane-tab-title, [data-pane-id="${id}"] .pane-tab-title`,
+    );
+    const box = title?.getBoundingClientRect();
+    if (!title || !box || box.width === 0) return null;
+    return title.textContent.trim();
+  }, paneId);
+}
+
+/**
  * An element that draws a pane: its layout wrapper, its terminal, a float, the
  * dock. A pane carries its id on more than one of them, so callers count
  * distinct ids. The tree's rows carry it too, for every tab's panes.
@@ -495,6 +510,7 @@ module.exports = {
   // Pane info
   GRID_PANE,
   paneHeaderMark,
+  paneHeaderTitle,
   onScreen,
   shownPanes,
   getUIPaneCount,

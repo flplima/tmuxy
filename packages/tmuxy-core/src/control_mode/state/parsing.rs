@@ -60,7 +60,12 @@ impl StateAggregator {
             debug!(pane = %pane_id, cols = width, rows = height, "pane resized");
         }
         pane.active = active;
-        pane.command = command;
+        // A tmuxy command typed at a prompt runs as tmuxy's own binary, a name
+        // nobody typed: the pane goes on being named by the shell it was
+        // typed into, as a send's question names its caller.
+        if pane.command.is_empty() || !crate::program::is_own_name(&command) {
+            pane.command = command;
+        }
         pane.set_title(row.text(PaneColumn::Title));
         pane.border_title = row.text(PaneColumn::BorderTitle);
         let was_in_mode = pane.in_mode;
