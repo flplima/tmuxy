@@ -172,7 +172,8 @@ export function handleModalOrCopyKeyDown(
 
   if (copyModeActive) {
     event.preventDefault();
-    if (event.key === 'y' || event.key === 'Enter') {
+    // While the search prompt is open its Enter runs the search; it yanks nothing.
+    if ((event.key === 'y' || event.key === 'Enter') && !activeCopyState?.search?.prompt) {
       if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
         setPendingCopyText(extractSelectedText(activeCopyState));
         document.execCommand('copy');

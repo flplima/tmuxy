@@ -8,6 +8,7 @@
 
 import { useRef, useLayoutEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
+import { SearchHighlights } from './SearchHighlights';
 import { useAppSelector } from '../../machines/appHooks';
 import { selectCharSize } from '../../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
@@ -293,6 +294,7 @@ export function ScrollbackTerminal({
           style={{ top: row * charHeight, height: charHeight }}
         />
       ))}
+      {isCopyMode && <SearchHighlights copyState={copyState} charHeight={charHeight} />}
       {isCursorVisible && (
         <Cursor x={cursorCol} y={cursorRow} char={cursorChar} copyMode={true} mode="block" />
       )}

@@ -1,0 +1,31 @@
+/* Sits inside `.pane-content`, which is positioned, over the pane's last row. */
+
+.copy-search-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-ask);
+  display: flex;
+  align-items: center;
+  height: var(--line-height-terminal);
+  padding: 0 1ch;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  color: var(--text-primary);
+  background-color: var(--term-background);
+  border-top: 1px solid var(--border-light);
+}
+
+.copy-search-bar[data-state='not-found'] {
+  color: var(--text-dimmed);
+}
+
+.copy-search-caret {
+  width: 1ch;
+  height: 1em;
+  background-color: var(--cursor-bg);
+}

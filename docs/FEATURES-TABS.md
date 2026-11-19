@@ -40,7 +40,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | Id | Feature | Mouse / UI | Menu | Keybinding | CLI | Config / Tag | Enforced by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | C1 | Scroll back | the wheel, a touch drag | — | — | — | — | `tests/1-input-interaction-mouse.test.js` |
-| C2 | Copy mode: move, select, yank, search | — | `pane-copy-mode` | `copy-mode-vi v` `copy-mode-vi V` `copy-mode-vi C-v` `copy-mode-vi y` `copy-mode-vi Escape` `copy-mode-vi q` `copy-mode-vi /` `copy-mode-vi ?` | — | — | `tests/1-input-interaction-copy.test.js` |
+| C2 | Copy mode: move, select, yank, search (`/` `?` `n` `N`, whole scrollback) | — | `pane-copy-mode` | `copy-mode-vi v` `copy-mode-vi V` `copy-mode-vi C-v` `copy-mode-vi y` `copy-mode-vi Escape` `copy-mode-vi q` `copy-mode-vi /` `copy-mode-vi ?` | — | — | `tests/1-input-interaction-copy.test.js` `tests/1-input-interaction-copy-search.test.js` |
 | C3 | Copy what the mouse selects | drag, double- or triple-click | `selection-copy` | `copy-mode-vi MouseDragEnd1Pane` `copy-mode MouseDragEnd1Pane` `app Ctrl+Shift+C` | — | — | `tests/1-input-interaction-clipboard.test.js` |
 | C4 | Select all the scrollback | — | — | `app Cmd+A` | — | — | `tests/1-input-interaction-scrollback-select.test.js` |
 | C5 | The selection menu | right-click a selection | — | — | — | — | `tests/1-input-interaction-mouse.test.js` |

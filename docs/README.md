@@ -79,6 +79,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [PROMPT-MARKS.md](PROMPT-MARKS.md) | The shell's prompts (OSC 133): how their rows are read from tmux, the marks and the jump in the scrollback, Copy Last Output | Working on prompt marks, the jump between prompts, or Copy Last Output |
 | [ACTIVITY.md](ACTIVITY.md) | The activity inbox: every pane that declared a state, across sessions, by urgency, and the jump to the one that needs you | Working on the inbox, cross-session attention, or `prefix A` / `U` |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
+| [COPY-MODE-SEARCH.md](COPY-MODE-SEARCH.md) | Copy mode's search: `/` `?` `n` `N`, the prompt row, smart-case matching, loading the whole history before a search | Working on copy mode search or its highlights |
 
 ### Extending
 

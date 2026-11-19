@@ -151,7 +151,7 @@ a pane is in copy mode, `machines/actors/keyboardActor.ts` calls `preventDefault
 `COPY_MODE_KEY`; the `copyMode_key` action resolves it to cursor motion, selection, page/word/line
 motions, yank, or exit against the pane's `CopyModeState`. Supported keys include `h`/`j`/`k`/`l` (+
 arrows), `0`/`$`, `w`/`b`/`e`, `H`/`M`/`L`, `gg`/`G`, `Ctrl-u`/`Ctrl-d`/`Ctrl-b`/`Ctrl-f`, `Space`/`v`
-(char select), `V` (line select), `y` (yank), and `q`/`Escape` (exit). Yank and `Ctrl/Cmd-C` copy the
+(char select), `V` (line select), `y` (yank), `q`/`Escape` (exit), and `/`/`?`/`n`/`N` (search, [COPY-MODE-SEARCH.md](COPY-MODE-SEARCH.md)). Yank and `Ctrl/Cmd-C` copy the
 extracted selection to the system clipboard via the keyboard actor's native `copy` event.
 
 ## Mouse and selection
@@ -247,4 +247,5 @@ types the selection into the pane. Either closes the view.
 - [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — the `copyMode` slice and `copyModeStates` context
 - [NON-GOALS.md](NON-GOALS.md) — why client scrollback rendering is the one scrollback-like feature we implement
 - [DATA-FLOW.md](DATA-FLOW.md) — the SSE/HTTP/Tauri/v86 transports the scrollback fetch rides on
+- [COPY-MODE-SEARCH.md](COPY-MODE-SEARCH.md): `/` `?` `n` `N` over the whole history
 - [PROMPT-MARKS.md](PROMPT-MARKS.md): the shell's prompts (OSC 133) in both views: marks, the jump, `[` and `]`, Copy Last Output

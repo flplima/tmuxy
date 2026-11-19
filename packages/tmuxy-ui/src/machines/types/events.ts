@@ -303,6 +303,7 @@ export type AppMachineEvent =
   | { type: 'COPY_MODE_YANK'; paneId: PaneId }
   | { type: 'COPY_MODE_MOUSE_COPY'; paneId: PaneId }
   | { type: 'COPY_MODE_COPIED_EXIT'; paneId: PaneId; copiedAt: number }
+  | { type: 'COPY_MODE_SEARCH_NOTICE_CLEAR'; paneId: PaneId }
   | { type: 'COPY_MODE_KEY'; key: string; ctrlKey: boolean; shiftKey: boolean }
   | {
       type: 'COPY_MODE_WORD_SELECT';

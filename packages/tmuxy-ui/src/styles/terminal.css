@@ -385,3 +385,17 @@
   opacity: 0.7;
   pointer-events: none;
 }
+
+/* A search match in copy mode: the current one in the copy cursor's colour. */
+.terminal-search-match {
+  position: absolute;
+  box-sizing: border-box;
+  border-bottom: 2px solid var(--theme-accent);
+  background-color: color-mix(in srgb, var(--selection-bg) 55%, transparent);
+  pointer-events: none;
+}
+
+.terminal-search-match[data-current='true'] {
+  background-color: var(--cursor-copy-bg);
+  opacity: 0.55;
+}

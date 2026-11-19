@@ -12,6 +12,7 @@ import type { TmuxPane } from '../../../../domain/client';
 import type { CellLine } from '../../../../domain/wireCells';
 import type { PaneId } from '../../../../domain/ids';
 import { TmuxOp } from '../../../../domain/commands';
+import { runSearch } from '../../../../domain/copyModeSearch';
 import { shiftPromptRows } from '../../../../domain/promptMarks';
 import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 
@@ -225,6 +226,84 @@ export function reconcilePaneMode(
   return 'none';
 }
 
+/** Asks for the rows of `gap` (absolute), marking the record as loading. */
+export function requestGap(
+  enqueue: EnqueueAction,
+  record: CopyModeState,
+  paneId: PaneId,
+  gap: [number, number],
+): void {
+  record.loading = true;
+  enqueue(
+    sendTo('tmux', {
+      type: 'FETCH_SCROLLBACK_CELLS' as const,
+      paneId,
+      start: gap[0] - record.historySize,
+      end: gap[1] - record.historySize,
+    }),
+  );
+}
+
+/**
+ * A search waiting for the whole history: asks for the next gap, or runs once
+ * there is none. Returns the gap it asked for.
+ */
+function continueSearch(
+  updated: CopyModeState,
+  paneId: PaneId,
+  enqueue: EnqueueAction,
+): [number, number] | null {
+  const pending = updated.search?.pending;
+  if (!pending) return null;
+  const gap = firstUnloadedGap(updated.loadedRanges, updated.totalLines);
+  if (gap) {
+    requestGap(enqueue, updated, paneId, gap);
+    return gap;
+  }
+  Object.assign(updated, runSearch(updated, pending));
+  return null;
+}
+
+/** The selections a finger's hold asked for before any row was there to select. */
+function applyPendingSelections(
+  updated: CopyModeState,
+  existing: CopyModeState,
+  historySize: number,
+): void {
+  if (existing.pendingSelection) {
+    const ps = existing.pendingSelection;
+    const absoluteRow = historySize + ps.row;
+    updated.selectionMode = ps.mode;
+    updated.selectionAnchor = { row: absoluteRow, col: ps.col };
+    updated.cursorRow = absoluteRow;
+    updated.cursorCol = ps.col;
+    updated.pendingSelection = undefined;
+  }
+
+  if (existing.pendingWordSelection) {
+    const pw = existing.pendingWordSelection;
+    const word = selectWordAt(updated, historySize + pw.row, pw.col, pw.broad === true);
+    if (word) {
+      Object.assign(updated, word);
+      updated.pendingWordSelection = undefined;
+    }
+  }
+}
+
+/** A pending select-all: lays the selection over what is loaded, and asks for the next gap. */
+function continueSelectAll(
+  updated: CopyModeState,
+  existing: CopyModeState,
+  paneId: PaneId,
+  enqueue: EnqueueAction,
+): void {
+  if (!existing.pendingSelectAll) return;
+  const gap = firstUnloadedGap(updated.loadedRanges, updated.totalLines);
+  Object.assign(updated, selectEveryRow(updated));
+  updated.pendingSelectAll = gap ? true : undefined;
+  if (gap) requestGap(enqueue, updated, paneId, gap);
+}
+
 /**
  * Merge a fetched chunk into the record, and ask for what is still missing:
  * the history above it, or the gaps a pending select-all needs.
@@ -271,53 +350,29 @@ export function applyScrollbackChunk(
       histDiff !== 0
         ? Math.max(0, Math.min(existing.cursorRow + histDiff, totalLines - 1))
         : existing.cursorRow,
+    ...(existing.search?.match && histDiff !== 0
+      ? {
+          search: {
+            ...existing.search,
+            match: { ...existing.search.match, row: existing.search.match.row + histDiff },
+          },
+        }
+      : {}),
     ...(existing.promptRows && histDiff !== 0
       ? { promptRows: shiftPromptRows(existing.promptRows, histDiff) }
       : {}),
   };
 
-  if (existing.pendingSelection) {
-    const ps = existing.pendingSelection;
-    const absoluteRow = event.historySize + ps.row;
-    updated.selectionMode = ps.mode;
-    updated.selectionAnchor = { row: absoluteRow, col: ps.col };
-    updated.cursorRow = absoluteRow;
-    updated.cursorCol = ps.col;
-    updated.pendingSelection = undefined;
-  }
-
-  if (existing.pendingWordSelection) {
-    const pw = existing.pendingWordSelection;
-    const word = selectWordAt(updated, event.historySize + pw.row, pw.col, pw.broad === true);
-    if (word) {
-      Object.assign(updated, word);
-      updated.pendingWordSelection = undefined;
-    }
-  }
+  applyPendingSelections(updated, existing, event.historySize);
 
   const topRow = loadedRanges.length > 0 ? loadedRanges[0][0] : totalLines;
-  const selectAllGap = existing.pendingSelectAll
-    ? firstUnloadedGap(loadedRanges, totalLines)
-    : null;
-  if (existing.pendingSelectAll) {
-    Object.assign(updated, selectEveryRow(updated));
-    updated.pendingSelectAll = selectAllGap ? true : undefined;
-    if (selectAllGap) {
-      updated.loading = true;
-      enqueue(
-        sendTo('tmux', {
-          type: 'FETCH_SCROLLBACK_CELLS' as const,
-          paneId: event.paneId,
-          start: selectAllGap[0] - event.historySize,
-          end: selectAllGap[1] - event.historySize,
-        }),
-      );
-    }
-  }
+  continueSelectAll(updated, existing, event.paneId, enqueue);
+
+  const searchGap = continueSearch(updated, event.paneId, enqueue);
 
   // The older history, the next chunk above what is in: newest first, so
   // the rows nearest the screen arrive before the oldest.
-  if (!existing.pendingSelectAll && topRow > 0) {
+  if (!existing.pendingSelectAll && !searchGap && topRow > 0) {
     updated.loading = true;
     enqueue(
       sendTo('tmux', {
