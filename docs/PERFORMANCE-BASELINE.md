@@ -119,7 +119,10 @@ keystroke path is its subject. Axis D's subject is what the app retains while
 rendering someone else's output, so it drives load through `tmuxy pane send`.
 That is also a practical necessity: typing a long command line into a pane drops
 characters often enough that the load generator sometimes runs a different
-command than the one it was given.
+command than the one it was given. A send from outside any pane asks the user in
+the target pane first, and nobody answers on a runner, so the harness switches
+that question off (`@tmuxy-send-ask off`) on the server it was given, and only
+that one, before it sends anything.
 
 **It needs a tmux socket of its own.** It types into the active pane and splits
 panes in whatever session the server it is pointed at is serving. A server

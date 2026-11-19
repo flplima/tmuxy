@@ -52,16 +52,18 @@ export async function startBusyPanes(adapter, { windowId, count = BUSY_PANES }) 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-perf-busy-'));
   const ttys = path.join(dir, 'ttys');
   const pane = `sh -c 'tty >> ${ttys}; exec cat > /dev/null'`;
+  // The focused pane on top, full width, the busy ones in a row under it:
+  // tiled into 24, a typed line would wrap and scroll off a pane that small.
+  // Laid out so after every split, not only the last: each split cuts the
+  // focused pane, and tiled it shrank with every one, until in the desktop
+  // app's 800×600 window tmux had no room to cut it after 16.
   for (let i = 0; i < count; i++) {
     await tmux(adapter, `splitw -d -t ${windowId} "${pane}"`);
-    await tmux(adapter, `selectl -t ${windowId} tiled`);
+    await tmux(adapter, `selectl -t ${windowId} main-horizontal`);
     await adapter.wait(150);
   }
   // Matched, not split on lines: each pane appends its own name, and the
   // newlines between them do not always survive tmux's quoting.
-  // The focused pane on top, full width, the busy ones in a row under it:
-  // tiled into 24, a typed line would wrap and scroll off a pane that small.
-  await tmux(adapter, `selectl -t ${windowId} main-horizontal`);
   const listed = () =>
     fs.existsSync(ttys)
       ? (fs.readFileSync(ttys, 'utf8').match(/\/dev\/(?:pts\/\d+|ttys?\w+)/g) ?? [])
@@ -131,12 +133,19 @@ export async function newWindowId(adapter, make) {
   }
 }
 
-/** Close the tab `windowId`, one the run made, by its id: whether it is gone. */
+/**
+ * Close the tab `windowId`, one the run made, by its id: whether tmux closed
+ * it. The client drops the tab as it sends the kill, before the kill has left
+ * the page, so the tab gone from the client says nothing until the client is
+ * also settled: a page closed in between took the kill with it, and the next
+ * run on the server found the tab still there.
+ */
 export async function closeWindow(adapter, windowId) {
   await tmux(adapter, `killw -t ${windowId}`);
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    if (!(await windowIds(adapter)).includes(windowId)) return true;
+    const settled = await adapter.evaluate(() => window.app.settled());
+    if (settled && !(await windowIds(adapter)).includes(windowId)) return true;
     await adapter.wait(100);
   }
   return false;

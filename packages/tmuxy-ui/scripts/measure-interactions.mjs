@@ -103,6 +103,7 @@ async function main() {
   const attachTab = await newWindowId(adapter, () =>
     adapter.evaluate(() => window.app.send({ type: 'SEND_TMUX_COMMAND', command: 'neww' })),
   );
+  let closed = false;
   try {
     results.push(
       ...(await measureAttach(page, {
@@ -116,8 +117,10 @@ async function main() {
       })),
     );
   } finally {
-    await closeWindow(adapter, attachTab);
+    closed = await closeWindow(adapter, attachTab);
   }
+  // Left open, it is where the next run on this server starts typing.
+  if (!closed) throw new Error(`the attach tab ${attachTab} could not be closed`);
 
   // A CDP browser belongs to the developer, not to us — close only the tab.
   if (CDP) await page.close();

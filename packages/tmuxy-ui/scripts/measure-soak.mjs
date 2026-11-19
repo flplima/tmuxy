@@ -83,14 +83,28 @@ delete CLI_ENV.TMUX_PANE;
 // path, and the shadow is hoisted, so the resolution hits a TDZ error.
 const TARGET_URL = SESSION ? `${URL_BASE}?session=${encodeURIComponent(SESSION)}` : URL_BASE;
 
+const cli = (args) => execFileSync(CLI, args, { encoding: 'utf-8', env: CLI_ENV, timeout: 20000 });
+
 // `pane send` routes the keys through `tmux run-shell`, the control-mode-safe
 // way in (docs/TMUX.md); `Enter` is send-keys' name for the key.
 function runInPane(line) {
-  execFileSync(CLI, ['pane', 'send', line, 'Enter'], {
-    encoding: 'utf-8',
-    env: CLI_ENV,
-    timeout: 20000,
-  });
+  cli(['pane', 'send', line, 'Enter']);
+}
+
+// The load is typed from outside any pane, and a send into a pane that is not
+// the caller's asks the user there first (docs/PERMISSIONS.md): with nobody to
+// answer, the first send waited until its timeout killed it. The server is the
+// run's own, so the question is switched off on it, through the client's own
+// routing, and read back before anything is sent.
+async function allowSends(page) {
+  await page.evaluate(() =>
+    window.app.send({ type: 'SEND_TMUX_COMMAND', command: 'set -g @tmuxy-send-ask off' }),
+  );
+  const deadline = Date.now() + 20000;
+  while (cli(['run', 'show-options', '-gqv', '@tmuxy-send-ask']).trim() !== 'off') {
+    if (Date.now() > deadline) throw new Error('the send question could not be switched off');
+    await page.waitForTimeout(100);
+  }
 }
 
 // `yes | head -c`: real bytes through the parser, not a tight redraw loop.
@@ -145,11 +159,7 @@ async function waitForPaneCount(page, predicate, reference) {
 }
 
 function splitPane() {
-  execFileSync(CLI, ['pane', 'split', '-v'], {
-    encoding: 'utf-8',
-    env: CLI_ENV,
-    timeout: 20000,
-  });
+  cli(['pane', 'split', '-v']);
 }
 
 // Through the CLI, never a raw `tmux split-window`: an external mutation
@@ -201,6 +211,7 @@ async function main() {
     wait: (ms) => page.waitForTimeout(ms),
   });
   await page.locator('.pane-layout-item.pane-active [role="log"]').first().click({ timeout: 5000 });
+  await allowSends(page);
 
   await settle(cdp, page);
   const baseline = await sample(cdp, serverPid);

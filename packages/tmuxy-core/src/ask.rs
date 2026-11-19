@@ -219,15 +219,24 @@ impl SendRules {
             .map(|word| crate::tmux_quote(word))
             .collect::<Vec<_>>()
             .join(" ");
-        tmux.mutate(vec![words(&[
-            "if-shell",
-            "-F",
-            "-t",
-            pane.as_str(),
-            &quiet,
-            &mark,
-        ])])
-        .await
+        let marked = tmux
+            .mutate(vec![words(&[
+                "if-shell",
+                "-F",
+                "-t",
+                pane.as_str(),
+                &quiet,
+                &mark,
+            ])])
+            .await;
+        match marked {
+            // Keys that closed the pane (an `exit`) left nothing to mark.
+            Err(refused) => match read_if_there(tmux, pane, "").await? {
+                None => Ok(()),
+                Some(_) => Err(refused),
+            },
+            Ok(()) => Ok(()),
+        }
     }
 }
 
@@ -307,9 +316,15 @@ pub async fn deliver_when<T: Tmux>(
     tmux.mutate(vec![guarded(pane, &command, &token, also)])
         .await
         .map_err(Refused::Tmux)?;
-    let held = pane_read(tmux, pane, &format!("#{{{SEND_HELD}-{token}}}"))
+    // tmux ran the guard on a pane that was there. Gone now, the keys went in
+    // and closed it (an `exit`, a `q` to a pager), mark and all: a pane they
+    // were held back from waits for the user, and does not end by itself.
+    let Some(held) = read_if_there(tmux, pane, &format!("#{{{SEND_HELD}-{token}}}"))
         .await
-        .map_err(Refused::Tmux)?;
+        .map_err(Refused::Tmux)?
+    else {
+        return Ok(());
+    };
     if held.trim().is_empty() {
         return Ok(());
     }
@@ -340,13 +355,24 @@ pub async fn pane_read<T: Tmux>(
     pane: &PaneId,
     format: &str,
 ) -> Result<String, CommandError> {
+    read_if_there(tmux, pane, format)
+        .await?
+        .ok_or_else(|| CommandError::tmux(format!("{pane} is gone")))
+}
+
+/// [`pane_read`], with a pane that is gone as `None` rather than an error.
+async fn read_if_there<T: Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+    format: &str,
+) -> Result<Option<String>, CommandError> {
     let said = tmux
         .read(display(pane, &format!("#{{pane_id}}\t{format}")))
         .await?;
-    match said.split_once('\t') {
-        Some((id, rest)) if id == pane.as_str() => Ok(rest.to_string()),
-        _ => Err(CommandError::tmux(format!("{pane} is gone"))),
-    }
+    Ok(match said.split_once('\t') {
+        Some((id, rest)) if id == pane.as_str() => Some(rest.to_string()),
+        _ => None,
+    })
 }
 
 fn display(pane: &PaneId, format: &str) -> Argv {
