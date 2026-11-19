@@ -6,7 +6,7 @@
   },
   "complexity": {
     "typescriptBranchy": 57,
-    "typescriptLong": 60,
+    "typescriptLong": 59,
     "rustLong": 36
   }
 }

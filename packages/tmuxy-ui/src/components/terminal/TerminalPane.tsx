@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
+import { CopySearchBar } from './CopySearchBar';
 import { cloneNativeSelectionRange, readNativeSelection } from '../../infra/dom/nativeSelection';
 import { PaneHeader } from '../PaneHeader';
 import { PaneContextMenu } from '../PaneContextMenu';
@@ -304,6 +305,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
           <AskOverlay paneId={paneId} />
           <OfferBanner paneId={paneId} />
 
+          {copyState?.search && <CopySearchBar paneId={paneId} search={copyState.search} />}
           {copyState && (
             <ScrollPositionIndicator
               indicatorRef={scrollIndicatorRef}

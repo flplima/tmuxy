@@ -1,5 +1,5 @@
 import { assign, sendTo } from 'xstate';
-import { act, assignCtx } from '../actionTypes';
+import { act, assignCtx, type Ctx, type Enqueue } from '../actionTypes';
 import {
   type CopyModeState,
   clampColToLine,
@@ -8,20 +8,41 @@ import {
   toAbsoluteRow,
 } from '../../../domain/copyMode';
 import { handleCopyModeKey } from '../../../domain/copyModeKeys';
+import { beginSearch, handleSearchKey, type SearchKeyResult } from '../../../domain/copyModeSearch';
 import { selectPaneTakesCopyMode } from '../../selectors/panesAndSidebars';
 import { selectKeyFocusPane, selectKeyTarget } from '../../selectors/keyboard';
 import { writeClipboard } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
+import type { PaneId } from '../../../domain/ids';
 import {
   applyScrollbackChunk,
   buildScrollbackState,
   fetchHistory,
   fetchNeededChunk,
   leaveAfterCopy,
+  requestGap,
   selectEveryRow,
   selectWordAt,
 } from './copyMode/scrollback';
 import { promptMarkActions } from './copyMode/promptMarks';
+
+/** A search key: open, edit or close the prompt, or run a search (loading the history it needs first). */
+function applySearchKey(
+  enqueue: Enqueue,
+  context: Ctx,
+  paneId: PaneId,
+  copyState: CopyModeState,
+  { search, run }: SearchKeyResult,
+): void {
+  let next: CopyModeState = { ...copyState, search };
+  if (run) {
+    const begun = beginSearch(next, run);
+    next = begun.state;
+    if (begun.gap) requestGap(enqueue, next, paneId, begun.gap);
+  }
+  enqueue(assign({ copyModeStates: { ...context.copyModeStates, [paneId]: next } }));
+  if (run) fetchNeededChunk(enqueue, context, paneId, next);
+}
 
 export const copyModeActions = {
   ...promptMarkActions,
@@ -172,7 +193,24 @@ export const copyModeActions = {
     return {
       copyModeStates: {
         ...context.copyModeStates,
-        [event.paneId]: { ...existing, loading: false },
+        [event.paneId]: {
+          ...existing,
+          loading: false,
+          search: existing.search && { ...existing.search, pending: undefined },
+        },
+      },
+    };
+  }),
+
+  /** The "not found" notice has been up long enough. */
+  copyMode_searchNoticeClear: assignCtx(({ event, context }) => {
+    if (event.type !== 'COPY_MODE_SEARCH_NOTICE_CLEAR') return {};
+    const existing = context.copyModeStates[event.paneId];
+    if (!existing?.search?.notFound) return {};
+    return {
+      copyModeStates: {
+        ...context.copyModeStates,
+        [event.paneId]: { ...existing, search: { ...existing.search, notFound: false } },
       },
     };
   }),
@@ -372,6 +410,12 @@ export const copyModeActions = {
     if (!paneId) return;
     const copyState = context.copyModeStates[paneId];
     if (!copyState) return;
+
+    const searchKey = handleSearchKey(event.key, event.ctrlKey, copyState);
+    if (searchKey) {
+      applySearchKey(enqueue, context, paneId, copyState, searchKey);
+      return;
+    }
 
     const result = handleCopyModeKey(event.key, event.ctrlKey, event.shiftKey, copyState);
 

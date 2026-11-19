@@ -10,6 +10,35 @@ import type { CellLine } from './wireCells';
  */
 export type ScrollbackMode = 'scroll' | 'copy';
 
+/** `down` runs towards newer lines (`/`), `up` towards older ones (`?`). */
+export type SearchDir = 'down' | 'up';
+
+export interface SearchQuery {
+  dir: SearchDir;
+  query: string;
+}
+
+/** A match on one row: its first cell and how many cells it covers. */
+export interface SearchMatch {
+  row: number;
+  col: number;
+  len: number;
+}
+
+/** What copy mode's search holds. */
+export interface CopySearch {
+  /** The prompt is open and edits this. */
+  prompt?: SearchQuery;
+  /** What `n` and `N` repeat. */
+  last?: SearchQuery;
+  /** The current match, highlighted. */
+  match?: SearchMatch;
+  /** The last run found nothing; the prompt area says so until it is cleared. */
+  notFound?: boolean;
+  /** Waiting for the rest of the history to load before it runs. */
+  pending?: SearchQuery;
+}
+
 export interface CopyModeState {
   mode: ScrollbackMode;
   /** Keyed by absolute row. */
@@ -34,6 +63,8 @@ export interface CopyModeState {
    * tmux has answered; empty for a shell that marks none.
    */
   promptRows?: number[];
+  /** The `/` `?` search: its prompt, last query, current match. */
+  search?: CopySearch;
   /** Applied on the first chunk load; visible-relative row. */
   pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
   /**

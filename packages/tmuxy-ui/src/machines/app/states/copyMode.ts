@@ -19,6 +19,7 @@ export const copyModeState = {
     COPY_MODE_YANK: { actions: 'copyMode_yank' },
     COPY_MODE_MOUSE_COPY: { actions: 'copyMode_mouseCopy' },
     COPY_MODE_COPIED_EXIT: { actions: 'copyMode_copiedExit' },
+    COPY_MODE_SEARCH_NOTICE_CLEAR: { actions: 'copyMode_searchNoticeClear' },
     COPY_MODE_KEY: { actions: 'copyMode_key' },
     PROMPT_JUMP: { actions: 'promptMarks_jump' },
     PROMPT_MARKS_LOADED: { actions: 'promptMarks_loaded' },
