@@ -28,7 +28,7 @@ It is a guardrail for an agent that cooperates, not a sandbox. Every process of 
 
 | Key | What it holds |
 | --- | --- |
-| `callers` | One section per caller name, and `*` for every caller. A caller is named as the send question names it: the program in front in its pane (`claude`, `codex`), its process when it runs in no pane, and for an MCP client both the name it introduced itself with and `mcp`. |
+| `callers` | One section per caller name, and `*` for every caller. A caller is named as the send question names it: the program in front in its pane (`claude`, `codex`), the shell it was typed into when typed at a prompt (`zsh`), its process when it runs in no pane, and for an MCP client both the name it introduced itself with and `mcp`. |
 | `allow`, `ask`, `deny` | Lists of rules. `deny` beats `ask` beats `allow`, across the caller's own section and `*` together. A command no rule matches is asked. |
 | `shells` | The programs an `ask` or `allow` rule is about. Optional; without it: zsh, bash, fish, sh, dash, ash, nu. |
 

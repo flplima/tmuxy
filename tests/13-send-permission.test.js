@@ -125,9 +125,13 @@ describeE2E('Scenario: tmuxy pane send asks before typing into another pane', {}
     // 1. Allowed. Typed, not injected: the send runs in a shell, the way an
     //    agent runs it, and the whole path from that shell to the overlay is
     //    what this is about.
+    // Typed at a prompt, the sender is the shell it was typed into, named
+    // as its pane's header names it: not the CLI's own binary.
+    const shell = tmuxPane(here).command;
+    expect(shell).toBeTruthy();
     await typeCommand(page, here, `${TMUXY_CLI} pane send -t ${there} 'echo send-allowed' Enter`);
     let overlay = await waitForAskOverlay(page, there, here);
-    expect(overlay.caller).toBeTruthy();
+    expect(overlay.caller).toBe(shell);
     expect(overlay.questions).toEqual([`${overlay.caller} wants to send echo send-allowed.Allow?`]);
     expect(overlay.block).toBeNull();
     // Yes is highlighted before anything is touched — the same answer the
