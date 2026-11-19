@@ -17,15 +17,17 @@
 //! tmux **control mode** forwards passthrough sequences verbatim through
 //! `%output`, so the original bytes arrive here (docs/RICH-RENDERING.md).
 
+mod escape_string;
 mod kitty;
 mod kitty_placeholders;
 mod sixel_and_iterm;
 
+use escape_string::{ends_pending_escape, find_osc_end, last_terminator_start, string_end};
+use escape_string::{StringEnd, StringKind};
 use kitty::rgba_to_png;
 use serde::{Deserialize, Serialize};
 pub(crate) use sixel_and_iterm::base64_decode;
-use sixel_and_iterm::{detect_mime_type, ends_pending_escape, last_terminator_start, overlaps};
-use sixel_and_iterm::{find_osc_end, string_end, StringEnd};
+use sixel_and_iterm::{detect_mime_type, overlaps};
 
 // `std::time::Instant::now()` panics on wasm32; web-time backs it with
 // performance.now() in the browser.

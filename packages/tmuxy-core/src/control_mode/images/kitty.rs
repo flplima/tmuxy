@@ -27,7 +27,7 @@ impl ImageParser {
         }
 
         // Incomplete (`None`): wait for more bytes. Aborted: not a picture.
-        let (end, consumed) = match string_end(data, 3, false)? {
+        let (end, consumed) = match string_end(data, 3, StringKind::Apc)? {
             StringEnd::Terminated { at, after } => (at, after),
             StringEnd::Aborted => return None,
         };

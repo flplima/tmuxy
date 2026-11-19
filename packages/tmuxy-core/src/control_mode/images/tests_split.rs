@@ -158,3 +158,37 @@ fn a_stripped_escape_ends_the_sequence_it_cut_short() {
         }
     }
 }
+
+/// A DCS ends at a C1 ST (the one byte 0x9C) once its introducer's final
+/// byte has opened its data, as vt100 reads it, so the text after it is
+/// printed. Read as part of the picture, that text was dropped when the
+/// output came whole and printed when tmux cut it after the ST (fuzzer:
+/// ESC P q 1000… NUL 0x9C … BEL … SP ESC \, the space printed or not).
+#[test]
+fn a_dcs_ends_at_a_c1_st_as_the_terminal_reads_it() {
+    let screen = |chunks: &[&[u8]]| {
+        let mut images = ImageParser::new();
+        let mut terminal = vt100::Parser::new(4, 20, 0);
+        for chunk in chunks {
+            terminal.process(&images.process(chunk).clean_bytes);
+        }
+        terminal.screen().contents()
+    };
+    let ended: &[u8] = b"\x1bPq#0~~\x9chi\x07!\x1b\\";
+    assert_eq!(screen(&[ended]), "hi!");
+    for cut in 1..ended.len() {
+        assert_eq!(
+            screen(&[&ended[..cut], &ended[cut..]]),
+            "hi!",
+            "cut at {cut}"
+        );
+    }
+    // In the introducer it ends nothing; nor in an OSC or an APC.
+    for not_ended in [
+        &b"\x1bP1\x9cq#0~~hi\x1b\\"[..],
+        b"\x1b]1337;File=:\x9chi\x1b\\",
+        b"\x1b_Ga=T;\x9chi\x1b\\",
+    ] {
+        assert_eq!(screen(&[not_ended]), "", "{not_ended:?}");
+    }
+}
