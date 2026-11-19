@@ -138,6 +138,8 @@ The frontend positions the `<img>` absolutely inside `.terminal-images` in cell 
 
 **Content-tracked scrolling and scroll/copy mode.** `PaneState::sync_image_scroll` reads `vt100::Screen::scroll_delta()` as terminal output is processed and calls `ImageParser::shift_rows_up` / `shift_rows_down` to shift each placement's `row` in lockstep with the surrounding text. Placements that scroll above the live viewport (`row < 0`) are retained until their bottom edge (`row + height_cells`) passes the scrollback limit (`IMAGE_HISTORY_ROWS`), and `ScrollbackTerminal.tsx` renders `.terminal-images` at `top: calc((historySize + row) * var(--line-height-terminal))` so images remain visible when scrolling back in scroll or copy mode. Primary-screen placements also survive pane zoom and resize (`ImageParser::reset_for_resize` only clears placements on the alternate screen, where full-screen apps redraw on `SIGWINCH`).
 
+**After a Sixel picture the cursor is at the start of the line below it**, where tmux built with Sixel and xterm put theirs, and the screen scrolls when the picture reaches the bottom (`ImageParser::line_below`), so the text after a picture is printed below it. tmux keeps its own count of those rows (none when built without Sixel), and a capture refill puts the text where tmux has it.
+
 See [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) for this section: The cell grid invariant.
 
 ## Program status (OSC 7501)

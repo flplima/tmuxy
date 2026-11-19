@@ -9,7 +9,8 @@ fn sixel_decoded_to_png() {
     let input = b"\x1bPq#0;2;100;0;0#0~~\x1b\\";
     let result = parser.process(input);
 
-    assert!(result.clean_bytes == STRIPPED_ESCAPE);
+    // The escape's ST, then the move to the line below the one-row picture.
+    assert_eq!(result.clean_bytes, [STRIPPED_ESCAPE, b"\r\n"].concat());
     assert!(
         !parser.placements.is_empty(),
         "sixel input must produce a placement"
@@ -206,7 +207,7 @@ fn a_sixel_split_over_many_chunks_still_decodes() {
         clean.extend(result.clean_bytes);
     }
     assert_eq!(images.len(), 1);
-    assert_eq!(clean, b"\x1b\\after");
+    assert_eq!(clean, b"\x1b\\\r\nafter");
 }
 
 /// The terminator split between two chunks — ESC at the end of one, `\` at
@@ -218,17 +219,17 @@ fn a_terminator_split_across_chunks_ends_the_escape() {
     assert!(first.new_images.is_empty());
     let second = parser.process(b"\\tail");
     assert_eq!(second.new_images.len(), 1);
-    assert_eq!(second.clean_bytes, b"\x1b\\tail");
+    assert_eq!(second.clean_bytes, b"\x1b\\\r\ntail");
 }
 
-/// A run of escapes that never end, then one terminator: each used to scan
-/// the rest of the chunk for a terminator, which made the chunk quadratic.
-/// The bytes still reach vt100 unchanged.
+/// A run of escapes that never end, then one ST: each used to scan the rest
+/// of the chunk for a terminator, which made the chunk quadratic. The bytes
+/// still reach vt100 unchanged.
 #[test]
 fn a_run_of_unterminated_escapes_passes_through_once() {
     let mut parser = ImageParser::new();
     let mut input = b"\x1b_X".repeat(20_000);
-    input.push(0x07);
+    input.extend_from_slice(b"\x1b\\");
     let result = parser.process(&input);
     assert_eq!(result.clean_bytes, input);
 }

@@ -174,12 +174,13 @@ fn a_dcs_ends_at_a_c1_st_as_the_terminal_reads_it() {
         }
         terminal.screen().contents()
     };
+    // The picture's row, then the text on the line below it.
     let ended: &[u8] = b"\x1bPq#0~~\x9chi\x07!\x1b\\";
-    assert_eq!(screen(&[ended]), "hi!");
+    assert_eq!(screen(&[ended]), "\nhi!");
     for cut in 1..ended.len() {
         assert_eq!(
             screen(&[&ended[..cut], &ended[cut..]]),
-            "hi!",
+            "\nhi!",
             "cut at {cut}"
         );
     }
@@ -190,5 +191,30 @@ fn a_dcs_ends_at_a_c1_st_as_the_terminal_reads_it() {
         b"\x1b_Ga=T;\x9chi\x1b\\",
     ] {
         assert_eq!(screen(&[not_ended]), "", "{not_ended:?}");
+    }
+}
+
+/// A BEL ends an OSC, not a DCS: a Sixel cut after a BEL in its body is held
+/// for the rest and read whole, so the picture takes its row however tmux cut
+/// the output (fuzzer: ESC P q BEL NUL CR LF ESC \, cut after the BEL).
+#[test]
+fn a_sixel_cut_after_a_bel_is_read_whole() {
+    let screen = |chunks: &[&[u8]]| {
+        let mut images = ImageParser::new();
+        let mut terminal = vt100::Parser::new(4, 20, 0);
+        for chunk in chunks {
+            terminal.process(&images.process(chunk).clean_bytes);
+        }
+        (
+            terminal.screen().contents(),
+            terminal.screen().cursor_position(),
+        )
+    };
+    let sixel: &[u8] = b"\x1bPq#0~~\x07~~\x1b\\hi";
+    let whole = screen(&[sixel]);
+    assert_eq!(whole, ("\nhi".to_string(), (1, 2)));
+    for cut in 1..sixel.len() {
+        let split = screen(&[&sixel[..cut], &sixel[cut..]]);
+        assert_eq!(split, whole, "cut at {cut}");
     }
 }

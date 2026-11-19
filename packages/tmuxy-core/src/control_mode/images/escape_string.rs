@@ -4,20 +4,54 @@
 //! whole or cut into `%output` lines.
 
 /// Where the last end of an escape string in `content` starts: a BEL (an
-/// OSC's), a C1 ST (a DCS's), a CAN or SUB (which cancel it), or an ESC with
-/// a byte after it (ST, or an escape that aborts the string). Only a last ESC
-/// is undecided.
-pub(super) fn last_terminator_start(content: &[u8]) -> Option<usize> {
+/// OSC's: with `bel` false, for a DCS or an APC, which run on past one), a
+/// C1 ST (a DCS's), a CAN or SUB (which cancel it), or an ESC with a byte
+/// after it (ST, or an escape that aborts the string). Only a last ESC is
+/// undecided.
+fn last_terminator_start(content: &[u8], bel: bool) -> Option<usize> {
     (0..content.len()).rev().find(|&i| {
-        matches!(content[i], 0x07 | C1_ST | CAN | SUB)
+        matches!(content[i], C1_ST | CAN | SUB)
+            || (bel && content[i] == 0x07)
             || (content[i] == 0x1B && i + 1 < content.len())
     })
+}
+
+/// Where a chunk's escape strings can end, scanned once: an escape at `i`
+/// has an end after it exactly when the last one starts at or past `i + 2`.
+/// Asking each escape to scan the rest of the chunk made a run of
+/// unterminated ones quadratic.
+pub(super) struct Ends {
+    /// Counting a BEL, which ends an OSC.
+    osc: Option<usize>,
+    /// Not counting one: a DCS or an APC runs on past it, so a Sixel cut
+    /// after a BEL is held, and read whole once the rest arrives.
+    other: Option<usize>,
+}
+
+impl Ends {
+    pub(super) fn of(content: &[u8]) -> Self {
+        Self {
+            osc: last_terminator_start(content, true),
+            other: last_terminator_start(content, false),
+        }
+    }
+
+    /// Whether a string of `kind` whose body starts at `from` can end in
+    /// the chunk.
+    pub(super) fn after(&self, from: usize, kind: StringKind) -> bool {
+        let last = match kind {
+            StringKind::Osc => self.osc,
+            StringKind::Dcs | StringKind::Apc => self.other,
+        };
+        last.is_some_and(|at| at >= from)
+    }
 }
 
 /// Whether `next` ends the escape buffered in `pending`, counting an ESC
 /// split from the byte after it: ST, or any other escape that cuts it short.
 pub(super) fn ends_pending_escape(pending: &[u8], next: &[u8]) -> bool {
-    (pending.last() == Some(&0x1B) && !next.is_empty()) || last_terminator_start(next).is_some()
+    (pending.last() == Some(&0x1B) && !next.is_empty())
+        || last_terminator_start(next, true).is_some()
 }
 
 /// Which escape string runs from `from`: what ends it besides ST (`ESC \`),
@@ -31,6 +65,17 @@ pub(super) enum StringKind {
     Dcs,
     /// APC (Kitty): nothing else.
     Apc,
+}
+
+impl StringKind {
+    /// The string an escape opens, by the byte after its ESC: `]`, `_` or `P`.
+    pub(super) fn of(introducer: u8) -> Self {
+        match introducer {
+            b']' => Self::Osc,
+            b'_' => Self::Apc,
+            _ => Self::Dcs,
+        }
+    }
 }
 
 /// How an escape string (OSC, DCS, APC) that runs from `from` in `data`

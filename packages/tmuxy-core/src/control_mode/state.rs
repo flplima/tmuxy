@@ -397,6 +397,8 @@ mod tests_program_status;
 #[cfg(test)]
 mod tests_sidebar_and_delta;
 #[cfg(test)]
+mod tests_sixel;
+#[cfg(test)]
 mod tests_text_sizes;
 #[cfg(test)]
 mod tests_view_mode;

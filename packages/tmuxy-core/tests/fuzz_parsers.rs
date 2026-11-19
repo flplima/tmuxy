@@ -226,16 +226,21 @@ proptest! {
 
     /// Image sequences of every protocol, broken any way: never a panic, and
     /// what passes on to the terminal, all chunks together, is no more than
-    /// what came in. (One chunk's share can be more: the unfinished start of
-    /// what could be an image, held back, comes out with the next.)
+    /// what came in, but for the move past each picture (a CR and a line feed
+    /// for each of its rows, a hundred at most). (One chunk's share can be
+    /// more: the unfinished start of what could be an image, held back, comes
+    /// out with the next.)
     #[test]
     fn image_sequences_never_panic(chunks in prop::collection::vec(hostile_bytes(), 1..6)) {
         let mut images = ImageParser::new();
-        let (mut fed, mut passed) = (0, 0);
+        let (mut fed, mut passed, mut pictures) = (0, 0, 0);
         for chunk in chunks {
             fed += chunk.len();
-            passed += images.process(&chunk).clean_bytes.len();
-            prop_assert!(passed <= fed, "{passed} bytes out of {fed}");
+            let result = images.process(&chunk);
+            passed += result.clean_bytes.len();
+            pictures += result.new_images.len();
+            let moves = pictures * (1 + 100);
+            prop_assert!(passed <= fed + moves, "{passed} bytes out of {fed} and {pictures} pictures");
         }
     }
 
