@@ -24,7 +24,7 @@ import {
 import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
 import { noteFocus } from '../../../infra/dom/chromeTab';
 import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
-import { copyAndSay, type CopyNotice } from '../../../infra/clipboard';
+import { copiedMessage, copyAndSay, type CopyNotice } from '../../../infra/clipboard';
 import { isModelPaneId, realId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
@@ -151,20 +151,27 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     });
   };
 
+  const say = (notice: CopyNotice) => deps.parent.send({ type: 'NOTIFY', ...notice });
+
+  /**
+   * The browser's own copy of a selection over terminal text (Cmd+C, the Edit
+   * menu): the text as the terminal holds it, the copied cells blink, and the
+   * same "Copied N characters" every other copy says.
+   */
   const handleCopy = (event: ClipboardEvent) => {
     // A copy the app made (copyAndSay) has already put its own text on the event.
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented || !event.clipboardData) return;
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
     const range = selection.getRangeAt(0);
     const text = terminalTextOf(range);
     if (text === null) return;
     event.preventDefault();
-    event.clipboardData?.setData('text/plain', text);
+    event.clipboardData.setData('text/plain', text);
     flashCopiedRange(range);
+    say({ kind: 'info', text: copiedMessage(text) });
   };
 
-  const say = (notice: CopyNotice) => deps.parent.send({ type: 'NOTIFY', ...notice });
   /** Copy a selection by key (copy mode's `y`, Cmd+C) and say how much went. */
   const copySelection = (text: string) => void copyAndSay(text, null, say);
 

@@ -141,12 +141,22 @@ describe('keyboardActor — copy on select', () => {
     expect(handle.events.some((e) => e.type === 'COPY_SELECTION')).toBe(true);
   });
 
-  it('Cmd+C copies the same text once more, then clears the selection', () => {
+  it('Cmd+C copies the same text once more, says so again, then clears the selection', () => {
     select(row, 'DRAG_ME');
     release();
     pressKey({ key: 'c', code: 'KeyC', metaKey: true });
     expect(copied).toEqual(['DRAG_ME', 'DRAG_ME']);
+    expect(notices(handle.events)).toEqual(['Copied 7 characters', 'Copied 7 characters']);
     expect(selectedText()).toBe('');
+  });
+
+  // A selection no release copied (a drag that ended outside the window, a
+  // touch's handles): Cmd+C is the copy, and it says so as every copy does.
+  it('Cmd+C on a selection nothing copied yet copies it and says how many characters', () => {
+    select(row, 'DRAG_ME');
+    pressKey({ key: 'c', code: 'KeyC', metaKey: true });
+    expect(copied).toEqual(['DRAG_ME']);
+    expect(notices(handle.events)).toEqual(['Copied 7 characters']);
   });
 
   it('a modifier on its own leaves the selection', () => {
