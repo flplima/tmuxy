@@ -177,15 +177,22 @@ describeE2E(
      * WebKit blends an OPAQUE `::selection` background with white into a
      * translucent colour, so over a dark pane selected text sat on near-black
      * while the fill past the row's end (a plain background) showed the grey
-     * asked for. Chromium paints both alike; the computed styles agree in both
-     * engines. Only the pixels tell.
+     * asked for. And WebKit paints a selection only as high as the text, so a
+     * selected cell's own background showed as thin bands above and below it,
+     * and selected rows had gaps between them. Chromium paints both alike; the
+     * computed styles agree in both engines. Only the pixels tell.
      */
-    test('selected text sits on the same grey as the fill past the end of its row', async () => {
+    test('selected text sits on the same grey as the fill past the end of its row, edge to edge', async () => {
       await ctx.setupPage();
 
+      // WKPIX_TWO on a green background of its own.
       const ONE = 'WKPIX_ONE WKPIX_TWO';
       const END = 'WKPIX_END';
-      await runCommand(ctx.page, `printf '%s\\n%s\\n' '${ONE}' '${END}'`, END);
+      await runCommand(
+        ctx.page,
+        `printf '%s \\033[42m%s\\033[0m\\n%s\\n' WKPIX_ONE WKPIX_TWO '${END}'`,
+        END,
+      );
       const one = await shownRunRect(ctx.page, '.pane-layout-item', ONE);
       const end = await shownRunRect(ctx.page, '.pane-layout-item', END);
       expect(end.y).toBeGreaterThan(one.y);
@@ -193,7 +200,8 @@ describeE2E(
       // From the first row into the next: the first row is selected from its
       // first cell to the pane's edge, its blanks by the row's fill.
       await dragSelect(ctx.page, one, end);
-      expect(await selectedText(ctx.page)).toContain(ONE);
+      // The browser's own string breaks the line between the two runs.
+      expect(await selectedText(ctx.page)).toMatch(/WKPIX_ONE\s+WKPIX_TWO\s+WKPIX_END/);
       let row = null;
       await waitForCondition(
         ctx.page,
@@ -222,19 +230,41 @@ describeE2E(
       // The space between the two words: a selected cell with no glyph on it.
       // The fill: a few pixels in from the row's right edge. The pane's own
       // background: the same spot on the row below the selection's last.
+      // The green cell's top and bottom pixel rows, and the seam between the
+      // two selected rows (the first row's last pixel row over its first
+      // cell, the next row's first over END's), where no glyph reaches.
       const space = ONE.indexOf(' ');
-      const [underText, pastEnd, unselected] = await screenPixels(ctx.page, [
-        { x: one.box.left + (space + 0.5) * row.cellW, y: one.y },
-        { x: row.right - row.cellW / 2, y: one.y },
-        { x: row.right - row.cellW / 2, y: end.y + (row.bottom - row.top) },
-      ]);
-      const near = (a, b) =>
-        Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b)) <= 3;
+      const green = one.box.left + (ONE.indexOf('TWO') + 0.5) * row.cellW;
+      const [underText, pastEnd, unselected, greenTop, greenBottom, seamAbove, seamBelow] =
+        await screenPixels(ctx.page, [
+          { x: one.box.left + (space + 0.5) * row.cellW, y: one.y },
+          { x: row.right - row.cellW / 2, y: one.y },
+          { x: row.right - row.cellW / 2, y: end.y + (row.bottom - row.top) },
+          { x: green, y: row.top + 0.5 },
+          { x: green, y: row.bottom - 1 },
+          { x: one.box.left + row.cellW / 2, y: row.bottom - 1 },
+          { x: end.box.left + row.cellW / 2, y: row.bottom + 0.5 },
+        ]);
+      const apartBy = (a, b) =>
+        Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b));
+      const near = (a, b) => apartBy(a, b) <= 3;
       expect({ underText, pastEnd, same: near(underText, pastEnd) }).toEqual({
         underText,
         pastEnd,
         same: true,
       });
+      // The selection is the row's full height: the grey reaches its edges,
+      // over the green cell too (a 99% grey lets 1% of the green through).
+      const edges = { greenTop, greenBottom, seamAbove, seamBelow };
+      const offGrey = Object.fromEntries(
+        Object.entries(edges).map(([at, px]) => [at, apartBy(px, pastEnd)]),
+      );
+      expect({
+        pastEnd,
+        edges,
+        offGrey,
+        under: Object.values(offGrey).every((d) => d <= 6),
+      }).toEqual({ pastEnd, edges, offGrey, under: true });
       // …and it is a selection anyone can see: not the pane's background.
       const apart = Math.max(
         Math.abs(pastEnd.r - unselected.r),
