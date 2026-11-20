@@ -5,7 +5,7 @@ import { TmuxOp } from '../domain/commands';
 import { selectionMenuSpec } from './menus/specs/selectionMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { flashCopiedRange } from '../infra/dom/copyFlash';
-import { writeClipboard } from '../infra/clipboard';
+import { copyAndSay } from '../infra/clipboard';
 import type { PaneId } from '../domain/ids';
 import { useNativeMenu } from './menus/useNativeMenu';
 
@@ -57,7 +57,7 @@ export function SelectionContextMenu({
   const dispatch = useMenuDispatch({
     onLocal: (local) => {
       if (local.verb === 'copy-selection') {
-        void writeClipboard(selectedText, paneId);
+        void copyAndSay(selectedText, paneId, (notice) => send({ type: 'NOTIFY', ...notice }));
         flashCopiedRange(selectionRange);
       } else if (local.verb === 'send-selection') {
         send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: paneId, text: selectedText }) });

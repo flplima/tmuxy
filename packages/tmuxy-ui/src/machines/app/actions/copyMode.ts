@@ -11,7 +11,7 @@ import { handleCopyModeKey } from '../../../domain/copyModeKeys';
 import { beginSearch, handleSearchKey, type SearchKeyResult } from '../../../domain/copyModeSearch';
 import { selectPaneTakesCopyMode } from '../../selectors/panesAndSidebars';
 import { selectKeyFocusPane, selectKeyTarget } from '../../selectors/keyboard';
-import { writeClipboard } from '../../../infra/clipboard';
+import { copyAndSay } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import type { PaneId } from '../../../domain/ids';
 import {
@@ -382,16 +382,23 @@ export const copyModeActions = {
   }),
 
   /**
-   * A drag in copy mode was released: copy what it selected and leave, the
-   * way tmux's `MouseDragEnd1Pane → copy-pipe-and-cancel` does.
+   * A drag in copy mode was released, or a phone's Copy tapped: copy what it
+   * selected, say how much went, and leave, the way tmux's
+   * `MouseDragEnd1Pane → copy-pipe-and-cancel` does. The copy runs inside the
+   * release or the tap, the gesture a browser wants for it.
    */
-  copyMode_mouseCopy: act(({ event, context, enqueue }) => {
+  copyMode_mouseCopy: act(({ event, context, enqueue, self }) => {
     if (event.type !== 'COPY_MODE_MOUSE_COPY') return;
     const copyState = context.copyModeStates[event.paneId];
     if (!copyState || copyState.mode !== 'copy' || copyState.copiedAt) return;
     if (!copyState.selectionMode || !copyState.selectionAnchor) return;
     const text = extractSelectedText(copyState);
-    if (text) enqueue(() => void writeClipboard(text, event.paneId));
+    if (text) {
+      enqueue(
+        () =>
+          void copyAndSay(text, event.paneId, (notice) => self.send({ type: 'NOTIFY', ...notice })),
+      );
+    }
     leaveAfterCopy(enqueue, context, event.paneId);
   }),
 

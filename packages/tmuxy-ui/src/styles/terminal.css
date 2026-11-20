@@ -335,11 +335,12 @@
 }
 
 /* Selected text is one colour pair, whatever the cells were drawn in: the
-   selection's background (--selection-bg) under the theme's foreground. A
-   cell's own red, its green background or its reverse video read as noise
-   under a selection, and some of them vanished into it. The browser's
-   selection paints over a cell's colours; copy mode's renderers leave a
-   selected cell's colours off (components/terminal/cellPaint.ts). */
+   selection's text colour (--selection-fg, the theme's background) on its
+   grey (--selection-bg), the same grey as the fill past a row's end. A cell's
+   own red, its green background or its reverse video read as noise under a
+   selection, and some of them vanished into it. The browser's selection
+   paints over a cell's colours; copy mode's renderers leave a selected cell's
+   colours off (components/terminal/cellPaint.ts). */
 .terminal-selectable::selection,
 .terminal-selectable *::selection {
   background-color: var(--selection-bg);
@@ -386,12 +387,23 @@
   pointer-events: none;
 }
 
-/* A search match in copy mode: the current one in the copy cursor's colour. */
+/* A search match in copy mode: the current one in the copy cursor's colour.
+   Its wash is a dim grey over the text, darker than a selection's, which it
+   must not be taken for. */
 .terminal-search-match {
   position: absolute;
   box-sizing: border-box;
   border-bottom: 2px solid var(--theme-accent);
-  background-color: color-mix(in srgb, var(--selection-bg) 55%, transparent);
+  background-color: color-mix(
+    in srgb,
+    color-mix(
+        in srgb,
+        var(--term-foreground, var(--term-white)) 32%,
+        var(--term-background, var(--term-black))
+      )
+      55%,
+    transparent
+  );
   pointer-events: none;
 }
 

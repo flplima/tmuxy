@@ -95,15 +95,26 @@
   --cursor-copy-bg: var(--theme-accent);
 
   /* Selected text, in copy mode and in the browser's selection alike, the same
-     for every cell whatever its colours. Opaque, not a translucent foreground:
-     the browser also paints a selected line break after every cell span, and
-     translucent paints stack there into lighter boxes. */
+     for every cell whatever its colours: the theme's background as text on a
+     grey of its foreground (dark on light grey in a dark theme, light on dark
+     grey in a light one). The grey is 99% opaque, not 100% and not much less.
+     WebKit (Safari, the macOS app) blends an opaque ::selection background
+     with white into a translucent one, so the text sat on near-black while the
+     fill past the row's end showed the real grey; a colour with any alpha is
+     left as it is. And the browser paints a selected line break after every
+     cell span, so a selection is painted over itself: at 99% two paints differ
+     from one by 1%, where a more translucent grey stacks into lighter boxes. */
   --selection-bg: color-mix(
     in srgb,
-    var(--term-foreground, var(--term-white)) 32%,
-    var(--term-background, var(--term-black))
+    color-mix(
+        in srgb,
+        var(--term-foreground, var(--term-white)) 75%,
+        var(--term-background, var(--term-black))
+      )
+      99%,
+    transparent
   );
-  --selection-fg: var(--term-foreground, var(--term-white));
+  --selection-fg: var(--term-background, var(--term-black));
 
   --tmux-status-bg: var(--term-green);
 

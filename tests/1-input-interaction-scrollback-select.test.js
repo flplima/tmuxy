@@ -18,7 +18,7 @@ const {
   waitForCopyMode,
 } = require('./helpers');
 
-const { recordCopies, copiedText } = require('./helpers/selection-drag');
+const { recordCopies, copiedText, shownNotice } = require('./helpers/selection-drag');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -28,7 +28,7 @@ describeE2E('Scenario 7e: Selecting the whole scrollback', {}, (ctx) => {
     { keys: 'Cmd', mod: 'Meta' },
     { keys: 'Ctrl+Shift', mod: 'Control+Shift' },
   ])(
-    '$keys+A selects every row of scrollback, on screen and off, and $keys+C copies all of it',
+    '$keys+A selects every row of scrollback, on screen and off, and $keys+C copies all of it and says how much',
     async ({ mod }) => {
       await ctx.setupPage();
       await focusPage(ctx.page);
@@ -141,6 +141,10 @@ describeE2E('Scenario 7e: Selecting the whole scrollback', {}, (ctx) => {
       expect(lines).toContain('1');
       expect(lines).toContain('150');
       expect(lines).toContain('300');
+      // The snackbar says how many characters went, as every copy of a selection does.
+      expect((await shownNotice(ctx.page, `Copied ${[...copied].length} characters`)).role).toBe(
+        'status',
+      );
 
       // The copy ends the view, as a yank does, and the pane is live again.
       await waitForCopyMode(ctx.page, false);

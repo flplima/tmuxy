@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { pid } from '../../../test/wire';
 import { pressKey, sendCommands, spawnKeyboardActor } from './keyboardHarness';
 import * as mobileKeyboard from '../../../infra/dom/mobileKeyboard';
+import { fakeClipboardApi, fakeCopyCommand, settle } from '../../../test/clipboard';
 
 type Ev = { type: string; [k: string]: unknown };
 
@@ -51,32 +52,21 @@ const selectedText = () => window.getSelection()?.toString() ?? '';
 describe('keyboardActor — copy on select', () => {
   let handle: ReturnType<typeof spawnKeyboardActor>;
   let row: HTMLElement;
+  let copy: ReturnType<typeof fakeCopyCommand>;
   let copied: string[];
 
   beforeEach(() => {
     vi.spyOn(mobileKeyboard, 'touchIsPrimary').mockReturnValue(false);
     // jsdom lays nothing out: the copy blink has no rectangles to cover.
     Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
-    copied = [];
-    // jsdom has no clipboard: the copy event is what carries the text.
-    document.execCommand = vi.fn(() => {
-      const event = new Event('copy', { bubbles: true, cancelable: true }) as ClipboardEvent;
-      const data: Record<string, string> = {};
-      Object.defineProperty(event, 'clipboardData', {
-        value: {
-          setData: (_t: string, v: string) => void (data.text = v),
-          getData: () => data.text,
-        },
-      });
-      window.dispatchEvent(event);
-      copied.push(data.text);
-      return true;
-    });
+    copy = fakeCopyCommand();
+    copied = copy.copied;
     row = mountRow(['$ echo DRAG_ME please', '  ']);
     handle = spawnKeyboardActor(pid('%3'));
   });
 
   afterEach(() => {
+    copy.restore();
     vi.restoreAllMocks();
     window.getSelection()?.removeAllRanges();
     document.body.innerHTML = '';
@@ -168,21 +158,12 @@ describe('keyboardActor — copy on select', () => {
   });
 
   describe('when the browser takes no copy command', () => {
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-    const clipboard = (writeText?: (text: string) => Promise<void>) =>
-      Object.defineProperty(navigator, 'clipboard', {
-        value: writeText ? { writeText } : undefined,
-        configurable: true,
-      });
-
-    beforeEach(() => {
-      document.execCommand = vi.fn(() => false);
-    });
-    afterEach(() => clipboard());
+    beforeEach(() => copy.refuse());
+    afterEach(() => fakeClipboardApi());
 
     it('says copied once the clipboard has taken the text', async () => {
       const written: string[] = [];
-      clipboard(async (text) => void written.push(text));
+      fakeClipboardApi(async (text) => void written.push(text));
       select(row, 'DRAG_ME');
       release();
       expect(notices(handle.events)).toEqual([]);
@@ -194,7 +175,7 @@ describe('keyboardActor — copy on select', () => {
     // A page served over http off localhost: the user read "Copied" and
     // pasted whatever the clipboard held before.
     it('says it could not copy on a page with no clipboard', async () => {
-      clipboard();
+      fakeClipboardApi();
       select(row, 'DRAG_ME');
       release();
       await settle();
@@ -206,7 +187,7 @@ describe('keyboardActor — copy on select', () => {
     it('says it could not copy when the clipboard refuses the write', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.spyOn(console, 'warn').mockImplementation(() => {});
-      clipboard(() => Promise.reject(new DOMException('denied', 'NotAllowedError')));
+      fakeClipboardApi(() => Promise.reject(new DOMException('denied', 'NotAllowedError')));
       select(row, 'DRAG_ME');
       release();
       await settle();
@@ -217,7 +198,7 @@ describe('keyboardActor — copy on select', () => {
       // Nothing was copied, so a release over the same text tries again,
       // and this time the browser takes it.
       const written: string[] = [];
-      clipboard(async (text) => void written.push(text));
+      fakeClipboardApi(async (text) => void written.push(text));
       release();
       await settle();
       expect(written).toEqual(['DRAG_ME']);

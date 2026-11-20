@@ -12,10 +12,7 @@ import { logFailure } from './logFailure';
  * headless browser does not grant).
  */
 export function writeClipboard(text: string, paneId: PaneId | null): Promise<boolean> {
-  const win = globalThis as unknown as {
-    __tmuxyLastClipboard?: { paneId: PaneId | null; text: string };
-  };
-  win.__tmuxyLastClipboard = { paneId, text };
+  keepLastCopy(text, paneId);
   if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
     return Promise.resolve(false);
   }
@@ -26,6 +23,80 @@ export function writeClipboard(text: string, paneId: PaneId | null): Promise<boo
       return false;
     },
   );
+}
+
+function keepLastCopy(text: string, paneId: PaneId | null): void {
+  const win = globalThis as unknown as {
+    __tmuxyLastClipboard?: { paneId: PaneId | null; text: string };
+  };
+  win.__tmuxyLastClipboard = { paneId, text };
+}
+
+/** What a copy the user made says: how many characters went. */
+export function copiedMessage(text: string): string {
+  const count = [...text].length;
+  return `Copied ${count} character${count === 1 ? '' : 's'}`;
+}
+
+/** A notice a copy raises: the app's `NOTIFY`, without its type. */
+export interface CopyNotice {
+  kind?: 'info';
+  text: string;
+}
+
+/**
+ * Copy text the user asked to copy, and say so: the one path for a selection
+ * copied by a release, a key or a button.
+ *
+ * The copy command first, filled from its own copy event: inside the key or
+ * click that asked for it, it is the write every browser takes. Without one
+ * (no command, or the browser ran none) the clipboard API is asked, and what
+ * is said waits for its answer: "Copied" over a write that was refused is how
+ * a user pastes something else. Resolves whether the copy took.
+ */
+export function copyAndSay(
+  text: string,
+  paneId: PaneId | null,
+  say: (notice: CopyNotice) => void,
+): Promise<boolean> {
+  if (copyByCommand(text)) {
+    keepLastCopy(text, paneId);
+    say({ kind: 'info', text: copiedMessage(text) });
+    return Promise.resolve(true);
+  }
+  return writeClipboard(text, paneId).then((wrote) => {
+    say(
+      wrote
+        ? { kind: 'info', text: copiedMessage(text) }
+        : { text: clipboardBlockedMessage(text, null) },
+    );
+    return wrote;
+  });
+}
+
+/**
+ * `document.execCommand('copy')` with `text` set on the copy event it fires.
+ * True only when the browser ran the command and the event carried the text:
+ * outside a key or a click, Firefox and Safari run none.
+ */
+function copyByCommand(text: string): boolean {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false;
+  let filled = false;
+  const fill = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', text);
+    filled = true;
+  };
+  window.addEventListener('copy', fill, true);
+  try {
+    return document.execCommand('copy') && filled;
+  } catch (err) {
+    logFailure('clipboard', err);
+    return false;
+  } finally {
+    window.removeEventListener('copy', fill, true);
+  }
 }
 
 /**

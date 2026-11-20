@@ -2,7 +2,7 @@
  * A selected cell is the selection's colour pair, whatever it was drawn in:
  * neither renderer leaves a cell's own foreground, background, reverse video
  * or dim on it once it is selected, so `.terminal-selected` (the theme's
- * foreground on the selection wash, styles/terminal.css) is what shows. Its
+ * background on the selection's grey, styles/terminal.css) is what shows. Its
  * weight, slant and link stay. The live screen renders through TerminalLine,
  * copy mode's rows through renderLineToDOM; both are held to the same rule.
  */

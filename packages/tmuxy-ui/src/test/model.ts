@@ -1,5 +1,6 @@
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { CellLine } from '../domain/wireCells';
+import type { CopyModeState } from '../domain/copyMode';
 import type { PaneId, WindowId } from '../domain/ids';
 import { recomputeDerived } from '../domain/store/model';
 import {
@@ -115,3 +116,27 @@ export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
 
 /** A row of cells reading `text`, one character a cell. */
 export const cellLine = (text: string): CellLine => [...text].map((c) => ({ c }));
+
+/**
+ * Copy mode on a pane with ten rows of history, its two screen rows loaded:
+ * "hello world" on row 10 and "second line" on row 11, the cursor on the first.
+ */
+export const copyModeView = (extra: Partial<CopyModeState> = {}): CopyModeState => ({
+  mode: 'copy',
+  lines: new Map([
+    [10, cellLine('hello world')],
+    [11, cellLine('second line')],
+  ]),
+  totalLines: 12,
+  historySize: 10,
+  loadedRanges: [[10, 11]],
+  loading: false,
+  width: 80,
+  height: 2,
+  cursorRow: 10,
+  cursorCol: 0,
+  selectionMode: null,
+  selectionAnchor: null,
+  scrollTop: 10,
+  ...extra,
+});
