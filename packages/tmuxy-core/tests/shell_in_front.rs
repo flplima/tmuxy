@@ -54,11 +54,12 @@ fn a_shell_in_front_is_told_from_a_program_and_a_login_shell_counts() {
     let sleeping = split("sleep 60");
     // A login shell's argv[0] is `-bash`; tmux drops the `-`.
     let login = split("bash -c 'exec -a -bash bash --norc --noprofile'");
-    let plain = split("exec sh");
+    // Not `sh`: macOS's /bin/sh runs bash, so tmux names it `bash` there.
+    let zsh = split("exec zsh -f");
 
     assert_eq!(check_once_running(&server, &sleeping, "sleep"), "0");
     assert_eq!(check_once_running(&server, &login, "bash"), "1");
-    assert_eq!(check_once_running(&server, &plain, "sh"), "1");
+    assert_eq!(check_once_running(&server, &zsh, "zsh"), "1");
 }
 
 /// The UI's `InterruptOrEof` line (`commands.ts`) reaches tmux as written,
