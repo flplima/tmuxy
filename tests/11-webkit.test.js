@@ -22,12 +22,14 @@
 
 const {
   runRect,
+  shownRunRect,
   dragSelect,
   selectedText,
   selectionRect,
   recordCopies,
   copiedText,
   shownNotice,
+  screenPixels,
 } = require('./helpers/selection-drag');
 const {
   waitForSettled,
@@ -170,6 +172,79 @@ describeE2E(
       await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
       await runCommand(ctx.page, 'echo WEBKIT_STILL_ALIVE', 'WEBKIT_STILL_ALIVE');
     }, 180000);
+
+    /**
+     * WebKit blends an OPAQUE `::selection` background with white into a
+     * translucent colour, so over a dark pane selected text sat on near-black
+     * while the fill past the row's end (a plain background) showed the grey
+     * asked for. Chromium paints both alike; the computed styles agree in both
+     * engines. Only the pixels tell.
+     */
+    test('selected text sits on the same grey as the fill past the end of its row', async () => {
+      await ctx.setupPage();
+
+      const ONE = 'WKPIX_ONE WKPIX_TWO';
+      const END = 'WKPIX_END';
+      await runCommand(ctx.page, `printf '%s\\n%s\\n' '${ONE}' '${END}'`, END);
+      const one = await shownRunRect(ctx.page, '.pane-layout-item', ONE);
+      const end = await shownRunRect(ctx.page, '.pane-layout-item', END);
+      expect(end.y).toBeGreaterThan(one.y);
+
+      // From the first row into the next: the first row is selected from its
+      // first cell to the pane's edge, its blanks by the row's fill.
+      await dragSelect(ctx.page, one, end);
+      expect(await selectedText(ctx.page)).toContain(ONE);
+      let row = null;
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          row = await ctx.page.evaluate((needle) => {
+            const line = [...document.querySelectorAll('.pane-layout-item .terminal-line')]
+              .filter((l) => (l.textContent || '').includes(needle))
+              .pop();
+            if (!line) return null;
+            const r = line.getBoundingClientRect();
+            const after = getComputedStyle(line, '::after');
+            return {
+              filled: after.content !== 'none' && parseFloat(after.width) > 0,
+              right: r.right,
+              top: r.top,
+              bottom: r.bottom,
+              cellW: parseFloat(getComputedStyle(line).getPropertyValue('--cell-w')),
+            };
+          }, ONE);
+          return row?.filled === true;
+        },
+        5000,
+        () => `the first row to be filled past its end (${JSON.stringify(row)})`,
+      );
+
+      // The space between the two words: a selected cell with no glyph on it.
+      // The fill: a few pixels in from the row's right edge. The pane's own
+      // background: the same spot on the row below the selection's last.
+      const space = ONE.indexOf(' ');
+      const [underText, pastEnd, unselected] = await screenPixels(ctx.page, [
+        { x: one.box.left + (space + 0.5) * row.cellW, y: one.y },
+        { x: row.right - row.cellW / 2, y: one.y },
+        { x: row.right - row.cellW / 2, y: end.y + (row.bottom - row.top) },
+      ]);
+      const near = (a, b) =>
+        Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b)) <= 3;
+      expect({ underText, pastEnd, same: near(underText, pastEnd) }).toEqual({
+        underText,
+        pastEnd,
+        same: true,
+      });
+      // …and it is a selection anyone can see: not the pane's background.
+      const apart = Math.max(
+        Math.abs(pastEnd.r - unselected.r),
+        Math.abs(pastEnd.g - unselected.g),
+        Math.abs(pastEnd.b - unselected.b),
+      );
+      expect(apart).toBeGreaterThan(40);
+
+      await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+    }, 120000);
   },
 );
 

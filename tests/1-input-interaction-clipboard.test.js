@@ -30,6 +30,25 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+/**
+ * The colour pair selected text wears, worked out from the theme rather than
+ * read off the variables that paint it: the theme's background as text, on a
+ * grey of three quarters its foreground over its background, 99% opaque.
+ */
+async function selectionPair(page) {
+  return await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.backgroundColor =
+      'color-mix(in srgb, color-mix(in srgb, var(--term-foreground) 75%, var(--term-background)) 99%, transparent)';
+    probe.style.color = 'var(--term-background)';
+    document.body.appendChild(probe);
+    const style = getComputedStyle(probe);
+    const pair = { bg: style.backgroundColor, fg: style.color };
+    probe.remove();
+    return pair;
+  });
+}
+
 // ==================== Scenario 7d: Selecting and copying with the mouse ====================
 
 describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
@@ -149,40 +168,30 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
     await runCommand(ctx.page, 'printf "\\033[31;42mRED_RUN\\033[0m PLAIN_RUN\\n"', 'PLAIN_RUN');
     const mixed = await shownRunRect(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
     await dragSelect(ctx.page, mixed);
-    // Selected, every cell is the same pair, whatever it was drawn in: the
-    // theme's foreground on a wash of it over the theme's background, the
+    // Selected, every cell is the same pair, whatever it was drawn in: dark
+    // text (the theme's background) on a light grey of its foreground, the
     // red-on-green run in neither red nor green.
+    const want = await selectionPair(ctx.page);
     const paint = await ctx.page.evaluate(() => {
       const lines = [...document.querySelectorAll('.pane-layout-item .terminal-line')].filter((l) =>
         (l.textContent || '').includes('RED_RUN PLAIN_RUN'),
       );
       const spans = [...lines[lines.length - 1].querySelectorAll('span')];
       const run = (text) => spans.find((el) => el.textContent.trim() === text);
-      const probe = document.createElement('span');
-      probe.style.backgroundColor =
-        'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
-      probe.style.color = 'var(--term-foreground)';
-      document.body.appendChild(probe);
-      const want = {
-        bg: getComputedStyle(probe).backgroundColor,
-        fg: getComputedStyle(probe).color,
-      };
-      probe.remove();
       const selected = (el) => {
         const sel = getComputedStyle(el, '::selection');
         return { bg: sel.backgroundColor, fg: sel.color };
       };
       return {
-        want,
         red: selected(run('RED_RUN')),
         plain: selected(run('PLAIN_RUN')),
         redOwn: getComputedStyle(run('RED_RUN')).color,
       };
     });
-    expect(paint.want.bg).not.toBe('rgba(0, 0, 0, 0)');
-    expect(paint.redOwn).not.toBe(paint.want.fg);
-    expect(paint.red).toEqual(paint.want);
-    expect(paint.plain).toEqual(paint.want);
+    expect(want.bg).not.toBe('rgba(0, 0, 0, 0)');
+    expect(paint.redOwn).not.toBe(want.fg);
+    expect(paint.red).toEqual(want);
+    expect(paint.plain).toEqual(want);
     await ctx.page.keyboard.press('Meta+c');
     await waitForCondition(
       ctx.page,
@@ -242,7 +251,7 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
     expect(fills.empty.width).toBeGreaterThan(fills.empty.row * 0.95);
     expect(fills.first.width).toBeGreaterThan(0);
     expect(fills.first.width).toBeLessThan(fills.first.row);
-    expect(fills.empty.bg).toBe(paint.want.bg);
+    expect(fills.empty.bg).toBe(want.bg);
     expect(fills.end.shown).toBe(false);
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
   }, 120000);
@@ -330,6 +339,7 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
 
     // Mid-drag, the selected cells wear the same colours as a browser
     // selection does: the red-on-green word too, in neither red nor green.
+    const want = await selectionPair(ctx.page);
     await ctx.page.mouse.move(at.first, at.y);
     await ctx.page.mouse.down();
     await ctx.page.mouse.move(at.last, at.y, { steps: 10 });
@@ -346,25 +356,13 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
       3000,
       'the drag to select the word',
     );
-    const cells = await ctx.page.evaluate(() => {
-      const cell = [
-        ...document.querySelectorAll('[data-copy-mode="true"] .terminal-selected'),
-      ].find((el) => el.textContent.includes('COPY_DRAG_ME'));
-      const probe = document.createElement('span');
-      probe.style.backgroundColor =
-        'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
-      probe.style.color = 'var(--term-foreground)';
-      document.body.appendChild(probe);
-      const got = cell ? getComputedStyle(cell) : null;
-      const want = getComputedStyle(probe);
-      const result = {
-        got: got && { bg: got.backgroundColor, fg: got.color },
-        want: { bg: want.backgroundColor, fg: want.color },
-      };
-      probe.remove();
-      return result;
+    const cell = await ctx.page.evaluate(() => {
+      const el = [...document.querySelectorAll('[data-copy-mode="true"] .terminal-selected')].find(
+        (span) => span.textContent.includes('COPY_DRAG_ME'),
+      );
+      return el && { bg: getComputedStyle(el).backgroundColor, fg: getComputedStyle(el).color };
     });
-    expect(cells.got).toEqual(cells.want);
+    expect(cell).toEqual(want);
     await ctx.page.mouse.up();
 
     // Released: the selection is on the clipboard and the snackbar says how

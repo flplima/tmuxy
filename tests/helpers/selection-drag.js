@@ -183,6 +183,33 @@ async function shownNotice(page, text, timeout = 5000) {
   return notice;
 }
 
+/**
+ * The colour on screen at each `{x, y}` (CSS pixels), from one screenshot of
+ * the page: what the user sees there after every layer, selection paint
+ * included, has been composited. The PNG is decoded by the page itself.
+ */
+async function screenPixels(page, points) {
+  const png = await page.screenshot();
+  return await page.evaluate(
+    async ({ b64, points }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const c = canvas.getContext('2d');
+      c.drawImage(img, 0, 0);
+      const scale = img.naturalWidth / window.innerWidth;
+      return points.map(({ x, y }) => {
+        const [r, g, b] = c.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data;
+        return { r, g, b };
+      });
+    },
+    { b64: png.toString('base64'), points },
+  );
+}
+
 module.exports = {
   runRect,
   shownRunRect,
@@ -192,4 +219,5 @@ module.exports = {
   recordCopies,
   copiedText,
   shownNotice,
+  screenPixels,
 };
