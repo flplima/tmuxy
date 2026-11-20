@@ -16,7 +16,7 @@
 
 .key-row-key {
   min-width: 0;
-  height: 41px;
+  height: 32px;
   padding: 0;
   border: solid var(--border-medium);
   border-width: 0 1px 1px 0;

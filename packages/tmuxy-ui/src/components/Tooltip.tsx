@@ -115,7 +115,13 @@ export function Tooltip({ label, placement = 'bottom', children }: TooltipProps)
     }),
     onPointerLeave: chain(children.props.onPointerLeave, close),
     onPointerDown: chain(children.props.onPointerDown, close),
-    onFocus: chain(children.props.onFocus, (e) => openFrom(e.currentTarget)),
+    // Only a keyboard user arriving on the trigger opens it by focus. The
+    // focus a click or a tap gives a button is not `:focus-visible`, and
+    // opened by it, the tooltip would stay up until something else took the
+    // focus.
+    onFocus: chain(children.props.onFocus, (e) => {
+      if (e.currentTarget.matches(':focus-visible')) openFrom(e.currentTarget);
+    }),
     onBlur: chain(children.props.onBlur, close),
   });
 

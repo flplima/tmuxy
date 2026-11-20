@@ -62,6 +62,7 @@ import { PhoneBottomView } from './components/phone/PhoneBottomView';
 import { PhoneDivider } from './components/phone/PhoneDivider';
 import { PhoneDock } from './components/phone/PhoneDock';
 import { PhoneLeftSide } from './components/phone/PhoneLeftSide';
+import { PhoneTabStrip } from './components/phone/PhoneTabStrip';
 
 /** The phone layout's geometry, for styles/phone.css. */
 const PHONE_GRID_STYLE = {
@@ -202,9 +203,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
-  // No tab strip on a phone: the tree lists the tabs, a slide on the terminal
-  // switches them. Upright, the bar under the keys zooms the terminal or
-  // folds it and the keys away (PhoneDivider).
+  // The tab strip stays above all of this (PhoneTabStrip). Upright, the bar
+  // under the keys zooms the terminal or folds it and the keys away
+  // (PhoneDivider).
   const phoneKeys = showLayout && <KeyRow />;
   // The grid and tmux's status line are one picture: zoomed (`phoneZoom`
   // past 1) it is scaled in the browser inside a viewport that scrolls
@@ -257,7 +258,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       }${cursorBlink ? ' app-cursor-blink' : ''}${animationsAllowed ? '' : ' app-no-animations'}`}
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}
     >
-      {!phone && <StatusBar renderTabline={renderTabline} />}
+      {phone ? <PhoneTabStrip /> : <StatusBar renderTabline={renderTabline} />}
       {isTauri() && <NativeMenuBar />}
       <div
         className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}${dockTyping ? ' is-dock-typing' : ''}${phoneCollapsed && !landscape ? ' is-collapsed' : ''}`}

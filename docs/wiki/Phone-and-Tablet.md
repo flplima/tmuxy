@@ -19,12 +19,13 @@ tmuxy switches to the phone layout when the screen is touch-first or narrower th
 
 Top to bottom, upright:
 
-| Part        | What it is                                                                         |
-| ----------- | ---------------------------------------------------------------------------------- |
-| Terminal    | The pane, with tmux's status line under it. No tab strip: the tree lists your tabs |
-| Key row     | Two rows of six keys, edge to edge                                                 |
-| Bar         | A handle you drag to resize the terminal                                           |
-| Bottom view | Menu, tree or side pane, one at a time                                             |
+| Part        | What it is                                                                 |
+| ----------- | -------------------------------------------------------------------------- |
+| Tab strip   | Your tabs, as on the desktop. Tap one to switch to it, `+` opens a new one |
+| Terminal    | The pane, with tmux's status line under it                                 |
+| Key row     | Two rows of six keys, edge to edge                                         |
+| Bar         | A handle you drag to resize the terminal                                   |
+| Bottom view | Menu, tree or side pane, one at a time                                     |
 
 On a session shared with a desktop, a phone shrinks that desktop's window to 80 x 24 too, as any smaller client does.
 
@@ -54,7 +55,7 @@ The bottom view has three pages, picked from the tab bar along its top or with a
 
 ### Held sideways
 
-Turn the phone and the layout goes flat, like a desktop. The terminal sits in the middle, the status line and one row of twelve keys along the bottom. The tree is on the left, under the menu button. The side pane is on the right.
+Turn the phone and the layout goes flat, like a desktop, under the same tab strip. The terminal sits in the middle, the status line and one row of twelve keys along the bottom. The tree is on the left, under the menu button. The side pane is on the right.
 
 ## Touch gestures
 

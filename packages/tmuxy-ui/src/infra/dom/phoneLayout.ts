@@ -1,10 +1,11 @@
 /**
  * The phone layout: on a narrow window or a coarse pointer the app is the
- * whole 80 × 25 terminal, a key row under it and, under a bar a finger drags,
- * the bottom view (the menu, the tree, the side pane), with no tab strip or
- * bottom bar of its own. Held sideways (landscape), the terminal takes the
- * middle of the screen at the height that fits its 25 rows over the keys'
- * one row, the tree on its left and the side pane on its right.
+ * desktop's tab strip, the whole 80 × 25 terminal under it, a key row under
+ * that and, under a bar a finger drags, the bottom view (the menu, the tree,
+ * the side pane), with no bottom bar of its own. Held sideways (landscape),
+ * under the same strip, the terminal takes the middle of the screen at the
+ * height that fits its 25 rows over the keys' one row, the tree on its left
+ * and the side pane on its right.
  *
  * The pty is never sized to the phone. The client asks for the classic 80 × 24
  * window and shrinks the cell until 80 columns span the screen, a few pixels
@@ -30,7 +31,7 @@ export const PHONE_QUERY = '(pointer: coarse), (max-width: 600px)';
 export const PHONE_SIDE_MIN = 160;
 
 /** The keys' one row under a landscape terminal, its top edge included (App.tsx hands it to the styles). */
-export const PHONE_LANDSCAPE_KEYS = 34;
+export const PHONE_LANDSCAPE_KEYS = 27;
 
 /**
  * tmux's status line under the grid: the desktop's line in its small type,
@@ -85,8 +86,9 @@ export function phoneCell(containerWidth: number, advancePerPx: number): PhoneCe
  * beside them narrower than [`PHONE_SIDE_MIN`], when the cell is the one that
  * fits the width left.
  *
- * `height` is the screen's height with no keyboard up: the keyboard scrolls
- * the terminal (App's cursor follow), it does not shrink the type.
+ * `height` is the app body's, under the tab strip, with no keyboard up: the
+ * keyboard scrolls the terminal (App's cursor follow), it does not shrink
+ * the type.
  */
 export function phoneLandscapeCell(width: number, height: number, advancePerPx: number): PhoneCell {
   const rows = PHONE_ROWS;

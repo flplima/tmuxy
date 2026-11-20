@@ -20,9 +20,12 @@
     opacity var(--transition-fast);
 }
 
-.tab-scroll:hover:not(:disabled) {
-  color: var(--text-muted);
-  background-color: var(--bg-medium);
+/* A finger's tap leaves :hover on what it tapped. */
+@media (hover: hover) {
+  .tab-scroll:hover:not(:disabled) {
+    color: var(--text-muted);
+    background-color: var(--bg-medium);
+  }
 }
 
 .tab-scroll:disabled {

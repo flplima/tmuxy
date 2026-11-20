@@ -7,6 +7,8 @@ E2E suites are `tests/12-touch*.test.js` ([TESTS-E2E.md](TESTS-E2E.md)).
 
 ```
  upright                          held sideways
++--------------------------+     +-----------------------------------+
+| tabs           + [all]   |     | tabs                     + [all]  |
 +--------------------------+     +--------+----------------+--------+
 | panes (80 x 24)          |     | menu   | panes (80 x 24)| side   |
 | tmux status line         |     | tree   | status line    | pane   |
@@ -21,11 +23,15 @@ E2E suites are `tests/12-touch*.test.js` ([TESTS-E2E.md](TESTS-E2E.md)).
 
 ## Layout
 
-On a phone (`(pointer: coarse), (max-width: 600px)`, or the `phoneLayout` config override a story uses) the size actor sends `SET_PHONE_LAYOUT` and the machine fixes every `SET_TARGET_SIZE` at 80 × 24: the window is never sized to the screen. Instead the cell shrinks until 80 columns span the pane container exactly (`infra/dom/phoneLayout.ts`), which on a phone has 4px of padding each side so the grid's outer borders stay on screen; `SET_CHAR_SIZE` carries the grid's own font size, which `App.tsx` scopes to the terminal so the chrome keeps its size. The layout is then, with no tab strip (the tree lists the tabs, a slide on the terminal switches them), the terminal with tmux's line under it in the chrome's type (the host at the left edge, the session at the right, a mode's chip alone in a mode). Under it, in order, the key row, the bar and the bottom view — a section each below.
+On a phone (`(pointer: coarse), (max-width: 600px)`, or the `phoneLayout` config override a story uses) the size actor sends `SET_PHONE_LAYOUT` and the machine fixes every `SET_TARGET_SIZE` at 80 × 24: the window is never sized to the screen. Instead the cell shrinks until 80 columns span the pane container exactly (`infra/dom/phoneLayout.ts`), which on a phone has 4px of padding each side so the grid's outer borders stay on screen; `SET_CHAR_SIZE` carries the grid's own font size, which `App.tsx` scopes to the terminal so the chrome keeps its size. The layout is then the desktop's tab strip along the top, the terminal under it with tmux's line in the chrome's type (the host at the left edge, the session at the right, a mode's chip alone in a mode), and under that, in order, the key row, the bar and the bottom view — a section each below.
+
+### The tab strip
+
+The strip (`components/phone/PhoneTabStrip.tsx`) is the desktop's own tabs and the buttons at their right end (`StatusBar.tsx`'s `TabStripActions`): paging the strip when the tabs outgrow it, + for a new tab and the all-tabs view, at the chrome's size, inset 4px as the grid is. It leaves out what a phone has elsewhere or not at all: the sidebar toggles and titles (no sidebars), the app menu and the link's round trip (the bottom view's, held sideways the left column's). A tap on a tab selects it; the tree lists the same tabs and a slide on the terminal switches them too. A finger does not hover: a tab's preview card and the buttons' tooltips wait for a mouse (a focus opens one only when it is `:focus-visible`, a keyboard's, never the focus a tap gives a button: `components/Tooltip.tsx`), and the strip's hover colours apply only under `(hover: hover)`, so a tapped tab is not left lit.
 
 ### The keys
 
-The key row (`components/phone/KeyRow.tsx`: two rows of six, edge to edge — esc, tab, ctrl and alt, whose latches go through `infra/dom/keyLatch.ts` for the next key from the row or the phone keyboard; the prefix key, which presses the bindings' prefix as one chord and is lit while the prefix is armed, a second tap cancelling it; the ⌨ key, the one thing that puts the phone's keyboard up or away; then the arrows, which repeat while held and hand over to the arrow a finger slides onto (`components/phone/keyRepeat.ts`), enter, and the mic, which listens until the speaker pauses and types what it heard into the pane as the phone keyboard would, through the browser's speech recognition (`infra/dictation.ts`); a second tap stops it early, and a microphone the site may not use, a missing one or a browser with no recogniser says so in a notice).
+The key row (`components/phone/KeyRow.tsx`: two rows of six, edge to edge, each key 32px tall in the chrome's 14px type and the whole width a tap target — esc, tab, ctrl and alt, whose latches go through `infra/dom/keyLatch.ts` for the next key from the row or the phone keyboard; the prefix key, which presses the bindings' prefix as one chord and is lit while the prefix is armed, a second tap cancelling it; the ⌨ key, the one thing that puts the phone's keyboard up or away; then the arrows, which repeat while held and hand over to the arrow a finger slides onto (`components/phone/keyRepeat.ts`), enter, and the mic, which listens until the speaker pauses and types what it heard into the pane as the phone keyboard would, through the browser's speech recognition (`infra/dictation.ts`); a second tap stops it early, and a microphone the site may not use, a missing one or a browser with no recogniser says so in a notice).
 
 ### The bar
 
@@ -37,7 +43,7 @@ The bottom view below the bar (`components/phone/PhoneBottomView.tsx`): three vi
 
 ### Held sideways
 
-Held sideways (`SET_PHONE_LAYOUT`'s `landscape`, read from the app body's keyboard-free size rather than `(orientation: landscape)`, which a keyboard on a portrait phone flips), the layout is flat, as a desktop's: the terminal in the middle with the cell cut from the height so its 24 rows, the status line and the keys' one row of twelve along the bottom fit (`phoneLandscapeCell`), the tree on its left under the menu's button, which puts the app menu in the tree's place (`components/phone/PhoneLeftSide.tsx`), and the side pane on its right, started for the column and drawn as the desktop's (no header, the window's background); each column keeps at least `PHONE_SIDE_MIN`, the cell cut to the width when the height would leave less.
+Held sideways (`SET_PHONE_LAYOUT`'s `landscape`, read from the app body's keyboard-free size rather than `(orientation: landscape)`, which a keyboard on a portrait phone flips), the layout is flat, as a desktop's, under the same strip: the terminal in the middle with the cell cut from the app body's height, the screen's less the strip, so its 24 rows, the status line and the keys' one row of twelve along the bottom fit (`phoneLandscapeCell`; the row is `PHONE_LANDSCAPE_KEYS`, 26px keys under a hairline), the tree on its left under the menu's button, which puts the app menu in the tree's place (`components/phone/PhoneLeftSide.tsx`), and the side pane on its right, started for the column and drawn as the desktop's (no header, the window's background); each column keeps at least `PHONE_SIDE_MIN`, the cell cut to the width when the height would leave less.
 
 ## Touch
 
@@ -45,7 +51,7 @@ What one finger does on the terminal is `components/terminal/usePaneTouch.ts` ov
 
 ## Installed as an app
 
-The page is installable as a standalone app (`public/manifest.webmanifest`, the icons beside it and the meta tags in `index.html`); installed, `standalone.css` keeps the phone layout clear of the status bar and home indicator, and held sideways of the notch. A phone's browser tints its own bars from the page: `theme-color` follows the theme's window colour (`infra/themeManager.ts`), and in a browser the body and the phone's fixed root paint that colour opaque, which is what Safari reads (a translucent one read as white). Installed, the status bar sits above the page (`default`, not `black-translucent`: under a status bar drawn over the page iOS 26 blurs the top edge whatever covers it); the phone's fixed, painted root is the box at that edge, and an opaque band covers the home indicator (`standalone.css`); an app installed under the old status bar still gets its missing height back (`standaloneShortfall` in `components/phone/usePhoneViewport.ts`).
+The page is installable as a standalone app (`public/manifest.webmanifest`, the icons beside it and the meta tags in `index.html`); installed, `standalone.css` keeps the phone layout clear of the status bar and home indicator, and held sideways of the notch: the root's top inset puts the tab strip under the status bar's band, never beneath it. A phone's browser tints its own bars from the page: `theme-color` follows the theme's window colour (`infra/themeManager.ts`), and in a browser the body and the phone's fixed root paint that colour opaque, which is what Safari reads (a translucent one read as white). Installed, the status bar sits above the page (`default`, not `black-translucent`: under a status bar drawn over the page iOS 26 blurs the top edge whatever covers it); the phone's fixed, painted root is the box at that edge, and an opaque band covers the home indicator (`standalone.css`); an app installed under the old status bar still gets its missing height back (`standaloneShortfall` in `components/phone/usePhoneViewport.ts`).
 
 ## The status line
 

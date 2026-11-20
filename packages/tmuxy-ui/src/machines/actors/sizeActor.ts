@@ -77,12 +77,14 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
     // changes the width, which starts the record again. Held sideways is read
     // from it too, not from `(orientation: landscape)`: that compares the
     // window's own sides, and a keyboard up on a portrait phone left it wider
-    // than tall.
+    // than tall. The body's first size replaces the window's, whatever the
+    // width: the window's height counts the tab strip above the body, which
+    // the terminal cannot have.
     let screenWidth = window.innerWidth;
     let screenHeight = window.innerHeight;
     let bodyObserved = false;
-    const trackScreen = (width: number, height: number) => {
-      if (width !== screenWidth) {
+    const trackScreen = (width: number, height: number, fresh = false) => {
+      if (fresh || width !== screenWidth) {
         screenWidth = width;
         screenHeight = height;
       } else {
@@ -168,8 +170,8 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
 
     // The screen changed size: turning the phone is the other layout and a
     // cell cut the other way; a landscape cell follows the height it records.
-    const screenChanged = (width: number, height: number) => {
-      trackScreen(width, height);
+    const screenChanged = (width: number, height: number, fresh = false) => {
+      trackScreen(width, height, fresh);
       if (sideways() !== landscape) {
         landscape = sideways();
         sendLayout();
@@ -229,8 +231,9 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
           bodyObserver = new ResizeObserver((entries) => {
             const entry = entries[0];
             if (!entry) return;
+            const first = !bodyObserved;
             bodyObserved = true;
-            screenChanged(entry.contentRect.width, entry.contentRect.height);
+            screenChanged(entry.contentRect.width, entry.contentRect.height, first);
             input.parent.send({ type: 'SET_BODY_SIZE', width: entry.contentRect.width });
           });
           bodyObserver.observe(body);

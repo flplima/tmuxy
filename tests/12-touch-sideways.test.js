@@ -2,10 +2,12 @@
  * A phone held sideways, finger only
  *
  * The landscape half of the phone layout (infra/dom/phoneLayout.ts), flat as
- * a desktop: the tree on the left under the menu's button, the terminal in
- * the middle at the height its 25 rows fit over the keys, the side pane on
- * the right with no header, and the twelve keys in one row along the bottom.
- * The menu's button puts the app menu in the tree's place. With the keyboard
+ * a desktop: the tab strip along the top, and under it the tree on the left
+ * under the menu's button, the terminal in the middle at the height its 25
+ * rows fit over the keys, the side pane on the right with no header, and the
+ * twelve keys in one row along the bottom. The menu's button puts the app
+ * menu in the tree's place; + on the strip makes a tab and a tap on the
+ * strip switches tabs. With the keyboard
  * up, the terminal is cut short and scrolled so the row being typed on stays
  * in view above it, the type the size it was
  * (components/phone/usePhoneViewport.ts). The portrait half is
@@ -14,7 +16,7 @@
  * As there, every assertion is about boxes on screen.
  */
 
-const { phoneContext, typeOnVirtualKeyboard, expectOnScreen } = require('./helpers/phone');
+const { phoneContext, typeOnVirtualKeyboard, expectOnScreen, boxOf } = require('./helpers/phone');
 const { tmuxWindow } = require('./helpers/tmux-read');
 const { describeE2E, waitForCondition, getTerminalText } = require('./helpers');
 
@@ -24,7 +26,7 @@ describeE2E(
   'Phone held sideways (844x390) with a touchscreen',
   { context: phoneContext(SIDEWAYS) },
   (ctx) => {
-    test('the tree, the terminal at the height of its 25 rows and the side pane side by side over one row of keys; the menu button swaps the tree for the menu; with the keyboard up the row being typed on stays in view', async () => {
+    test('the tab strip over the tree, the terminal at the height of its 25 rows and the side pane side by side over one row of keys; the menu button swaps the tree for the menu; + on the strip makes a tab and a tap on it switches back; with the keyboard up the row being typed on stays in view', async () => {
       await ctx.setupPage();
 
       const measure = async () => {
@@ -54,7 +56,16 @@ describeE2E(
             right: box(document.querySelector('.phone-side-right')),
             dockPane: box(document.querySelector('.phone-side-right .pane-wrapper')),
             dockHeader: !!document.querySelector('.phone-side-right .pane-header'),
+            strip: box(document.querySelector('[data-testid="phone-tab-strip"]')),
+            stripTabs: [
+              ...document.querySelectorAll(
+                '[data-testid="phone-tab-strip"] .tab-name[data-window-id]',
+              ),
+            ].map((t) => ({ ...box(t), active: t.getAttribute('aria-selected') === 'true' })),
             keys: box(document.querySelector('.key-row')),
+            keyHeights: [...document.querySelectorAll('.key-row-key')].map(
+              (k) => k.getBoundingClientRect().height,
+            ),
             keyTops: [...document.querySelectorAll('.key-row-key')].map((k) =>
               Math.round(k.getBoundingClientRect().top),
             ),
@@ -66,8 +77,9 @@ describeE2E(
         return { ...seen, rows: seen.tab ? tmuxWindow(seen.tab).height : null };
       };
 
-      // 1. Sideways: the tree on the left, the terminal in the middle with all
-      //    of its 25 rows on screen, the side pane on the right — started for
+      // 1. Sideways: the tab strip along the top, the screen's width; under
+      //    it the tree on the left, the terminal in the middle with all of
+      //    its 25 rows on screen, the side pane on the right — started for
       //    the column, drawn with no header — and the keys in one row under
       //    them, the screen's width.
       let layout = null;
@@ -85,6 +97,12 @@ describeE2E(
         20000,
         () => `the sideways layout and its side pane (last: ${JSON.stringify(layout)})`,
       );
+      expectOnScreen(layout.strip, 'the tab strip', SIDEWAYS.width);
+      expect(layout.strip.top).toBeCloseTo(0, 0);
+      expect(layout.strip.width).toBeCloseTo(SIDEWAYS.width, 0);
+      for (const column of [layout.left, layout.pty, layout.right]) {
+        expect(column.top).toBeCloseTo(layout.strip.bottom, 0);
+      }
       expectOnScreen(layout.left, 'the tree column', SIDEWAYS.width);
       expectOnScreen(layout.tree, 'the tree', SIDEWAYS.width);
       expectOnScreen(layout.pty, 'the terminal', SIDEWAYS.width);
@@ -99,6 +117,9 @@ describeE2E(
       expect(layout.keys.bottom).toBeCloseTo(SIDEWAYS.height, 0);
       expect(layout.keyTops).toHaveLength(12);
       expect(new Set(layout.keyTops).size).toBe(1);
+      // Shorter than the 33px the keys used to take, still a thumb's height.
+      expect(Math.min(...layout.keyHeights)).toBeGreaterThanOrEqual(24);
+      expect(Math.max(...layout.keyHeights)).toBeLessThanOrEqual(27);
       const rowHeight = layout.rowHeight;
 
       // The menu's button, over the tree: the app menu in its place, and back.
@@ -130,7 +151,41 @@ describeE2E(
         () => `the tree back (last: ${JSON.stringify(layout)})`,
       );
 
-      // 2. A tap on the terminal — the pane in front — opens the keyboard (as
+      // 2. + on the strip makes a tab, current, on the strip beside the
+      //    first; a tap on the first switches back to it.
+      const add = await boxOf(ctx.page, '[data-testid="phone-tab-strip"] .tab-add');
+      expectOnScreen(add, "the strip's +", SIDEWAYS.width);
+      await ctx.page.touchscreen.tap(add.left + add.width / 2, add.top + add.height / 2);
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          layout = await measure();
+          return (
+            layout.stripTabs.length === 2 &&
+            layout.stripTabs[1].active &&
+            /^@\d+$/.test(layout.tab ?? '')
+          );
+        },
+        15000,
+        () => `+ on the strip to make a second tab, current (last: ${JSON.stringify(layout)})`,
+      );
+      for (const [i, tab] of layout.stripTabs.entries()) {
+        expectOnScreen(tab, `strip tab ${i + 1}`, SIDEWAYS.width);
+        expect(tab.bottom).toBeLessThanOrEqual(layout.strip.bottom + 1);
+      }
+      const first = layout.stripTabs[0];
+      await ctx.page.touchscreen.tap(first.left + first.width / 2, first.top + first.height / 2);
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          layout = await measure();
+          return layout.stripTabs[0]?.active === true && layout.stripTabs[1]?.active === false;
+        },
+        15000,
+        () => `a tap on the first tab to switch back (last: ${JSON.stringify(layout)})`,
+      );
+
+      // 3. A tap on the terminal — the pane in front — opens the keyboard (as
       //    the key row's ⌨ key does); on this phone it takes 200px of the height.
       await ctx.page.touchscreen.tap(layout.pty.left + 60, layout.pty.top + 60);
       await waitForCondition(
@@ -141,7 +196,7 @@ describeE2E(
       );
       await ctx.page.setViewportSize({ width: SIDEWAYS.width, height: 190 });
 
-      // 3. Output pushes the prompt to the bottom row: that row is still in
+      // 4. Output pushes the prompt to the bottom row: that row is still in
       //    view, above the keyboard, and the type did not shrink to make room.
       await typeOnVirtualKeyboard(ctx.page, 'seq 60; echo SIDEWAYS_END');
       await ctx.page.keyboard.press('Enter');

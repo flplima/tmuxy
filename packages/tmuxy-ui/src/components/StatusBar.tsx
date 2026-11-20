@@ -51,6 +51,25 @@ const isControl = (target: EventTarget | null) => {
   return target.closest(CONTROLS) !== null;
 };
 
+/**
+ * The tab strip's own buttons, at its right end. A phone's strip
+ * (components/phone/PhoneTabStrip.tsx) leaves out the link's round trip: its
+ * bottom view, or held sideways its left column, carries it.
+ */
+export function TabStripActions({ latency = true }: { latency?: boolean }) {
+  return (
+    <div className="statusbar-actions">
+      {/* Before the "+": paging the strip is about the tabs already there,
+          and a button that comes and goes must not push the ones that do
+          not. */}
+      <TabStripScroll />
+      {latency && <LinkLatencyBadge />}
+      <NewTabButton />
+      <TabOverviewToggle />
+    </div>
+  );
+}
+
 export const StatusBar = memo(function StatusBar({
   renderTabline,
 }: {
@@ -123,16 +142,7 @@ export const StatusBar = memo(function StatusBar({
       <WindowTabs />
       {/* Tab-level actions at the strip's right end: they sit BEFORE the
           dock's cluster, so a docked column never covers them. */}
-      <div className="statusbar-actions">
-        {/* Before the "+": paging the strip is about the tabs already there,
-            and a button that comes and goes must not push the ones that
-            do not. */}
-        <TabStripScroll />
-        <LinkLatencyBadge />
-
-        <NewTabButton />
-        <TabOverviewToggle />
-      </div>
+      <TabStripActions />
       <div
         ref={rightRef}
         className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}${
