@@ -38,6 +38,13 @@ fn check_once_running(server: &common::ScratchServer, pane: &str, command: &str)
 
 #[test]
 fn a_shell_in_front_is_told_from_a_program_and_a_login_shell_counts() {
+    assert!(
+        std::process::Command::new("zsh")
+            .args(["-fc", "true"])
+            .status()
+            .is_ok_and(|status| status.success()),
+        "this test starts a zsh; bin/install-dev-tools installs it"
+    );
     let server = common::ScratchServer::with_session("shell-front", 80, 24);
     let split = |command: &str| {
         server.tmux(&[

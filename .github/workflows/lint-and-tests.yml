@@ -257,6 +257,10 @@ jobs:
 
       - uses: ./.github/actions/install-linux-deps
 
+      # tests/shell_in_front.rs starts a zsh, the shell Ctrl+C ends most.
+      - name: Install zsh
+        run: bin/ci/apt-get install -y --no-install-recommends zsh
+
       - uses: ./.github/actions/install-tmux
 
       - name: Frontend dist placeholder
