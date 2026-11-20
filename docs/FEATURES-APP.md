@@ -25,6 +25,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | D7 | The e-ink page | — | — | — | — | — | `tests/23-kindle.test.js` |
 | D8 | Push notifications when a pane needs you | — | `view-notify` | — | — | `@tmuxy-notify` | `tests/20-push.test.js` |
 | D9 | Trackpad gestures | slide, pinch | — | — | — | `@tmuxy-gesture-swipe-tabs` | `packages/tmuxy-ui/src/stories/TrackpadGestures.stories.tsx` |
+| D10 | The phone's compose sheet: ⌨ held opens the screen to write in with the phone keyboard's corrections, and Send pastes it all into the pane | hold, slide down | — | — | — | — | `tests/12-touch-compose.test.js` |
 
 ## Agents and the CLI
 

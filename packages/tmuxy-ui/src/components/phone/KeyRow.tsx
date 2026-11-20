@@ -11,6 +11,10 @@
  * pane as the phone keyboard would (`infra/dictation`); it is lit while it
  * listens, and a second tap stops it.
  *
+ * Held, ⌨ opens the compose sheet instead (ComposeSheet.tsx, useComposeHold.ts):
+ * the whole screen to write in with the phone keyboard's autocorrect and
+ * suggestions, pasted into the active pane at once.
+ *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
  * stays up while the row is used.
  */
@@ -25,10 +29,15 @@ import {
   type Modifier,
 } from '../../infra/dom/keyLatch';
 import { createKeyRepeat } from './keyRepeat';
+import { ComposeSheet } from './ComposeSheet';
+import { useComposeHold } from './useComposeHold';
 import { toggleMobileKeyboard, typeText } from '../../infra/dom/mobileKeyboard';
 import { createDictation } from '../../infra/dictation';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
 import { selectKeyBindings, selectPrefixActive } from '../../machines/selectors/ui';
+import { selectPaneById } from '../../machines/selectors/panesAndSidebars';
+import { TmuxOp } from '../../domain/commands';
+import { getTabLabel } from '../paneTabDisplay';
 import { keyEventInitOf } from '../../machines/actors/keyboard/keyFormatting';
 import './KeyRow.css';
 import { DEFAULT_PREFIX } from '../../domain/tmuxyConstants.gen';
@@ -99,6 +108,15 @@ export const KeyRow = memo(function KeyRow() {
   const prefixActive = useAppSelector(selectPrefixActive);
   const prefixKey = useAppSelector(selectKeyBindings)?.prefix_key ?? DEFAULT_PREFIX;
   const repeat = useMemo(() => createKeyRepeat(pressKey), []);
+  const activePane = useAppSelector((ctx) =>
+    activePaneId ? selectPaneById(ctx, activePaneId) : undefined,
+  );
+
+  const compose = useComposeHold();
+  const sendComposed = (text: string) => {
+    if (!activePaneId) return;
+    send({ type: 'DISPATCH_OP', op: TmuxOp.PasteText({ target: activePaneId, text }) });
+  };
 
   const press = (k: RowKey) => {
     switch (k.kind) {
@@ -110,6 +128,7 @@ export const KeyRow = memo(function KeyRow() {
         return chord ? pressChord(chord) : undefined;
       }
       case 'keyboard':
+        if (compose.wasHeld()) return;
         return toggleMobileKeyboard(activePaneId);
       case 'mic':
         return dictation.toggle();
@@ -133,6 +152,14 @@ export const KeyRow = memo(function KeyRow() {
 
   return (
     <div className="key-row" role="toolbar" aria-label="Keys">
+      {compose.composing && (
+        <ComposeSheet
+          paneName={activePane ? getTabLabel(activePane) : 'the pane'}
+          inputRef={compose.inputRef}
+          onSend={sendComposed}
+          onClose={compose.close}
+        />
+      )}
       {KEYS.map((k) => {
         const pressed =
           k.kind === 'modifier'
@@ -144,23 +171,32 @@ export const KeyRow = memo(function KeyRow() {
                 : null;
         const locked = k.kind === 'modifier' && latches[k.modifier] === 'locked';
         const arrow = k.kind === 'key' && k.arrow === true;
+        const keyboard = k.kind === 'keyboard';
         return (
           <button
             key={k.label}
             type="button"
             className={`key-row-key${pressed ? ' is-latched' : ''}${locked ? ' is-locked' : ''}`}
-            aria-label={k.kind === 'prefix' ? `Prefix (${prefixKey})` : k.name}
+            aria-label={
+              k.kind === 'prefix'
+                ? `Prefix (${prefixKey})`
+                : keyboard
+                  ? `${k.name} (hold to write and send)`
+                  : k.name
+            }
             aria-pressed={pressed ?? undefined}
             data-key-row={k.label}
             data-arrow={arrow ? k.key : undefined}
             tabIndex={-1}
             onPointerDown={(e) => {
               e.preventDefault();
+              if (keyboard) compose.down(e);
               arrowDown(k, e);
             }}
             onPointerMove={arrow ? arrowMove : undefined}
-            onPointerUp={arrow ? arrowUp : undefined}
-            onPointerCancel={arrow ? arrowUp : undefined}
+            onPointerUp={arrow ? arrowUp : keyboard ? compose.up : undefined}
+            onPointerCancel={arrow ? arrowUp : keyboard ? compose.up : undefined}
+            onContextMenu={keyboard ? (e) => e.preventDefault() : undefined}
             onMouseDown={(e) => e.preventDefault()}
             onClick={arrow ? undefined : () => press(k)}
           >

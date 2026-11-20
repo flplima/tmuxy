@@ -29,6 +29,11 @@
   font: inherit;
   cursor: pointer;
   touch-action: manipulation;
+  /* ⌨ is held to open the compose sheet: a hold selects no label and
+     brings up no callout. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* The arrows are one pad: a finger that lands on one and slides to another
