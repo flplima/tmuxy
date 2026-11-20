@@ -30,6 +30,26 @@ pub const APP_PANE_TITLE: &str = "#{?#{==:#{pane_title},#{host}},,#{pane_title}}
 pub const PANE_MODE_FLAG: &str =
     "#{?#{==:#{pane_mode},copy-mode},1,#{?#{==:#{pane_mode},view-mode},2,0}}";
 
+/// `1` while the program in front of a pane is a shell: tmux's
+/// `#{pane_current_command}`, which drops a login shell's leading `-`, is one
+/// of [`super::SHELLS`]. Built from the list, so the two cannot drift, of
+/// binary `||` and `==` only, which every tmux from 3.2 reads. The UI's
+/// Ctrl+C at an empty prompt sends EOF only while it holds
+/// (`SHELL_IN_FRONT` in `tmuxyConstants.gen.ts`).
+pub fn shell_in_front() -> String {
+    let is = |shell: &str| format!("#{{==:#{{pane_current_command}},{shell}}}");
+    super::SHELLS
+        .iter()
+        .rev()
+        .fold(String::new(), |tail, shell| {
+            if tail.is_empty() {
+                is(shell)
+            } else {
+                format!("#{{||:{},{tail}}}", is(shell))
+            }
+        })
+}
+
 /// What a comma inside a field is sent as, so a row always has exactly one
 /// field per column. tmux's `s/,/%2C/` modifier applies it on the way out and
 /// [`unescape_commas`] undoes it on the way in. Only list output (`-F`) is

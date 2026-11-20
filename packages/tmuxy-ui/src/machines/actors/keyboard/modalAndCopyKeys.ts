@@ -158,7 +158,8 @@ export function handleModalOrCopyKeyDown(
     } else {
       event.preventDefault();
     }
-    parent.send({ type: 'COPY_SELECTION' });
+    // Ctrl's, not Cmd's: only the interrupt key may end a shell at an empty prompt.
+    parent.send({ type: 'COPY_SELECTION', ctrlKey: event.ctrlKey && !event.metaKey });
     return true;
   }
 

@@ -74,7 +74,9 @@ pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 pub const IMAGE_HISTORY_ROWS: usize = 2000;
 
 /// Shells, by the basename of argv[0] (or tmux's `pane_current_command`).
-const SHELLS: [&str; 12] = [
+/// Generated into the UI, which tells an empty shell prompt by them, and
+/// spelled into tmux as [`tmux_formats::shell_in_front`].
+pub const SHELLS: [&str; 12] = [
     "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh",
 ];
 

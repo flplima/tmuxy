@@ -20,6 +20,7 @@ The context holds all frontend state. Key fields:
 - `resize: ResizeState | null` — Current pane resize operation
 - `paneGroups: Record<string, PaneGroup>` — Pane group tabs (hidden windows)
 - `floatPanes: Record<string, FloatPaneState>` — Floating pane positions
+- `paneLines` — each pane's shell line as this client knows it: typed into since its last Enter or Ctrl+C, and where its prompt was drawn (see "Ctrl+C at an empty prompt" below)
 - `commandMode` — Client-side command prompt (`:` mode)
 - `paneKeyOverrides` — Real-pane-id → placeholder-id mapping (mirrored from TmuxStore so React keys stay stable across optimistic-placeholder → real-pane id swaps)
 - `charWidth`, `charHeight`, `cellGap` — the cell grid: `charWidth` is the font advance measured once and snapped to a whole device pixel, `cellGap` the letter-spacing that makes text advance by exactly that width; both are published to CSS as `--cell-w` / `--cell-gap` on the app root (see `infra/dom/cellMetrics.ts`, [RICH-RENDERING.md](RICH-RENDERING-CELL-GRID.md#the-cell-grid-invariant))
@@ -63,6 +64,14 @@ On a phone (`(pointer: coarse), (max-width: 600px)`, or the `phoneLayout` config
 A close that would end a pane saying `working` or `needs-input` (`@tmuxy-pane-state`) is held by the client's dispatcher (`machines/app/dispatch.ts`) for a confirmation that names the pane's program: Enter closes, Escape keeps, and no key reaches the pane meanwhile. `set -g @tmuxy-confirm-close off` closes at once.
 
 What is asked about is what the client can read (`domain/closeGuard.ts`): a pane's ✕, the menus, a tab's close, and a `kill-pane`, `kill-window`, `kill-session`, `kill-server` or `respawn-… -k` from a binding or the command prompt, alone or in a command list. `-a` counts every other pane or tab; a target the client cannot resolve (an index, a name) counts every pane. Not asked about: a close tmux runs without the client (`tmuxy pane kill` in a shell, another client), a kill wrapped in `run-shell`, `if-shell` or `confirm-before`, and a verb shortened to a prefix (`kill-p`).
+
+### Ctrl+C at an empty prompt closes the pane
+
+Ctrl+C at an empty shell prompt ends the shell, so tmux closes its pane, or its tab when the pane was the tab's only one. The client cannot read a shell's line, so the shell makes the final call: where the pane looks empty the client sends `InterruptOrEof` instead of `C-c`, one `if-shell -F` that sends EOF (`C-d`) while tmux finds a shell in front of the pane (`tmux_formats::shell_in_front`, built from `constants::SHELLS`) and `C-c` to anything else. A shell exits on EOF only when its line is empty; a nested shell returns to the one it was started from.
+
+"Looks empty" is `domain/emptyPrompt.ts`, kept per pane in `paneLines` by the keyboard slice. Every op that types into a pane (`DISPATCH_OP`: the keyboard, a paste, the phone's key row and dictation) marks its line typed into, or ended by Enter or Ctrl+C. Every frame (`TMUX_MODEL_UPDATE`) marks the prompt of a pane nothing was typed into: the cursor and the text of its row before it, when a shell is in front and that text is not empty. The line is empty when the cursor is back at the mark with the same text before it, so a line typed and deleted again counts and a recalled one does not. After Enter, a frame that still shows the line given up (drawn before the key reached the shell) is no prompt, so an instant Ctrl+C interrupts the program the line started.
+
+Only Ctrl, never Cmd, and nothing changes for copy mode, a selection, a running program or the tree. Text typed from another client or before tmux names a pane is not seen; a wrong guess sends EOF to a line with text, which zsh answers with completions and bash with nothing.
 
 ### Child Machines
 

@@ -74,7 +74,7 @@ const relayState = { actions: 'relayState' } as const;
 /** The one command path, open while the machine has a stream or is getting it back. */
 const commandEntry = {
   SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
-  DISPATCH_OP: { actions: 'dispatch_op' },
+  DISPATCH_OP: { actions: ['keyboard_noteInput', 'dispatch_op'] },
   CONFIRM_CLOSE: { actions: 'dispatch_confirmedClose' },
 } as const;
 
@@ -226,7 +226,7 @@ export const appMachine = setup({
         ...commandEntry,
         TMUX_STATE_UPDATE: relayState,
         TMUX_MODEL_UPDATE: {
-          actions: ['layout_modelUpdate', 'palette_land'],
+          actions: ['layout_modelUpdate', 'keyboard_markPrompts', 'palette_land'],
         },
         TMUX_ERROR: {
           actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),

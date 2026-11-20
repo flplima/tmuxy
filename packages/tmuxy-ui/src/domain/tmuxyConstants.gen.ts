@@ -30,6 +30,26 @@ export const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
 /** True while a pane runs the preview widget (`preview::pane_previews_format`). */
 export const PANE_PREVIEWS = '#{==:#{@tmuxy-pane-widget},preview}';
 
+/** Shells, by the basename of the program a pane runs (`constants::SHELLS`). */
+export const SHELLS = [
+  'sh',
+  'bash',
+  'zsh',
+  'fish',
+  'dash',
+  'ksh',
+  'mksh',
+  'tcsh',
+  'csh',
+  'nu',
+  'elvish',
+  'xonsh',
+] as const;
+
+/** `1` while the program in front of a pane is one of them (`tmux_formats::shell_in_front`). */
+export const SHELL_IN_FRONT =
+  '#{||:#{==:#{pane_current_command},sh},#{||:#{==:#{pane_current_command},bash},#{||:#{==:#{pane_current_command},zsh},#{||:#{==:#{pane_current_command},fish},#{||:#{==:#{pane_current_command},dash},#{||:#{==:#{pane_current_command},ksh},#{||:#{==:#{pane_current_command},mksh},#{||:#{==:#{pane_current_command},tcsh},#{||:#{==:#{pane_current_command},csh},#{||:#{==:#{pane_current_command},nu},#{||:#{==:#{pane_current_command},elvish},#{==:#{pane_current_command},xonsh}}}}}}}}}}}}';
+
 /** The window types tmuxy's chrome is tagged with (`WindowType`); an untagged window is a tab. */
 export const CHROME_WINDOW_TYPES = ['float', 'sidebar-left', 'sidebar-right'] as const;
 

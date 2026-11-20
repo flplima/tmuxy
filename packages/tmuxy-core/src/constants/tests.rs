@@ -72,3 +72,35 @@ fn the_window_subscription_watches_each_tmuxy_window_column() {
     }
     assert!(!command.contains(tmux_options::FOCUS_REQUEST), "{command}");
 }
+
+/// The shell check names every shell once, as one tmux format of nested
+/// binary `||`s, so tmux 3.2 (whose `||` takes two arguments) reads it.
+#[test]
+fn the_shell_check_names_every_shell_in_one_format() {
+    let format = tmux_formats::shell_in_front();
+    for shell in SHELLS {
+        assert_eq!(
+            format
+                .matches(&format!("#{{==:#{{pane_current_command}},{shell}}}"))
+                .count(),
+            1,
+            "{shell}: {format}"
+        );
+    }
+    assert_eq!(
+        format.matches("#{||:").count(),
+        SHELLS.len() - 1,
+        "{format}"
+    );
+    let mut depth = 0i32;
+    for ch in format.chars() {
+        match ch {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+        assert!(depth >= 0, "{format}");
+    }
+    assert_eq!(depth, 0, "{format}");
+    assert!(!format.contains('\'') && !format.contains('"'), "{format}");
+}

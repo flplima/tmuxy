@@ -144,7 +144,7 @@ Search, and `[` and `]` for prompts, are on main, not in a release yet.
 | Allow every pending send in this tab | `Ctrl+Enter`                                  | `Cmd+Enter`          |
 | Quit (desktop)                       | `Ctrl+Q`                                      |                      |
 
-Plain `Ctrl+C` stays the interrupt. The command palette keys are on main, not in a release yet.
+Plain `Ctrl+C` stays the interrupt. At an empty shell prompt it ends the shell, which closes the pane, or the tab when the pane is its only one. The command palette keys and `Ctrl+C` closing a pane are on main, not in a release yet.
 
 When a pane asks "Allow?" (see [[Send Permissions]]), `↑` `↓` or `1` `2` move, `Enter` answers and `Escape` declines.
 
