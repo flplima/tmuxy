@@ -1,7 +1,10 @@
 /* Two rows of six (held sideways, one row of twelve: styles/phone.css),
    edge to edge: each key draws its right and bottom hairline and the row its
    top, so the screen's width all goes to the keys. In the chrome's own type
-   size, whatever the terminal's cell shrank to. */
+   size, whatever the terminal's cell shrank to. The keys are the theme's
+   accent with its terminal background as their text (black on green by
+   default), the hairlines in that background, so each key reads as its own
+   tile; a latched key is the same pair the other way round. */
 
 .key-row {
   display: grid;
@@ -18,11 +21,11 @@
   min-width: 0;
   height: 32px;
   padding: 0;
-  border: solid var(--border-medium);
+  border: solid var(--term-background);
   border-width: 0 1px 1px 0;
   border-radius: 0;
-  background-color: var(--bg-dark);
-  color: var(--text-primary);
+  background-color: var(--theme-accent);
+  color: var(--term-background);
   font: inherit;
   cursor: pointer;
   touch-action: manipulation;
@@ -35,14 +38,13 @@
 }
 
 .key-row-key.is-latched {
-  border-color: var(--theme-accent);
-  background-color: var(--theme-accent);
-  color: var(--term-black);
+  background-color: var(--term-background);
+  color: var(--theme-accent);
   font-weight: 700;
 }
 
 .key-row-key.is-locked {
-  box-shadow: inset 0 -3px 0 var(--term-black);
+  box-shadow: inset 0 -3px 0 var(--theme-accent);
 }
 
 /* The mic sits on the text baseline's centre, the glyphs' height. */
