@@ -124,7 +124,7 @@ jobs:
         run: |
           bin/ci/apt-get update
           # shellcheck disable=SC2046 # one package per word
-          bin/ci/apt-get install -y --no-install-recommends fzf neovim \
+          bin/ci/apt-get install -y --no-install-recommends fzf neovim zsh \
             ${HEAD_DEPS:+$(bin/toolchain packages "$HEAD_DEPS")}
 
       # Released versions are cached exactly like the per-commit jobs cache

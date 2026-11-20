@@ -14,7 +14,7 @@ import {
   toTmuxCommand,
 } from '../commands';
 import { quote } from '../commandHelpers';
-import { PANE_PREVIEWS } from '../tmuxyConstants.gen';
+import { PANE_PREVIEWS, SHELL_IN_FRONT } from '../tmuxyConstants.gen';
 import { pid, wid } from '../../test/wire';
 
 const S = '$TMUXY_DATA_DIR/bin/tmuxy';
@@ -68,6 +68,11 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.ClearPane(), 'send-keys -R \\; send-keys C-l \\; clear-history'],
   [TmuxOp.PasteBuffer(), 'paste-buffer -p'],
   [TmuxOp.SendKeys({ target: pid('%3'), keys: 'C-c' }), 'send-keys -t %3 C-c'],
+  // EOF to a shell in front, which ends it only at an empty line; C-c to anything else.
+  [
+    TmuxOp.InterruptOrEof({ paneId: pid('%3') }),
+    `if-shell -F -t %3 '${SHELL_IN_FRONT}' { send-keys -t %3 C-d } { send-keys -t %3 C-c }`,
+  ],
   [
     TmuxOp.PasteText({ target: pid('%3'), text: 'ls -la' }),
     `set-buffer -b tmuxy-paste "ls -la"\n${PASTE_INTO_3}`,

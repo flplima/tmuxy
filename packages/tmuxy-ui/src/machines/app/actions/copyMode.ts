@@ -25,6 +25,7 @@ import {
   selectWordAt,
 } from './copyMode/scrollback';
 import { promptMarkActions } from './copyMode/promptMarks';
+import { looksEmpty } from '../../../domain/emptyPrompt';
 
 /** A search key: open, edit or close the prompt, or run a search (loading the history it needs first). */
 function applySearchKey(
@@ -440,7 +441,14 @@ export const copyModeActions = {
     }
   }),
 
-  copyMode_copySelection: act(({ context, enqueue }) => {
+  /**
+   * Copy mode's copy, or with nothing to copy, Ctrl+C into the pane. At what
+   * looks like an empty shell prompt that is the op tmux turns into EOF while
+   * a shell is in front, which ends the shell, and with it the pane or the
+   * tab (`domain/emptyPrompt.ts`).
+   */
+  copyMode_copySelection: act(({ context, event, enqueue }) => {
+    if (event.type !== 'COPY_SELECTION') return;
     const paneId = selectKeyFocusPane(context);
     const copyState = paneId ? context.copyModeStates[paneId] : undefined;
     if (paneId && copyState) {
@@ -451,9 +459,14 @@ export const copyModeActions = {
       );
       return;
     }
+    const target = selectKeyTarget(context);
+    const pane = context.panes.find((p) => p.tmuxId === target);
     enqueue.raise({
       type: 'DISPATCH_OP',
-      op: TmuxOp.SendKeys({ target: selectKeyTarget(context), keys: 'C-c' }),
+      op:
+        event.ctrlKey && pane && looksEmpty(context.paneLines[pane.tmuxId], pane)
+          ? TmuxOp.InterruptOrEof({ paneId: pane.tmuxId })
+          : TmuxOp.SendKeys({ target, keys: 'C-c' }),
     });
   }),
 };

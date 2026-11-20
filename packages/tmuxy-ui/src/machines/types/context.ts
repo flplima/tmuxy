@@ -8,6 +8,7 @@ import type { GridCell } from '../../domain/gridFit';
 import type { ProfilesInfo, ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { TmuxOp } from '../../domain/commands';
 import type { PendingClose } from '../../domain/closeGuard';
+import type { PaneLines } from '../../domain/emptyPrompt';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type { PaletteMode } from '../../domain/palette/entries';
 import type {
@@ -111,6 +112,12 @@ export interface AppMachineContext {
    * the tree (left) drives its widget (j/k/Enter/l/q) instead of a pane.
    */
   keyboardOwner: KeyboardOwner;
+  /**
+   * Each pane's shell line as this client knows it: typed into since its
+   * last Enter or Ctrl+C, and where its prompt was drawn, for Ctrl+C to tell
+   * an empty prompt (`domain/emptyPrompt.ts`).
+   */
+  paneLines: PaneLines;
   /** The two sidebar columns: the tree (left) and the pinned terminal (right). */
   sidebars: Record<SidebarSide, SidebarState>;
   /**

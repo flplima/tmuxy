@@ -96,6 +96,7 @@ export const FIELD_OWNERS = {
   floatPanes: 'groupsAndFloats',
 
   keyboardOwner: 'keyboard',
+  paneLines: 'keyboard',
 
   sidebars: 'sidebars',
   sidebarColsPreview: 'sidebars',
@@ -209,6 +210,7 @@ export function createInitialContext(): AppMachineContext {
     ownTmuxNotice: null,
     floatPanes: {},
     keyboardOwner: { kind: 'panes' },
+    paneLines: {},
     sidebars: {
       left: { open: false, starting: false, startFailed: false },
       right: { open: false, starting: false, startFailed: false },

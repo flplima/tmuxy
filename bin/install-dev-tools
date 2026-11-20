@@ -33,8 +33,9 @@ if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
 fi
 
 echo "[dev-tools] apt packages"
-# fzf and neovim are driven BY the tests (the float fzf round trip, the nvim
-# performance suite); jq reads the NDJSON trace; zstd unpacks the v86 image;
+# fzf, neovim and zsh are driven BY the tests (the float fzf round trip, the nvim
+# performance suite, Ctrl+C ending a zsh); jq reads the NDJSON trace; zstd
+# unpacks the v86 image;
 # xvfb + WebKitWebDriver are the Tauri E2E display and driver. The fonts are the list
 # CI's Chromium gets (`bin/toolchain packages chromium-fonts`), so a container
 # pass matches a CI pass.
@@ -47,7 +48,7 @@ fonts="$("$toolchain" packages chromium-fonts)"
 desktop_test="$("$toolchain" packages desktop-test)"
 # shellcheck disable=SC2086
 $SUDO apt-get install -y --no-install-recommends \
-    jq zstd fzf neovim shellcheck \
+    jq zstd fzf neovim zsh shellcheck \
     $desktop_test \
     $fonts
 

@@ -29,7 +29,7 @@ import {
   sessionTarget,
   quote,
 } from './commandHelpers';
-import { LEFT_SIDEBAR_WIDGET, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
+import { LEFT_SIDEBAR_WIDGET, SHELL_IN_FRONT, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
 
 /** tmuxy's config chain (the server sources its own); never `~/.tmux.conf`. */
 export const CONFIG_FILE = '$TMUXY_ENTRY_CONF';
@@ -132,6 +132,12 @@ export type TmuxOp = Data.TaggedEnum<{
   SendText: { readonly target: PaneId | string; readonly text: string };
   /** Text pasted as one paste: bracketed when the program in the pane asked for it. */
   PasteText: { readonly target: PaneId | string; readonly text: string };
+  /**
+   * Ctrl+C at what looks like an empty shell prompt: EOF (`C-d`) while tmux
+   * finds a shell in front of the pane, which the shell exits on only when
+   * its line is empty, and the interrupt (`C-c`) to anything else.
+   */
+  InterruptOrEof: { readonly paneId: PaneId };
   /** A JSON line for the preview widget in a pane, entered only while tmux finds it previewing. */
   SendPreviewLine: { readonly paneId: PaneId; readonly json: string };
   /** SGR mouse reports for a mouse-tracking pane, in the order they happened. */
@@ -295,6 +301,8 @@ export function toTmuxCommand(op: TmuxOp): string {
       return literalText(op.target, op.text);
     case 'PasteText':
       return pastedText(op.target, op.text);
+    case 'InterruptOrEof':
+      return `if-shell -F -t ${op.paneId} '${SHELL_IN_FRONT}' { send-keys -t ${op.paneId} C-d } { send-keys -t ${op.paneId} C-c }`;
     case 'SendPreviewLine':
       return previewLine(op.paneId, op.json);
     case 'SendMouse':

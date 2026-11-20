@@ -176,7 +176,8 @@ export type AppMachineEvent =
   | { type: 'REQUEST_CLOSE_CONFIRM'; pending: PendingClose }
   | { type: 'CONFIRM_CLOSE' }
   | { type: 'CANCEL_CLOSE' }
-  | { type: 'COPY_SELECTION' }
+  /** Copy what is selected; with nothing selected, Ctrl+C's interrupt (`ctrlKey`: it may close an empty prompt). */
+  | { type: 'COPY_SELECTION'; ctrlKey?: boolean }
   /** `paneId` null: the pane the keyboard is in (a focused float, else the active pane). */
   | { type: 'CLOSE_PANE'; paneId: PaneId | null }
   | { type: 'CREATE_TAB' }

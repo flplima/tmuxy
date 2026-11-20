@@ -57,6 +57,7 @@ App-answered keys (`app …`), mouse gestures and `Enforced by` paths are not re
 | P23 | Your own rules for what a caller may type into another pane: refuse it, or always ask | — | — | — | `tmuxy config permissions` | `~/.config/tmuxy/permissions.json` | `tests/cli/cli-guest-verbs.test.js` |
 | P24 | A send that waits in line for a busy pane; list the line, take one back | — | — | — | `tmuxy pane queue` | — | `tests/cli/cli-send.test.js` |
 | P25 | A script or an agent asks the person a question over a pane, answered on any client, and gets the answer | the question's buttons, its text field, dismiss | — | `app Enter` `app Escape` | `tmuxy pane ask` | — | `tests/13-pane-ask.test.js` |
+| P26 | Close a pane, or a tab's only pane, with Ctrl+C at an empty shell prompt | — | — | `app C-c` | — | — | `tests/1-input-interaction-ctrl-c.test.js` |
 
 ## Groups
 

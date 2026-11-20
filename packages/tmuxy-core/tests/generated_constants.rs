@@ -111,6 +111,22 @@ fn typescript() -> String {
          export const PANE_PREVIEWS = {};",
         quoted(&tmuxy_core::preview::pane_previews_format())
     );
+    // Laid out as prettier lays them out: a shell a line, the long format on
+    // a line of its own.
+    out.push_str(
+        "\n/** Shells, by the basename of the program a pane runs (`constants::SHELLS`). */\n\
+         export const SHELLS = [\n",
+    );
+    for shell in tmuxy_core::constants::SHELLS {
+        let _ = writeln!(out, "  {},", quoted(shell));
+    }
+    out.push_str("] as const;\n");
+    let _ = writeln!(
+        out,
+        "\n/** `1` while the program in front of a pane is one of them (`tmux_formats::shell_in_front`). */\n\
+         export const SHELL_IN_FRONT =\n  {};",
+        quoted(&tmuxy_core::constants::tmux_formats::shell_in_front())
+    );
     let _ = writeln!(
         out,
         "\n/** The window types tmuxy's chrome is tagged with (`WindowType`); an untagged window is a tab. */\n\
