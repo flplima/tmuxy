@@ -23,6 +23,7 @@ const {
   selectedText,
   recordCopies,
   copiedText,
+  shownNotice,
 } = require('./helpers/selection-drag');
 const { tmuxPane } = require('./helpers/tmux-read');
 const fs = require('fs');
@@ -75,24 +76,8 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
       5000,
       'the release to copy the selection',
     );
-    const notice = await ctx.page.evaluate(() => {
-      const el = [...document.querySelectorAll('[data-testid="snackbar-item"]')].find((n) =>
-        n.textContent.includes('Copied'),
-      );
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return {
-        text: el.textContent,
-        role: el.getAttribute('role'),
-        width: r.width,
-        height: r.height,
-      };
-    });
-    expect(notice).not.toBeNull();
-    expect(notice.text).toContain('Copied 14 characters');
+    const notice = await shownNotice(ctx.page, 'Copied 14 characters');
     expect(notice.role).toBe('status');
-    expect(notice.width).toBeGreaterThan(0);
-    expect(notice.height).toBeGreaterThan(0);
     expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
     // The notice is the sign: selecting does not blink the text.
     expect(await ctx.page.evaluate(() => window.__flashes)).toBe(0);
@@ -303,7 +288,7 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
     await runCommand(ctx.page, 'echo AFTER_CAT', 'AFTER_CAT');
   }, 60000);
 
-  test('in copy mode a drag copies on release, blinks, and leaves copy mode', async () => {
+  test('in copy mode a drag copies on release, says how many characters, blinks, and leaves copy mode', async () => {
     await ctx.setupPage();
 
     await runCommand(
@@ -382,8 +367,9 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
     expect(cells.got).toEqual(cells.want);
     await ctx.page.mouse.up();
 
-    // Released: the selection is on the clipboard, the copied text blinked,
-    // and copy mode is over — on the client and in tmux.
+    // Released: the selection is on the clipboard and the snackbar says how
+    // many characters went, as a release on the live screen does; the copied
+    // text blinked, and copy mode is over — on the client and in tmux.
     await waitForCondition(
       ctx.page,
       async () =>
@@ -392,6 +378,7 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
       'the release to copy the selection',
     );
     expect(await ctx.page.evaluate(() => window.__tmuxyLastClipboard.text)).toBe('COPY_DRAG_ME');
+    expect((await shownNotice(ctx.page, 'Copied 12 characters')).role).toBe('status');
     await waitForCopyMode(ctx.page, false);
     expect(await ctx.page.evaluate(() => window.__sawCopied)).toBe(true);
     await waitForCondition(

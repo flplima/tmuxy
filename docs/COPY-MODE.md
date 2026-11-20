@@ -199,27 +199,29 @@ bottom, because each further move still asks to open one until React has re-rend
 
 ## Clipboard
 
-**Copy on select**, as the Claude Code TUI does it: the mouse release that ends a browser selection
-over terminal text (a drag, a double or triple click, on the live screen or in the scroll view) puts
-the text on the clipboard at once and raises an info notification saying how many
-characters went. The selection stays on screen, and the screen holds still under it. The next key —
-`Ctrl+C`, `Cmd+C`, a letter — clears the selection and is processed as typed: `Ctrl+C` interrupts
-the shell, a letter goes to the pane, `Cmd+C` copies the same text once more before the highlight
-goes. A modifier on its own leaves it. The same text still selected on a later release is not copied
-twice; once the selection has gone, selecting it again copies again. The keyboard actor's clipboard
-module owns this (`machines/actors/keyboard/imeAndClipboard.ts`); the touch hold on a phone keeps
-its own Copy/Cancel bar.
+**Copy on select**: the mouse release that ends a browser selection over terminal text (a drag, a
+double or triple click, on the live screen or in the scroll view) puts the text on the clipboard at
+once. The selection stays on screen, and the screen holds still under
+it. The next key — `Ctrl+C`, `Cmd+C`, a letter — clears the selection and is processed as typed:
+`Ctrl+C` interrupts the shell, a letter goes to the pane, `Cmd+C` copies the same text once more
+before the highlight goes. A modifier on its own leaves it. The same text still selected on a later
+release is not copied twice; once the selection has gone, selecting it again copies again.
+
+**These copies say how many characters went**, in an info notice: copy on select,
+`y`/`Enter` and `Ctrl/Cmd-C` in copy mode, the copy key on the scroll view's select-all, a drag
+released in copy mode, the phone's **Copy** and the selection menu's **Copy**. One helper does all
+of them, `copyAndSay` (`infra/clipboard.ts`): the copy command, filled from its own `copy` event
+while the key, release or tap is fresh, else the clipboard API; the notice comes once a write took,
+and a refused one says it could not copy and why.
 
 Selected text is extracted client-side (`extractSelectedText`, which joins wrapped rows into logical
-lines). A copy by key or menu blinks the copied text in place (`infra/dom/copyFlash.ts`); copy on select
-does not. Copy mode paints its own
-selection, so its copy sets `copiedAt` on the view, the scrollback marks itself `data-copied`, and the
-view closes when the blink is over — keyboard yank, `Ctrl/Cmd-C` and a drag release alike. A browser
+lines). A copy by key or menu blinks the copied text in place (`infra/dom/copyFlash.ts`); copy on
+select does not. Copy mode paints its own selection, so its copy sets `copiedAt` on the view, the
+scrollback marks itself `data-copied`, and the view closes when the blink is over. A browser
 selection is covered by fixed boxes laid over its rectangles instead, on `Cmd+C` and on the
-right-click **Copy**. With animations off the highlight holds steady for the same time. Keyboard yank (`y`/`Enter`) and `Ctrl/Cmd-C` set the extracted text on the keyboard actor's
-native `copy` event (`document.execCommand('copy')` → `clipboardData`). The right-click **Copy** action
-writes it via `navigator.clipboard.writeText`; the selection context menu's other item, **Send keys**,
-types the selection into the pane. Either closes the view.
+right-click **Copy**. With animations off the highlight holds steady for the same time. The
+selection menu's other item, **Send keys**, types the selection into the pane; either closes the
+view.
 
 ## Key files
 

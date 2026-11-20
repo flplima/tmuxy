@@ -232,7 +232,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
         />
       )}
       {!collapsed && phoneGestures && copyState?.mode === 'copy' && copyState.selectionMode && (
-        <TouchSelectionBar paneId={paneId} copyState={copyState} />
+        <TouchSelectionBar paneId={paneId} />
       )}
       {!collapsed && paneMenu && (
         <PaneContextMenu

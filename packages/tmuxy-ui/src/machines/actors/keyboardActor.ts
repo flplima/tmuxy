@@ -248,7 +248,7 @@ export function createKeyboardActor() {
         handleModalOrCopyKeyDown(event, input.parent, {
           keys: ctx,
           prefixActive: prefixMode.active,
-          setPendingCopyText: imeClipboard.setPendingCopyText,
+          copySelection: imeClipboard.copySelection,
         })
       ) {
         return;

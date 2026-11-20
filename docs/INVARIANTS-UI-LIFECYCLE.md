@@ -6,7 +6,7 @@ The `U` and `L` rows of the ledger in [INVARIANTS.md](INVARIANTS.md), which hold
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| U1 | At most one copy-mode record per pane; exit closes only if seen in mode, and cooldown ignores stale `in_mode`. | ordering | `copyMode.ts`, `docs/COPY-MODE.md` | `reconcilePaneMode.test.ts › a snapshot…`, `› is ignored…`; `copyMode.test.ts › the end of a blink…` (examples) |
+| U1 | At most one copy-mode record per pane; exit closes only if seen in mode, and cooldown ignores stale `in_mode`. | ordering | `copyMode.ts`, `docs/COPY-MODE.md` | `reconcilePaneMode.test.ts › a snapshot…`, `› is ignored…`; `copyMode.copying.test.ts › the end of a blink…` (examples) |
 | U2 | Resize preview holds for two matching quiet updates or a 2 s fallback that never clobbers newer resizes. | liveness | `appMachine.ts`, `layout.ts` | `layout.test.ts › the 2s RESIZE_COMPLETED…`, `› …does not clobber…` (two-quiet-updates hold is —) |
 | U3 | Only the latest scrollback fetch per pane applies; different panes fetch concurrently without cancelling. | ordering | `tmuxActor.ts` | `tmuxActor.test.ts › interrupts the previous fetch…`, `› different paneId fetches…` |
 | U4 | Group switch holds swap over stale snapshots, drops if a pane dies, and never selects parked/stash panes. | safety | `appMachine.ts`, `windowOps.ts` | `tests/7-regression-bugs.test.js › Clicking three pane-group tabs…` [nightly] (E2E only) |

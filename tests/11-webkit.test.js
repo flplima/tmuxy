@@ -27,6 +27,7 @@ const {
   selectionRect,
   recordCopies,
   copiedText,
+  shownNotice,
 } = require('./helpers/selection-drag');
 const {
   waitForSettled,
@@ -163,6 +164,7 @@ describeE2E(
         'the menu to copy the selected text',
       );
       expect(await ctx.page.evaluate(() => window.__tmuxyLastClipboard.text)).toBe(TOKEN);
+      await shownNotice(ctx.page, `Copied ${TOKEN.length} characters`);
 
       // The terminal still works after all that focus traffic.
       await ctx.page.evaluate(() => window.getSelection().removeAllRanges());

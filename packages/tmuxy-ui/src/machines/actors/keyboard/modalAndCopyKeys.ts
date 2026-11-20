@@ -24,10 +24,11 @@ export function handleModalOrCopyKeyDown(
   state: {
     keys: KeyContext;
     prefixActive: boolean;
-    setPendingCopyText: (text: string) => void;
+    /** Copies a client-drawn selection and says how many characters went. */
+    copySelection: (text: string) => void;
   },
 ): boolean {
-  const { keys, prefixActive, setPendingCopyText } = state;
+  const { keys, prefixActive, copySelection } = state;
 
   const replayed = isReplayedPreviewKey(event);
 
@@ -135,8 +136,7 @@ export function handleModalOrCopyKeyDown(
     activeCopyState.selectionAnchor
   ) {
     event.preventDefault();
-    setPendingCopyText(extractSelectedText(activeCopyState));
-    document.execCommand('copy');
+    copySelection(extractSelectedText(activeCopyState));
     parent.send({ type: 'COPY_SELECTION' });
     return true;
   }
@@ -149,7 +149,8 @@ export function handleModalOrCopyKeyDown(
     }
     if (copyModeActive) {
       if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
-        setPendingCopyText(extractSelectedText(activeCopyState));
+        event.preventDefault();
+        copySelection(extractSelectedText(activeCopyState));
       }
     } else if (event.metaKey && hasNativeSelection()) {
       event.preventDefault();
@@ -176,8 +177,7 @@ export function handleModalOrCopyKeyDown(
     // While the search prompt is open its Enter runs the search; it yanks nothing.
     if ((event.key === 'y' || event.key === 'Enter') && !activeCopyState?.search?.prompt) {
       if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
-        setPendingCopyText(extractSelectedText(activeCopyState));
-        document.execCommand('copy');
+        copySelection(extractSelectedText(activeCopyState));
       }
     }
     parent.send({

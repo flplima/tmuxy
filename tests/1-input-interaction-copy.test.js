@@ -16,6 +16,7 @@ const {
   createWindowKeyboard,
   activeWindowId,
 } = require('./helpers');
+const { recordCopies, copiedText, shownNotice } = require('./helpers/selection-drag');
 
 /**
  * The copy-mode state once `pred` holds for it. Copy mode runs in the client,
@@ -436,7 +437,7 @@ describeE2E('Scenario 9b: Copy Mode Across a Tab Switch', {}, (ctx) => {
 // ==================== Scenario 10: Copy Mode Select & Yank ====================
 
 describeE2E('Scenario 10: Copy Mode Select & Yank', {}, (ctx) => {
-  test('Selection with v → yank with y → exit → terminal functional', async () => {
+  test('Selection with v → yank with y → copied, with a notice of how many characters → exit → terminal functional', async () => {
     await ctx.setupPage();
 
     // Step 1: Generate scrollback content with identifiable lines
@@ -476,8 +477,22 @@ describeE2E('Scenario 10: Copy Mode Select & Yank', {}, (ctx) => {
       'lll to extend the selection',
     );
 
-    // Step 7: Yank with 'y' (triggers extractSelectedText → clipboard → auto-exit)
+    // Step 7: Yank with 'y': the selection goes on the clipboard (read off the
+    // copy event: the system clipboard needs a permission no headless browser
+    // grants) and the snackbar says how many characters went, as a mouse copy does.
+    await recordCopies(ctx.page);
     await ctx.page.keyboard.press('y');
+    await waitForCondition(
+      ctx.page,
+      async () => (await copiedText(ctx.page)) !== null,
+      5000,
+      "'y' to copy the selection",
+    );
+    const yanked = await copiedText(ctx.page);
+    // Five rows above the prompt: one of seq's last numbers, from its first digit.
+    expect(yanked).toMatch(/^1\d\d$/);
+    const notice = await shownNotice(ctx.page, `Copied ${[...yanked].length} characters`);
+    expect(notice.role).toBe('status');
 
     // Step 8: Verify copy mode exited after yank
     await waitForCopyMode(ctx.page, false);

@@ -1,42 +1,18 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../../test/wire';
 import { copyModeState } from '../copyMode';
 import { copyModeActions } from '../../actions/copyMode';
-import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 import { mountState, sendAndGetContext } from './testHarness';
-import type { CopyModeState } from '../../../../domain/copyMode';
 import type { TmuxPane } from '../../../../domain/client';
 import type { CellLine } from '../../../../domain/wireCells';
 import type { PaneId } from '../../../../domain/ids';
 import { toTmuxCommand } from '../../../../domain/commands';
-import { cellLine, modelPane } from '../../../../test/model';
+import { cellLine, copyModeView, modelPane } from '../../../../test/model';
 import { recorder } from '../../../../test/app';
 
 /** An active pane of `content`, with ten rows of history behind it. */
 const makePane = (tmuxId: PaneId, content: CellLine[]): TmuxPane =>
   modelPane(tmuxId, wid('@0'), { content, height: content.length, active: true, historySize: 10 });
-
-function makeCopyState(extra: Partial<CopyModeState> = {}): CopyModeState {
-  const lines = new Map<number, CellLine>();
-  lines.set(10, cellLine('hello world'));
-  lines.set(11, cellLine('second line'));
-  return {
-    mode: 'copy',
-    lines,
-    totalLines: 12,
-    historySize: 10,
-    loadedRanges: [[10, 11]],
-    loading: false,
-    width: 80,
-    height: 2,
-    cursorRow: 10,
-    cursorCol: 0,
-    selectionMode: null,
-    selectionAnchor: null,
-    scrollTop: 10,
-    ...extra,
-  };
-}
 
 describe('copyMode state', () => {
   it('ENTER_COPY_MODE initializes copyModeStates for the pane', () => {
@@ -72,7 +48,7 @@ describe('copyMode state', () => {
   it('EXIT_COPY_MODE removes the pane from copyModeStates and stamps exit time', () => {
     const before = Date.now();
     const actor = mountState(copyModeState, copyModeActions, {
-      copyModeStates: { [pid('%1')]: makeCopyState() },
+      copyModeStates: { [pid('%1')]: copyModeView() },
     });
     const ctx = sendAndGetContext(actor, { type: 'EXIT_COPY_MODE', paneId: pid('%1') });
     expect(ctx.copyModeStates[pid('%1')]).toBeUndefined();
@@ -123,7 +99,7 @@ describe('copyMode state', () => {
   });
 
   it('SELECT_ALL_SCROLLBACK selects an already open view without rebuilding it', () => {
-    const open = makeCopyState({ mode: 'scroll', selectionMode: null, selectionAnchor: null });
+    const open = copyModeView({ mode: 'scroll', selectionMode: null, selectionAnchor: null });
     const actor = mountState(copyModeState, copyModeActions, {
       copyModeStates: { [pid('%1')]: open },
     });
@@ -152,7 +128,7 @@ describe('copyMode state', () => {
     const actor = mountState(
       copyModeState,
       copyModeActions,
-      { copyModeStates: { [pid('%1')]: makeCopyState({ mode: 'scroll' }) } },
+      { copyModeStates: { [pid('%1')]: copyModeView({ mode: 'scroll' }) } },
       {
         extraActors: {
           tmux: tmux.logic,
@@ -174,7 +150,7 @@ describe('copyMode state', () => {
     for (const mode of ['scroll', 'copy'] as const) {
       const actor = mountState(copyModeState, copyModeActions, {
         copyModeStates: {
-          [pid('%1')]: makeCopyState({ mode, totalLines: bottom + 2, height: 2, scrollTop: 0 }),
+          [pid('%1')]: copyModeView({ mode, totalLines: bottom + 2, height: 2, scrollTop: 0 }),
         },
       });
       const ctx = sendAndGetContext(actor, {
@@ -194,7 +170,7 @@ describe('copyMode state', () => {
     const bottom = 40;
     const actor = mountState(copyModeState, copyModeActions, {
       copyModeStates: {
-        [pid('%1')]: makeCopyState({
+        [pid('%1')]: copyModeView({
           mode: 'scroll',
           totalLines: bottom + 2,
           height: 2,
@@ -215,7 +191,7 @@ describe('copyMode state', () => {
   it('COPY_MODE_SELECTION_CLEAR clears selection but keeps cursor', () => {
     const actor = mountState(copyModeState, copyModeActions, {
       copyModeStates: {
-        [pid('%1')]: makeCopyState({
+        [pid('%1')]: copyModeView({
           selectionMode: 'char',
           selectionAnchor: { row: 10, col: 0 },
           cursorRow: 10,
@@ -233,7 +209,7 @@ describe('copyMode state', () => {
   it('COPY_MODE_WORD_SELECT expands selection to word boundaries', () => {
     // line at row 10: "hello world" — selecting col 1 should expand to "hello"
     const actor = mountState(copyModeState, copyModeActions, {
-      copyModeStates: { [pid('%1')]: makeCopyState() },
+      copyModeStates: { [pid('%1')]: copyModeView() },
     });
     const ctx = sendAndGetContext(actor, {
       type: 'COPY_MODE_WORD_SELECT',
@@ -253,7 +229,7 @@ describe('copyMode state', () => {
     // breath (components/terminal/usePaneTouch.ts): no line has arrived yet.
     const actor = mountState(copyModeState, copyModeActions, {
       copyModeStates: {
-        [pid('%1')]: makeCopyState({ lines: new Map(), loadedRanges: [], loading: true }),
+        [pid('%1')]: copyModeView({ lines: new Map(), loadedRanges: [], loading: true }),
       },
     });
     let ctx = sendAndGetContext(actor, {
@@ -288,7 +264,7 @@ describe('copyMode state', () => {
 
   it('COPY_MODE_LINE_SELECT selects entire line', () => {
     const actor = mountState(copyModeState, copyModeActions, {
-      copyModeStates: { [pid('%1')]: makeCopyState() },
+      copyModeStates: { [pid('%1')]: copyModeView() },
     });
     const ctx = sendAndGetContext(actor, {
       type: 'COPY_MODE_LINE_SELECT',
@@ -311,7 +287,7 @@ describe('copyMode state', () => {
     lines.set(12, cellLine('next'));
     const actor = mountState(copyModeState, copyModeActions, {
       copyModeStates: {
-        [pid('%1')]: makeCopyState({
+        [pid('%1')]: copyModeView({
           lines,
           totalLines: 13,
           height: 3,
@@ -333,7 +309,7 @@ describe('copyMode state', () => {
 
   it('COPY_MODE_CURSOR_MOVE clamps within total lines', () => {
     const actor = mountState(copyModeState, copyModeActions, {
-      copyModeStates: { [pid('%1')]: makeCopyState({ totalLines: 12 }) },
+      copyModeStates: { [pid('%1')]: copyModeView({ totalLines: 12 }) },
     });
     const ctx = sendAndGetContext(actor, {
       type: 'COPY_MODE_CURSOR_MOVE',
@@ -348,7 +324,7 @@ describe('copyMode state', () => {
   it('COPY_MODE_SELECTION_START with totalLines=0 stores pendingSelection', () => {
     const actor = mountState(copyModeState, copyModeActions, {
       copyModeStates: {
-        [pid('%1')]: makeCopyState({ totalLines: 0, lines: new Map() }),
+        [pid('%1')]: copyModeView({ totalLines: 0, lines: new Map() }),
       },
     });
     const ctx = sendAndGetContext(actor, {
@@ -362,83 +338,6 @@ describe('copyMode state', () => {
       mode: 'char',
       row: 0,
       col: 3,
-    });
-  });
-
-  describe('copying with the mouse', () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    /** A copy-mode view with "hello" selected on its first loaded row. */
-    const withSelection = (extra: Partial<CopyModeState> = {}) =>
-      makeCopyState({
-        selectionMode: 'char',
-        selectionAnchor: { row: 10, col: 0 },
-        cursorRow: 10,
-        cursorCol: 4,
-        ...extra,
-      });
-
-    it('a released drag copies the selection, leaves tmux copy mode at once, and closes the view after the blink', () => {
-      // tmux's MouseDragEnd1Pane runs copy-pipe-and-cancel: copy, then leave.
-      // The client does the same, except that its view stays for the blink so
-      // the copied text flashes where it is, then goes.
-      vi.useFakeTimers();
-      const tmux = recorder();
-      const sent = () => tmux.ops().map(toTmuxCommand);
-      const actor = mountState(
-        copyModeState,
-        copyModeActions,
-        { copyModeStates: { [pid('%1')]: withSelection() } },
-        {
-          extraActors: {
-            tmux: tmux.logic,
-          },
-        },
-      );
-
-      const ctx = sendAndGetContext(actor, { type: 'COPY_MODE_MOUSE_COPY', paneId: pid('%1') });
-      const win = globalThis as unknown as { __tmuxyLastClipboard?: { text: string } };
-      expect(win.__tmuxyLastClipboard?.text).toBe('hello');
-      expect(sent()).toContain('send-keys -t %1 -X cancel');
-      expect(ctx.copyModeStates[pid('%1')]?.copiedAt).toEqual(expect.any(Number));
-
-      vi.advanceTimersByTime(COPY_FLASH_MS - 1);
-      expect(actor.getSnapshot().context.copyModeStates[pid('%1')]).toBeDefined();
-      vi.advanceTimersByTime(1);
-      expect(actor.getSnapshot().context.copyModeStates[pid('%1')]).toBeUndefined();
-    });
-
-    it('a drag that selected nothing copies nothing and stays in copy mode', () => {
-      const actor = mountState(copyModeState, copyModeActions, {
-        copyModeStates: { [pid('%1')]: makeCopyState() },
-      });
-      const ctx = sendAndGetContext(actor, { type: 'COPY_MODE_MOUSE_COPY', paneId: pid('%1') });
-      expect(ctx.copyModeStates[pid('%1')]?.copiedAt).toBeUndefined();
-    });
-
-    it('the end of a blink closes only the view that copy left, not one opened since', () => {
-      const actor = mountState(copyModeState, copyModeActions, {
-        copyModeStates: { [pid('%1')]: withSelection({ copiedAt: 200 }) },
-      });
-      const ctx = sendAndGetContext(actor, {
-        type: 'COPY_MODE_COPIED_EXIT',
-        paneId: pid('%1'),
-        copiedAt: 100,
-      });
-      expect(ctx.copyModeStates[pid('%1')]).toBeDefined();
-    });
-
-    it('a keyboard yank blinks and closes the same way', () => {
-      vi.useFakeTimers();
-      const actor = mountState(copyModeState, copyModeActions, {
-        copyModeStates: { [pid('%1')]: withSelection() },
-      });
-      const ctx = sendAndGetContext(actor, { type: 'COPY_MODE_YANK', paneId: pid('%1') });
-      expect(ctx.copyModeStates[pid('%1')]?.copiedAt).toEqual(expect.any(Number));
-      vi.advanceTimersByTime(COPY_FLASH_MS);
-      expect(actor.getSnapshot().context.copyModeStates[pid('%1')]).toBeUndefined();
     });
   });
 
@@ -461,7 +360,7 @@ describe('copyMode state — a chunk that fails to load', () => {
     const actor = mountState(
       copyModeState,
       copyModeActions,
-      { copyModeStates: { [pid('%1')]: makeCopyState({ loading: true }) } },
+      { copyModeStates: { [pid('%1')]: copyModeView({ loading: true }) } },
       { extraActors: { tmux: tmux.logic } },
     );
 

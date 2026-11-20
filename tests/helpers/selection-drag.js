@@ -138,6 +138,51 @@ async function copiedText(page) {
   return await page.evaluate(() => window.__copied);
 }
 
+/**
+ * The snackbar notice whose text contains `text`, once it is on screen: in
+ * the viewport, with an area, and on top where it is drawn. A notice in the
+ * DOM that nobody can see says nothing.
+ */
+async function shownNotice(page, text, timeout = 5000) {
+  let notice = null;
+  await waitForCondition(
+    page,
+    async () => {
+      notice = await page.evaluate((needle) => {
+        const el = [...document.querySelectorAll('[data-testid="snackbar-item"]')].find((n) =>
+          n.textContent.includes(needle),
+        );
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return {
+          text: el.textContent,
+          role: el.getAttribute('role'),
+          width: r.width,
+          height: r.height,
+          shown:
+            r.width > 0 &&
+            r.height > 0 &&
+            r.left >= 0 &&
+            r.top >= 0 &&
+            r.right <= window.innerWidth &&
+            r.bottom <= window.innerHeight &&
+            el.contains(hit),
+        };
+      }, text);
+      return notice?.shown === true;
+    },
+    timeout,
+    async () =>
+      `the notice "${text}" on screen (saw ${JSON.stringify(notice)}; snackbar: ${JSON.stringify(
+        await page.evaluate(() =>
+          [...document.querySelectorAll('[data-testid="snackbar-item"]')].map((n) => n.textContent),
+        ),
+      )})`,
+  );
+  return notice;
+}
+
 module.exports = {
   runRect,
   shownRunRect,
@@ -146,4 +191,5 @@ module.exports = {
   selectionRect,
   recordCopies,
   copiedText,
+  shownNotice,
 };

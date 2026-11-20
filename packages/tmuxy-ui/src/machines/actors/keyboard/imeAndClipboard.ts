@@ -24,7 +24,7 @@ import {
 import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
 import { noteFocus } from '../../../infra/dom/chromeTab';
 import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
-import { clipboardBlockedMessage, writeClipboard } from '../../../infra/clipboard';
+import { copyAndSay, type CopyNotice } from '../../../infra/clipboard';
 import { isModelPaneId, realId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
@@ -46,7 +46,6 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   let isComposing = false;
   let compositionTarget: string | null = null;
   let keyboardFocusEstablished = false;
-  let pendingCopyText: string | null = null;
 
   const syncKeyboardInputTarget = () => {
     const currentPane = inputPaneId(deps.keys.get());
@@ -153,12 +152,8 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   };
 
   const handleCopy = (event: ClipboardEvent) => {
-    if (pendingCopyText) {
-      event.preventDefault();
-      event.clipboardData?.setData('text/plain', pendingCopyText);
-      pendingCopyText = null;
-      return;
-    }
+    // A copy the app made (copyAndSay) has already put its own text on the event.
+    if (event.defaultPrevented) return;
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
     const range = selection.getRangeAt(0);
@@ -168,6 +163,10 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     event.clipboardData?.setData('text/plain', text);
     flashCopiedRange(range);
   };
+
+  const say = (notice: CopyNotice) => deps.parent.send({ type: 'NOTIFY', ...notice });
+  /** Copy a selection by key (copy mode's `y`, Cmd+C) and say how much went. */
+  const copySelection = (text: string) => void copyAndSay(text, null, say);
 
   // What the last release copied, so the same selection is not copied again
   // until it has gone and come back.
@@ -180,32 +179,11 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       return;
     }
     if (selected.text === copiedOnSelect) return;
-    copiedOnSelect = selected.text;
-    pendingCopyText = selected.text;
-    const count = [...selected.text].length;
-    const sayCopied = () =>
-      deps.parent.send({
-        type: 'NOTIFY',
-        kind: 'info',
-        text: `Copied ${count} character${count === 1 ? '' : 's'}`,
-      });
-    if (document.execCommand('copy')) {
-      sayCopied();
-      return;
-    }
-    // The browser took no copy command: the clipboard API is asked, and what
-    // is said waits for its answer. "Copied" over a write that was refused
-    // is how a user pastes something else.
-    pendingCopyText = null;
     const { text } = selected;
-    void writeClipboard(text, null).then((wrote) => {
-      if (wrote) {
-        sayCopied();
-        return;
-      }
+    copiedOnSelect = text;
+    void copyAndSay(text, null, say).then((copied) => {
       // Nothing was copied, so the same selection released again tries again.
-      if (copiedOnSelect === text) copiedOnSelect = null;
-      deps.parent.send({ type: 'NOTIFY', text: clipboardBlockedMessage(text, null) });
+      if (!copied && copiedOnSelect === text) copiedOnSelect = null;
     });
   };
   const handleMouseUp = (event: MouseEvent) => {
@@ -285,9 +263,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
 
   return {
     isComposing: () => isComposing,
-    setPendingCopyText: (text: string) => {
-      pendingCopyText = text;
-    },
+    copySelection,
     /** A key cleared the selection: the same text copies again when selected again. */
     noteSelectionCleared: () => {
       copiedOnSelect = null;
