@@ -192,6 +192,30 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
     expect(paint.redOwn).not.toBe(want.fg);
     expect(paint.red).toEqual(want);
     expect(paint.plain).toEqual(want);
+    // The release said "Copied 17 characters"; dismissed, so the notice after
+    // Cmd+C is Cmd+C's own: the browser's copy says how much went, as every
+    // other copy does.
+    const said = 'Copied 17 characters';
+    await shownNotice(ctx.page, said);
+    await ctx.page
+      .locator('[data-testid="snackbar-item"]', { hasText: said })
+      .getByRole('button', { name: 'Dismiss notification' })
+      .click();
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        !(await ctx.page.evaluate(
+          (said) =>
+            [...document.querySelectorAll('[data-testid="snackbar-item"]')].some((n) =>
+              n.textContent.includes(said),
+            ),
+          said,
+        )),
+      5000,
+      'the dismissed notice to go',
+    );
+    // Still selected (the browser's own string breaks the line between runs).
+    expect(await selectedText(ctx.page)).toMatch(/^RED_RUN\s+PLAIN_RUN$/);
     await ctx.page.keyboard.press('Meta+c');
     await waitForCondition(
       ctx.page,
@@ -200,6 +224,7 @@ describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
       async () =>
         `Cmd+C to copy the row as one line (copied: ${JSON.stringify(await copiedText(ctx.page))})`,
     );
+    expect((await shownNotice(ctx.page, said)).role).toBe('status');
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
 
     // 4. Across rows, the selection is drawn as a terminal draws it: the

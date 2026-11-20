@@ -204,15 +204,16 @@ double or triple click, on the live screen or in the scroll view) puts the text 
 once. The selection stays on screen, and the screen holds still under
 it. The next key — `Ctrl+C`, `Cmd+C`, a letter — clears the selection and is processed as typed:
 `Ctrl+C` interrupts the shell, a letter goes to the pane, `Cmd+C` copies the same text once more
-before the highlight goes. A modifier on its own leaves it. The same text still selected on a later
-release is not copied twice; once the selection has gone, selecting it again copies again.
+before the highlight goes. A modifier on its own leaves it. A release over text already copied
+copies nothing until the selection has gone.
 
 **These copies say how many characters went**, in an info notice: copy on select,
 `y`/`Enter` and `Ctrl/Cmd-C` in copy mode, the copy key on the scroll view's select-all, a drag
 released in copy mode, the phone's **Copy** and the selection menu's **Copy**. One helper does all
 of them, `copyAndSay` (`infra/clipboard.ts`): the copy command, filled from its own `copy` event
 while the key, release or tap is fresh, else the clipboard API; the notice comes once a write took,
-and a refused one says it could not copy and why.
+and a refused one says it could not copy and why. The browser's own copy (`Cmd+C`, Edit menu) says
+the same, in `imeAndClipboard.ts`.
 
 Selected text is extracted client-side (`extractSelectedText`, which joins wrapped rows into logical
 lines). A copy by key or menu blinks the copied text in place (`infra/dom/copyFlash.ts`); copy on
