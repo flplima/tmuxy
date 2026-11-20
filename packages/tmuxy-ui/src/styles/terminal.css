@@ -347,6 +347,23 @@
   color: var(--selection-fg);
 }
 
+/* A selection as tall as the row, in WebKit too. WebKit paints a line's
+   selection only as high as its text (the font's ascent and descent), not
+   its line height, so under a selection a cell's own background showed as
+   thin bands above and below the text, and selected rows had gaps between
+   them. Each run is its own line (a flex item), so each gets a strut: an
+   empty inline-block as tall as the row, from the row's top, which makes the
+   line's content, and so its selection, the row's full height. It has no
+   width and no text, so nothing moves and nothing is copied; Chromium
+   already paints the full height. */
+.terminal-selectable .terminal-line > span::before,
+.terminal-selectable .terminal-line > a::before {
+  content: '';
+  display: inline-block;
+  height: var(--line-height-terminal);
+  vertical-align: top;
+}
+
 /* A cell copy mode has selected. The copy blink is an inset shadow over this
    background (styles/pane-layout.css). */
 .terminal-selected {
