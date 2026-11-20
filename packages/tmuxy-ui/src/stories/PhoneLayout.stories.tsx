@@ -350,7 +350,7 @@ export const PrefixKeyArmed: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'The prefix key on the key row arms tmux’s prefix with one tap and is lit in the accent while it waits for the next key, as the desktop status bar’s chip is. A second tap cancels it.',
+          'The prefix key on the key row arms tmux’s prefix with one tap and is drawn the other way round (accent text on the dark) while it waits for the next key, as a latched ctrl is. A second tap cancels it.',
       },
     },
   },
@@ -371,11 +371,11 @@ export const PrefixKeyArmed: Story = {
     expect(at.right).toBeLessThanOrEqual(Math.min(row.right, window.innerWidth));
     expect(key.getAttribute('aria-label')).toBe('Prefix (C-a)');
     expect(key.getAttribute('aria-pressed')).toBe('false');
-    const dark = getComputedStyle(key).backgroundColor;
+    const atRest = getComputedStyle(key).backgroundColor;
 
     await userEvent.click(key);
     await waitFor(() => expect(key.getAttribute('aria-pressed')).toBe('true'), { timeout: 5000 });
-    expect(getComputedStyle(key).backgroundColor).not.toBe(dark);
+    expect(getComputedStyle(key).backgroundColor).not.toBe(atRest);
     const ctrl = canvasElement.querySelector('[data-key-row="ctrl"]') as HTMLElement;
     await userEvent.click(ctrl);
     await waitFor(() => expect(ctrl.getAttribute('aria-pressed')).toBe('true'), { timeout: 5000 });
@@ -385,6 +385,6 @@ export const PrefixKeyArmed: Story = {
 
     await userEvent.click(key);
     await waitFor(() => expect(key.getAttribute('aria-pressed')).toBe('false'), { timeout: 5000 });
-    expect(getComputedStyle(key).backgroundColor).toBe(dark);
+    expect(getComputedStyle(key).backgroundColor).toBe(atRest);
   },
 };

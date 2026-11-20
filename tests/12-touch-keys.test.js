@@ -136,7 +136,7 @@ describeE2E(
       expect(before.pressed).toBe(false);
       expect(before.lit).toBe(false);
 
-      //    One tap arms the prefix and lights the key in the accent.
+      //    One tap arms the prefix and turns the key the other way round.
       const prefix = await keyRowCentre(ctx.page, 'prefix');
       await ctx.page.touchscreen.tap(prefix.x, prefix.y);
       await waitForCondition(
@@ -151,7 +151,7 @@ describeE2E(
       //    The keyboard stayed up: the key never takes the focus.
       expect(await ctx.page.evaluate(() => document.activeElement?.tagName)).toBe('INPUT');
 
-      //    The next key is a prefix binding: `c` opens a tab, and the key goes dark.
+      //    The next key is a prefix binding: `c` opens a tab, and the key goes back.
       const tabsBefore = await tabCount();
       await typeOnVirtualKeyboard(ctx.page, 'c');
       await waitForCondition(

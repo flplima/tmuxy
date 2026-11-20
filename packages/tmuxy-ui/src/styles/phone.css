@@ -14,10 +14,12 @@
 }
 
 /* Above the body, upright and held sideways, the desktop's tab strip
-   (components/phone/PhoneTabStrip.tsx) at the chrome's own size, inset as
-   the grid is. Installed, the root's top inset (standalone.css) keeps it
-   under the status bar's band, not beneath it. */
+   (components/phone/PhoneTabStrip.tsx), a notch smaller than the desktop's
+   (11px names in a 30px strip, not 12px in 36px), inset as the grid is.
+   A tab stays a thumb's height. Installed, the root's top inset
+   (standalone.css) keeps it under the status bar's band, not beneath it. */
 .phone-tab-strip {
+  --statusbar-height: calc(var(--tmuxy-font-size, 15px) * 2);
   flex: none;
 }
 
@@ -29,6 +31,8 @@
    name sooner, so two long ones still fit side by side upright. */
 .phone-tab-strip .tab-name {
   max-width: 20ch;
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.73);
+  height: calc(var(--tmuxy-font-size, 15px) * 1.27 + 2 * var(--spacing-md));
 }
 
 .phone-top {
