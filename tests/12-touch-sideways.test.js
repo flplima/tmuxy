@@ -18,7 +18,7 @@
 
 const { phoneContext, typeOnVirtualKeyboard, expectOnScreen, boxOf } = require('./helpers/phone');
 const { tmuxWindow } = require('./helpers/tmux-read');
-const { describeE2E, waitForCondition, getTerminalText } = require('./helpers');
+const { describeE2E, waitForCondition, waitForSettled, getTerminalText } = require('./helpers');
 
 const SIDEWAYS = { width: 844, height: 390 };
 
@@ -184,6 +184,10 @@ describeE2E(
         15000,
         () => `a tap on the first tab to switch back (last: ${JSON.stringify(layout)})`,
       );
+      // The strip marks the tab before its pane is drawn: the terminal is
+      // tapped once the switch has landed, where it is now.
+      await waitForSettled(ctx.page);
+      layout = await measure();
 
       // 3. A tap on the terminal — the pane in front — opens the keyboard (as
       //    the key row's ⌨ key does); on this phone it takes 200px of the height.
