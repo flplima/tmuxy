@@ -21,7 +21,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | D3 | Transparency, blur and dimming | — | `view-transparency` | — | — | `@tmuxy-transparency` `@tmuxy-blur` `@tmuxy-opacity` `@tmuxy-active-pane-opacity` `@tmuxy-inactive-pane-opacity` `@tmuxy-active-text-opacity` `@tmuxy-inactive-text-opacity` | `tests/16-personalization.test.js` |
 | D4 | Native menus | — | — | — | — | `@tmuxy-native-menus` | `tests/tauri/tauri-app.test.js` |
 | D5 | Restart or quit the app | — | `restart-app` `quit` | `app Ctrl+Q` | — | — | `tests/tauri/tauri-app.test.js` |
-| D6 | The phone layout: 80×25, key row, divider, bottom view | tap, double-tap, hold, slide | — | — | — | — | `tests/12-touch.test.js` |
+| D6 | The phone layout: tab strip, 80×25, key row, divider, bottom view | tap, double-tap, hold, slide | — | — | — | — | `tests/12-touch.test.js` |
 | D7 | The e-ink page | — | — | — | — | — | `tests/23-kindle.test.js` |
 | D8 | Push notifications when a pane needs you | — | `view-notify` | — | — | `@tmuxy-notify` | `tests/20-push.test.js` |
 | D9 | Trackpad gestures | slide, pinch | — | — | — | `@tmuxy-gesture-swipe-tabs` | `packages/tmuxy-ui/src/stories/TrackpadGestures.stories.tsx` |

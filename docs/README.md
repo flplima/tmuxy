@@ -62,7 +62,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [DATA-FLOW.md](DATA-FLOW.md) | SSE/HTTP protocol, adapter pattern, delta protocol, connection lifecycle, keyboard input flow | Working on client-server communication or the adapter layer |
 | [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md) | The Tauri transport, real-world deployment scenarios and the extra HTTP endpoints | Deploying, or touching the desktop IPC |
 | [DESKTOP.md](DESKTOP.md) | What only the desktop app has (trackpad gestures, GUI windows, window chrome, native menus, other servers) and why | Working on the Tauri app, or wondering why the web build lacks something |
-| [PHONE.md](PHONE.md) | The phone layout: the key row, the bar that zooms or folds the terminal, the bottom view, held sideways, and what a finger does | Anything a phone shows or touches |
+| [PHONE.md](PHONE.md) | The phone layout: the tab strip, the key row, the bar that zooms or folds the terminal, the bottom view, held sideways, and what a finger does | Anything a phone shows or touches |
 
 ### tmux Integration
 

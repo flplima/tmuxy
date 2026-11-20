@@ -17,9 +17,13 @@
     color var(--transition-fast);
 }
 
-.sidebar-toggle:hover {
-  color: var(--text-muted);
-  background-color: var(--bg-medium);
+/* A finger's tap leaves :hover on what it tapped (the phone's all-tabs
+   button is one of these). */
+@media (hover: hover) {
+  .sidebar-toggle:hover {
+    color: var(--text-muted);
+    background-color: var(--bg-medium);
+  }
 }
 
 /* No filled background: an open sidebar is already on screen. */

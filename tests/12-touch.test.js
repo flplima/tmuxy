@@ -8,8 +8,9 @@
  * the hidden input that IS the virtual keyboard (infra/dom/mobileKeyboard.ts,
  * whose `focusMobileInput`
  * returns immediately unless `navigator.maxTouchPoints > 0`), the key row's
- * latching ctrl, the swipe that opens the scroll view, and the tree standing
- * in for the tab strip.
+ * latching ctrl, the swipe that opens the scroll view, and the desktop's tab
+ * strip along the top, which a finger taps, with the tree listing the same
+ * tabs.
  *
  * At this width the interesting failures are geometric: something overflows
  * the screen, or is drawn where no finger can reach it. Every assertion here
@@ -22,6 +23,7 @@ const {
   typeOnVirtualKeyboard,
   expectOnScreen,
   swipe,
+  boxOf,
 } = require('./helpers/phone');
 const { tmuxWindow } = require('./helpers/tmux-read');
 const {
@@ -30,12 +32,11 @@ const {
   getTerminalText,
   waitForCopyMode,
   getCopyModeState,
-  createWindowKeyboard,
   waitForCondition,
 } = require('./helpers');
 
 describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PHONE) }, (ctx) => {
-  test('the whole 80 × 25 terminal over the keys and the tree; a tap on the pane opens the keyboard and another puts it away, ctrl latches, a swipe opens history, the tree switches tabs', async () => {
+  test('the tab strip over the whole 80 × 25 terminal, the keys and the tree; a tap on the pane opens the keyboard and another puts it away, ctrl latches, a swipe opens history, + on the strip makes a tab, a tap on the strip switches tabs, and so does the tree', async () => {
     await ctx.setupPage();
 
     // 1. Nothing runs off the side of the screen. A 400px-wide page that
@@ -59,7 +60,10 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
           // the `ffori in $$(seq` the screen showed.
           fontsLoaded: document.fonts.status === 'loaded',
           pane: box(log),
-          strip: document.querySelector('.phone-tab-strip, .tab-list') !== null,
+          strip: box(document.querySelector('[data-testid="phone-tab-strip"]')),
+          keyHeights: [...document.querySelectorAll('.key-row-key')].map(
+            (k) => k.getBoundingClientRect().height,
+          ),
           container: box(container),
           status: box(document.querySelector('.phone-pty .tmux-status-bar')),
           keys: box(document.querySelector('.key-row')),
@@ -116,11 +120,14 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
     );
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);
     expectOnScreen(layout.pane, 'the terminal', PHONE.width, { grid: layout.grid });
-    // The phone layout: no tab strip, the terminal at the top of the screen;
-    // 80 columns span it edge to edge, and tmux's line under them is as wide.
+    // The phone layout: the desktop's tab strip along the top of the screen,
+    // the terminal right under it; 80 columns span it edge to edge, and
+    // tmux's line under them is as wide.
     expect(layout.grid.phoneLayout).toBe(true);
-    expect(layout.strip).toBe(false);
-    expect(layout.container.top).toBeCloseTo(0, 0);
+    expectOnScreen(layout.strip, 'the tab strip');
+    expect(layout.strip.top).toBeCloseTo(0, 0);
+    expect(layout.strip.width).toBeCloseTo(PHONE.width, 0);
+    expect(layout.container.top).toBeCloseTo(layout.strip.top + layout.strip.height, 0);
     expect(layout.container.left).toBeCloseTo(0, 0);
     expect(layout.container.width).toBeCloseTo(PHONE.width, 0);
     expect(80 * layout.grid.charWidth).toBeCloseTo(layout.grid.containerWidth, 1);
@@ -139,6 +146,11 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
       layout.container.top + layout.container.height - 1,
     );
     expect(layout.keys.top).toBeGreaterThanOrEqual(layout.status.top + layout.status.height - 1);
+    // Twelve keys, each shorter than the 41px they used to take, still a
+    // thumb's height.
+    expect(layout.keyHeights).toHaveLength(12);
+    expect(Math.min(...layout.keyHeights)).toBeGreaterThanOrEqual(30);
+    expect(Math.max(...layout.keyHeights)).toBeLessThanOrEqual(33);
     expectOnScreen(layout.bar, 'the bar');
     expect(layout.bar.top).toBeCloseTo(layout.keys.top + layout.keys.height, 0);
     expectOnScreen(layout.tabs, 'the tab bar');
@@ -281,58 +293,122 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
     await waitForCopyMode(ctx.page, false, 15000);
     expect(await getCopyModeState(ctx.page)).toBeNull();
 
-    // 4. The tree stands in for the tab strip. The second window is setup;
-    //    switching back to the first with a finger is the feature.
-    await createWindowKeyboard(ctx.page);
+    // 4. The tab strip. + on it makes a tab, current, and both tabs are on
+    //    the strip, each a thumb's height; a tap on the first switches back
+    //    to it.
+    const stripTabs = () =>
+      ctx.page.evaluate(() =>
+        [
+          ...document.querySelectorAll('[data-testid="phone-tab-strip"] .tab-name[data-window-id]'),
+        ].map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            id: el.dataset.windowId,
+            name: el.textContent,
+            active: el.getAttribute('aria-selected') === 'true',
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            width: r.width,
+            height: r.height,
+            background: getComputedStyle(el).backgroundColor,
+          };
+        }),
+      );
+    const add = await boxOf(ctx.page, '[data-testid="phone-tab-strip"] .tab-add');
+    expectOnScreen(add, "the strip's +");
+    await ctx.page.touchscreen.tap(add.left + add.width / 2, add.top + add.height / 2);
+    let strip = [];
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => {
-          const rows = document.querySelectorAll('.phone-tree .sidebar-tree-tab');
-          return rows.length === 2 && rows[1].classList.contains('is-active');
-        }),
+      async () => {
+        strip = await stripTabs();
+        // `@N`, not the placeholder shown until tmux confirms the window.
+        return strip.length === 2 && strip[1].active && /^@\d+$/.test(strip[1].id);
+      },
       15000,
-      'the new tab to show in the tree, current',
+      () => `+ on the strip to make a second tab, current (last: ${JSON.stringify(strip)})`,
     );
-
-    const tabs = await ctx.page.evaluate(() =>
-      [...document.querySelectorAll('.phone-tree .sidebar-tree-tab')].map((el) => {
-        const r = el.getBoundingClientRect();
-        return {
-          active: el.classList.contains('is-active'),
-          left: r.left,
-          right: r.right,
-          top: r.top,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(tabs.length).toBe(2);
-    for (const [i, tab] of tabs.entries()) {
-      expectOnScreen(tab, `tree row ${i + 1}`);
-      // A tap target below this is not reachable with a thumb.
-      expect({ i, tall: tab.height >= 18 }).toEqual({ i, tall: true });
+    // Two tabs fit side by side, however long their names.
+    for (const [i, tab] of strip.entries()) {
+      expectOnScreen(tab, `strip tab ${i + 1}`);
+      expect(tab.top).toBeGreaterThanOrEqual(layout.strip.top - 1);
+      expect(tab.top + tab.height).toBeLessThanOrEqual(layout.strip.top + layout.strip.height + 1);
+      expect({ i, tall: tab.height >= 24 }).toEqual({ i, tall: true });
     }
-    expect(tabs[1].active).toBe(true);
+    // A finger does not hover: the tap left no tooltip over the strip.
+    expect(
+      await ctx.page.evaluate(() => document.querySelector('[data-testid="tooltip"]') !== null),
+    ).toBe(false);
 
     await ctx.page.touchscreen.tap(
-      tabs[0].left + tabs[0].width / 2,
-      tabs[0].top + tabs[0].height / 2,
+      strip[0].left + strip[0].width / 2,
+      strip[0].top + strip[0].height / 2,
     );
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() =>
-          document.querySelector('.phone-tree .sidebar-tree-tab')?.classList.contains('is-active'),
-        ),
+      async () => {
+        strip = await stripTabs();
+        return strip.length === 2 && strip[0].active && !strip[1].active;
+      },
       15000,
-      'tapping the first tab in the tree to switch back to it',
+      () => `a tap on the first tab of the strip to switch to it (last: ${JSON.stringify(strip)})`,
     );
-
     // The window it switched to is the one that ran the commands, still
     // rendered and still on screen — the last line it printed, not a tab that
     // switched to an empty grid.
     await waitForTerminalText(ctx.page, 'line-79', 15000);
+    // The tapped tab is lit as the current tab is, by its colour alone: the
+    // hover a tap leaves behind paints no background. Read once the line is
+    // back, long after the background's transition would have ended.
+    strip = await stripTabs();
+    expect(strip[0].background).toBe('rgba(0, 0, 0, 0)');
+
+    // 5. The tree lists the same tabs, each a thumb's height, and a tap on
+    //    its second row switches the strip with it.
+    const treeRows = () =>
+      ctx.page.evaluate(() =>
+        [...document.querySelectorAll('.phone-tree .sidebar-tree-tab')].map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            active: el.classList.contains('is-active'),
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            width: r.width,
+            height: r.height,
+          };
+        }),
+      );
+    let rows = [];
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        rows = await treeRows();
+        return rows.length === 2 && rows[0].active;
+      },
+      15000,
+      () => `the tree to list both tabs, the first current (last: ${JSON.stringify(rows)})`,
+    );
+    for (const [i, row] of rows.entries()) {
+      expectOnScreen(row, `tree row ${i + 1}`);
+      // A tap target below this is not reachable with a thumb.
+      expect({ i, tall: row.height >= 18 }).toEqual({ i, tall: true });
+    }
+    await ctx.page.touchscreen.tap(
+      rows[1].left + rows[1].width / 2,
+      rows[1].top + rows[1].height / 2,
+    );
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        rows = await treeRows();
+        strip = await stripTabs();
+        return rows[1]?.active === true && strip[1]?.active === true;
+      },
+      15000,
+      () =>
+        `a tap on the tree's second row to switch to it, on the strip too (tree: ${JSON.stringify(rows)}, strip: ${JSON.stringify(strip)})`,
+    );
   }, 240000);
 });

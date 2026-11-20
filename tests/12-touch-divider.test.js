@@ -5,7 +5,8 @@
  * picture, from the top-left corner — as far as the bottom view gives room,
  * and the zoom is kept for the next load. Dragged back up it settles on the
  * terminal's own size; up past that, the terminal and the keys fold away and
- * the bottom view takes the screen; down again, they come back.
+ * the bottom view takes the screen under the tab strip; down again, they come
+ * back.
  *
  * Every assertion is about boxes on screen.
  */
@@ -30,6 +31,7 @@ const splitState = (page) =>
       keys: box('.key-row'),
       lower: box('.phone-lower'),
       tabs: box('.phone-tabs'),
+      strip: box('[data-testid="phone-tab-strip"]'),
     };
   });
 
@@ -97,10 +99,10 @@ describeE2E(
       );
 
       // 4. Up from its own size: the terminal and the keys fold away, the
-      //    bottom view the whole screen under the bar.
+      //    bottom view the whole screen under the tab strip and the bar.
       await dragBar(-90);
       await until((s) => s.top.height === 0, 'the terminal folded away');
-      expect(state.bar.top).toBeCloseTo(0, 0);
+      expect(state.bar.top).toBeCloseTo(state.strip.bottom, 0);
       expect(state.lower.bottom).toBeCloseTo(PHONE.height, 0);
       expect(state.tabs.top).toBeCloseTo(state.bar.bottom, 0);
 

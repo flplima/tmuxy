@@ -1,9 +1,9 @@
 /**
  * The phone layout, at a 390 × 844 phone's width, over a recording of real
- * tmux at the 80 × 24 grid the layout asks for: upright, the terminal and
- * the keys over a bar a finger drags and the bottom view under its tab bar;
- * held sideways, the tree, the terminal and the side pane side by side over
- * one row of keys. The frame is not the viewport the media query reads, so
+ * tmux at the 80 × 24 grid the layout asks for: upright, the tab strip, the
+ * terminal and the keys over a bar a finger drags and the bottom view under
+ * its tab bar; held sideways, under the same strip, the tree, the terminal
+ * and the side pane side by side over one row of keys. The frame is not the viewport the media query reads, so
  * the story asks for the layout through the config.
  */
 
@@ -14,7 +14,11 @@ import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx, tapAt } from './phoneStoryHelpers';
-import { PHONE_SIDE_MIN, PHONE_STATUS_HEIGHT } from '../infra/dom/phoneLayout';
+import {
+  PHONE_LANDSCAPE_KEYS,
+  PHONE_SIDE_MIN,
+  PHONE_STATUS_HEIGHT,
+} from '../infra/dom/phoneLayout';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Layout',
@@ -40,7 +44,7 @@ export const PhoneKeyboardDown: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'No tab strip: the terminal is at the top of the screen, and the tree under the keys lists the tabs. The terminal is asked for at 80 × 24 and drawn at the cell that fits 80 columns across the screen, edge to edge; tmux’s line sits under it as row 25, as wide. ctrl latches on one tap, locks on a second and lets go on a third; the tree lists both tabs below the keys.',
+          'The desktop’s tab strip along the top, both tabs on it, with + and the all-tabs button but no sidebar toggles, app menu or latency badge; the terminal right under it, and the tree under the keys lists the same tabs. The terminal is asked for at 80 × 24 and drawn at the cell that fits 80 columns across the screen, edge to edge; tmux’s line sits under it as row 25, as wide. ctrl latches on one tap, locks on a second and lets go on a third; the tree lists both tabs below the keys.',
       },
     },
   },
@@ -55,11 +59,33 @@ export const PhoneKeyboardDown: Story = {
 
     expect(canvasElement.querySelectorAll('.tmux-status-bar')).toHaveLength(1);
 
-    expect(canvasElement.querySelector('.phone-tab-strip')).toBeNull();
-    expect(box(canvasElement.querySelector('.phone-pty')).top).toBeCloseTo(
-      box(canvasElement.querySelector('.app-container')).top,
-      0,
-    );
+    // The tab strip along the top, the whole width, the terminal under it.
+    const app = box(canvasElement.querySelector('.app-container'));
+    const strip = canvasElement.querySelector('[data-testid="phone-tab-strip"]')!;
+    expect(box(strip).top).toBeCloseTo(app.top, 0);
+    expect(box(strip).width).toBeCloseTo(app.width, 0);
+    expect(box(canvasElement.querySelector('.phone-pty')).top).toBeCloseTo(box(strip).bottom, 0);
+    const stripTabs = [...strip.querySelectorAll('.tab-name[data-window-id]')].map(box);
+    expect(stripTabs).toHaveLength(2);
+    for (const tab of stripTabs) {
+      expect(tab.width).toBeGreaterThan(0);
+      expect(tab.left).toBeGreaterThanOrEqual(app.left);
+      expect(tab.top).toBeGreaterThanOrEqual(box(strip).top);
+      expect(tab.bottom).toBeLessThanOrEqual(box(strip).bottom);
+    }
+    expect(box(strip.querySelector('.tab-add')).right).toBeLessThanOrEqual(app.right);
+    expect(
+      box(strip.querySelector('[data-testid="tab-overview-toggle"]')).right,
+    ).toBeLessThanOrEqual(app.right);
+    // A phone has no sidebars, and the menu and the round trip are the
+    // bottom view's.
+    for (const absent of [
+      '.sidebar-toggle:not(.tab-overview-toggle)',
+      '.sidebar-title',
+      '.app-menu-button',
+    ]) {
+      expect(strip.querySelector(absent)).toBeNull();
+    }
 
     // 80 columns span the screen less 4px of padding each side (the grid's
     // outer borders).
@@ -133,10 +159,11 @@ export const PhoneKeyboardDown: Story = {
     expect(smallType('.phone-pty .statusline-hints')).toBeCloseTo(termType * 0.8, 1);
     expect(smallType('.phone-pty .statusline-host')).toBeCloseTo(termType * 0.8, 1);
 
-    // Two even rows of six, each key a thumb's size.
+    // Two even rows of six, each key a thumb's size, 32px tall.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
     expect(keyboxes).toHaveLength(12);
-    expect(keyboxes.every((k) => k.height >= 40 && k.width >= 50)).toBe(true);
+    expect(keyboxes.every((k) => k.width >= 50)).toBe(true);
+    expect(keyboxes.every((k) => Math.abs(k.height - 32) < 1.5)).toBe(true);
     expect(keyboxes.every((k) => Math.abs(k.width - keyboxes[0].width) < 1)).toBe(true);
     const rowTops = [...new Set(keyboxes.map((k) => Math.round(k.top)))];
     expect(rowTops).toHaveLength(2);
@@ -179,7 +206,7 @@ export const LandscapeAndTheKeyboard: Story = {
       story: { inline: false, iframeHeight: 390 },
       description: {
         story:
-          'Held sideways, flat as a desktop: the tree on the left under the menu’s button, the terminal in the middle at the height that fits its 24 rows and tmux’s line over the keys, the side pane on the right, and the twelve keys in one row along the bottom. The menu’s button puts the app menu in the tree’s place and back. A keyboard coming up leaves the type as it was: the terminal is cut short and scrolled to keep the cursor’s row in view, the keys stay above the keyboard.',
+          'Held sideways, flat as a desktop, under the tab strip: the tree on the left under the menu’s button, the terminal in the middle at the height that fits its 24 rows and tmux’s line over the keys, the side pane on the right, and the twelve keys in one row along the bottom. The menu’s button puts the app menu in the tree’s place and back. A keyboard coming up leaves the type as it was: the terminal is cut short and scrolled to keep the cursor’s row in view, the keys stay above the keyboard.',
       },
     },
   },
@@ -197,9 +224,14 @@ export const LandscapeAndTheKeyboard: Story = {
     const right = box(canvasElement.querySelector('.phone-side-right'));
     const pty = box(canvasElement.querySelector('.phone-pty'));
     const keys = box(canvasElement.querySelector('.key-row'));
+    const strip = box(canvasElement.querySelector('[data-testid="phone-tab-strip"]'));
 
-    // The tree, the terminal and the side pane side by side, the keys along
-    // the bottom the whole width; no bar and no bottom view.
+    // The tab strip along the top, the whole width; under it the tree, the
+    // terminal and the side pane side by side, the keys along the bottom the
+    // whole width; no bar and no bottom view.
+    expect(strip.top).toBeCloseTo(screen.top, 0);
+    expect(strip.width).toBeCloseTo(screen.width, 0);
+    for (const column of [left, pty, right]) expect(column.top).toBeCloseTo(strip.bottom, 0);
     expect(left.left).toBeCloseTo(screen.left, 0);
     expect(left.right).toBeLessThanOrEqual(pty.left + 1);
     expect(right.left).toBeGreaterThanOrEqual(pty.right - 1);
@@ -215,6 +247,8 @@ export const LandscapeAndTheKeyboard: Story = {
     );
     expect(tops).toHaveLength(12);
     expect(new Set(tops).size).toBe(1);
+    // The row and its top hairline are PHONE_LANDSCAPE_KEYS tall.
+    expect(keys.height).toBeCloseTo(PHONE_LANDSCAPE_KEYS, 0);
     expect(canvasElement.querySelector('[data-testid="phone-divider"]')).toBeNull();
     expect(canvasElement.querySelector('[data-testid="phone-bottom"]')).toBeNull();
     // The side pane is the desktop's column: no header, the window's background.

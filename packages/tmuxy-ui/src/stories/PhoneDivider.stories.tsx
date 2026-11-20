@@ -117,12 +117,13 @@ export const DragTheBarToZoomOrFold: Story = {
         expect(box(bar).top).toBeCloseTo(barTop, 0);
       });
 
-      // 3. Up from its own size: folded away, the bottom view the screen.
+      // 3. Up from its own size: folded away, the bottom view the screen
+      //    under the tab strip.
       await dragBar(bar, -90);
       await waitFor(() => {
         expect(ctx().phoneCollapsed).toBe(true);
         expect(q('.phone-top').height).toBe(0);
-        expect(box(bar).top).toBeCloseTo(screen.top, 0);
+        expect(box(bar).top).toBeCloseTo(q('[data-testid="phone-tab-strip"]').bottom, 0);
         expect(q('.phone-lower').bottom).toBeCloseTo(screen.bottom, 0);
         expect(q('.phone-tabs').top).toBeCloseTo(box(bar).bottom, 0);
       });

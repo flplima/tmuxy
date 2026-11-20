@@ -55,7 +55,9 @@ export const HoverAndFocus: Story = {
     await userEvent.unhover(trigger);
     await waitFor(() => expect(tips()).toHaveLength(0));
 
-    trigger.focus();
+    // The Tab key: a keyboard user arriving on it gets the tooltip at once.
+    await userEvent.tab();
+    expect(document.activeElement).toBe(trigger);
     await waitFor(() => expect(tip()).toBeInTheDocument());
     expect(tip()).toHaveTextContent('Close tab');
 
@@ -114,5 +116,26 @@ export const IgnoresATouch: Story = {
     );
     await new Promise((r) => setTimeout(r, TOOLTIP_DELAY_MS + 200));
     expect(tips()).toHaveLength(0);
+
+    // The tap itself: the finger presses, and the browser focuses the button
+    // once the touch ends, as a pointer's focus, which is not
+    // `:focus-visible`. A play function cannot touch the screen, so
+    // `focusVisible: false` gives the button that same focus. It opens
+    // nothing either.
+    trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+    // The DOM types predate `focusVisible`; Chromium has it.
+    const pointerFocus: FocusOptions & { focusVisible: boolean } = { focusVisible: false };
+    trigger.focus(pointerFocus);
+    expect(trigger.matches(':focus-visible')).toBe(false);
+    await new Promise((r) => setTimeout(r, TOOLTIP_DELAY_MS + 200));
+    expect(tips()).toHaveLength(0);
+    trigger.blur();
+
+    // The same button reached with the Tab key does open it.
+    await userEvent.tab();
+    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(tip()).toHaveTextContent('Not for fingers'));
+    trigger.blur();
+    await waitFor(() => expect(tips()).toHaveLength(0));
   },
 };

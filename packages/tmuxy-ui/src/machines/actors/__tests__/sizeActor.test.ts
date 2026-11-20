@@ -140,6 +140,44 @@ describe('sizeActor', () => {
     actor.stop();
   });
 
+  /**
+   * The tab strip sits above the app body, so a sideways cell cut from the
+   * window's height would run its last rows, the status line and the keys
+   * off the bottom of the screen by the strip's height.
+   */
+  it('held sideways, cuts the cell from the app body under the tab strip, not from the window', () => {
+    vi.stubGlobal('ResizeObserver', RecordingObserver);
+    vi.stubGlobal('innerWidth', 844);
+    vi.stubGlobal('innerHeight', 390);
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { ready: new Promise(() => {}) },
+    });
+    const body = document.createElement('div');
+    body.className = 'app-body';
+    const container = document.createElement('div');
+    body.appendChild(container);
+
+    const sent: Array<Record<string, unknown>> = [];
+    const parent = { send: (e: Record<string, unknown>) => sent.push(e) } as unknown as AnyActorRef;
+    const sizeActor = createSizeActor(() => ({ advance: 9, cellWidth: 9, cellGap: 0 }), {
+      phoneLayout: true,
+    });
+    const actor = createActor(sizeActor, { input: { parent } }).start();
+    actor.send({ type: 'OBSERVE_CONTAINER', element: container });
+    const [containerObserver, bodyObserver] = [...RecordingObserver.live];
+    const cell = () => sent.filter((e) => e.type === 'SET_CHAR_SIZE').slice(-1)[0];
+
+    const strip = 36;
+    bodyObserver.report(844, 390 - strip);
+    containerObserver.report(470, 300);
+    const height =
+      (cell().charHeight as number) * 24 + PHONE_STATUS_HEIGHT + 4 + PHONE_LANDSCAPE_KEYS;
+    expect(height).toBeLessThanOrEqual(390 - strip);
+    expect(height).toBeGreaterThan(390 - strip - 25);
+    actor.stop();
+  });
+
   /** A desktop client in a 960x480 container of 8px cells, with what it sent the machine. */
   function observedDesktop() {
     vi.stubGlobal('ResizeObserver', RecordingObserver);

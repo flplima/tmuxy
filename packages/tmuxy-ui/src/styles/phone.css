@@ -13,6 +13,24 @@
   background-color: var(--term-black);
 }
 
+/* Above the body, upright and held sideways, the desktop's tab strip
+   (components/phone/PhoneTabStrip.tsx) at the chrome's own size, inset as
+   the grid is. Installed, the root's top inset (standalone.css) keeps it
+   under the status bar's band, not beneath it. */
+.phone-tab-strip {
+  flex: none;
+}
+
+.phone-tab-strip .statusbar-inner {
+  padding: 0 var(--spacing-md);
+}
+
+/* A phone's strip is a fraction of a desktop's: a tab gives up the end of its
+   name sooner, so two long ones still fit side by side upright. */
+.phone-tab-strip .tab-name {
+  max-width: 20ch;
+}
+
 .phone-top {
   display: flex;
   flex: 0 1 auto;

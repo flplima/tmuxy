@@ -80,11 +80,26 @@
   opacity: 0.85;
 }
 
-.tab-name:hover,
-/* The previewed tab stays lit once the pointer moves onto its card. */
+/* The previewed tab stays lit once the pointer moves onto its card. A
+   finger's tap leaves :hover on what it tapped, so only a pointer that
+   hovers lights a tab. */
 .tab-name.is-previewing {
   background-color: var(--bg-medium);
   color: var(--text-primary);
+}
+
+@media (hover: hover) {
+  .tab-name:hover {
+    background-color: var(--bg-medium);
+    color: var(--text-primary);
+  }
+
+  /* A lone tab is not a thing you switch to: on the desktop it drags the
+     window (StatusBar leaves it out of the control list), so it takes no
+     hover. */
+  .tab-list-single .tab-name:hover {
+    background-color: transparent;
+  }
 }
 
 .tab-name-active,
@@ -112,12 +127,6 @@
 
 .tab-name.is-drop-after {
   box-shadow: 6px 0 0 -2px var(--accent-green);
-}
-
-/* A lone tab is not a thing you switch to: on the desktop it drags the window
-   (StatusBar leaves it out of the control list), so it takes no hover. */
-.tab-list-single .tab-name:hover {
-  background-color: transparent;
 }
 
 /* The outline, since a background tab has no other way to stand out. */
