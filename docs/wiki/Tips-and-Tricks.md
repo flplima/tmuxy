@@ -192,7 +192,6 @@ An option you set in `tmuxy.conf` is pinned. The menu greys it out and says "set
 
 ```tmux
 set -g @tmuxy-inactive-pane-opacity 0.6
-set -g @tmuxy-blur off
 ```
 
 ### Change one colour without writing a theme

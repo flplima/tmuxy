@@ -93,11 +93,11 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
 /// The per-window set-up that is not the builder's: the native blur behind
 /// it, and the registry's watch for its close.
 pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
-    // Blur is on by default (`@tmuxy-blur`). A window opens before its
+    // Blur is off by default (`@tmuxy-blur`). A window opens before its
     // monitor has sourced the config, so it starts with the default and
     // the window's sink puts it where the live value says once the config is
     // read (`monitor::TauriSink::appearance`).
-    apply_blur(window, true);
+    apply_blur(window, false);
 
     // The registry follows the window out of existence, and (for a window that
     // has a session of its own) takes that session with it.

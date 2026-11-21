@@ -177,12 +177,12 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | --- | --- | --- |
 | `@tmuxy-theme` | default | The theme's file stem under `themes/`. |
 | `@tmuxy-theme-mode` | dark | `dark`, `light` or `auto` (follow the OS). |
-| `@tmuxy-opacity` | 0.7 | Window chrome: title bar, sidebar, the gaps between panes. |
+| `@tmuxy-opacity` | 1 | Window chrome: title bar, sidebar, the gaps between panes. Below 1 the desktop app is see-through. |
 | `@tmuxy-active-pane-opacity` | 1 | The active pane's background. |
 | `@tmuxy-inactive-pane-opacity` | 0.7 | Every other pane's background. |
 | `@tmuxy-active-text-opacity` | 1 | The active pane's header and text. |
 | `@tmuxy-inactive-text-opacity` | 0.7 | Every other pane's header and text — the focus cue. |
-| `@tmuxy-blur` | on | Native blur behind the window (macOS; ignored elsewhere). |
+| `@tmuxy-blur` | off | Native blur behind the window (macOS; ignored elsewhere). |
 | `@tmuxy-transparency` | on | Off: opaque window, no blur (View ▸ Enable Window Transparency). |
 | `@tmuxy-animations` | on | Layout animations: pane morphs, swaps, resizes, float keyframes. |
 | `@tmuxy-cursor-blink` | on | Blinking cursor, unless an application asks for a steady one. |

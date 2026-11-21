@@ -123,15 +123,15 @@ How much of each surface is painted. 0.0 is fully clear and 1.0 is opaque.
 
 | Option                         | Default | What it covers                                        |
 | ------------------------------ | ------- | ----------------------------------------------------- |
-| `@tmuxy-opacity`               | `0.7`   | Window chrome: title bar, sidebar, gaps between panes |
+| `@tmuxy-opacity`               | `1`     | Window chrome: title bar, sidebar, gaps between panes |
 | `@tmuxy-active-pane-opacity`   | `1`     | The active pane's background                          |
 | `@tmuxy-inactive-pane-opacity` | `0.7`   | Other panes' backgrounds                              |
 | `@tmuxy-active-text-opacity`   | `1`     | The active pane's header and text                     |
 | `@tmuxy-inactive-text-opacity` | `0.7`   | Other panes' header and text. This is the focus cue   |
-| `@tmuxy-blur`                  | `on`    | Native blur behind the window, macOS only             |
+| `@tmuxy-blur`                  | `off`   | Native blur behind the window, macOS only             |
 | `@tmuxy-transparency`          | `on`    | Off paints everything opaque and clears the blur      |
 
-What shows through is the blurred desktop in the macOS desktop app, and the theme's background in a browser. In the macOS app, View ▸ Enable Window Transparency flips `@tmuxy-transparency` and remembers it.
+The desktop app's window is opaque by default. Lower `@tmuxy-opacity` and the desktop shows through the chrome, blurred on macOS with `@tmuxy-blur on`. A browser always paints the page opaque, so there the theme's background shows through. In the macOS app, View ▸ Enable Window Transparency flips `@tmuxy-transparency` and remembers it.
 
 To dim inactive panes less, raise `@tmuxy-inactive-pane-opacity` and `@tmuxy-inactive-text-opacity`. To drop transparency altogether:
 

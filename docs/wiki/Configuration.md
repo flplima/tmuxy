@@ -46,7 +46,7 @@ It is a normal tmux config. These lines work as examples:
 set -g @tmuxy-theme nord
 set -g @tmuxy-opacity 0.85
 set -g @tmuxy-inactive-pane-opacity 0.6
-set -g @tmuxy-blur off
+set -g @tmuxy-blur on
 set -g @tmuxy-animations off
 set -g @tmuxy-cursor-blink off
 ```
@@ -73,12 +73,12 @@ Set these in `tmuxy.conf` with `set -g`. Switches take `on` or `off`. Opacities 
 | ------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
 | `@tmuxy-theme`                  | `default`  | The theme's file name, without `.css`                                                                       |
 | `@tmuxy-theme-mode`             | `dark`     | `dark`, `light` or `auto` (follow the OS)                                                                   |
-| `@tmuxy-opacity`                | `0.7`      | Window chrome: title bar, sidebar, the gaps between panes                                                   |
+| `@tmuxy-opacity`                | `1`        | Window chrome: title bar, sidebar, the gaps between panes. Below 1 the desktop app is see-through           |
 | `@tmuxy-active-pane-opacity`    | `1`        | The active pane's background                                                                                |
 | `@tmuxy-inactive-pane-opacity`  | `0.7`      | Every other pane's background                                                                               |
 | `@tmuxy-active-text-opacity`    | `1`        | The active pane's header and text                                                                           |
 | `@tmuxy-inactive-text-opacity`  | `0.7`      | Every other pane's header and text. This is the focus cue                                                   |
-| `@tmuxy-blur`                   | `on`       | Native blur behind the window (macOS only)                                                                  |
+| `@tmuxy-blur`                   | `off`      | Native blur behind the window (macOS only)                                                                  |
 | `@tmuxy-transparency`           | `on`       | Off gives an opaque window and no blur                                                                      |
 | `@tmuxy-animations`             | `on`       | Pane morphs, swaps, resizes and float animations                                                            |
 | `@tmuxy-cursor-blink`           | `on`       | A blinking cursor. A program asking for a steady one still gets it                                          |
