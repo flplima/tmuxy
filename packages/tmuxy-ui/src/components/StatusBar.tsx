@@ -22,6 +22,7 @@ import {
   titlebarDoubleClick,
 } from '../infra/desktopWindow';
 import { LogProfiler } from './renderLog';
+import { pressMovesWindow } from './titleBarPress';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import { SidebarToggle } from './SidebarToggle';
@@ -35,21 +36,6 @@ import './StatusBar.css';
 
 /** A host's wrapper around the tab strip (the demo site frames it). */
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
-
-/** Interactive chrome inside the bar — clicks on these never drag or zoom the window. */
-const CONTROLS =
-  'button, [role="tab"], .tab-add, .app-menu-button, .sidebar-toggle, .sidebar-title';
-
-/**
- * A lone tab is a title, not a control: with nothing to switch to, pressing on
- * it should move the window like the header around it. Its buttons (the `+`
- * beside it) stay controls.
- */
-const isControl = (target: EventTarget | null) => {
-  if (!(target instanceof Element)) return false;
-  if (target.closest('.tab-list-single .tab-name') && !target.closest('button')) return false;
-  return target.closest(CONTROLS) !== null;
-};
 
 /**
  * The tab strip's own buttons, at its right end. A phone's strip
@@ -83,7 +69,7 @@ export const StatusBar = memo(function StatusBar({
   // mousedown of a double-click (e.detail === 2) performs the title-bar
   // gesture instead; the Rust side maps that gesture per OS.
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!isTauri() || e.buttons !== 1 || isControl(e.target)) return;
+    if (!isTauri() || e.buttons !== 1 || !pressMovesWindow(e.currentTarget, e.target)) return;
     if (e.detail === 2) titlebarDoubleClick();
     else startWindowDrag();
   }, []);
