@@ -71,6 +71,17 @@ pub fn run_cli(args: Vec<String>) {
         }
     }
 
+    // Run from the AppImage, the script would start in the bundle, where its
+    // AppRun moved, and with the bundle's libraries ahead of the system's,
+    // which the system's `env`, `jq` and `tmux` it runs cannot load. It gets
+    // the caller's directory and environment back; the server command above
+    // already names the AppImage itself, not the bundle.
+    #[cfg(target_os = "linux")]
+    {
+        tmuxy_core::control_mode::leave_appimage_mount();
+        tmuxy_core::control_mode::leave_appimage_env();
+    }
+
     #[cfg(unix)]
     {
         use std::ffi::CString;

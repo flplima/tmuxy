@@ -334,20 +334,15 @@ impl ControlModeConnection {
         // mount descriptor out of the tmux server (see appimage_env).
         #[cfg(target_os = "linux")]
         if std::env::var_os("APPIMAGE").is_some() {
-            for var in super::appimage_env::VARS_TO_REMOVE {
-                cmd = cmd.env_remove(var);
+            for (var, kept) in super::appimage_env::own_appimage_env_changes() {
+                cmd = match kept {
+                    Some(kept) => cmd.env(var, kept),
+                    None => cmd.env_remove(var),
+                };
             }
             if let Some(appdir) = std::env::var_os("APPDIR") {
                 let appdir = std::path::Path::new(&appdir);
                 super::appimage_env::close_appdir_fds_on_exec(appdir);
-                for var in super::appimage_env::PATH_LIST_VARS {
-                    if let Ok(val) = std::env::var(var) {
-                        cmd = match super::appimage_env::clean_path_list(var, &val, appdir) {
-                            Some(kept) => cmd.env(var, kept),
-                            None => cmd.env_remove(var),
-                        };
-                    }
-                }
                 if working_dir.is_none() {
                     let owd = std::env::var_os("OWD").map(std::path::PathBuf::from);
                     let home = dirs::home_dir();

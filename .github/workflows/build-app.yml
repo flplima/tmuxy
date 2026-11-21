@@ -460,6 +460,33 @@ jobs:
           echo "the new tab's pane is in: ${GOT:-(no tab)}"
           [ "$GOT" = "$WANT" ] || { echo "expected $WANT"; exit 1; }
 
+      # `tmuxy <verb>` through the AppImage execs the CLI script, whose `env`,
+      # `jq` and `tmux` are the system's. It ran with the bundle's
+      # LD_LIBRARY_PATH still set, so where the system is newer than the
+      # bundle's libraries (Ubuntu 26.04) `env` itself failed to load and every
+      # verb the script runs failed (v0.1.7). A stand-in script, named by
+      # TMUXY_SCRIPTS, prints the directory and environment the shipped bundle
+      # hands it.
+      - name: The CLI script gets the caller's directory and environment (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          APPIMAGE="$GITHUB_WORKSPACE/$(ls target/release/bundle/appimage/*.AppImage | head -1)"
+          chmod +x "$APPIMAGE"
+          SCRATCH=$(mktemp -d "${RUNNER_TEMP}/tmuxy-cli-env.XXXXXX")
+          mkdir -p "$SCRATCH/caller" "$SCRATCH/scripts" "$SCRATCH/home"
+          printf '#!/bin/sh\npwd -P\nenv\n' > "$SCRATCH/scripts/tmuxy-cli"
+          chmod +x "$SCRATCH/scripts/tmuxy-cli"
+          OUT=$(cd "$SCRATCH/caller" && HOME="$SCRATCH/home" TMUXY_NO_DESKTOP_ENTRY=1 \
+            TMUXY_SCRIPTS="$SCRATCH/scripts" APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE" pane list)
+          WANT=$(cd "$SCRATCH/caller" && pwd -P)
+          GOT=$(echo "$OUT" | head -1)
+          echo "the script ran in: $GOT"
+          [ "$GOT" = "$WANT" ] || { echo "expected $WANT"; exit 1; }
+          if echo "$OUT" | grep -E '^(APPDIR|APPIMAGE|ARGV0|OWD)=|^(LD_LIBRARY_PATH|PATH)=.*(\.mount_|appimage_extracted_)'; then
+            echo "the bundle's variables reached the CLI script"; exit 1
+          fi
+
       # What the AppImage catalog's appdir-lint checks, checked here first. The
       # Tauri CLI before 2.11.3 wrote `.DirIcon` as an ABSOLUTE symlink into
       # the build runner's workspace: dangling once the image left the runner,
