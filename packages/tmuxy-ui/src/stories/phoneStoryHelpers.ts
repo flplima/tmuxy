@@ -1,3 +1,4 @@
+import { expect, waitFor } from 'storybook/test';
 import { appContext } from './storyApp';
 export const ctx = appContext;
 
@@ -58,4 +59,30 @@ export async function swipeTimed(
   }
   await new Promise((r) => setTimeout(r, stepMs));
   touch(el, 'touchend', toX, y);
+}
+
+/**
+ * Wait for the phone's grid to be the one it keeps: the fonts loaded, and the
+ * terminal's row height the same on two looks 100ms apart. The first layout
+ * is drawn with the fallback font's cell (rows of 13px, say) and redrawn
+ * once the font is in (12px), a few milliseconds later on a dev machine and
+ * later on a loaded runner. A story that measures the first and acts on the
+ * second is off by the difference on every row: a drag of 150px on the bar
+ * moved it 115. tests/helpers/phone.js waitForPhoneGrid is the E2E's own.
+ */
+export async function phoneGridSettled(root: Element) {
+  let seen: string | null = null;
+  await waitFor(
+    () => {
+      const pty = root.querySelector('.phone-pty');
+      expect(document.fonts.status).toBe('loaded');
+      expect(pty).not.toBeNull();
+      const row = getComputedStyle(pty!).getPropertyValue('--line-height-terminal').trim();
+      const before = seen;
+      seen = row;
+      expect(row).not.toBe('');
+      expect(row).toBe(before);
+    },
+    { timeout: 8000, interval: 100 },
+  );
 }
