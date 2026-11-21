@@ -192,3 +192,52 @@ describe('State Sync', () => {
     }
   });
 });
+
+// ==================== Debug menu ====================
+
+describe('Debug menu', () => {
+  /** Click the open menu's item whose text starts with `label`, once it shows. */
+  async function clickMenuItem(label) {
+    const item = await waitForCondition(
+      null,
+      async () => {
+        for (const el of await driver.$$('[role^="menuitem"]')) {
+          if ((await el.getText()).trim().startsWith(label) && (await el.isDisplayed())) return el;
+        }
+        return null;
+      },
+      5000,
+      `the menu item ${label}`,
+    );
+    await item.click();
+  }
+
+  // WebKit takes a clipboard write only inside the click that asked for it.
+  // The snippet waits on tmux for its version, and a write made once tmux had
+  // answered was refused: "Clipboard write failed", in a feature that had
+  // only ever been tested on Chromium.
+  test('Copy Bug Report Snippet puts the snippet on the clipboard and says so', async () => {
+    await setupApp();
+
+    await (await driver.$('.app-menu-button')).click();
+    await clickMenuItem('Debug');
+    await clickMenuItem('Copy Bug Report Snippet');
+
+    const said = await waitForCondition(
+      null,
+      () =>
+        driver.execute(() => {
+          const failed = [...document.querySelectorAll('.snackbar-text')]
+            .map((el) => el.textContent)
+            .find((text) => text.includes('Clipboard'));
+          const status = document.querySelector('.tmux-status-message')?.textContent ?? '';
+          return failed ?? (status.includes('bug report') ? status : null);
+        }),
+      10000,
+      'the copy to say how it went',
+    );
+    expect(said).toMatch(/^Copied a bug report snippet/);
+    const copied = await driver.execute(() => window.__tmuxyLastClipboard?.text ?? null);
+    expect(copied).toMatch(/^- tmuxy \d+\.\d+\.\d+ \(desktop\)$/m);
+  });
+});

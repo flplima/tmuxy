@@ -25,6 +25,34 @@ export function writeClipboard(text: string, paneId: PaneId | null): Promise<boo
   );
 }
 
+/**
+ * Put text that is still being worked out on the clipboard, from inside the
+ * click that asked for it. Safari, the Mac app and the Linux app (all WebKit)
+ * take a write only while that click is fresh, and refused one made once
+ * tmux had answered a question ("Clipboard write failed"). A `ClipboardItem`
+ * takes its text as a promise: the write is asked for at once, inside the
+ * click, and filled in when the text comes. Without one, the text is written
+ * once it is known. Resolves whether the write took, and never rejects.
+ */
+export function writeClipboardWhenKnown(
+  text: Promise<string>,
+  paneId: PaneId | null,
+): Promise<boolean> {
+  const failed = (err: unknown) => {
+    logFailure('clipboard', err);
+    return false;
+  };
+  const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+  if (!clipboard?.write || typeof ClipboardItem === 'undefined') {
+    return text.then((known) => writeClipboard(known, paneId), failed);
+  }
+  const blob = text.then((known) => {
+    keepLastCopy(known, paneId);
+    return new Blob([known], { type: 'text/plain' });
+  });
+  return clipboard.write([new ClipboardItem({ 'text/plain': blob })]).then(() => true, failed);
+}
+
 function keepLastCopy(text: string, paneId: PaneId | null): void {
   const win = globalThis as unknown as {
     __tmuxyLastClipboard?: { paneId: PaneId | null; text: string };
