@@ -13,7 +13,7 @@ import { TmuxyApp } from '../lib';
 import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
-import { box, ctx } from './phoneStoryHelpers';
+import { box, ctx, phoneGridSettled } from './phoneStoryHelpers';
 import { forgetPhoneSplitPref, loadPhoneSplitPref } from '../infra/prefs';
 
 const meta: Meta<typeof FixtureApp> = {
@@ -80,6 +80,7 @@ export const DragTheBarToZoomOrFold: Story = {
       },
       { timeout: 8000 },
     );
+    await phoneGridSettled(canvasElement);
     const bar = canvasElement.querySelector('[data-testid="phone-divider"]')!;
     const q = (sel: string) => box(canvasElement.querySelector(sel));
     const screen = q('.app-container');

@@ -11,7 +11,7 @@ import { TmuxyApp } from '../lib';
 import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
-import { box, ctx, doubleTapTerminal } from './phoneStoryHelpers';
+import { box, ctx, doubleTapTerminal, phoneGridSettled } from './phoneStoryHelpers';
 import { mockKeyboard } from './keyboardMock';
 import { PHONE_STATUS_HEIGHT } from '../infra/dom/phoneLayout';
 
@@ -73,6 +73,7 @@ export const ZoomShowsEveryRow: Story = {
       },
       { timeout: 8000 },
     );
+    await phoneGridSettled(canvasElement);
     const before = box(canvasElement.querySelector('.phone-pty .pane-container'));
     const barBefore = box(canvasElement.querySelector('[data-testid="phone-divider"]'));
     doubleTapTerminal(canvasElement);
@@ -157,6 +158,7 @@ export const ZoomSidewaysWithTheKeyboard: Story = {
       },
       { timeout: 8000 },
     );
+    await phoneGridSettled(canvasElement);
     doubleTapTerminal(canvasElement);
     await waitFor(() => expect(canvasElement.querySelector('.phone-pty.is-zoomed')).not.toBeNull());
     const term = canvasElement.querySelector('.phone-pty') as HTMLElement;
