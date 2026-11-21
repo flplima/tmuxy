@@ -64,8 +64,8 @@
 .pane-tabs-group > .pane-tab {
   flex: 1 1 0;
   min-width: 0;
-  padding-left: 8px;
-  padding-right: 2px;
+  padding-left: 0;
+  padding-right: 0;
   border-right: 1px solid color-mix(in srgb, var(--border-medium) 50%, transparent);
 }
 
@@ -121,6 +121,10 @@
 .pane-tab:first-child,
 .pane-header-icon-menu + .pane-tabs > .pane-tab {
   padding-left: 4px;
+}
+
+.pane-tabs-group > .pane-tab:first-child {
+  padding-left: 0;
 }
 
 /* Hovering anywhere in the pane brightens its header, not only hovering the
@@ -206,20 +210,35 @@
   cursor: pointer;
 }
 
+/* The header's edge buttons, the icon here and the ✕ (below): squares as
+   tall as the header, against the pane's left and right edges, so the hover
+   fills the corner and the glyph inside can be big. */
+.pane-header-icon-menu,
+.pane-tab-face-menu {
+  width: var(--pane-header-height);
+  height: var(--pane-header-height);
+  margin: 0;
+  transition: background-color var(--transition-fast);
+}
+
 .pane-header-icon-menu {
-  height: 100%;
-  padding-left: 4px;
   z-index: var(--z-pane-chrome);
 }
 
-.pane-header-icon-menu .pane-tab-icon,
-.pane-tab-face-menu .pane-tab-icon {
-  transition: background-color var(--transition-fast);
+.pane-header .pane-header-icon-menu .pane-tab-icon,
+.pane-header .pane-tab-face-menu .pane-tab-icon {
+  width: calc(var(--pane-header-height) * 0.75);
+  height: calc(var(--pane-header-height) * 0.75);
+  font-size: calc(var(--pane-header-height) * 0.75);
+}
+
+.pane-header-icon-menu:hover,
+.pane-tab-face-menu:hover {
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
 }
 
 .pane-header-icon-menu:hover .pane-tab-icon,
 .pane-tab-face-menu:hover .pane-tab-icon {
-  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
   opacity: 1;
 }
 
@@ -265,15 +284,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin: 0 0 0 2px;
+  width: var(--pane-header-height);
+  height: var(--pane-header-height);
+  margin: 0;
   padding: 0;
   background: transparent;
   border: none;
   border-radius: 0;
   color: var(--pane-header-text-inactive);
-  font-size: 10px;
+  font-size: calc(var(--pane-header-height) * 0.6);
   line-height: 1;
   opacity: 0.5;
   transition:
