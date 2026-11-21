@@ -12,7 +12,7 @@ import { Effect } from 'effect';
 import { version as TMUXY_VERSION } from '../../../../../package.json';
 import { TMUX_VERSION_QUERY } from '../../domain/commandHelpers';
 import { BUNDLED_THEMES } from '../../domain/tmuxyConstants.gen';
-import { writeClipboard } from '../../infra/clipboard';
+import { writeClipboardWhenKnown } from '../../infra/clipboard';
 import { isMacPlatform, isTauri } from '../../infra/platform';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
 import type { AppRuntime } from '../../infra/runtime';
@@ -73,27 +73,26 @@ const tmuxVersion = Effect.gen(function* () {
   return said.trim() || 'unknown';
 }).pipe(Effect.catchAll(() => Effect.succeed('unknown')));
 
+/**
+ * The write is asked for inside the menu's click, before tmux answers for
+ * its version: WebKit refuses a clipboard write made after the round trip.
+ */
 export function copyBugReport(
   ctx: AppMachineContext,
   runtime: AppRuntime,
   report: ClipboardReport,
 ): void {
-  void runtime
-    .runPromise(tmuxVersion)
-    .then((tmux) =>
-      writeClipboard(
-        bugReportSnippet(ctx, {
-          tmuxy: TMUXY_VERSION,
-          tmux,
-          app: isTauri() ? 'desktop' : 'web',
-          os: operatingSystem(),
-        }),
-        null,
-      ),
-    )
-    .then((ok) =>
-      ok
-        ? report.onCopied('Copied a bug report snippet: check it before you paste it')
-        : report.onFailed('Clipboard write failed'),
-    );
+  const snippet = runtime.runPromise(tmuxVersion).then((tmux) =>
+    bugReportSnippet(ctx, {
+      tmuxy: TMUXY_VERSION,
+      tmux,
+      app: isTauri() ? 'desktop' : 'web',
+      os: operatingSystem(),
+    }),
+  );
+  void writeClipboardWhenKnown(snippet, null).then((ok) =>
+    ok
+      ? report.onCopied('Copied a bug report snippet: check it before you paste it')
+      : report.onFailed('Clipboard write failed'),
+  );
 }
