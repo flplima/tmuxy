@@ -70,12 +70,12 @@ const MAX_TAB_OVERVIEW_COLS: u32 = 12;
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            opacity: 0.7,
+            opacity: 1.0,
             active_pane_opacity: 1.0,
             inactive_pane_opacity: 0.7,
             active_text_opacity: 1.0,
             inactive_text_opacity: 0.7,
-            blur: true,
+            blur: false,
             transparency: true,
             animations: true,
             cursor_blink: true,

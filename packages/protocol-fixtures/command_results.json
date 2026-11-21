@@ -232,7 +232,7 @@
         "activePaneOpacity": 1.0,
         "activeTextOpacity": 1.0,
         "animations": true,
-        "blur": true,
+        "blur": false,
         "confirmClose": true,
         "cursorBlink": true,
         "gesturePinchOverview": true,
@@ -242,7 +242,7 @@
         "inactiveTextOpacity": 0.7,
         "nativeMenus": true,
         "notify": true,
-        "opacity": 0.7,
+        "opacity": 1.0,
         "sendAsk": true,
         "size": {
           "cols": 120,
