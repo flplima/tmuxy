@@ -91,18 +91,34 @@ describeE2E(
 
       // 2. A held ↑ repeats. One press puts KEYROW_TWO on the line; the repeat
       //    walks on past it, to KEYROW_ONE or whatever older history the shell
-      //    has. The hold ends when the line is past KEYROW_TWO.
+      //    has. The hold ends when the line is past KEYROW_TWO. A key has no
+      //    background of its own; under the finger it is lit in the accent.
+      const keyBackground = (label) =>
+        ctx.page.evaluate(
+          (l) => getComputedStyle(document.querySelector(`[data-key-row="${l}"]`)).backgroundColor,
+          label,
+        );
+      const NONE = 'rgba(0, 0, 0, 0)';
+      expect(await keyBackground('↑')).toBe(NONE);
       const up = await keyRowCentre(ctx.page, '↑');
+      let underFinger = NONE;
       await hold(
         ctx.page,
         up,
         async () => {
+          underFinger = await keyBackground('↑');
           const line = await promptLine();
-          return line !== fresh && !line.includes('KEYROW_TWO');
+          return underFinger !== NONE && line !== fresh && !line.includes('KEYROW_TWO');
         },
-        'the held ↑ to repeat past the last history line',
+        'the held ↑, lit, to repeat past the last history line',
       );
       expect(await promptLine()).not.toContain('KEYROW_TWO');
+      await waitForCondition(
+        ctx.page,
+        async () => (await keyBackground('↑')) === NONE,
+        5000,
+        'the lifted ↑ to lose its light',
+      );
       await ctx.page.keyboard.press('Control+c');
       await waitForCondition(
         ctx.page,
@@ -129,14 +145,15 @@ describeE2E(
         'a fresh line',
       );
 
-      // 4. The prefix key: on the row, dark at rest.
+      // 4. The prefix key: on the row, no background at rest.
       const before = await prefixKey();
       expect(before).not.toBeNull();
       expectOnScreen(before.box, 'the prefix key');
       expect(before.pressed).toBe(false);
       expect(before.lit).toBe(false);
+      expect(before.background).toBe(NONE);
 
-      //    One tap arms the prefix and turns the key the other way round.
+      //    One tap arms the prefix and lights the key in the accent, as a finger on a key does.
       const prefix = await keyRowCentre(ctx.page, 'prefix');
       await ctx.page.touchscreen.tap(prefix.x, prefix.y);
       await waitForCondition(
@@ -147,11 +164,11 @@ describeE2E(
       );
       const armed = await prefixKey();
       expect(armed.lit).toBe(true);
-      expect(armed.background).not.toBe(before.background);
+      expect(armed.background).toBe(underFinger);
       //    The keyboard stayed up: the key never takes the focus.
       expect(await ctx.page.evaluate(() => document.activeElement?.tagName)).toBe('INPUT');
 
-      //    The next key is a prefix binding: `c` opens a tab, and the key goes back.
+      //    The next key is a prefix binding: `c` opens a tab, and the key is unlit.
       const tabsBefore = await tabCount();
       await typeOnVirtualKeyboard(ctx.page, 'c');
       await waitForCondition(

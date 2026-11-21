@@ -37,7 +37,6 @@ import { useAppSelector, useAppSend } from '../../machines/appHooks';
 import { selectKeyBindings, selectPrefixActive } from '../../machines/selectors/ui';
 import { selectPaneById } from '../../machines/selectors/panesAndSidebars';
 import { TmuxOp } from '../../domain/commands';
-import { getTabLabel } from '../paneTabDisplay';
 import { keyEventInitOf } from '../../machines/actors/keyboard/keyFormatting';
 import './KeyRow.css';
 import { DEFAULT_PREFIX } from '../../domain/tmuxyConstants.gen';
@@ -149,12 +148,22 @@ export const KeyRow = memo(function KeyRow() {
     repeat.slide(arrowAt(e.clientX, e.clientY));
   };
   const arrowUp = () => repeat.stop();
+  // The finger off a key: no longer pressed, and an arrow's repeat or ⌨'s hold ends.
+  const release = (k: RowKey, e: PointerEvent<HTMLButtonElement>) => {
+    delete e.currentTarget.dataset.down;
+    if (k.kind === 'keyboard') compose.up();
+    else if (k.kind === 'key' && k.arrow) arrowUp();
+  };
 
   return (
     <div className="key-row" role="toolbar" aria-label="Keys">
       {compose.composing && (
         <ComposeSheet
-          paneName={activePane ? getTabLabel(activePane) : 'the pane'}
+          title={
+            activePane
+              ? `Send to pane ${activePane.tmuxId} - ${activePane.command}`
+              : 'Send to the pane'
+          }
           inputRef={compose.inputRef}
           onSend={sendComposed}
           onClose={compose.close}
@@ -190,12 +199,14 @@ export const KeyRow = memo(function KeyRow() {
             tabIndex={-1}
             onPointerDown={(e) => {
               e.preventDefault();
+              e.currentTarget.dataset.down = '';
               if (keyboard) compose.down(e);
               arrowDown(k, e);
             }}
             onPointerMove={arrow ? arrowMove : undefined}
-            onPointerUp={arrow ? arrowUp : keyboard ? compose.up : undefined}
-            onPointerCancel={arrow ? arrowUp : keyboard ? compose.up : undefined}
+            onPointerUp={(e) => release(k, e)}
+            onPointerCancel={(e) => release(k, e)}
+            onPointerLeave={(e) => delete e.currentTarget.dataset.down}
             onContextMenu={keyboard ? (e) => e.preventDefault() : undefined}
             onMouseDown={(e) => e.preventDefault()}
             onClick={arrow ? undefined : () => press(k)}

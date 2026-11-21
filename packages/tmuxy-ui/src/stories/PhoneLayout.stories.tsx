@@ -350,7 +350,7 @@ export const PrefixKeyArmed: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'The prefix key on the key row arms tmux’s prefix with one tap and is drawn the other way round (accent text on the dark) while it waits for the next key, as a latched ctrl is. A second tap cancels it.',
+          'The prefix key on the key row arms tmux’s prefix with one tap and is lit in the accent while it waits for the next key, as a latched ctrl is; at rest a key has no background. A second tap cancels it.',
       },
     },
   },

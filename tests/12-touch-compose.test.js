@@ -3,7 +3,7 @@
  * (components/phone/ComposeSheet.tsx): ⌨ on the key row, held, opens the whole
  * screen to write in with the phone keyboard's own corrections; Send pastes
  * everything written into the pane at once; dragged down by its bar, the sheet
- * closes, sends nothing and keeps the draft. The key row itself is
+ * closes, sends nothing and keeps the draft; × does the same. The key row itself is
  * tests/12-touch-keys.test.js.
  *
  * As there, every assertion is about what is on screen.
@@ -25,6 +25,7 @@ const {
   waitForTerminalText,
   waitForCondition,
 } = require('./helpers');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 describeE2E(
   'Phone width (390px) with a touchscreen: ⌨ held opens the compose sheet',
@@ -48,7 +49,7 @@ describeE2E(
             height: r.height,
           };
         }, selector);
-      const SHEET = '[role="dialog"][aria-label="Write to the pane"]';
+      const SHEET = '[data-testid="compose-sheet"] [role="dialog"]';
       const sheetOpen = async () => (await boxOf(SHEET)) !== null;
       const tapBox = (b) => ctx.page.touchscreen.tap(b.left + b.width / 2, b.top + b.height / 2);
       const holdKeyboardKey = async () =>
@@ -78,6 +79,27 @@ describeE2E(
       expectOnScreen(shown, 'the compose sheet');
       expect(shown.top).toBeLessThan(40);
       expect(shown.bottom).toBeGreaterThan(PHONE.height - 40);
+      // Titled with the pane and the program tmux says runs in it.
+      const paneId = await ctx.session.getActivePaneId();
+      const program = tmuxExec(`display-message -p -t ${paneId} '#{pane_current_command}'`);
+      expect(
+        await ctx.page.evaluate(
+          (sel) => document.querySelector(sel).getAttribute('aria-labelledby'),
+          SHEET,
+        ),
+      ).toBe('compose-sheet-title');
+      expect(
+        await ctx.page.evaluate(() => document.getElementById('compose-sheet-title').textContent),
+      ).toBe(`Send to pane ${paneId} - ${program}`);
+      // × at the bar's right end, Send at the bottom right.
+      const close = await boxOf('.compose-sheet-close');
+      expectOnScreen(close, 'the sheet’s ×');
+      expect(close.right).toBeGreaterThan(PHONE.width - 60);
+      expect(close.top).toBeLessThan(shown.top + 60);
+      const sendBox = await boxOf('.compose-sheet-send');
+      expectOnScreen(sendBox, 'Send');
+      expect(sendBox.right).toBeGreaterThan(PHONE.width - 40);
+      expect(sendBox.bottom).toBeGreaterThan(shown.bottom - 40);
       await writing();
       expect(
         await ctx.page.evaluate(() => {
@@ -121,8 +143,8 @@ describeE2E(
       expect(
         await ctx.page.evaluate(() => document.querySelector('.compose-sheet-input')?.value),
       ).toBe(draft);
-      await tapBox(await boxOf('.compose-sheet-button:not(.compose-sheet-send)'));
-      await closed('Cancel to close the sheet');
+      await tapBox(await boxOf('.compose-sheet-close'));
+      await closed('× to close the sheet');
       expect(await getTerminalText(ctx.page)).not.toContain(draft);
     }, 120000);
   },

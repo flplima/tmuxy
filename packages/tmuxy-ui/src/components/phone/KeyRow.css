@@ -1,10 +1,10 @@
 /* Two rows of six (held sideways, one row of twelve: styles/phone.css),
    edge to edge: each key draws its right and bottom hairline and the row its
    top, so the screen's width all goes to the keys. In the chrome's own type
-   size, whatever the terminal's cell shrank to. The keys are the theme's
-   accent with its terminal background as their text (black on green by
-   default), the hairlines in that background, so each key reads as its own
-   tile; a latched key is the same pair the other way round. */
+   size, whatever the terminal's cell shrank to. A key has no background of
+   its own; pressed (under the finger, or latched for the next key) it is the
+   theme's accent with its terminal background as the text, black on green by
+   default. */
 
 .key-row {
   display: grid;
@@ -21,11 +21,11 @@
   min-width: 0;
   height: 32px;
   padding: 0;
-  border: solid var(--term-background);
+  border: solid var(--border-medium);
   border-width: 0 1px 1px 0;
   border-radius: 0;
-  background-color: var(--theme-accent);
-  color: var(--term-background);
+  background-color: transparent;
+  color: var(--text-primary);
   font: inherit;
   cursor: pointer;
   touch-action: manipulation;
@@ -42,14 +42,20 @@
   touch-action: none;
 }
 
+/* `data-down` is the finger on the key (KeyRow.tsx sets it on the press and
+   clears it on the release), which `:active` is not reliably on a phone. */
+.key-row-key[data-down],
 .key-row-key.is-latched {
-  background-color: var(--term-background);
-  color: var(--theme-accent);
+  background-color: var(--theme-accent);
+  color: var(--term-background);
+}
+
+.key-row-key.is-latched {
   font-weight: 700;
 }
 
 .key-row-key.is-locked {
-  box-shadow: inset 0 -3px 0 var(--theme-accent);
+  box-shadow: inset 0 -3px 0 var(--term-background);
 }
 
 /* The mic sits on the text baseline's centre, the glyphs' height. */
