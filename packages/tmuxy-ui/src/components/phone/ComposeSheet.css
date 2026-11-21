@@ -1,8 +1,10 @@
 /* The compose sheet (ComposeSheet.tsx): over everything, the height the
    phone keyboard leaves (--app-top and --app-height, usePhoneViewport.ts),
    a card risen from the bottom with its bar on top: a handle to drag down,
-   Cancel, where it goes, Send. The writing itself is in a size a phone does
-   not zoom into on focus (16px or more). */
+   where it sends, ×. Send sits at the bottom right, over the writing, just
+   above the keyboard. The writing is in a size a phone does not zoom into on
+   focus (16px or more). Nothing on the sheet scrolls but the text box, and
+   that only when the text outgrows it (useSheetScroll.ts). */
 
 .compose-sheet-backdrop {
   position: fixed;
@@ -15,6 +17,7 @@
   flex-direction: column;
   padding-top: var(--spacing-xl);
   background-color: rgba(0, 0, 0, 0.5);
+  overscroll-behavior: contain;
 }
 
 .compose-sheet {
@@ -57,36 +60,61 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-size: 14px;
 }
 
 .compose-sheet-title {
   min-width: 0;
+  margin: 0;
   overflow: hidden;
-  color: var(--text-quiet);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.compose-sheet-button {
+/* A finger's size, the glyph a desktop dialog closes with. */
+.compose-sheet-close {
   flex: none;
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--border-medium);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
   border-radius: var(--radius-md);
   background-color: transparent;
-  color: var(--text-primary);
+  color: var(--text-quiet);
   font: inherit;
+  font-size: 24px;
+  line-height: 1;
   cursor: pointer;
   touch-action: manipulation;
 }
 
-/* Send is the key row's own pair: the accent, with the dark as its text. */
+.compose-sheet-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Send is the key row's pressed pair: the accent, with the dark as its text. */
 .compose-sheet-send {
-  border-color: var(--theme-accent);
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  min-width: 88px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 22px;
   background-color: var(--theme-accent);
   color: var(--term-background);
+  font: inherit;
+  font-size: 15px;
   font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
 .compose-sheet-send:disabled {
@@ -94,14 +122,16 @@
   cursor: default;
 }
 
-/* The chrome turns text selection off; here it is writing, so it is on. */
+/* The chrome turns text selection off; here it is writing, so it is on. Room
+   under the last line for Send, so it never covers what was just written. */
 .compose-sheet-input {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 12px 14px;
+  padding: 12px 14px 72px;
   border: 0;
   outline: none;
   resize: none;
+  overflow-y: hidden;
   background-color: transparent;
   color: var(--text-primary);
   caret-color: var(--theme-accent);
@@ -110,6 +140,11 @@
   line-height: 1.45;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.compose-sheet-input.is-overflowing {
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .compose-sheet-input::placeholder {

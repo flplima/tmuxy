@@ -78,7 +78,7 @@ export const MicTypesWhatItHears: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'The last key on the second row is a microphone. A tap starts the browser’s speech recognition and turns the key the other way round, as a latched key; once the speaker pauses, the words go to the active pane as typed text and the key goes back. A microphone the site may not use says so in a notice.',
+          'The last key on the second row is a microphone. A tap starts the browser’s speech recognition and lights the key in the accent, as a latched key; once the speaker pauses, the words go to the active pane as typed text and the key is unlit. A microphone the site may not use says so in a notice.',
       },
     },
   },
@@ -109,13 +109,13 @@ export const MicTypesWhatItHears: Story = {
       expect(micBox.bottom).toBeLessThanOrEqual(844);
       expect(mic.getAttribute('aria-pressed')).toBe('false');
 
-      // A tap: listening, and drawn like a latched key.
+      // A tap: listening, and lit like a latched key.
       await userEvent.click(mic);
       await waitFor(() => expect(mic.getAttribute('aria-pressed')).toBe('true'));
       expect(mic.classList.contains('is-latched')).toBe(true);
       expect(StandInRecognition.last!.lang).not.toBe('');
 
-      // What it hears is typed into the active pane, and the key goes back.
+      // What it hears is typed into the active pane, and the key is unlit.
       const before = adapter!.commands.length;
       StandInRecognition.last!.say('echo hello from the mic');
       const pane = activePaneId();
