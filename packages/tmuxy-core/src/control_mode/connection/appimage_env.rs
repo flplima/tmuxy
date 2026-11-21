@@ -79,39 +79,74 @@ pub(super) fn clean_path_list(var: &str, value: &str, appdir: &Path) -> Option<S
     Some(kept)
 }
 
+/// What taking an AppImage's variables out of an environment changes, given
+/// a lookup into it: each variable to unset (`None`), or to set to what is
+/// left of it once the bundle's entries go. The `APPDIR` it holds names the
+/// bundle; without one (outside an AppImage) nothing changes.
+pub(super) fn appimage_env_changes(
+    value_of: impl Fn(&str) -> Option<String>,
+) -> Vec<(&'static str, Option<String>)> {
+    let Some(appdir) = value_of("APPDIR").filter(|dir| !dir.is_empty()) else {
+        return Vec::new();
+    };
+    let appdir = Path::new(&appdir);
+    let removed = VARS_TO_REMOVE
+        .iter()
+        .filter(|var| value_of(var).is_some())
+        .map(|var| (*var, None));
+    let cleaned = PATH_LIST_VARS.iter().filter_map(|var| {
+        let value = value_of(var)?;
+        match clean_path_list(var, &value, appdir) {
+            Some(kept) if kept == value => None,
+            kept => Some((*var, kept)),
+        }
+    });
+    removed.chain(cleaned).collect()
+}
+
+/// [`appimage_env_changes`] for this process's own environment.
+pub(super) fn own_appimage_env_changes() -> Vec<(&'static str, Option<String>)> {
+    appimage_env_changes(|name| std::env::var(name).ok())
+}
+
 /// The commands that take an AppImage's variables out of a tmux server's
 /// global environment, given what `show-environment -g` printed. A tmux
 /// server an older tmuxy started from its AppImage kept that AppImage's
 /// environment and handed it to every new pane, so git and curl in them still
-/// loaded the bundle's libraries after an upgrade. The `APPDIR` the server
-/// recorded names the bundle; without one there is nothing to clean.
+/// loaded the bundle's libraries after an upgrade.
 pub fn global_env_cleanup(show_environment: &str) -> Vec<String> {
     let env: Vec<(&str, &str)> = show_environment
         .lines()
         .filter_map(|line| line.split_once('='))
         .collect();
-    let value_of = |name: &str| env.iter().find(|(n, _)| *n == name).map(|(_, v)| *v);
-    let Some(appdir) = value_of("APPDIR").filter(|dir| !dir.is_empty()) else {
-        return Vec::new();
+    let value_of = |name: &str| {
+        env.iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, v)| (*v).to_string())
     };
-    let appdir = Path::new(appdir);
-    let unset = |var: &str| format!("set-environment -g -u {var}");
-    let removed = VARS_TO_REMOVE
-        .iter()
-        .filter(|var| value_of(var).is_some())
-        .map(|var| unset(var));
-    let cleaned = PATH_LIST_VARS.iter().filter_map(|var| {
-        let value = value_of(var)?;
-        match clean_path_list(var, value, appdir) {
-            Some(kept) if kept == value => None,
-            Some(kept) => Some(format!(
-                "set-environment -g {var} {}",
-                crate::tmux_quote(&kept)
-            )),
-            None => Some(unset(var)),
+    appimage_env_changes(value_of)
+        .into_iter()
+        .map(|(var, kept)| match kept {
+            Some(kept) => format!("set-environment -g {var} {}", crate::tmux_quote(&kept)),
+            None => format!("set-environment -g -u {var}"),
+        })
+        .collect()
+}
+
+/// Take an AppImage's variables out of this process's own environment, before
+/// it hands over to a program from outside the bundle. `tmuxy <verb>` run from
+/// the AppImage execs the CLI script, whose `env`, `jq` and `tmux` are the
+/// system's: with the bundle's `LD_LIBRARY_PATH` still set they loaded its
+/// older libraries and failed (`libsystemd.so.0: version LIBSYSTEMD_254 not
+/// found` from the `env` of Ubuntu 26.04), so every verb the script runs
+/// failed. Outside an AppImage it does nothing.
+pub fn leave_appimage_env() {
+    for (var, kept) in own_appimage_env_changes() {
+        match kept {
+            Some(kept) => std::env::set_var(var, kept),
+            None => std::env::remove_var(var),
         }
-    });
-    removed.chain(cleaned).collect()
+    }
 }
 
 /// Directory `tmux` should start in when `spawn_tmux` was given no explicit
@@ -300,6 +335,43 @@ QT_PLUGIN_PATH=/opt/qt/plugins
                 "set-environment -g -u LD_LIBRARY_PATH",
             ]
         );
+    }
+
+    #[test]
+    fn a_program_run_from_the_bundle_gets_the_callers_environment_back() {
+        let env = [
+            ("APPDIR", APPDIR),
+            ("APPIMAGE", "/home/me/Applications/tmuxy.AppImage"),
+            ("OWD", "/home/me/project"),
+            ("HOME", "/home/me"),
+            (
+                "LD_LIBRARY_PATH",
+                "/tmp/.mount_tmuxyPdMlpc/usr/lib/:/tmp/.mount_tmuxyPdMlpc/lib/",
+            ),
+            ("PATH", "/tmp/.mount_tmuxyPdMlpc/usr/bin/:/usr/bin:/bin"),
+            ("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
+        ];
+        let value_of = |name: &str| {
+            env.iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| (*v).to_string())
+        };
+        assert_eq!(
+            appimage_env_changes(value_of),
+            vec![
+                ("APPIMAGE", None),
+                ("APPDIR", None),
+                ("OWD", None),
+                ("PATH", Some("/usr/bin:/bin".to_string())),
+                ("LD_LIBRARY_PATH", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn outside_an_appimage_the_environment_is_left_as_it_is() {
+        let value_of = |name: &str| (name == "LD_LIBRARY_PATH").then(|| "/opt/lib".to_string());
+        assert!(appimage_env_changes(value_of).is_empty());
     }
 
     #[test]
