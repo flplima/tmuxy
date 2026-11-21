@@ -63,6 +63,43 @@ export const KillPaneViaHeaderButton: Story = {
   },
 };
 
+/**
+ * The header's icon and ✕ are squares as tall as the header, against the
+ * pane's left and right edges, with glyphs bigger than the 16px boxes they
+ * used to sit in a few pixels inside the pane.
+ */
+export const HeaderButtonsOnThePaneEdges: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForPanes(canvas, ['%0', '%1']);
+    for (const id of ['%0', '%1']) {
+      const pane = paneEl(canvas, id);
+      const header = (pane.querySelector('.pane-header') as HTMLElement).getBoundingClientRect();
+      const menu = (
+        pane.querySelector('.pane-header-icon-menu') as HTMLElement
+      ).getBoundingClientRect();
+      const close = (
+        pane.querySelector('[aria-label="Close pane"]') as HTMLElement
+      ).getBoundingClientRect();
+      const icon = (
+        pane.querySelector('.pane-header-icon-menu .pane-tab-icon') as HTMLElement
+      ).getBoundingClientRect();
+      for (const button of [menu, close]) {
+        expect(Math.abs(button.height - header.height)).toBeLessThan(1);
+        expect(Math.abs(button.width - header.height)).toBeLessThan(1);
+        expect(Math.abs(button.top - header.top)).toBeLessThan(1);
+      }
+      expect(Math.abs(menu.left - header.left)).toBeLessThan(1);
+      expect(Math.abs(close.right - header.right)).toBeLessThan(1);
+      expect(icon.width).toBeGreaterThan(16);
+      const glyph = parseFloat(
+        getComputedStyle(pane.querySelector('[aria-label="Close pane"]') as HTMLElement).fontSize,
+      );
+      expect(glyph).toBeGreaterThan(10);
+    }
+  },
+};
+
 /** Double-clicking a header toggles `resize-pane -t <it> -Z`, both ways. */
 export const ZoomViaHeaderDoubleClick: Story = {
   args: {
