@@ -9,9 +9,10 @@
  * everything written into the pane at once (`TmuxOp.PasteText`, a bracketed
  * paste where the program asked for one, so a shell takes the lines as one
  * paste and runs none of them by itself) and closes the sheet. Dragging its
- * top bar down, past a quarter of its height or with a flick
- * (`useSheetDrag.ts`), closes it without sending, as do × and Escape; what
- * was written then stays as the draft for the next time, until it is sent.
+ * top bar down, or the text box while its text is at the top, past a
+ * quarter of its height or with a flick (`useSheetDrag.ts`), closes it
+ * without sending, as do × and Escape; what was written then stays as the
+ * draft for the next time, until it is sent.
  * The text box scrolls only when the text outgrows it (`useSheetScroll.ts`).
  *
  * It fills what the phone keyboard leaves of the screen (`--app-top` and
@@ -39,8 +40,8 @@ interface ComposeSheetProps {
 
 export function ComposeSheet({ title, inputRef, onSend, onClose }: ComposeSheetProps) {
   const [text, setText] = useState(draft);
-  const { sheetRef, pulled, dragging, barHandlers } = useSheetDrag(onClose);
-  const { backdropRef, overflowing } = useSheetScroll(inputRef, text);
+  const { sheetRef, pulled, dragging, pull, barHandlers } = useSheetDrag(onClose);
+  const { backdropRef, overflowing } = useSheetScroll(inputRef, text, pull);
 
   const write = (value: string) => {
     draft = value;

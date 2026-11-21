@@ -48,6 +48,30 @@ type Story = StoryObj<typeof FixtureApp>;
 
 const sheet = () => document.querySelector('[data-testid="compose-sheet"]');
 
+/**
+ * One finger down `el` by `dy` px in real time, a frame a step, as a thumb
+ * pulls a phone's sheet: the release speed the sheet measures is the slide's.
+ */
+async function slideDown(el: HTMLElement, x: number, y: number, dy: number, steps = 8) {
+  const at = (py: number) => new Touch({ identifier: 9, target: el, clientX: x, clientY: py });
+  const send = (type: string, py: number) =>
+    el.dispatchEvent(
+      new TouchEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        touches: type === 'touchend' ? [] : [at(py)],
+        targetTouches: type === 'touchend' ? [] : [at(py)],
+        changedTouches: [at(py)],
+      }),
+    );
+  send('touchstart', y);
+  for (let i = 1; i <= steps; i++) {
+    await new Promise((r) => setTimeout(r, 16));
+    send('touchmove', y + (dy * i) / steps);
+  }
+  send('touchend', y + dy);
+}
+
 type User = ReturnType<typeof userEvent.setup>;
 
 /**
@@ -67,7 +91,7 @@ export const HoldKeyboardToCompose: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'Holding ⌨ on the key row opens the compose sheet over the whole screen, titled with the pane and the program running there: a text box in a size a phone does not zoom into, with the keyboard’s own autocorrect and suggestions on, that scrolls only once the text outgrows it, × to close, and Send at the bottom right, which pastes everything written into the active pane at once. Dragged down by its bar the sheet closes without sending, and the text is still there the next time.',
+          'Holding ⌨ on the key row opens the compose sheet over the whole screen, titled with the pane and the program running there: a text box in a size a phone does not zoom into, with the keyboard’s own autocorrect and suggestions on, that scrolls only once the text outgrows it, × to close, and Send at the bottom right, which pastes everything written into the active pane at once. Dragged down by its bar, or by the text box while its text is at the top, the sheet closes without sending, and the text is still there the next time.',
       },
     },
   },
@@ -180,7 +204,28 @@ export const HoldKeyboardToCompose: Story = {
     await user.click(within(document.body).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(sheet()).toBeNull());
 
-    // 5. A tap on ⌨ is still the keyboard's toggle, not a sheet.
+    // 5. A slide down on the text box itself pulls the sheet away too, as a
+    //    phone's own sheets go, while the text is at its top. Scrolled down,
+    //    the same slide is the text box's, and the sheet stays.
+    await holdKeyboardKey(user, key);
+    const box1 = within(document.body).getByRole('textbox', { name: 'Text to send' });
+    await user.paste(Array.from({ length: 80 }, (_, i) => `row ${i}`).join('\n'));
+    await waitFor(() => expect(box1.scrollHeight).toBeGreaterThan(box1.clientHeight));
+    box1.scrollTop = 300;
+    const r1 = box(box1);
+    await slideDown(box1, r1.left + 60, r1.top + 60, 320);
+    expect(sheet()).not.toBeNull();
+    box1.scrollTop = 0;
+    await slideDown(box1, r1.left + 60, r1.top + 60, 320);
+    await waitFor(() => expect(sheet()).toBeNull());
+    await holdKeyboardKey(user, key);
+    const box2 = within(document.body).getByRole('textbox', { name: 'Text to send' });
+    expect((box2 as HTMLTextAreaElement).value).toContain('row 79');
+    await user.clear(box2);
+    await user.click(within(document.body).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(sheet()).toBeNull());
+
+    // 6. A tap on ⌨ is still the keyboard's toggle, not a sheet.
     await user.click(key);
     expect(sheet()).toBeNull();
   },

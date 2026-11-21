@@ -3,7 +3,7 @@
  * (components/phone/ComposeSheet.tsx): ⌨ on the key row, held, opens the whole
  * screen to write in with the phone keyboard's own corrections; Send pastes
  * everything written into the pane at once; dragged down by its bar, the sheet
- * closes, sends nothing and keeps the draft; × does the same. The key row itself is
+ * closes, sends nothing and keeps the draft; × and a slide down on the text box do the same. The key row itself is
  * tests/12-touch-keys.test.js.
  *
  * As there, every assertion is about what is on screen.
@@ -146,6 +146,22 @@ describeE2E(
       await tapBox(await boxOf('.compose-sheet-close'));
       await closed('× to close the sheet');
       expect(await getTerminalText(ctx.page)).not.toContain(draft);
+
+      // 4. A slide down on the text box itself, its text at the top, pulls the
+      //    sheet away too, as a phone's own sheets go, and keeps the draft.
+      await holdKeyboardKey();
+      await writing();
+      const area = await boxOf('.compose-sheet-input');
+      const ax = area.left + area.width / 2;
+      await drag(ctx.page, { x: ax, y: area.top + 40 }, { x: ax, y: area.top + 460 });
+      await closed('a slide down on the text box to close the sheet');
+      expect(await getTerminalText(ctx.page)).not.toContain(draft);
+      await holdKeyboardKey();
+      expect(
+        await ctx.page.evaluate(() => document.querySelector('.compose-sheet-input')?.value),
+      ).toBe(draft);
+      await tapBox(await boxOf('.compose-sheet-close'));
+      await closed('× to close the sheet again');
     }, 120000);
   },
 );
