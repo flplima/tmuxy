@@ -174,38 +174,51 @@ function terminalText(page) {
  * tall as the whole history inside its scroll container, and a click aimed
  * at its own last row makes the browser scroll there first, which closes
  * the view under the click.
+ *
+ * The spot is measured again until one is free. A terminal still settling
+ * (a new tab's, sized before its window was) reaches under the status line
+ * for a moment; a spot measured then lies below the terminal once it
+ * shrinks, and every retry of the click lands on the status line.
  */
 async function clickTerminal(terminal) {
-  const position = await terminal.evaluate(
-    (log) => {
-      const box = log.getBoundingClientRect();
-      const cursor = log.querySelector('.terminal-cursor')?.getBoundingClientRect();
-      let shownBottom = Math.min(box.bottom, window.innerHeight);
-      for (let el = log.parentElement; el; el = el.parentElement) {
-        if (getComputedStyle(el).overflowY !== 'visible') {
-          shownBottom = Math.min(shownBottom, el.getBoundingClientRect().bottom);
+  const aim = () =>
+    terminal.evaluate(
+      (log) => {
+        const box = log.getBoundingClientRect();
+        const cursor = log.querySelector('.terminal-cursor')?.getBoundingClientRect();
+        let shownBottom = Math.min(box.bottom, window.innerHeight);
+        for (let el = log.parentElement; el; el = el.parentElement) {
+          if (getComputedStyle(el).overflowY !== 'visible') {
+            shownBottom = Math.min(shownBottom, el.getBoundingClientRect().bottom);
+          }
         }
-      }
-      const bottom = Math.max(1, shownBottom - box.top - 4);
-      const spots = [
-        ...(cursor && cursor.width > 0
-          ? [
-              {
-                x: cursor.left - box.left + cursor.width / 2,
-                y: cursor.top - box.top + cursor.height / 2,
-              },
-            ]
-          : []),
-        ...[4, 16, box.width / 4, box.width / 2].map((x) => ({ x, y: bottom })),
-      ];
-      const reaches = ({ x, y }) =>
-        log.contains(document.elementFromPoint(box.left + x, box.top + y));
-      return spots.find(reaches) ?? spots[0];
-    },
-    undefined,
-    { timeout: 5000 },
-  );
-  await terminal.click({ position, timeout: 5000 });
+        const bottom = Math.max(1, shownBottom - box.top - 4);
+        const spots = [
+          ...(cursor && cursor.width > 0
+            ? [
+                {
+                  x: cursor.left - box.left + cursor.width / 2,
+                  y: cursor.top - box.top + cursor.height / 2,
+                },
+              ]
+            : []),
+          ...[4, 16, box.width / 4, box.width / 2].map((x) => ({ x, y: bottom })),
+        ];
+        const reaches = ({ x, y }) =>
+          log.contains(document.elementFromPoint(box.left + x, box.top + y));
+        const free = spots.find(reaches);
+        return { ...(free ?? spots[0]), free: Boolean(free) };
+      },
+      undefined,
+      { timeout: 5000 },
+    );
+  const deadline = Date.now() + waitBudget(5000);
+  let spot = await aim();
+  while (!spot.free && Date.now() < deadline) {
+    await delay(50);
+    spot = await aim();
+  }
+  await terminal.click({ position: { x: spot.x, y: spot.y }, timeout: 5000 });
 }
 
 /**
