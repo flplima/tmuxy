@@ -88,6 +88,41 @@ describe('themeManager', () => {
     expect(sheets()).toHaveLength(2);
   });
 
+  // A pick applies the theme at once, and the server's echo of it applies it
+  // again. The second call dropped the link still loading for a new one; when
+  // the dropped link's load arrived anyway, it removed the theme on screen and
+  // took the theme's id off the page with it.
+  it('keeps the theme link on the page when a switch is asked for twice, or a dropped link reports its load', () => {
+    const sheets = () => links().map((l) => ({ ...l, href: l.href?.replace(/\?v=\d+$/, '') }));
+    const theme = () =>
+      document
+        .getElementById('tmuxy-theme')
+        ?.getAttribute('href')
+        ?.replace(/\?v=\d+$/, '');
+    const pending = () => document.head.querySelector<HTMLLinkElement>('link[data-pending-for]');
+    applyTheme('nord', 'dark');
+    loadPending();
+
+    applyTheme('gruvbox', 'dark');
+    const first = pending();
+    applyTheme('gruvbox', 'dark');
+    expect(pending()).toBe(first);
+    first?.dispatchEvent(new Event('load'));
+    expect(sheets()).toEqual([
+      { id: 'tmuxy-theme', href: '/themes/gruvbox.css' },
+      { id: 'tmuxy-custom-css', href: '/custom.css' },
+    ]);
+
+    applyTheme('nord', 'dark');
+    const dropped = pending();
+    applyTheme('dracula', 'dark');
+    dropped?.dispatchEvent(new Event('load'));
+    expect(theme()).toBe('/themes/gruvbox.css');
+    loadPending();
+    expect(theme()).toBe('/themes/dracula.css');
+    expect(sheets()).toHaveLength(2);
+  });
+
   it("tints the browser's own bars with the theme's window colour", () => {
     const meta = document.createElement('meta');
     meta.name = 'theme-color';
