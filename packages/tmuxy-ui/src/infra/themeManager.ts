@@ -39,8 +39,11 @@ function cssHref(path: string): string {
  */
 function ensureLink(id: string, href: string, before: Element | null): void {
   const current = document.getElementById(id) as HTMLLinkElement | null;
-  // A switch still loading is superseded by this one.
-  document.querySelector(`link[data-pending-for="${id}"]`)?.remove();
+  const pending = document.querySelector(`link[data-pending-for="${id}"]`);
+  // The same switch asked for again (a pick, then the server's echo of it)
+  // keeps loading; a different one supersedes it.
+  if (pending?.getAttribute('href') === href) return;
+  pending?.remove();
   if (current && current.getAttribute('href') === href) return;
 
   const link = document.createElement('link');
@@ -55,7 +58,8 @@ function ensureLink(id: string, href: string, before: Element | null): void {
   }
   link.dataset.pendingFor = id;
   link.addEventListener('load', () => {
-    if (link.dataset.pendingFor !== id) return;
+    // A superseded link's load can still arrive after it left the page.
+    if (link.dataset.pendingFor !== id || !link.isConnected) return;
     delete link.dataset.pendingFor;
     current.remove();
     link.id = id;
