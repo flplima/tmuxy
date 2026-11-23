@@ -42,7 +42,8 @@ interface V86Cpu {
  * a second restore on one emulator put the guest's TSC 99s behind the time
  * its restored kernel had read last, and the guest's clock stood still until
  * it caught up (a `sleep 1` slept for a minute and a half). Setting the TSC
- * to its own current value first brings the offset back to zero.
+ * to its own current value first brings the offset back to zero. Still the
+ * case in v86 0.5.476, whose `set_tsc` computes `read_tsc() - new_value`.
  */
 export async function restoreSnapshot(emu: V86Emulator, snapshot: ArrayBuffer): Promise<void> {
   const { cpu } = emu.v86;
