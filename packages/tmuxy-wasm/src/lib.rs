@@ -1,5 +1,5 @@
 //! WASM binding over tmuxy-core's sans-IO control-mode client, for the
-//! browser guests (v86 or CheerpX running real tmux): they feed raw `tmux -CC`
+//! browser guest (v86 running real tmux): it feeds raw `tmux -CC`
 //! text into [`WasmTmux::feed`], and the same `control_mode::MonitorCore` the
 //! native server runs says what to send back, what changed, and what to tell
 //! the person. Client commands go through the native routing policy

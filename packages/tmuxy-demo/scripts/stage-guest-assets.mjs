@@ -1,11 +1,9 @@
-// The demo runs real tmux in an in-browser guest, which loads its pieces at
-// runtime from the site's own origin. The v86 guest: the emulator (/v86), the
-// guest's BIOS, kernel and pre-booted snapshot (/v86-img). The CheerpX guest:
-// its ext2 image (/cheerpx-img), optional, since the page falls back to v86
-// where CheerpX cannot run. Both: the tmuxy-core engine compiled to wasm
-// (/wasm). This copies them into public/ for `next dev` and the static export.
-// None is in git; each is built by the command named in the error, which is
-// what the Deploy Demo workflow runs first.
+// The demo runs real tmux in an in-browser v86 guest, which loads its pieces
+// at runtime from the site's own origin: the emulator (/v86), the guest's
+// BIOS, kernel and pre-booted snapshot (/v86-img), and the tmuxy-core engine
+// compiled to wasm (/wasm). This copies them into public/ for `next dev` and
+// the static export. None is in git; each is built by the command named in
+// the error, which is what the Deploy Demo workflow runs first.
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -33,18 +31,12 @@ const SETS = [
     files: ['tmuxy_wasm.js', 'tmuxy_wasm_bg.wasm'],
     build: 'npm run build:wasm',
   },
-  {
-    to: 'cheerpx-img',
-    from: join(ui, 'cheerpx-assets'),
-    files: ['tmuxy.ext2'],
-    build: 'npm run build:cheerpx-image -w tmuxy-ui',
-    optional: true,
-  },
 ];
 
-const absent = (set) => set.files.filter((file) => !existsSync(join(set.from, file)));
-const missing = SETS.filter((set) => !set.optional).flatMap((set) =>
-  absent(set).map((file) => `  ${join(set.from, file)}  (${set.build})`),
+const missing = SETS.flatMap((set) =>
+  set.files
+    .filter((file) => !existsSync(join(set.from, file)))
+    .map((file) => `  ${join(set.from, file)}  (${set.build})`),
 );
 if (missing.length > 0) {
   console.error(`The demo's guest assets are missing:\n${missing.join('\n')}`);
@@ -54,10 +46,6 @@ if (missing.length > 0) {
 for (const set of SETS) {
   const dir = join(publicDir, set.to);
   rmSync(dir, { recursive: true, force: true });
-  if (absent(set).length > 0) {
-    console.log(`skipped ${set.to}: not built (${set.build})`);
-    continue;
-  }
   mkdirSync(dir, { recursive: true });
   for (const file of set.files) copyFileSync(join(set.from, file), join(dir, file));
 }

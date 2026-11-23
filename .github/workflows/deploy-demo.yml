@@ -14,12 +14,8 @@ on:
       - 'packages/tmuxy-wasm/**'
       - 'packages/tmuxy-ui/scripts/build-v86-snapshot.mjs'
       - 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs'
-      # The CheerpX guest's image, and what goes into it.
-      - 'packages/tmuxy-ui/scripts/build-cheerpx-image.mjs'
       - 'packages/tmuxy-ui/scripts/lib/guest.mjs'
       - 'packages/tmuxy-ui/scripts/lib/guest.gen.json'
-      - 'packages/tmuxy-ui/cheerpx/**'
-      - 'packages/tmuxy-pty/**'
       - 'packages/tmuxy-verbs/**'
       - 'packages/tmuxy-cli/bin/tmuxy-cli'
       - 'packages/tmuxy-cli/bin/tmuxy/**'
@@ -47,8 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # wasm32 for tmuxy-wasm, i686-musl for the guest binaries the v86 and
-      # CheerpX images cross-compile on a cache miss. node_modules by `npm ci`
+      # wasm32 for tmuxy-wasm, i686-musl for the guest binaries the v86
+      # snapshot cross-compiles on a cache miss. node_modules by `npm ci`
       # (not a cache): deploy exactly the locked tree.
       - uses: ./.github/actions/setup-node-rust
         with:
@@ -62,21 +58,6 @@ jobs:
       # job builds it, so a snapshot either job built is reused.
       - uses: ./.github/actions/v86-guest
 
-      # The CheerpX guest the demo runs where the page is cross-origin isolated
-      # (everywhere a service worker can make it so, public/coi-sw.js): 32-bit
-      # Alpine built under Docker, which an x86-64 runner runs natively, with
-      # the i686-musl tmuxy-verbs and tmuxy-pty cross-compiled into it.
-      - name: Cache the CheerpX guest image
-        id: cheerpx-image-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: packages/tmuxy-ui/cheerpx-assets/tmuxy.ext2
-          key: ${{ runner.os }}-cheerpx-image-${{ hashFiles('packages/tmuxy-ui/scripts/build-cheerpx-image.mjs', 'packages/tmuxy-ui/scripts/lib/guest.mjs', 'packages/tmuxy-ui/scripts/lib/guest.gen.json', 'packages/tmuxy-ui/cheerpx/**', 'packages/tmuxy-pty/**', 'packages/tmuxy-verbs/**', 'packages/tmuxy-core/**', 'packages/vt100/**', 'Cargo.toml', 'Cargo.lock', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**') }}
-
-      - name: Build the CheerpX guest image (cache miss)
-        if: steps.cheerpx-image-cache.outputs.cache-hit != 'true'
-        run: npm run build:cheerpx-image -w tmuxy-ui
-
       - name: Build demo
         run: npm run build -w tmuxy-demo
         env:
@@ -89,8 +70,6 @@ jobs:
           test -d packages/tmuxy-demo/out || { echo "demo export missing"; exit 1; }
           test -n "$(ls -A packages/tmuxy-demo/out)" || { echo "demo export is empty"; exit 1; }
           test -s packages/tmuxy-demo/out/v86-img/tmux-state.bin.gz || { echo "demo export has no v86 snapshot"; exit 1; }
-          test -s packages/tmuxy-demo/out/cheerpx-img/tmuxy.ext2 || { echo "demo export has no CheerpX image"; exit 1; }
-          test -s packages/tmuxy-demo/out/coi-sw.js || { echo "demo export has no isolation worker"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5

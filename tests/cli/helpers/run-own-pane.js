@@ -16,16 +16,14 @@ const LIB = path.join(__dirname, '..', '..', '..', 'packages', 'tmuxy-cli', 'bin
  * @param {object} stub
  * @param {string} [stub.parents] - `case` arms for `_parent_of` (`/proc`)
  * @param {string} [stub.table] - `pid ppid` lines for `_process_table` (`ps`)
- * @param {boolean} [stub.trust] - @tmuxy-trust-pane-claims on
  */
-function ownPane({ parents = '', table = '', trust = false }) {
+function ownPane({ parents = '', table = '' }) {
   const script = `
     source "$LIB"
     ME=$$
     _tmux() {
       case "$*" in
         *pane_pid*) printf '%s\\t%s\\n' %3 4242 ;;
-        *trust-pane-claims*) ${trust ? 'echo on' : ':'} ;;
       esac
     }
     _parent_of() { case "$1" in ${parents} *) ;; esac; }

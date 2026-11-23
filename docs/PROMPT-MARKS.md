@@ -75,7 +75,7 @@ The marks are pane output, so a program, a `cat`ed file or a remote host can pri
 
 - **Exit status in the scrollback marks.** tmux keeps no mark for `D`, so a failed command's prompt looks like any other.
 - **Rows in an open view are not corrected** when the pane is resized (tmux rewraps the history) or when a full history drops its oldest lines. The marks drift with the view's own rows until it is opened again.
-- **The in-browser demo** (v86, CheerpX) answers that a pane has no marks.
+- **The in-browser demo** (v86) answers that a pane has no marks.
 
 ## Key files
 

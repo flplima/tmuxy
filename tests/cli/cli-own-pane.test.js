@@ -7,8 +7,7 @@ const { ownPane } = require('./helpers/run-own-pane');
  * `ps` would give it, since the real tree of a test run proves nothing
  * repeatable. The pane `%3`'s process is 4242; `ME` is the checking shell.
  * When the ancestry cannot be read, the claim is refused and the caller is
- * told why, unless the server sets @tmuxy-trust-pane-claims on (the CheerpX
- * guest, which names no parents at all).
+ * told why.
  */
 
 const UNPROVEN = /cannot prove this runs in %3/;
@@ -37,11 +36,5 @@ describe('verified_own_pane', () => {
     const broken = ownPane({ table: '$ME 100\\n' });
     expect(broken.claim).toBe('');
     expect(broken.said).toMatch(UNPROVEN);
-  });
-
-  test('an unproven claim stands only where the server trusts claims, and a disproven one never', () => {
-    expect(ownPane({ table: '', trust: true })).toEqual({ claim: '%3', said: '' });
-    expect(ownPane({ parents: '"$ME") echo 100 ;;', trust: true }).claim).toBe('%3');
-    expect(ownPane({ parents: '"$ME") echo 100 ;; 100) echo 1 ;;', trust: true }).claim).toBe('');
   });
 });

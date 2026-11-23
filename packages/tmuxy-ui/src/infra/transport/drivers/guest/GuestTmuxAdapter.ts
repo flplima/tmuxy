@@ -7,10 +7,10 @@
  *   TmuxyApp --run(op)--> send(run_tmux_command) --> engine --> real tmux -CC
  *     --guest stream--> tmuxy-wasm (parse + aggregate) --> ServerState --> onStateChange
  *
- * The machine and the wasm core live in a `GuestEngine` (`V86Engine`,
- * `CheerpXEngine`); this class is the driver over one. An
- * adapter that owns its engine tears it down on disconnect; one handed a
- * shared engine leaves it running for the next.
+ * The machine and the wasm core live in a `GuestEngine` (`V86Engine`); this
+ * class is the driver over one. An adapter that owns its engine tears it
+ * down on disconnect; one handed a shared engine leaves it running for the
+ * next.
  *
  * Assets are served from the page's origin (Storybook staticDirs / demo
  * public): /wasm (tmuxy_wasm), plus what the engine's machine loads.
@@ -51,7 +51,7 @@ export interface GuestTmuxAdapterOptions {
    */
   initDoneOption?: string;
   /**
-   * Files the guest has in `GUEST_FILES_DIR` (`/mnt`) before the init runs,
+   * Files the guest has in `/mnt` (v86's 9p share) before the init runs,
    * by name: a string is the file's text, a URL is fetched by the page. A
    * fetch that fails leaves its file out rather than failing the start.
    */

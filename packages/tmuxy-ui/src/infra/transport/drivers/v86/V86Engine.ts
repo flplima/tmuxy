@@ -82,7 +82,7 @@ export class V86Engine extends GuestEngine {
   }
 
   /** Into the 9p share, which the restored guest has mounted at
-   *  `GUEST_FILES_DIR`. A restore rewinds the share too, so each start writes
+   *  `/mnt`. A restore rewinds the share too, so each start writes
    *  them again. */
   private async putFiles(files: GuestFile[]): Promise<void> {
     for (const { name, bytes } of files) await this.emu?.create_file(name, bytes);

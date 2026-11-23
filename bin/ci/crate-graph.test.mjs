@@ -47,15 +47,9 @@ describe('what a workflow says a job is built from is the crate graph', () => {
     );
   });
 
-  it('the CheerpX image cache key hashes every crate of tmuxy-verbs and tmuxy-pty', () => {
-    expect(hashedGlobs('.github/workflows/deploy-demo.yml', 'cheerpx-image')).toEqual(
-      expect.arrayContaining(crateGlobs('tmuxy-verbs', 'tmuxy-pty')),
-    );
-  });
-
   it('the demo deploys on a change to any crate it runs', () => {
     expect(pushPaths('.github/workflows/deploy-demo.yml')).toEqual(
-      expect.arrayContaining(crateGlobs('tmuxy-wasm', 'tmuxy-verbs', 'tmuxy-pty')),
+      expect.arrayContaining(crateGlobs('tmuxy-wasm', 'tmuxy-verbs')),
     );
   });
 });

@@ -13,7 +13,7 @@ See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback render
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TELEMETRY.md](docs/TELEMETRY.md) for every network connection tmuxy and its website make, and how to turn each off (tmuxy itself sends no telemetry).
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
-See [docs/NIGHTLY-SWEEP.md](docs/NIGHTLY-SWEEP.md) for why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it now tells a flake from a defect.
+See [docs/NIGHTLY-SWEEP.md](docs/NIGHTLY-SWEEP.md) for why the nightly story sweep kept failing, why a faster in-browser JIT would not have fixed it, and how it now tells a flake from a defect.
 See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, session lifecycle) and the test that holds each one.
 See [docs/FEATURES.md](docs/FEATURES.md) for what a user or an agent can do, by surface (mouse, menu, keys, CLI, config), with the test that holds each; `npm run check:policy` fails when a surface gains or loses an action without a row.
 See [docs/CLI.md](docs/CLI.md) for every `tmuxy` command and flag, generated from `--help`; `npm run check:cli-doc` fails when it drifts (regenerate with `npm run gen:cli-doc`).

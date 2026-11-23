@@ -9,7 +9,7 @@
  * the attach-and-sync loop, and a serialized lifecycle.
  * A subclass supplies the machine — how it boots or resets, and how bytes
  * reach the guest (`send`) and come back (`receive`): `V86Engine` over an
- * emulated UART, `CheerpXEngine` over CheerpX's console.
+ * emulated UART.
  */
 import type { ServerStateEncoded } from '../../../../domain/wire';
 import type { PaneContent } from '../../../../domain/wireCells';
@@ -33,19 +33,12 @@ import {
 export const GUEST_DEFAULT_COLS = 80;
 export const GUEST_DEFAULT_ROWS = 30;
 
-/**
- * Where the page's files land in the guest: v86's 9p share, which the
- * snapshot mounts there, and a CheerpX in-memory device mounted at the same
- * path.
- */
-export const GUEST_FILES_DIR = '/mnt';
-
 export interface GuestFile {
   name: string;
   bytes: Uint8Array;
 }
 
-/** The session the guest images start (`scripts/build-v86-snapshot.mjs`). */
+/** The session the guest's snapshot starts (`scripts/build-v86-snapshot.mjs`). */
 const GUEST_SESSION = 'm';
 
 /** How often the core is asked what is due (its own deadlines are finer
@@ -104,10 +97,10 @@ export abstract class GuestEngine {
   /** Queue a control-mode command (one line, or several) for the guest. */
   abstract send(cmd: string): void;
   /** Bring the machine up and attach; runs inside the lifecycle queue. Puts
-   *  `files` in the guest's `GUEST_FILES_DIR` before `initCommands` run. */
+   *  `files` in the guest's `/mnt` before `initCommands` run. */
   protected abstract doBoot(initCommands: string[], files: GuestFile[]): Promise<void>;
   /** Give the next adapter a clean start; runs inside the lifecycle queue.
-   *  Puts `files` in `GUEST_FILES_DIR` before `initCommands` run. */
+   *  Puts `files` in the guest's `/mnt` before `initCommands` run. */
   protected abstract doReset(initCommands: string[], files: GuestFile[]): Promise<void>;
   protected abstract teardown(): void;
 

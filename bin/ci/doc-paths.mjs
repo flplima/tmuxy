@@ -31,7 +31,6 @@ export const PACKAGES = [
   'tmuxy-cli',
   'tmuxy-wasm',
   'tmuxy-demo',
-  'tmuxy-pty',
   'vt100',
   'protocol-fixtures',
 ];

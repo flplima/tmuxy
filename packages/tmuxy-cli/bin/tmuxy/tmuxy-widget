@@ -44,9 +44,7 @@ _run_safe "set-option -p -t $PANE $OPT_PANE_WIDGET $(shquote "$COMPONENT")"
 # otherwise kill the trap halfway, leaving the marker on the screen and the
 # authorisation on the pane over a shell. The default is back before the
 # shell starts, since an ignored signal survives `exec` — and a shell started
-# with Ctrl+C ignored passes that on to everything it runs. A pane with no
-# terminal to open (the CheerpX demo's) gets no new shell: the one that ran
-# the widget is back at its prompt.
+# with Ctrl+C ignored passes that on to everything it runs.
 #
 # The title is reset from a subshell. When the pane has already closed (its
 # session killed), the write fails, and bash 3.2's `printf` keeps the bytes it
@@ -65,7 +63,7 @@ drain_input() {
   stty -icanon min 0 time 0 </dev/tty 2>/dev/null && cat </dev/tty >/dev/null 2>&1
   stty echo icanon min 1 time 0 </dev/tty 2>/dev/null || true
 }
-trap 'trap "" INT; ( printf "\033]2;\007" ) 2>/dev/null; _run_safe "set-option -p -u -t $PANE $OPT_PANE_WIDGET"; clear; trap - INT; if { : </dev/tty; } 2>/dev/null; then drain_input; exec "${SHELL:-bash}" </dev/tty; fi' EXIT
+trap 'trap "" INT; ( printf "\033]2;\007" ) 2>/dev/null; _run_safe "set-option -p -u -t $PANE $OPT_PANE_WIDGET"; clear; trap - INT; drain_input; exec "${SHELL:-bash}" </dev/tty' EXIT
 
 # A widget's own title normally comes from the UI, but a pane PARKED in a
 # group's stash streams no content, so the only thing a group's tab strip has

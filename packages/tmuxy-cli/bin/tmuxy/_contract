@@ -186,11 +186,6 @@ _process_table() {
 # there. Prints nothing when it is not, and also when it cannot be proven:
 # a parent that cannot be read anywhere up the line, or a process table that
 # does not name this process. That case says so on stderr.
-#
-# A system that names no parent even for this process (the CheerpX guest's
-# `/proc` has none, and its `ps` reads that `/proc`) can prove nothing, and
-# there the claim stands only where the server says so: the guest's own
-# config sets @tmuxy-trust-pane-claims on.
 verified_own_pane() {
   local claimed="${1:-}" pane_pid verdict
   [ -n "$claimed" ] || return 0
@@ -239,11 +234,7 @@ verified_own_pane() {
   case "$verdict" in
     yes) printf '%s' "$claimed" ;;
     unproven)
-      if [ "$(_tmux show-options -gqv "$OPT_TRUST_PANE_CLAIMS" 2>/dev/null)" = on ]; then
-        printf '%s' "$claimed"
-      else
-        echo "tmuxy: cannot prove this runs in $claimed (its process ancestry cannot be read), so it is treated as another pane" >&2
-      fi
+      echo "tmuxy: cannot prove this runs in $claimed (its process ancestry cannot be read), so it is treated as another pane" >&2
       ;;
   esac
 }

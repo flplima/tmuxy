@@ -6,7 +6,7 @@ The guide for people who **use** tmuxy is `docs/wiki/`, published to the [GitHub
 
 ## Start here
 
-**Three programs over one crate.** `packages/tmuxy-core` is the library: the control-mode parser and state aggregator, the command router, the host runtime every program embeds. Around it sit the web server `packages/tmuxy-server` (Axum: SSE out, HTTP POST in), the desktop app `packages/tmuxy-tauri-app` (the same core over Tauri IPC) and the CLI — shell scripts in `packages/tmuxy-cli/bin/tmuxy/` behind the dispatcher `packages/tmuxy-cli/bin/tmuxy-cli`, with the verbs that need Rust in `packages/tmuxy-verbs`. The browser guests are the same core with no server at all: `packages/tmuxy-wasm` (the core compiled to wasm) reading a real tmux inside v86 or CheerpX, which the demo site `packages/tmuxy-demo` and the v86 stories run.
+**Three programs over one crate.** `packages/tmuxy-core` is the library: the control-mode parser and state aggregator, the command router, the host runtime every program embeds. Around it sit the web server `packages/tmuxy-server` (Axum: SSE out, HTTP POST in), the desktop app `packages/tmuxy-tauri-app` (the same core over Tauri IPC) and the CLI — shell scripts in `packages/tmuxy-cli/bin/tmuxy/` behind the dispatcher `packages/tmuxy-cli/bin/tmuxy-cli`, with the verbs that need Rust in `packages/tmuxy-verbs`. The browser guest is the same core with no server at all: `packages/tmuxy-wasm` (the core compiled to wasm) reading a real tmux inside v86, which the demo site `packages/tmuxy-demo` and the v86 stories run.
 
 **The UI is four layers.** `packages/tmuxy-ui/src` is `domain/` (pure: wire schemas, ids, ops) → `infra/` (the transport, the store, the platform) → `machines/` (XState) → `components/` (React), and an import only points down the list; ESLint's `no-restricted-imports` holds it. The table of what each layer may import is `packages/tmuxy-ui/README.md`.
 
@@ -126,7 +126,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [REPORTING-ISSUES.md](REPORTING-ISSUES.md) | For users: what a bug report needs, how to take a trace slice, what a trace holds and how to check it before sharing | Filing or triaging an issue; answering "is it safe to share my trace?" |
 | [TRACING-DESIGN.md](TRACING-DESIGN.md) | The trace file's schema, its instrumentation seams and correlation | Adding instrumentation |
 | [CI-TRIAGE.md](CI-TRIAGE.md) | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points | Investigating red GitHub Actions runs |
-| [NIGHTLY-SWEEP.md](NIGHTLY-SWEEP.md) | Why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it tells a flake from a defect | A red nightly sweep |
+| [NIGHTLY-SWEEP.md](NIGHTLY-SWEEP.md) | Why the nightly story sweep kept failing, why a faster in-browser JIT would not have fixed it, and how it tells a flake from a defect | A red nightly sweep |
 
 ### Protocols & Rendering
 

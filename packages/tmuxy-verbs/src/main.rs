@@ -1,5 +1,5 @@
 //! `tmuxy-verbs <verb>`: the verbs on a machine with no `tmuxy-server` to run
-//! them, which is the in-browser guests (the v86 snapshot, the CheerpX image).
+//! them, which is the in-browser guest (the v86 snapshot).
 //! The CLI finds it where it finds no server (`find_server_cmd`).
 
 use clap::Parser;

@@ -250,6 +250,4 @@ Want to contribute? Read [CONTRIBUTING.md](CONTRIBUTING.md).
 [MIT](LICENSE)
 
 The demo at [tmuxy.sh](https://tmuxy.sh) runs Linux in the browser on
-[CheerpX](https://cheerpx.io) © Leaning Technologies, used under its Community
-License from Leaning Technologies' CDN, or on [v86](https://github.com/copy/v86)
-where CheerpX cannot run.
+[v86](https://github.com/copy/v86).

@@ -1,6 +1,6 @@
 /**
- * What a control-mode client in an in-browser guest needs whatever machine
- * the guest runs in (v86, CheerpX): the tmuxy-core client compiled to wasm
+ * What a control-mode client in an in-browser guest needs apart from the
+ * machine itself: the tmuxy-core client compiled to wasm
  * (`packages/tmuxy-wasm`), and the promises a host keeps for the replies it
  * asked for.
  */
