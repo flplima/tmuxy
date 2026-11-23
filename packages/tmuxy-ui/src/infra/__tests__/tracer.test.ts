@@ -115,6 +115,32 @@ describe('tracer redaction boundary', () => {
     expect(shipped.some((e) => e.name === 'Split' && e.kind === 'horizontal')).toBe(true);
   });
 
+  it('records the tab or pane an event sent to the machine names, and none of its text', () => {
+    let shipped: Record<string, unknown>[] = [];
+    tracer.setSink((events) => {
+      shipped = events;
+    });
+    tracer.sent({ type: 'SELECT_TAB', windowId: '@3' });
+    tracer.sent({ type: 'SELECT_PANE', paneId: '%7' });
+    tracer.sent({ type: 'RENAME_TAB_COMMIT', windowId: '@3', name: 'secret-project' });
+    // Not an id: a window or pane field holding anything else is left out.
+    tracer.sent({ type: 'SEND_TMUX_COMMAND', windowId: 'rm -rf /', paneId: 'password123' });
+    tracer.sent({ type: 'TMUX_MODEL_UPDATE', model: {} });
+    tracer.flush();
+
+    const events = shipped.filter((e) => e.phase === 'event');
+    expect(events.map(({ name, window, pane }) => ({ name, window, pane }))).toEqual([
+      { name: 'SELECT_TAB', window: '@3', pane: undefined },
+      { name: 'SELECT_PANE', window: undefined, pane: '%7' },
+      { name: 'RENAME_TAB_COMMIT', window: '@3', pane: undefined },
+      { name: 'SEND_TMUX_COMMAND', window: undefined, pane: undefined },
+    ]);
+    expect(JSON.stringify(shipped)).not.toMatch(/secret-project|rm -rf|password123/);
+    expect(shipped.filter((e) => e.phase === 'count')).toMatchObject([
+      { name: 'TMUX_MODEL_UPDATE', count: 1 },
+    ]);
+  });
+
   it('is a no-op when disabled', () => {
     tracer.setEnabled(false);
     let shipped = 0;

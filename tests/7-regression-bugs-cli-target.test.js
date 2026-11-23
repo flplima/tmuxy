@@ -25,6 +25,28 @@ const {
 } = require('./helpers');
 const { TMUXY_CLI } = require('./helpers/cli');
 
+/**
+ * A click on `windowId`'s tab, found by its id rather than its place in the
+ * strip, then a wait for the app to show that tab. A timeout says what the
+ * strip held.
+ */
+async function bringTabBack(page, windowId) {
+  await page.click(`.tab-name[data-window-id="${windowId}"]`);
+  await waitForCondition(
+    page,
+    async () => (await page.evaluate(() => window.app?.view().activeTabId)) === windowId,
+    10000,
+    async () => {
+      const strip = await page.evaluate(() =>
+        [...document.querySelectorAll('.tab-name')].map(
+          (el) => `${el.dataset.windowId}${el.classList.contains('tab-name-active') ? '*' : ''}`,
+        ),
+      );
+      return `tab ${windowId} back in front (the strip, * active: ${strip.join(' ')})`;
+    },
+  );
+}
+
 describeE2E('Scenario: a CLI split from a background tab lands in that tab', {}, (ctx) => {
   test('tab create, then pane split from the pane left behind: two panes in its tab, one in the new one', async () => {
     await ctx.setupPage();
@@ -73,13 +95,7 @@ describeE2E('Scenario: a CLI split from a background tab lands in that tab', {},
 
     // …and the first tab, brought back by a click on it, shows its two panes
     // side by side.
-    await page.click('.tab-name:nth-child(1)');
-    await waitForCondition(
-      page,
-      async () => (await visibleWindow()) === firstWindow,
-      10000,
-      'the first tab back in front',
-    );
+    await bringTabBack(page, firstWindow);
     await waitForPaneCount(page, 2, 10000);
     const rects = await visiblePaneRects();
     expect(rects).toHaveLength(2);
@@ -140,13 +156,7 @@ describeE2E('Scenario: a CLI split from a background tab lands in that tab', {},
     expect(await visibleGroupTabRects()).toHaveLength(1);
 
     // …and the first tab, brought back, shows two group tabs in one header row.
-    await page.click('.tab-name:nth-child(1)');
-    await waitForCondition(
-      page,
-      async () => (await visibleWindow()) === firstWindow,
-      10000,
-      'the first tab back in front',
-    );
+    await bringTabBack(page, firstWindow);
     await waitForCondition(
       page,
       async () => (await getGroupTabCount(page)) === 2,

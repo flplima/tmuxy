@@ -15,6 +15,8 @@
  * adapter/XState paths costs nothing in production.
  */
 
+import { isModelPaneId, isModelWindowId } from '../domain/ids';
+
 /** Keys allowed onto a shipped event. Anything else is dropped client-side
  * (defense in depth; the server re-applies the same allowlist). All are
  * content-free: typed variants, ids, counts, timing, and error *tags*. */
@@ -156,6 +158,26 @@ class Tracer {
     const key = `${layer}\0${name}`;
     this.counts.set(key, (this.counts.get(key) ?? 0) + 1);
     this.scheduleFlush();
+  }
+
+  /**
+   * An event sent to the app machine: its type and the tab or pane it names,
+   * so a trace says which tab a click selected. Nothing else of its payload,
+   * which can carry keystrokes. The model-update firehose is only counted.
+   */
+  sent(event: unknown): void {
+    const { type, windowId, paneId } = (event ?? {}) as Record<string, unknown>;
+    if (typeof type !== 'string') return;
+    if (type === 'TMUX_MODEL_UPDATE') {
+      this.count('xstate', type);
+      return;
+    }
+    this.event({
+      layer: 'xstate',
+      name: type,
+      window: isModelWindowId(windowId) ? windowId : undefined,
+      pane: isModelPaneId(paneId) ? paneId : undefined,
+    });
   }
 
   flush(): void {
