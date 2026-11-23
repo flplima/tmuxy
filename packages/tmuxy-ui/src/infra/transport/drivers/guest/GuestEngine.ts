@@ -60,14 +60,30 @@ export interface EngineSink {
   onFatal(message: string): void;
 }
 
-/** How patient the attach loop is: a cold machine brings tmux up on its own
- *  schedule, a warm one answers almost at once. */
+/**
+ * What a `tmux -CC` client writes the moment it is attached: a DCS
+ * introducer, right before the `%begin` of the block answering its own
+ * `attach` (tmux's `control_start`). Nothing the guest's shell prints can
+ * fake it: the typed line holds no ESC, and once the client runs, a pane's
+ * output reaches the stream as `%output` with ESC escaped.
+ */
+const CONTROL_CLIENT_DCS = '\x1bP1000p';
+
+/** A start waiting for the control client: the stream's last bytes (a DCS
+ *  split across two reads) and the start to wake. */
+interface Announcement {
+  tail: string;
+  heard: () => void;
+}
+
+/** How patient a start is. Both are deadlines, not a pace: a guest that
+ *  answers at once is never kept waiting. */
 export interface AttachTiming {
-  settleMs: number;
-  /** Between sending the attach line and the sync. */
-  attachMs: number;
-  /** How long one attempt waits for the first state. */
+  /** How long one attempt waits for an answer (the control client to
+   *  announce itself after the attach line, then the first state after the
+   *  core's attach commands) before it is made again. */
   attemptMs: number;
+  /** When the start gives up. */
   deadlineMs: number;
 }
 
@@ -75,8 +91,10 @@ export abstract class GuestEngine {
   private wasmModule: WasmModule | null = null;
   private core: WasmCore | null = null;
   protected booted = false;
-  /** Whether received bytes are fed to the core (off while a machine rewinds). */
+  /** Whether received bytes are fed to the core: off while a machine
+   *  rewinds, and until its control client announces itself. */
   protected attached = false;
+  private announcement: Announcement | null = null;
 
   private readonly replies = new ReplyBook();
   private lastState: ServerStateEncoded = EMPTY_STATE;
@@ -283,8 +301,29 @@ export abstract class GuestEngine {
   }
 
   protected receive(chunk: string): void {
-    if (!chunk || !this.attached || !this.core) return;
-    this.emit(this.core.feed(chunk));
+    if (!chunk || !this.core) return;
+    const waiting = this.announcement;
+    const text = waiting ? this.afterAnnouncement(waiting, chunk) : chunk;
+    if (!text || !this.attached) return;
+    this.emit(this.core.feed(text));
+  }
+
+  /**
+   * Until its control client is there, the stream is the guest's shell (the
+   * typed line's echo, a prompt) and none of it is the core's. Returns what
+   * follows the client's announcement: the core is fed from there.
+   */
+  private afterAnnouncement(waiting: Announcement, chunk: string): string {
+    const text = waiting.tail + chunk;
+    const at = text.indexOf(CONTROL_CLIENT_DCS);
+    if (at < 0) {
+      waiting.tail = text.slice(1 - CONTROL_CLIENT_DCS.length);
+      return '';
+    }
+    this.announcement = null;
+    this.attached = true;
+    waiting.heard();
+    return text.slice(at + CONTROL_CLIENT_DCS.length);
   }
 
   /** A shared-engine reset would otherwise leave the previous story's
@@ -293,35 +332,57 @@ export abstract class GuestEngine {
     this.replies.failAll(reason);
   }
 
-  /** `attachLine` is null when the machine attaches a client itself. */
+  /**
+   * Attach a control client and sync the core to it, each step on the
+   * guest's answer: `attachLine` is typed into the guest's shell, the core's
+   * attach commands go out once the client it starts announces itself, and
+   * the start is done at the first
+   * state. An attempt that hears nothing is made again, to a deadline: typing
+   * the line again recovers a byte dropped right after a restore. A second line
+   * that reaches the client the first one started is refused before any of
+   * the core's commands, as a block without the core's markers, which the
+   * core ignores.
+   */
   protected async start(
     initCommands: string[],
-    attachLine: string | null,
+    attachLine: string,
     timing: AttachTiming,
   ): Promise<void> {
     if (!this.core) return;
-    await wait(timing.settleMs);
-    this.attached = true;
-    // To a deadline, not an attempt count: a cold machine brings tmux up on
-    // its own schedule. Until any state arrives the attach line is re-sent,
-    // which recovers a byte dropped right after a restore; a stray copy lands
-    // on the shell prompt or as an unknown-command `%error`, both harmless.
-    const t0 = Date.now();
-    while (this.lastState.panes.length === 0 && Date.now() - t0 < timing.deadlineMs) {
-      const firstState = new Promise<void>((r) => (this.resolveFirstState = r));
-      const connectionUp = this.lastState.windows.length > 0;
-      if (!connectionUp && attachLine) {
-        this.send(attachLine);
-        await wait(timing.attachMs);
+    const deadline = Date.now() + timing.deadlineMs;
+    const attemptMs = () => Math.min(timing.attemptMs, deadline - Date.now());
+    try {
+      while (this.core && this.lastState.panes.length === 0 && attemptMs() > 0) {
+        if (!this.attached) await this.typeAttach(attachLine, attemptMs());
+        else await this.syncCore(this.core, attemptMs());
       }
-      const { cols, rows } = this.clientSize;
-      for (const cmd of this.core.attach(cols, rows)) this.send(cmd);
-      this.emit(this.core.setClientSize(cols, rows));
-      await Promise.race([firstState, wait(timing.attemptMs)]);
+    } finally {
+      this.announcement = null;
+    }
+    if (!this.attached) {
+      throw new Error(`the guest's tmux did not answer the attach in ${timing.deadlineMs} ms`);
     }
     // Once, after the attach works: a resend would duplicate their effects.
     for (const cmd of initCommands) this.send(cmd);
     for (const cb of this.readyListeners) cb();
+  }
+
+  /** Type the attach line, and wait up to `ms` for the client it starts. */
+  private typeAttach(attachLine: string, ms: number): Promise<void> {
+    const heard = new Promise<void>((resolve) => {
+      this.announcement = { tail: this.announcement?.tail ?? '', heard: resolve };
+    });
+    this.send(attachLine);
+    return Promise.race([heard, wait(ms)]);
+  }
+
+  /** Send the core's attach commands, and wait up to `ms` for the first state. */
+  private syncCore(core: WasmCore, ms: number): Promise<void> {
+    const firstState = new Promise<void>((r) => (this.resolveFirstState = r));
+    const { cols, rows } = this.clientSize;
+    for (const cmd of core.attach(cols, rows)) this.send(cmd);
+    this.emit(core.setClientSize(cols, rows));
+    return Promise.race([firstState, wait(ms)]);
   }
 
   resync(): void {
