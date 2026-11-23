@@ -21,10 +21,11 @@ import {
   type V86Emulator,
 } from './v86Guest';
 
-/** A cold boot finishes bringing tmux up after the restore; a reset rewinds a
- *  running machine, which accepts the attach much sooner. */
-const COLD: AttachTiming = { settleMs: 1500, attachMs: 1000, attemptMs: 4000, deadlineMs: 75000 };
-const WARM: AttachTiming = { settleMs: 400, attachMs: 500, attemptMs: 2000, deadlineMs: 20000 };
+/** A cold boot's machine has just loaded and may be slow to answer on a
+ *  loaded runner; a reset rewinds one already running. Neither delays an
+ *  answer that comes sooner. */
+const COLD: AttachTiming = { attemptMs: 4000, deadlineMs: 75000 };
+const WARM: AttachTiming = { attemptMs: 2000, deadlineMs: 20000 };
 
 export class V86Engine extends GuestEngine {
   private emu: V86Emulator | null = null;
@@ -70,10 +71,8 @@ export class V86Engine extends GuestEngine {
     this.booted = true;
 
     // Wait for the machine to finish initializing, then restore the snapshot and
-    // start the CPU from it (the bytes stay cached for reset()). The restore itself is quick
-    // (~2s), but the guest resumes a few seconds shy of ready — the snapshot is
-    // captured mid-init, so on resume it finishes bringing tmux up — so this
-    // still uses the patient (cold) budget, not the warm one.
+    // start the CPU from it (the bytes stay cached for reset()); the attach line
+    // goes in as soon as it runs.
     await loaded;
     await restoreSnapshot(emu, await snapshotBytes);
     await emu.run();
