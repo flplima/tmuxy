@@ -18,6 +18,7 @@ import {
   isPaletteChord,
   isRealFormControl,
   isTextKey,
+  withKeyName,
   windowShortcut,
 } from './keyboard/keyFormatting';
 import { handleModalOrCopyKeyDown } from './keyboard/modalAndCopyKeys';
@@ -186,7 +187,8 @@ export function createKeyboardActor() {
     // shell, a letter goes to the pane, Cmd+C copies the same text again
     // before the highlight goes. A modifier on its own leaves it, so Shift
     // or Cmd pressed on the way to a chord does not lose it.
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handleKeyDown = (rawEvent: KeyboardEvent) => {
+      const event = withKeyName(rawEvent);
       const ctx = keys.get();
       if (!ctx.enabled) return;
       if (isRealFormControl(event.target)) return;
