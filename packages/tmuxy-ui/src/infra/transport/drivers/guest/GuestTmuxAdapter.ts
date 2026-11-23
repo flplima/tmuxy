@@ -32,7 +32,7 @@ import {
   GUEST_DEFAULT_ROWS,
   type EngineSink,
   type GuestEngine,
-  type GuestFile,
+  type GuestSnapshot,
 } from './GuestEngine';
 
 /** A command the routing policy refused, as the native transports refuse it. */
@@ -50,29 +50,6 @@ export interface GuestTmuxAdapterOptions {
    * layout rather than every step on the way to it.
    */
   initDoneOption?: string;
-  /**
-   * Files the guest has in `/mnt` (v86's 9p share) before the init runs,
-   * by name: a string is the file's text, a URL is fetched by the page. A
-   * fetch that fails leaves its file out rather than failing the start.
-   */
-  files?: Record<string, string | URL>;
-}
-
-export async function loadGuestFiles(files: Record<string, string | URL>): Promise<GuestFile[]> {
-  const loaded = await Promise.all(
-    Object.entries(files).map(async ([name, source]): Promise<GuestFile | null> => {
-      if (typeof source === 'string') return { name, bytes: new TextEncoder().encode(source) };
-      try {
-        const response = await fetch(source);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return { name, bytes: new Uint8Array(await response.arrayBuffer()) };
-      } catch (err) {
-        console.warn(`[guest] ${name} is left out: ${source.href}:`, err);
-        return null;
-      }
-    }),
-  );
-  return loaded.filter((file): file is GuestFile => file !== null);
 }
 
 export class GuestTmuxAdapter implements TransportDriver {
@@ -80,7 +57,6 @@ export class GuestTmuxAdapter implements TransportDriver {
   readonly ordersSends = true;
   private readonly initCommands: string[];
   private readonly initDoneOption: string | null;
-  private readonly files: Record<string, string | URL>;
   private sink: EngineSink | null = null;
   /**
    * Whether the app has its first state. Until then the states stay here: the
@@ -95,11 +71,12 @@ export class GuestTmuxAdapter implements TransportDriver {
   constructor(
     private readonly engine: GuestEngine,
     private readonly ownsEngine: boolean,
+    /** What each start restores the machine to, and attaches to. */
+    private readonly snapshot: GuestSnapshot,
     options?: GuestTmuxAdapterOptions,
   ) {
     this.initCommands = options?.initCommands ?? [];
     this.initDoneOption = options?.initDoneOption ?? null;
-    this.files = options?.files ?? {};
   }
 
   async connect(): Promise<void> {
@@ -112,8 +89,8 @@ export class GuestTmuxAdapter implements TransportDriver {
     // not end the wait at once.
     const done = this.initDoneOption;
     await this.engine.reset(
+      this.snapshot,
       done ? [`set -gu ${done}`, ...this.initCommands] : this.initCommands,
-      await loadGuestFiles(this.files),
     );
     if (done) await this.engine.waitForOption(done);
 

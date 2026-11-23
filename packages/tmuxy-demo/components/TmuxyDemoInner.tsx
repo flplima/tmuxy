@@ -30,76 +30,21 @@ function DemoTabline({ children }: { children: React.ReactNode }) {
 
 const renderTabline: RenderTabline = ({ children }) => <DemoTabline>{children}</DemoTabline>;
 
-const PANE_GROUP_FILES = [
-  ['pane-group-1.txt', 'Did you notice that this pane has two tabs?'],
-  [
-    'pane-group-2.txt',
-    'A pane group lets you stack several panes in the same position within your layout. The inactive panes live in hidden tmux windows.\\n\\nWhen you switch tabs, tmuxy swaps the visible pane with the hidden one.',
-  ],
-].map(([file, text]) => `run-shell "printf '${text}\\n' > ~/${file}"`);
-
-// Run from the pane's own shell with the CLI: `group add` acts on the shell's
-// pane. Targets name the demo's session (renamed from the guest's `m`) because
-// a parked shell's own session is the stash. The switch to the welcome tab is
-// the line's last step, since an init command would run before the shell got
-// to it; the app waits for INIT_DONE before its first frame. Pane ids are
-// whatever the guest's start left them at, so other targets are relative.
-const SESSION = 'tmuxy';
-const INIT_DONE = '@tmuxy-demo-ready';
-const PANE_GROUP_THEN_WELCOME = [
-  `send-keys -l "clear; cat ~/pane-group-1.txt; tmuxy pane group add && tmux send-keys -t ${SESSION}:features. 'clear; cat ~/pane-group-2.txt' Enter && tmuxy pane group switch \\$TMUX_PANE && tmux select-window -t ${SESSION}:welcome; tmux set -g ${INIT_DONE} 1"`,
-  'send-keys Enter',
-];
-
-// Put in the guest's /mnt by the page.
-const guestFiles = () => ({
-  icat: new URL('/guest/icat', window.location.href),
-  'tmuxy.md': new URL('/guest/tmuxy.md', window.location.href),
-  'nyan-cat.gif': new URL('/guest/nyan-cat.gif', window.location.href),
-});
-const typeLine = (line: string) => [`send-keys -l "${line}"`, 'send-keys Enter'];
-
-// The guest's snapshot starts with one window of two side-by-side panes.
-const FEATURES_TAB = [
-  'new-window',
-  'rename-window features',
-  'split-window -h',
-  // Typed before the shell is up, so its output starts on the prompt's line;
-  // `clear` puts the preview's marker at the start of one, where it is read.
-  ...typeLine('clear; cd /mnt && tmuxy open tmuxy.md'),
-  'select-pane -L',
-  'split-window -v',
-  ...typeLine('bash /mnt/icat /mnt/nyan-cat.gif'),
-  'select-pane -U',
-  ...PANE_GROUP_THEN_WELCOME,
-];
-
-const INIT_COMMANDS_DESKTOP = [
-  `rename-session ${SESSION}`,
-  ...PANE_GROUP_FILES,
-  'rename-window welcome',
-  'split-window -v',
-  'select-pane -L',
-  ...FEATURES_TAB,
-];
-
-const INIT_COMMANDS_MOBILE = [
-  `rename-session ${SESSION}`,
-  ...PANE_GROUP_FILES,
-  'rename-window welcome',
-  'select-layout even-vertical',
-  'select-pane -U',
-  ...FEATURES_TAB,
-];
+// The demo's snapshot holds its finished session, built when the guest's
+// snapshots are (`tmuxy-ui/scripts/demo-showcase`): a `welcome` tab of two
+// panes side by side, the right one active, and a `features` tab. Only the
+// first tab's layout depends on the device: these run over control mode as the
+// app attaches, before the first state it draws.
+const LAYOUT_DESKTOP = ['split-window -v -t :welcome', 'select-pane -L -t :welcome'];
+const LAYOUT_PHONE = ['select-layout -t :welcome even-vertical', 'select-pane -U -t :welcome'];
 
 export default function TmuxyDemoInner() {
   const adapter = useMemo(() => {
     // The app's own phone test, so the session is built for the layout it draws.
     const isMobile = phoneMediaQuery()?.matches ?? false;
     return new V86TmuxAdapter({
-      initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP,
-      initDoneOption: INIT_DONE,
-      files: guestFiles(),
+      snapshot: 'demo',
+      initCommands: isMobile ? LAYOUT_PHONE : LAYOUT_DESKTOP,
     });
   }, []);
 

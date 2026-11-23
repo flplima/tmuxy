@@ -1,18 +1,33 @@
 // The v86 machine: its emulator, BIOS, kernel and pre-booted snapshot.
+import type { GuestSnapshot } from '../guest/GuestEngine';
+import SNAPSHOTS from './snapshots.json';
 
 const V86_JS = '/v86/libv86.mjs';
 const V86_WASM = '/v86/v86.wasm';
-const STATE_URL = '/v86-img/tmux-state.bin.zst';
-// The snapshot has session `m` with tmux already running; attach a fresh control
-// client each boot/reset (the snapshot predates any control-mode attach).
-export const ATTACH = '/tmp/tb/tmux -CC attach -t m\n';
+/**
+ * The machine states the guest restores, built by
+ * `scripts/build-v86-snapshot.mjs` into `v86-assets` (served at /v86-img):
+ * `generic`, which the stories start from (session `m`, one window of two
+ * panes), and `demo`, the same machine with the demo site's showcase built
+ * in it (session `tmuxy`, two tabs, a pane group, a preview and a picture).
+ */
+export type GuestSnapshotName = keyof typeof SNAPSHOTS;
+
+export function guestSnapshot(name: GuestSnapshotName): GuestSnapshot {
+  const { state, session } = SNAPSHOTS[name];
+  return { url: `/v86-img/${state}`, session };
+}
+
+/** tmux is already running in a snapshot, which predates any control-mode
+ *  attach: each boot/reset attaches a fresh control client to its session. */
+export function attachLine(session: string): string {
+  return `/tmp/tb/tmux -CC attach -t ${session}\n`;
+}
 
 export interface V86Emulator {
   add_listener(event: string, cb: (arg: number) => void): void;
   serial0_send(data: string): void;
   restore_state(state: ArrayBuffer): Promise<void>;
-  /** Write a file into the 9p share, by its path from the share's root. */
-  create_file(file: string, data: Uint8Array): Promise<void>;
   /** Start the CPU. Used to boot from an explicitly-restored snapshot (the
    *  constructor runs with `autostart: false`; see doBoot). */
   run(): Promise<void>;
@@ -92,10 +107,10 @@ export async function createV86Emulator(
   return { emu, loaded };
 }
 
-/** Fetch the machine snapshot, zstd-compressed; `restore_state` inflates it. */
-export async function fetchGuestSnapshot(): Promise<ArrayBuffer> {
-  const res = await fetch(STATE_URL);
-  if (!res.ok) throw new Error(`guest snapshot ${STATE_URL}: HTTP ${res.status}`);
+/** Fetch the machine state at `url`, zstd-compressed; `restore_state` inflates it. */
+export async function fetchGuestSnapshot(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`guest snapshot ${url}: HTTP ${res.status}`);
   return res.arrayBuffer();
 }
 

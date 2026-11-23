@@ -6,6 +6,7 @@
 
 import { useMemo } from 'react';
 import { TmuxyProvider, TmuxyApp, V86TmuxAdapter, GuestTransportLive } from '../lib';
+import type { GuestSnapshotName } from '../infra/transport/drivers/v86/v86Guest';
 import { useGridBox } from './gridBox';
 import {
   GUEST_DEFAULT_COLS,
@@ -26,6 +27,7 @@ export function V86AppHarness({
   cols = GUEST_DEFAULT_COLS,
   rows = GUEST_DEFAULT_ROWS,
   shared = false,
+  snapshot,
 }: {
   initCommands?: string[];
   /** The tmux option the init sets when it is done (`GuestTmuxAdapterOptions`). */
@@ -35,10 +37,13 @@ export function V86AppHarness({
   /** Reuse one process-wide v86 engine across stories (fast snapshot-restore
    *  between stories) instead of cold-booting a private engine per story. */
   shared?: boolean;
+  /** The machine state each start restores (`generic` unless named). */
+  snapshot?: GuestSnapshotName;
 }) {
   const transport = useMemo(
-    () => GuestTransportLive(new V86TmuxAdapter({ initCommands, initDoneOption, shared })),
-    [initCommands, initDoneOption, shared],
+    () =>
+      GuestTransportLive(new V86TmuxAdapter({ initCommands, initDoneOption, shared, snapshot })),
+    [initCommands, initDoneOption, shared, snapshot],
   );
   const box = useGridBox(cols, rows);
   if (!box) return null;

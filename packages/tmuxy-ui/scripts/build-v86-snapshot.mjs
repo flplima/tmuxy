@@ -10,7 +10,14 @@
  *      installed at /tmp/tb with system symlinks, the shipped config and
  *      scripts in ~/.local/share/tmuxy, the user's in ~/.config/tmuxy,
  *      and a live `m` session (2 panes, window "root") ready for
- *      `tmux -CC attach`. Boot in the browser restores this in ~1s.
+ *      `tmux -CC attach`. Boot in the browser restores this in ~1s. The
+ *      stories start from it.
+ *   3. demo-state.bin — the same machine carried on, with the demo's showcase
+ *      built in it (`demo-showcase/showcase.sh`): what the demo site restores,
+ *      so a visitor's first frame is the finished layout.
+ *
+ * The states' file names and the session each one holds are
+ * `src/infra/transport/drivers/v86/snapshots.json`, which the page reads too.
  *
  * Runs v86 headlessly in Node (no browser). Usage, from packages/tmuxy-ui:
  *
@@ -21,8 +28,9 @@
  * snapshot restore rewinds the filesystem: anything not baked would have to be
  * re-sent on every reset.
  */
-import { mkdir, writeFile, readFile, cp, rm, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, cp, rm, stat } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
+import { constants, zstdCompressSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -44,8 +52,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const UI = join(HERE, '..');
 const ASSETS = join(UI, 'v86-assets');
 const BUNDLE_TAR = join(ASSETS, 'tmux-bundle.tar');
-const STATE_BIN = join(ASSETS, 'tmux-state.bin');
 const WORK = join(ASSETS, '.bundle-root');
+const SNAPSHOTS = JSON.parse(
+  await readFile(join(UI, 'src', 'infra', 'transport', 'drivers', 'v86', 'snapshots.json'), 'utf8'),
+);
+const GENERIC = SNAPSHOTS.generic.session;
+const SHOWCASE = join(HERE, 'demo-showcase');
 
 // Pinned Alpine x86 packages for --fetch-binaries (binaries are otherwise
 // reused from the existing tmux-bundle.tar). Alpine rotates point releases
@@ -175,31 +187,14 @@ const GUEST_INSTALL = [
   // LANG reaches every pane's shell through the tmux server's environment.
   'export HOME=/root SHELL=/bin/bash TERM=xterm-256color TERMINFO=/tmp/tb/terminfo LANG=C.UTF-8 LC_ALL=C.UTF-8',
   'cd /root',
-  `/usr/bin/tmux -f ${GUEST_ENTRY_CONF} new-session -d -s m -x 80 -y 24`,
-  '/usr/bin/tmux rename-window -t m: root',
-  '/usr/bin/tmux split-window -h -t m:',
+  `/usr/bin/tmux -f ${GUEST_ENTRY_CONF} new-session -d -s ${GENERIC} -x 80 -y 24`,
+  `/usr/bin/tmux rename-window -t ${GENERIC}: root`,
+  `/usr/bin/tmux split-window -h -t ${GENERIC}:`,
   'echo SNAPSHOT_IS_READY',
 ];
 
-async function buildSnapshot() {
-  const nodeRequire = createRequire(import.meta.url);
-  const v86dir = dirname(nodeRequire.resolve('v86/package.json'));
-  const { V86 } = await import(join(v86dir, 'build', 'libv86.mjs'));
-
-  const emulator = new V86({
-    wasm_path: join(v86dir, 'build', 'v86.wasm'),
-    bios: { url: join(ASSETS, 'seabios.bin') },
-    vga_bios: { url: join(ASSETS, 'vgabios.bin') },
-    bzimage: { url: join(ASSETS, 'buildroot-bzimage.bin') },
-    cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
-    filesystem: {},
-    memory_size: 64 * 1024 * 1024,
-    vga_memory_size: 2 * 1024 * 1024,
-    disable_keyboard: true,
-    disable_mouse: true,
-    autostart: true,
-  });
-
+/** The guest's serial console: `type` a line at its shell, `waitFor` text it printed. */
+function serialConsole(emulator) {
   let serial = '';
   emulator.add_listener('serial0-output-byte', (byte) => {
     serial += String.fromCharCode(byte);
@@ -227,6 +222,72 @@ async function buildSnapshot() {
       await new Promise((r) => setTimeout(r, 3));
     }
   };
+  return { type, waitFor };
+}
+
+// The raw snapshot dominates the client payload, so the page fetches it as
+// zstd and v86's restore_state inflates it. Long-distance matching with a
+// 32 MB window finds the repeats across the 35 MB image (the page cache and
+// the bundle's copies); a longer window gains nothing and costs the
+// decoder more memory.
+const pack = (state) =>
+  zstdCompressSync(Buffer.from(state), {
+    params: {
+      [constants.ZSTD_c_compressionLevel]: 19,
+      [constants.ZSTD_c_windowLog]: 25,
+      [constants.ZSTD_c_enableLongDistanceMatching]: 1,
+    },
+  });
+
+/** A machine state in v86-assets: packed as `name`, the file the page
+ *  fetches (`snapshots.json`), and raw beside it without the `.zst`. */
+async function writeState(name, state) {
+  const raw = name.replace(/\.zst$/, '');
+  await writeFile(join(ASSETS, raw), Buffer.from(state));
+  console.log(`✓ ${raw} written (${(state.byteLength / 1e6).toFixed(1)} MB)`);
+  const packed = pack(state);
+  await writeFile(join(ASSETS, name), packed);
+  console.log(`✓ ${name} written (${(packed.length / 1e6).toFixed(1)} MB wire)`);
+}
+
+/**
+ * Carry the machine on into the demo's state: the showcase's files go in the
+ * 9p share (the guest's /mnt), whose files a state keeps, and `showcase.sh`
+ * builds the demo's session from the generic one, returning once all of it
+ * is on screen. The bundle's tar leaves the share first, unpacked long ago,
+ * and the script once it ran: neither is anything a visitor should download.
+ */
+async function bakeShowcase(emulator, { type, waitFor }) {
+  for (const name of await readdir(SHOWCASE)) {
+    await emulator.create_file(name, new Uint8Array(await readFile(join(SHOWCASE, name))));
+  }
+  // The marker is split in the typed line, whose echo would match it.
+  await type(
+    `rm /mnt/tmux-bundle.tar && bash /mnt/showcase.sh ${GENERIC} ${SNAPSHOTS.demo.session} && rm /mnt/showcase.sh && echo SHOWCASE_""IS_READY`,
+  );
+  await waitFor('SHOWCASE_IS_READY', 360_000);
+}
+
+async function buildSnapshot() {
+  const nodeRequire = createRequire(import.meta.url);
+  const v86dir = dirname(nodeRequire.resolve('v86/package.json'));
+  const { V86 } = await import(join(v86dir, 'build', 'libv86.mjs'));
+
+  const emulator = new V86({
+    wasm_path: join(v86dir, 'build', 'v86.wasm'),
+    bios: { url: join(ASSETS, 'seabios.bin') },
+    vga_bios: { url: join(ASSETS, 'vgabios.bin') },
+    bzimage: { url: join(ASSETS, 'buildroot-bzimage.bin') },
+    cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
+    filesystem: {},
+    memory_size: 64 * 1024 * 1024,
+    vga_memory_size: 2 * 1024 * 1024,
+    disable_keyboard: true,
+    disable_mouse: true,
+    autostart: true,
+  });
+  const serial = serialConsole(emulator);
+  const { type, waitFor } = serial;
 
   console.log('… booting guest kernel');
   await waitFor('~% ', 90_000).catch(async () => {
@@ -245,25 +306,12 @@ async function buildSnapshot() {
   await new Promise((r) => setTimeout(r, 3000));
 
   console.log('… saving machine state');
-  const state = await emulator.save_state();
-  await writeFile(STATE_BIN, Buffer.from(state));
-  const size = (await stat(STATE_BIN)).size;
-  console.log(`✓ tmux-state.bin written (${(size / 1e6).toFixed(1)} MB)`);
-  // The raw snapshot dominates the client payload, so the page fetches it as
-  // zstd and v86's restore_state inflates it. Long-distance matching with a
-  // 32 MB window finds the repeats across the 35 MB image (the page cache and
-  // the bundle's copies); a longer window gains nothing and costs the
-  // decoder more memory.
-  const { zstdCompressSync, constants } = await import('node:zlib');
-  const zst = zstdCompressSync(Buffer.from(state), {
-    params: {
-      [constants.ZSTD_c_compressionLevel]: 19,
-      [constants.ZSTD_c_windowLog]: 25,
-      [constants.ZSTD_c_enableLongDistanceMatching]: 1,
-    },
-  });
-  await writeFile(`${STATE_BIN}.zst`, zst);
-  console.log(`✓ tmux-state.bin.zst written (${(zst.length / 1e6).toFixed(1)} MB wire)`);
+  await writeState(SNAPSHOTS.generic.state, await emulator.save_state());
+
+  console.log("… building the demo's showcase");
+  await bakeShowcase(emulator, serial);
+  console.log("… saving the demo's machine state");
+  await writeState(SNAPSHOTS.demo.state, await emulator.save_state());
   await emulator.destroy?.();
   process.exit(0);
 }

@@ -2,16 +2,16 @@
  * The guest machine as a v86 x86 emulator, restored from a pre-booted state
  * snapshot, its control-mode client on the emulated UART. Either owned by a
  * single adapter (isolated, default) or shared as a process-wide singleton
- * across many stories (opt-in): on `reset()` it restores the pinned snapshot
- * and installs a FRESH core, so a reused instance starts each story from an
- * identical clean state.
+ * across many stories (opt-in): on `reset()` it restores the snapshot the
+ * story names and installs a FRESH core, so a reused instance starts each
+ * story from an identical clean state.
  *
  * It owns exactly one v86 emulator, one persistent serial pump and one paced
  * writer; the control-mode side is `GuestEngine`'s.
  */
-import { GuestEngine, type AttachTiming, type GuestFile } from '../guest/GuestEngine';
+import { GuestEngine, type AttachTiming, type GuestSnapshot } from '../guest/GuestEngine';
 import {
-  ATTACH,
+  attachLine,
   createDetachedScreen,
   createSerialPump,
   createV86Emulator,
@@ -29,7 +29,9 @@ const WARM: AttachTiming = { attemptMs: 2000, deadlineMs: 20000 };
 
 export class V86Engine extends GuestEngine {
   private emu: V86Emulator | null = null;
-  private snapshotBytes: ArrayBuffer | null = null;
+  /** Each state's bytes by URL, once fetched: a shared engine restores
+   *  whichever one the next story names. */
+  private readonly snapshots = new Map<string, ArrayBuffer>();
   private byteBuf = '';
   private writing = false;
   private readonly serial = createSerialPump((text) => this.receive(text));
@@ -56,11 +58,11 @@ export class V86Engine extends GuestEngine {
     else adapter.pause();
   }
 
-  protected async doBoot(initCommands: string[], files: GuestFile[]): Promise<void> {
-    await this.freshCore();
+  protected async doBoot(snapshot: GuestSnapshot, initCommands: string[]): Promise<void> {
+    await this.freshCore(snapshot.session);
 
     // Start the snapshot fetch now so it overlaps machine init.
-    const snapshotBytes = this.fetchSnapshot();
+    const snapshotBytes = this.fetchSnapshot(snapshot.url);
     const { emu, loaded } = await createV86Emulator(this.screen);
     this.emu = emu;
 
@@ -76,37 +78,29 @@ export class V86Engine extends GuestEngine {
     await loaded;
     await restoreSnapshot(emu, await snapshotBytes);
     await emu.run();
-    await this.putFiles(files);
-    await this.start(initCommands, ATTACH, COLD);
+    await this.start(initCommands, attachLine(snapshot.session), COLD);
   }
 
-  /** Into the 9p share, which the restored guest has mounted at
-   *  `/mnt`. A restore rewinds the share too, so each start writes
-   *  them again. */
-  private async putFiles(files: GuestFile[]): Promise<void> {
-    for (const { name, bytes } of files) await this.emu?.create_file(name, bytes);
-  }
-
-  private async fetchSnapshot(): Promise<ArrayBuffer> {
-    if (this.snapshotBytes) return this.snapshotBytes;
-    const bytes = await fetchGuestSnapshot();
-    this.snapshotBytes = bytes;
+  private async fetchSnapshot(url: string): Promise<ArrayBuffer> {
+    const cached = this.snapshots.get(url);
+    if (cached) return cached;
+    const bytes = await fetchGuestSnapshot(url);
+    this.snapshots.set(url, bytes);
     return bytes;
   }
 
-  protected async doReset(initCommands: string[], files: GuestFile[]): Promise<void> {
+  protected async doReset(snapshot: GuestSnapshot, initCommands: string[]): Promise<void> {
     // Call doBoot directly (not boot) — we're already inside the lifecycle
     // queue, and re-enqueuing would deadlock behind ourselves.
-    if (!this.emu) return this.doBoot(initCommands, files);
+    if (!this.emu) return this.doBoot(snapshot, initCommands);
     // Stop feeding the (old) core while the machine rewinds.
     this.attached = false;
     this.byteBuf = '';
     this.serial.reset();
     this.failInFlight('engine reset');
-    await restoreSnapshot(this.emu, await this.fetchSnapshot());
-    await this.freshCore();
-    await this.putFiles(files);
-    await this.start(initCommands, ATTACH, WARM);
+    await restoreSnapshot(this.emu, await this.fetchSnapshot(snapshot.url));
+    await this.freshCore(snapshot.session);
+    await this.start(initCommands, attachLine(snapshot.session), WARM);
   }
 
   send(cmd: string): void {
