@@ -25,6 +25,7 @@ function fakeEmulator() {
       restored.push(new TextDecoder().decode(state));
     }),
     run: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
     screen_adapter: { get_text_screen: () => [...rows], update_cursor: () => {} },
     v86: { cpu: { current_tsc: new Uint32Array(2), store_current_tsc() {}, set_tsc() {} } },
   };
@@ -139,6 +140,17 @@ describe("the machine's worker", () => {
     machine.rows[1] = 'x'.repeat(80);
     vi.advanceTimersByTime(3 * SCREEN_POLL_MS);
     expect(screens()).toHaveLength(2);
+  });
+
+  it('stops the emulator on a pause and runs it again on a resume', async () => {
+    const { machine, send, answered } = host();
+    send({ type: 'boot', url: GENERIC, id: 1 });
+    await answered(1);
+    send({ type: 'pause' });
+    expect(machine.raw.stop).toHaveBeenCalledTimes(1);
+    expect(machine.raw.run).toHaveBeenCalledTimes(1);
+    send({ type: 'resume' });
+    expect(machine.raw.run).toHaveBeenCalledTimes(2);
   });
 
   it('reports a rejection nothing handled, which would otherwise never leave the worker', () => {

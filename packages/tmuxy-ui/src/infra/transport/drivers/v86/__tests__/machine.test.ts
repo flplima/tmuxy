@@ -84,6 +84,13 @@ describe('the machine worker, from the page', () => {
     });
   });
 
+  it('asks the worker to stop and run the emulator, without an answer to wait for', () => {
+    const { machine, sent } = fakeWorker();
+    machine.pause();
+    machine.resume();
+    expect(sent.map((s) => s.request)).toEqual([{ type: 'pause' }, { type: 'resume' }]);
+  });
+
   it('is destroyed without reporting it as a failure', async () => {
     const { machine, handlers, port, sent } = fakeWorker();
     const restore = machine.restore(GENERIC);

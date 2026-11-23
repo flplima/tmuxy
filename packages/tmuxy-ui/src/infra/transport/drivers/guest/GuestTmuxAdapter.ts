@@ -27,6 +27,7 @@ import { decodeStateForListener } from '../../wireDecode';
 import { answerThemeCall, isThemeCall, loadThemePref } from '../../../prefs';
 import { DEFAULT_KEYBINDINGS } from './defaultKeybindings';
 import { readGuestPreview } from './guestPreview';
+import { PausePolicy } from './pausePolicy';
 import {
   GUEST_DEFAULT_COLS,
   GUEST_DEFAULT_ROWS,
@@ -50,6 +51,12 @@ export interface GuestTmuxAdapterOptions {
    * layout rather than every step on the way to it.
    */
   initDoneOption?: string;
+  /**
+   * Stop the guest's machine while `target` is out of view or the tab is
+   * hidden (see `pausePolicy.ts`), from the first frame on. Only an adapter
+   * that owns its engine pauses it: a shared engine, the stories', never does.
+   */
+  pauseWhenHidden?: { target: () => Element | null };
 }
 
 export class GuestTmuxAdapter implements TransportDriver {
@@ -65,6 +72,8 @@ export class GuestTmuxAdapter implements TransportDriver {
    * start never stays at.
    */
   private started = false;
+  private readonly pauseTarget: (() => Element | null) | null;
+  private pausePolicy: PausePolicy | null = null;
 
   readonly events = new EventHub<TransportEvent>();
 
@@ -77,6 +86,7 @@ export class GuestTmuxAdapter implements TransportDriver {
   ) {
     this.initCommands = options?.initCommands ?? [];
     this.initDoneOption = options?.initDoneOption ?? null;
+    this.pauseTarget = ownsEngine ? (options?.pauseWhenHidden?.target ?? null) : null;
   }
 
   async connect(): Promise<void> {
@@ -117,6 +127,8 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   disconnect(): void {
+    this.pausePolicy?.stop();
+    this.pausePolicy = null;
     if (this.sink) this.engine.clearSink(this.sink);
     this.sink = null;
     if (this.ownsEngine) this.engine.destroy();
@@ -138,6 +150,7 @@ export class GuestTmuxAdapter implements TransportDriver {
         const { cols, rows } = call.args;
         if (cols > 0 && rows > 0) await this.engine.resize(cols, rows);
         this.started = true;
+        this.watchVisibility();
         return this.engine.getLastState();
       }
       case 'set_client_size':
@@ -185,6 +198,12 @@ export class GuestTmuxAdapter implements TransportDriver {
       default:
         return noAnswer(call.cmd);
     }
+  }
+
+  private watchVisibility(): void {
+    if (!this.pauseTarget || this.pausePolicy) return;
+    this.pausePolicy = new PausePolicy(this.engine, this.pauseTarget);
+    this.pausePolicy.start();
   }
 
   private async runCommand(command: string): Promise<void> {

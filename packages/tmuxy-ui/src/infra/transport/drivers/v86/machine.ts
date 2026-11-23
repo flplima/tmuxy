@@ -11,6 +11,7 @@
  *   boot / restore (state URL) ──id──>     emulator, states by URL
  *   write (bytes, transferred) ──────>     paced UART writes
  *   watch-screen on|off        ──────>     text console poll
+ *   pause | resume             ──────>     emulator stop | run
  *                              <──id──     done (error | null)
  *                              <──────     serial (one chunk per 8 ms burst)
  *                              <──────     screen (rows, cursor)
@@ -30,7 +31,9 @@ type MachineCall = { type: 'boot'; url: string } | { type: 'restore'; url: strin
 export type MachineRequest =
   | (MachineCall & { id: number })
   | { type: 'write'; bytes: Uint8Array }
-  | { type: 'watch-screen'; on: boolean };
+  | { type: 'watch-screen'; on: boolean }
+  | { type: 'pause' }
+  | { type: 'resume' };
 
 export type MachineEvent =
   | { type: 'done'; id: number; error: string | null }
@@ -56,6 +59,10 @@ export interface V86Machine {
   /** Queue bytes for the UART; the worker paces them. */
   write(bytes: Uint8Array): void;
   watchScreen(on: boolean): void;
+  /** Stop the emulator's CPU: it costs the page nothing until `resume`. Bytes
+   *  already written wait in the UART; the guest's clock jumps by the pause. */
+  pause(): void;
+  resume(): void;
   destroy(): void;
 }
 
@@ -139,6 +146,12 @@ export function connectMachine(port: MachinePort, handlers: MachineHandlers): V8
     },
     watchScreen: (on) => {
       if (failure === null) port.postMessage({ type: 'watch-screen', on }, []);
+    },
+    pause: () => {
+      if (failure === null) port.postMessage({ type: 'pause' }, []);
+    },
+    resume: () => {
+      if (failure === null) port.postMessage({ type: 'resume' }, []);
     },
     destroy: () => {
       end('the guest machine was destroyed');

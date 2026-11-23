@@ -39,12 +39,15 @@ const LAYOUT_DESKTOP = ['split-window -v -t :welcome', 'select-pane -L -t :welco
 const LAYOUT_PHONE = ['select-layout -t :welcome even-vertical', 'select-pane -U -t :welcome'];
 
 export default function TmuxyDemoInner() {
+  const demoBox = useRef<HTMLDivElement>(null);
   const adapter = useMemo(() => {
     // The app's own phone test, so the session is built for the layout it draws.
     const isMobile = phoneMediaQuery()?.matches ?? false;
     return new V86TmuxAdapter({
       snapshot: 'demo',
       initCommands: isMobile ? LAYOUT_PHONE : LAYOUT_DESKTOP,
+      // The machine stops while nobody looks at the demo (scrolled away, tab hidden).
+      pauseWhenHidden: { target: () => demoBox.current },
     });
   }, []);
 
@@ -71,6 +74,7 @@ export default function TmuxyDemoInner() {
 
   return (
     <div
+      ref={demoBox}
       style={{ height: 500, position: 'relative', display: 'flex', flexDirection: 'column' }}
       onClick={(e) => {
         if (!interacted.current) {
