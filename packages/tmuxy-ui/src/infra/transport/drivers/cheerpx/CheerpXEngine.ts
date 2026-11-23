@@ -8,7 +8,8 @@
  * The control-mode client runs on CheerpX's console: the page runs the
  * guest's `tmuxy-console` relay there, writes commands into it and reads the
  * stream back. CheerpX needs SharedArrayBuffer, so the page must be
- * cross-origin isolated (COOP + COEP); `cheerpxAvailable()` says whether it is.
+ * cross-origin isolated (COOP + COEP) in a browser that then provides it;
+ * `cheerpxAvailable()` says whether this page can.
  */
 import {
   GUEST_DEFAULT_COLS,
@@ -97,10 +98,16 @@ interface CheerpXModule {
   };
 }
 
-/** Whether this page can run CheerpX: it needs SharedArrayBuffer, which only a
- *  cross-origin isolated page has. */
+/** Whether this page can run CheerpX: it needs SharedArrayBuffer, which a
+ *  cross-origin isolated page normally has. Some browsers (WebKitGTK 2.52)
+ *  isolate the page and still leave SharedArrayBuffer undefined, so both are
+ *  asked. */
 export function cheerpxAvailable(): boolean {
-  return typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
+  return (
+    typeof crossOriginIsolated !== 'undefined' &&
+    crossOriginIsolated &&
+    typeof SharedArrayBuffer !== 'undefined'
+  );
 }
 
 export class CheerpXEngine extends GuestEngine {
@@ -111,7 +118,9 @@ export class CheerpXEngine extends GuestEngine {
 
   protected async doBoot(initCommands: string[], files: GuestFile[]): Promise<void> {
     if (!cheerpxAvailable()) {
-      throw new Error('CheerpX needs a cross-origin isolated page (COOP and COEP headers)');
+      throw new Error(
+        'CheerpX needs SharedArrayBuffer, which takes a cross-origin isolated page (COOP and COEP headers) in a browser that provides it',
+      );
     }
     await this.freshCore();
     await Promise.all(
