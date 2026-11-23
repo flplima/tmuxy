@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { verifySubresourceIntegrity } from '../CheerpXEngine';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cheerpxAvailable, verifySubresourceIntegrity } from '../CheerpXEngine';
 import { CX_IMPORT_MAP, CX_INTEGRITY, CX_URL } from '../cheerpxRuntime';
 
 const fetchReturning = (body: string) =>
@@ -33,5 +33,24 @@ describe('CheerpX runtime integrity', () => {
     for (const sri of Object.values(map.integrity)) {
       expect(sri).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
     }
+  });
+});
+
+describe('cheerpxAvailable', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('needs an isolated page that also has SharedArrayBuffer', () => {
+    vi.stubGlobal('crossOriginIsolated', true);
+    vi.stubGlobal('SharedArrayBuffer', ArrayBuffer);
+    expect(cheerpxAvailable()).toBe(true);
+
+    vi.stubGlobal('SharedArrayBuffer', undefined);
+    expect(cheerpxAvailable()).toBe(false);
+
+    vi.stubGlobal('crossOriginIsolated', false);
+    vi.stubGlobal('SharedArrayBuffer', ArrayBuffer);
+    expect(cheerpxAvailable()).toBe(false);
   });
 });
