@@ -34,6 +34,30 @@ describe('keyboardActor — Tab / Shift-Tab', () => {
     expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 BTab');
   });
 
+  it('sends Shift+Tab as "BTab" when WebKitGTK names the key "Unidentified"', () => {
+    pressKey({ key: 'Unidentified', code: 'Tab', keyCode: 9, shiftKey: true });
+    expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 BTab');
+  });
+
+  it('prevents the default action of the raw keydown when the key arrives unnamed', () => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'Unidentified',
+      code: 'Tab',
+      keyCode: 9,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('sends nothing for an unnamed key whose code names nothing', () => {
+    const before = sendCommands(handle.events).length;
+    pressKey({ key: 'Unidentified', code: 'IntlBackslash' });
+    expect(sendCommands(handle.events)).toHaveLength(before);
+  });
+
   describe('on a header button', () => {
     let button: HTMLButtonElement;
     beforeEach(() => {

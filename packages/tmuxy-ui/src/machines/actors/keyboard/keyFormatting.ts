@@ -82,6 +82,25 @@ export function isTextKey(event: KeyboardEvent): boolean {
   return true;
 }
 
+/**
+ * The keydown as every reader should see it. WebKitGTK reports keys GDK has a
+ * name for but WebKit does not (Shift+Tab is ISO_Left_Tab) as
+ * `key: "Unidentified"`; for a key whose `code` is also its DOM name (Tab,
+ * Enter, Home, ArrowUp, F5…) the code stands in as the key. Any other event
+ * is returned as it came.
+ */
+export function withKeyName(event: KeyboardEvent): KeyboardEvent {
+  if (event.key !== 'Unidentified' || !Object.prototype.hasOwnProperty.call(KEY_MAP, event.code))
+    return event;
+  return new Proxy(event, {
+    get(target, prop) {
+      if (prop === 'key') return target.code;
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 export function formatTmuxKey(event: KeyboardEvent): string {
   const modifiers: string[] = [];
   if (event.ctrlKey) modifiers.push('C');
