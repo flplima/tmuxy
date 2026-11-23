@@ -13,6 +13,7 @@ import { GuestEngine, type AttachTiming, type GuestFile } from '../guest/GuestEn
 import {
   ATTACH,
   createDetachedScreen,
+  createSerialPump,
   createV86Emulator,
   encodeUtf8SerialBytes,
   fetchGuestSnapshot,
@@ -30,7 +31,7 @@ export class V86Engine extends GuestEngine {
   private snapshotBytes: ArrayBuffer | null = null;
   private byteBuf = '';
   private writing = false;
-  private readonly decoder = new TextDecoder();
+  private readonly serial = createSerialPump((text) => this.receive(text));
 
   /**
    * The guest's VGA text console, rendered by v86's own ScreenAdapter: a
@@ -62,20 +63,9 @@ export class V86Engine extends GuestEngine {
     const { emu, loaded } = await createV86Emulator(this.screen);
     this.emu = emu;
 
-    // Throughput: v86 emits serial one byte at a time. Coalesce a burst into a
-    // single feed() on a short timer instead of one wasm call per byte.
-    let serialBuf = '';
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-    const flush = () => {
-      flushTimer = null;
-      const chunk = serialBuf;
-      serialBuf = '';
-      this.receive(chunk);
-    };
-    this.emu.add_listener('serial0-output-byte', (byte: number) => {
-      serialBuf += this.decoder.decode(new Uint8Array([byte]), { stream: true });
-      if (flushTimer === null) flushTimer = setTimeout(flush, 8);
-    });
+    // Throughput: v86 emits serial one byte at a time. The pump coalesces a
+    // burst into a single decode and receive() on a short timer.
+    this.emu.add_listener('serial0-output-byte', this.serial.push);
 
     this.booted = true;
 
@@ -112,6 +102,7 @@ export class V86Engine extends GuestEngine {
     // Stop feeding the (old) core while the machine rewinds.
     this.attached = false;
     this.byteBuf = '';
+    this.serial.reset();
     this.failInFlight('engine reset');
     await restoreSnapshot(this.emu, await this.fetchSnapshot());
     await this.freshCore();
