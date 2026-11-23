@@ -138,13 +138,16 @@ export const ResizePaneDrag: Story = {
 
 /**
  * C-a `-` paints a placeholder pane within 5 frames (≈83ms absorbs userEvent's
- * dispatch overhead and is far below the serial round trip), and tmux's
- * confirmation swaps its id on the SAME DOM node: a remount is the flicker
- * users see. No divider is taken away on the way either: the line beside the
+ * dispatch overhead), and tmux's confirmation swaps its id on the SAME DOM
+ * node: a remount is the flicker users see. The confirmation can land inside
+ * those frames, so the node is held from the moment it is added, not looked
+ * up by its placeholder id afterwards. No divider is taken away on the way either: the line beside the
  * split column used to be drawn in two pieces while the split was predicted
  * and one once tmux confirmed it, a divider removed whatever tmux's timing
  * (the glitch check below saw it only when tmux answered within 100ms).
  */
+const PLACEHOLDER = '[data-pane-id^="__placeholder_"]';
+
 export const SplitOptimisticTimeline: Story = {
   tags: ['gate'],
   play: async ({ canvasElement }) => {
@@ -159,28 +162,35 @@ export const SplitOptimisticTimeline: Story = {
     // Armed after the prefix, so the budget measures the mapped key.
     const recorder = new LayoutMutationRecorder(layoutRoot);
     const glitches = new GlitchRecorder(layoutRoot);
-    const probe = armPaintProbe(layoutRoot, addsElement('[data-pane-id^="__placeholder_"]'));
+    const probe = armPaintProbe(layoutRoot, addsElement(PLACEHOLDER));
+    const added: { placeholder: Element | null } = { placeholder: null };
     let dividersRemoved = 0;
     const dividerWatch = new MutationObserver((records) => {
-      for (const r of records)
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (added.placeholder || !(n instanceof Element)) continue;
+          added.placeholder = n.matches(PLACEHOLDER) ? n : n.querySelector(PLACEHOLDER);
+        }
         for (const n of r.removedNodes)
           if ((n as Element).classList?.contains('resize-divider')) dividersRemoved++;
+      }
     });
     dividerWatch.observe(layoutRoot, { childList: true, subtree: true });
     await user.keyboard('-');
     const frames = await probe.wait(5, 5000);
     expect(frames).toBeLessThanOrEqual(5);
 
-    const placeholderEl = layoutRoot.querySelector('[data-pane-id^="__placeholder_"]')!;
+    const placeholderEl = added.placeholder;
     expect(placeholderEl).not.toBeNull();
-    const rect = placeholderEl.getBoundingClientRect();
+    expect(placeholderEl!.isConnected).toBe(true);
+    const rect = placeholderEl!.getBoundingClientRect();
     expect(rect.width).toBeGreaterThan(50);
     expect(rect.height).toBeGreaterThan(20);
 
     await waitFor(
       () => {
         expect(paneGroups(canvas).length).toBe(before + 1);
-        expect(layoutRoot.querySelector('[data-pane-id^="__placeholder_"]')).toBeNull();
+        expect(layoutRoot.querySelector(PLACEHOLDER)).toBeNull();
         expect(activePaneId()).toMatch(/^%\d+$/);
       },
       { timeout: 30000, interval: 500 },
@@ -219,7 +229,7 @@ export const SplitRejectedRollback: Story = {
       const beforeSig = await stableSig();
       const beforeIds = realPaneIdsSorted(canvas).join(',');
       await user.keyboard('{Control>}a{/Control}');
-      const probe = armPaintProbe(layoutRoot, addsElement('[data-pane-id^="__placeholder_"]'));
+      const probe = armPaintProbe(layoutRoot, addsElement(PLACEHOLDER));
       await user.keyboard('-');
       await probe.wait(5, 5000);
       await waitFor(

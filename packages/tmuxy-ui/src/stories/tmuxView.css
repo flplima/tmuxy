@@ -60,9 +60,9 @@
   border-bottom: 1px solid #333;
 }
 
-/* v86's ScreenAdapter DOM: one <div> per row of <span>s plus a .cursor span.
-   Pinned to tmuxy's snapped cell grid so cells line up (side mode overrides
-   it below with its own compact font). */
+/* The VGA console as vgaMirror.ts draws it: one <div> per row of text, the
+   cursor a .cursor span on its row. Pinned to tmuxy's snapped cell grid so
+   cells line up (side mode overrides it below with its own compact font). */
 .vga-screen > div {
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
@@ -78,14 +78,8 @@
   overflow: hidden;
 }
 .vga-screen .cursor {
-  width: var(--cell-w, 1ch) !important;
-  height: var(--line-height-terminal);
-  vertical-align: top;
-}
-.vga-screen > canvas {
-  width: calc(80 * var(--cell-w, 1ch));
-  height: calc(25 * var(--line-height-terminal));
-  image-rendering: pixelated;
+  background: #ccc;
+  color: #000;
 }
 
 /* The v86 text console is 80x25 hardware, but the tmux window it mirrors is
@@ -104,12 +98,4 @@
 }
 .tmux-view[data-mode='side'] .vga-screen > div > div {
   height: var(--vga-line-height, 13px);
-}
-.tmux-view[data-mode='side'] .vga-screen .cursor {
-  width: 1ch !important;
-  height: var(--vga-line-height, 13px);
-}
-.tmux-view[data-mode='side'] .vga-screen > canvas {
-  width: 80ch;
-  height: calc(25 * var(--vga-line-height, 13px));
 }
