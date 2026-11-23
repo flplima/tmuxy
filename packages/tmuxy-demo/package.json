@@ -20,7 +20,7 @@
     "react": "^19",
     "react-dom": "^19",
     "tmuxy-ui": "*",
-    "v86": "^0.5.419"
+    "v86": "^0.5.476"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
