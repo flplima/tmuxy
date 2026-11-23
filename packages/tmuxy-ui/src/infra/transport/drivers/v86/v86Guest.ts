@@ -136,3 +136,41 @@ export function encodeUtf8SerialBytes(cmd: string): string {
   for (const b of utf8) bin += String.fromCharCode(b);
   return bin;
 }
+
+/**
+ * Collects the guest's serial output, which v86 emits one byte per event, and
+ * hands each burst to `receive` as one string decoded in a single call. The
+ * decoder streams, so a multibyte character split across two bursts survives;
+ * `reset` drops the bytes and any half character of the machine it replaces.
+ */
+export function createSerialPump(receive: (text: string) => void, delayMs = 8) {
+  let bytes = new Uint8Array(4096);
+  let length = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let decoder = new TextDecoder();
+
+  const flush = () => {
+    timer = null;
+    const text = decoder.decode(bytes.subarray(0, length), { stream: true });
+    length = 0;
+    receive(text);
+  };
+
+  return {
+    push(byte: number): void {
+      if (length === bytes.length) {
+        const grown = new Uint8Array(length * 2);
+        grown.set(bytes);
+        bytes = grown;
+      }
+      bytes[length++] = byte;
+      if (timer === null) timer = setTimeout(flush, delayMs);
+    },
+    reset(): void {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      length = 0;
+      decoder = new TextDecoder();
+    },
+  };
+}
