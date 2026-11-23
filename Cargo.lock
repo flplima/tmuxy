@@ -5530,14 +5530,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tmuxy-pty"
-version = "0.1.8"
-dependencies = [
- "libc",
- "unicode-width",
-]
-
-[[package]]
 name = "tmuxy-server"
 version = "0.1.8"
 dependencies = [

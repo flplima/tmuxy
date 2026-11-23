@@ -139,7 +139,7 @@ The fetch is a single transport call — `call('get_scrollback_cells', { paneId,
   (`host/requests.rs`) runs one in-band query — the pane's width and `history_size` and a
   `capture-pane -p -e -S start -E end` in the same command list, so they describe the same
   moment — and parses the text with `parse_scrollback_to_cells`.
-- **Fully client-side (v86, CheerpX)** — there is no server, so `GuestEngine.captureScrollback` runs the same
+- **Fully client-side (v86)** — there is no server, so `GuestEngine.captureScrollback` runs the same
   `capture-pane` over the in-browser control connection (a reply the wasm core correlates, as the
   native monitor does) and hands the raw text to the core's `parse_scrollback` (a wasm export
   of `parse_scrollback_to_cells`), reusing the identical ANSI parser instead of a JS reimplementation.

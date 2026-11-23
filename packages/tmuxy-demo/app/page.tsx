@@ -207,16 +207,6 @@ export default function Home() {
         <p className="mt-8 text-sm" style={{ color: 'var(--text-muted)', lineHeight: '1.7' }}>
           The demo above runs tmux on Linux inside your browser, on{' '}
           <a
-            href="https://cheerpx.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="landing-github-link"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <span style={{ textDecoration: 'underline' }}>CheerpX</span>
-          </a>{' '}
-          © Leaning Technologies, or on{' '}
-          <a
             href="https://github.com/copy/v86"
             target="_blank"
             rel="noopener noreferrer"
@@ -224,8 +214,8 @@ export default function Home() {
             style={{ color: 'var(--text-secondary)' }}
           >
             <span style={{ textDecoration: 'underline' }}>v86</span>
-          </a>{' '}
-          where CheerpX cannot run.
+          </a>
+          .
         </p>
         <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)', lineHeight: '1.7' }}>
           For coding agents: every doc in one file at{' '}

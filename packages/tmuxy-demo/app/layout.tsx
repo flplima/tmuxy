@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { GoogleAnalytics } from '@next/third-parties/google';
-import { CX_IMPORT_MAP } from 'tmuxy-ui/cheerpx-runtime';
 import './globals.css';
 
 const SITE_URL = 'https://tmuxy.sh';
@@ -47,30 +46,35 @@ const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 
 const DEMO_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cxrtnc.leaningtech.com https://*.googletagmanager.com blob:",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://*.googletagmanager.com blob:",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com",
   "font-src 'self' data:",
-  "connect-src 'self' https://cxrtnc.leaningtech.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com blob: data:",
-  "worker-src 'self' blob: https://cxrtnc.leaningtech.com",
-  "frame-src 'self' blob: https://cxrtnc.leaningtech.com",
+  "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com blob: data:",
+  "worker-src 'self' blob:",
+  "frame-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join('; ');
+
+// A visitor from before the demo ran on v86 alone may still have /coi-sw.js
+// registered: the service worker that added COOP and COEP to every response
+// here. A deleted script does not unregister it, so each page does, quietly;
+// the next load is the plain page.
+const UNREGISTER_SERVICE_WORKER =
+  'navigator.serviceWorker?.getRegistration().then((r) => r?.unregister()).catch(() => {});';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark theme-dark">
       <head>
         <meta httpEquiv="Content-Security-Policy" content={DEMO_CSP} />
-        {/* Pins CheerpX's runtime modules: in the static HTML, ahead of every
-            script, as an import map must be. */}
-        <script type="importmap" dangerouslySetInnerHTML={{ __html: CX_IMPORT_MAP }} />
       </head>
       <body className="antialiased">
-        {/* Before the demo loads: it waits on this to choose its guest. */}
-        <Script src="/coi-register.js" strategy="beforeInteractive" />
+        <Script id="unregister-service-worker" strategy="afterInteractive">
+          {UNREGISTER_SERVICE_WORKER}
+        </Script>
         {children}
       </body>
       {GA_ID && <GoogleAnalytics gaId={GA_ID} />}

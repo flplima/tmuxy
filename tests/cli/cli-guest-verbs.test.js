@@ -6,9 +6,8 @@ const { guestMachine } = require('./helpers/guest-verbs');
 const { SOCKET } = require('./helpers/env');
 
 /**
- * The in-browser guests (the v86 snapshot behind the demo and the v86
- * stories, the CheerpX image) have no tmuxy-server: the CLI's Rust verbs run
- * there from `tmuxy-verbs`, built without the `native` feature. Here the real
+ * The in-browser guest (the v86 snapshot behind the demo and the v86
+ * stories) has no tmuxy-server: the CLI's Rust verbs run there from `tmuxy-verbs`, built without the `native` feature. Here the real
  * binary, built that way, is the only one on PATH, against the mock tmux:
  * every command written in Rust reaches it, and one that needs the server
  * answers as not available, under the CLI's contract, rather than as a

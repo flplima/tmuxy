@@ -23,7 +23,7 @@ export const TauriTransportLive = Layer.scoped(
   Effect.suspend(() => makeSequencedTransport(new TauriAdapter(), { latestPerFrame: false })),
 );
 
-/** Real tmux in an in-browser guest (v86 or CheerpX): the demo site and the v86 stories. */
+/** Real tmux in the in-browser v86 guest: the demo site and the v86 stories. */
 export const GuestTransportLive = (guest: GuestTmuxAdapter) =>
   Layer.scoped(TmuxTransport, makeTransport(guest));
 

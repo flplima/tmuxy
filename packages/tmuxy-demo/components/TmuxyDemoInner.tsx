@@ -3,10 +3,8 @@
 import {
   TmuxyProvider,
   TmuxyApp,
-  CheerpXTmuxAdapter,
   V86TmuxAdapter,
   GuestTransportLive,
-  cheerpxAvailable,
   phoneMediaQuery,
   useAppFocused,
   type RenderTabline,
@@ -61,8 +59,7 @@ const guestFiles = () => ({
 });
 const typeLine = (line: string) => [`send-keys -l "${line}"`, 'send-keys Enter'];
 
-// Either guest starts with one window of two side-by-side panes (the v86
-// snapshot, the CheerpX image's console relay).
+// The guest's snapshot starts with one window of two side-by-side panes.
 const FEATURES_TAB = [
   'new-window',
   'rename-window features',
@@ -99,17 +96,11 @@ export default function TmuxyDemoInner() {
   const adapter = useMemo(() => {
     // The app's own phone test, so the session is built for the layout it draws.
     const isMobile = phoneMediaQuery()?.matches ?? false;
-    const options = {
+    return new V86TmuxAdapter({
       initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP,
       initDoneOption: INIT_DONE,
       files: guestFiles(),
-    };
-    // CheerpX where the page can run it (`?guest=v86` asks for v86 anyway),
-    // v86 everywhere else.
-    const askedForV86 = new URLSearchParams(window.location.search).get('guest') === 'v86';
-    return cheerpxAvailable() && !askedForV86
-      ? new CheerpXTmuxAdapter(options)
-      : new V86TmuxAdapter(options);
+    });
   }, []);
 
   const interacted = useRef(false);

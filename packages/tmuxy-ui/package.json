@@ -11,7 +11,6 @@
   "type": "module",
   "exports": {
     ".": "./src/lib.ts",
-    "./cheerpx-runtime": "./src/infra/transport/drivers/cheerpx/cheerpxRuntime.ts",
     "./styles.css": "./src/styles.css",
     "./fonts/nerd-font.css": "./src/fonts/nerd-font.css"
   },
@@ -24,9 +23,7 @@
     "fetch:v86-image": "node scripts/fetch-v86-image.mjs",
     "lint": "eslint src scripts eslint-rules .storybook",
     "lint:fix": "eslint src scripts eslint-rules .storybook --fix",
-    "build:v86-snapshot": "node scripts/build-v86-snapshot.mjs",
-    "build:cheerpx-image": "node scripts/build-cheerpx-image.mjs",
-    "smoke:cheerpx": "node scripts/serve-cheerpx-smoke.mjs"
+    "build:v86-snapshot": "node scripts/build-v86-snapshot.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

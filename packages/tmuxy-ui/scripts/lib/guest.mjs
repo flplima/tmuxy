@@ -1,7 +1,7 @@
 /**
- * What every in-browser guest (the v86 snapshot, the CheerpX image) takes from
- * the repo: the i686 static binaries the CLI scripts run, the `tmuxy`
- * CLI with its helper scripts, and the tmux config the app ships.
+ * What the in-browser guest (the v86 snapshot) takes from the repo: the i686
+ * static binaries the CLI scripts run, the `tmuxy` CLI with its helper
+ * scripts, and the tmux config the app ships.
  */
 import { readFileSync } from 'node:fs';
 import { chmod, cp, mkdir, readdir, writeFile } from 'node:fs/promises';
@@ -34,14 +34,13 @@ export function guestEntryConf() {
   return GENERATED.entryConfText;
 }
 
-/** The guest user's `tmuxy.conf`, overrides only: `defaultCommand` (bash as a
- *  non-login shell by default, so it skips /etc/profile, and any banner or PS1
- *  override there, and reads ~/.bashrc) as the pane command. */
-export function guestTmuxyConf(defaultCommand = '/bin/bash', extra = []) {
+/** The guest user's `tmuxy.conf`, overrides only: bash as a non-login shell
+ *  for the pane command, so it skips /etc/profile, and any banner or PS1
+ *  override there, and reads ~/.bashrc. */
+export function guestTmuxyConf() {
   return [
     "# Guest user config — overrides on top of tmuxy's defaults, edit freely.",
-    `set -g default-command '${defaultCommand}'`,
-    ...extra,
+    "set -g default-command '/bin/bash'",
     '',
   ].join('\n');
 }
@@ -49,10 +48,9 @@ export function guestTmuxyConf(defaultCommand = '/bin/bash', extra = []) {
 /** The guest's ~/.bashrc: a standard interactive prompt, and a UTF-8 locale:
  *  without one, readline takes the high bytes of an emoji or a CJK character
  *  for Meta key sequences (a typed 🔥 reached tmux as `__`) and miscounts
- *  widths on redisplay, clobbering the prompt after a pasted multibyte line.
- *  `host` is the prompt's host: `\h`, unless the guest cannot set a hostname. */
-export function guestBashrc(host = '\\h') {
-  return `export LANG=C.UTF-8 LC_ALL=C.UTF-8\nexport PS1='\\u@${host}:\\w\\$ '\n`;
+ *  widths on redisplay, clobbering the prompt after a pasted multibyte line. */
+export function guestBashrc() {
+  return "export LANG=C.UTF-8 LC_ALL=C.UTF-8\nexport PS1='\\u@\\h:\\w\\$ '\n";
 }
 
 /**

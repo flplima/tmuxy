@@ -8,19 +8,19 @@ A different story nearly every night, and the same run passed when re-dispatched
 
 ## Would CheerpX fix it?
 
-CheerpX (Leaning Technologies) runs x86 binaries in the browser through a JIT to WebAssembly, where v86 interprets. tmuxy already ships it, for the public demo (`packages/tmuxy-ui/cheerpx/`, and the guest engine under `src/infra/transport/drivers/cheerpx/`). It was weighed as the engine for the test tier, and rejected:
+CheerpX (Leaning Technologies) runs x86 binaries in the browser through a JIT to WebAssembly. v86 compiles hot x86 code to WebAssembly too, on top of an interpreter that runs the rest, and is still several times slower than CheerpX on tight CPU loops. CheerpX was weighed as the engine for the test tier, and rejected:
 
 | Question                                  | v86                                                              | CheerpX                                                                                                          |
 | ----------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Speed                                     | Interpreted; slow boot without a snapshot                        | JIT; much faster                                                                                                 |
+| Speed                                     | JIT over an interpreter; slow boot without a snapshot            | JIT; several times faster on tight CPU loops                                                                     |
 | Snapshot and restore of the whole machine | Yes; every story starts from the same restored state on one page | No; only disk state persists (IndexedDB or overlays)                                                             |
-| Fidelity of the terminal                  | Real ptys; real tmux                                             | Patched tmux with fake ptys (`tmuxy-pty`), no full-screen programs, no pane sizes, Ctrl+C emulated               |
+| Fidelity of the terminal                  | Real ptys; real tmux                                             | Patched tmux with emulated ptys, no full-screen programs, no pane sizes, Ctrl+C emulated                         |
 | Where it loads from                       | Self-hosted assets in the repo's build                           | Only from the vendor's CDN; self-hosting needs a commercial licence                                              |
 | Licence                                   | BSD                                                              | Free for open-source and individual projects, with credit; would end if the project were owned by a company      |
 | Page requirements                         | None                                                             | Cross-origin isolation (COOP and COEP headers) for SharedArrayBuffer, which Storybook's dev server does not send |
 | Use in headless CI                        | Running nightly here                                             | No public evidence of it; untested                                                                               |
 
-Speed was never the cause: the failures above came from waiting on wall-clock time, and a faster engine changes how long a sleep needs to be, not whether a sleep is the right tool. CheerpX would also remove the snapshot every story starts from, lower the fidelity the tier exists for, and add a CDN download to every run, which is a fresh source of network flakes. CheerpX stays the demo's engine. It may later suit a fast per-commit smoke tier that needs no snapshot and tolerates the CDN, but that is a separate decision.
+Speed was never the cause: the failures above came from waiting on wall-clock time, and a faster engine changes how long a sleep needs to be, not whether a sleep is the right tool. CheerpX would also remove the snapshot every story starts from, lower the fidelity the tier exists for, and add a CDN download to every run, which is a fresh source of network flakes. The demo site ran on CheerpX for a while, where the page could be made cross-origin isolated; it was removed from there too, so the demo and the tests run on one guest, v86.
 
 ## What changed
 

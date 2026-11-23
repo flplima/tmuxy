@@ -8,9 +8,6 @@
       "packages/tmuxy-core",
       "packages/vt100"
     ],
-    "tmuxy-pty": [
-      "packages/tmuxy-pty"
-    ],
     "tmuxy-server": [
       "packages/tmuxy-core",
       "packages/tmuxy-server",
