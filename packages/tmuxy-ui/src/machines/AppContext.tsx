@@ -79,13 +79,7 @@ export function AppProvider({
     if (typeof window === 'undefined') return;
     const originalSend = actorRef.send.bind(actorRef);
     (actorRef as { send: (event: unknown) => void }).send = (event: unknown) => {
-      // Action tracing: record only the event *type* (a variant name like
-      // DISPATCH_OP), never its payload — the payload can carry keystrokes.
-      // The derived model-update firehose is coalesced to a periodic count so it
-      // doesn't drown the trace.
-      const type = (event as { type?: string })?.type;
-      if (type === 'TMUX_MODEL_UPDATE') tracer.count('xstate', type);
-      else if (type) tracer.event({ layer: 'xstate', name: type });
+      tracer.sent(event);
       return originalSend(event as Parameters<typeof originalSend>[0]);
     };
   }, [actorRef]);
