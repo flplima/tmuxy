@@ -1,0 +1,4 @@
+{
+  "generic": { "state": "tmux-state.bin.zst", "session": "m" },
+  "demo": { "state": "demo-state.bin.zst", "session": "tmuxy" }
+}

@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { backendCall } from '../../../../../domain/backendCalls';
 import { wirePane } from '../../../../../test/wire';
 import { GuestTmuxAdapter } from '../GuestTmuxAdapter';
-import { GuestEngine, type AttachTiming, type EngineSink } from '../GuestEngine';
+import {
+  GuestEngine,
+  type AttachTiming,
+  type EngineSink,
+  type GuestSnapshot,
+} from '../GuestEngine';
 import { EMPTY_STATE, type Feed } from '../controlMode';
 
 /** The wasm core, as far as a start uses it: it answers `attach` with two
@@ -40,6 +45,8 @@ vi.mock('../controlMode', async (importOriginal) => {
   return { ...actual, loadWasmModule: async () => ({ WasmTmux: FakeCore }) };
 });
 
+const SNAPSHOT = { url: '/state.bin', session: 'm' };
+
 /** A machine that resets at once: what is under test is what reaches the app. */
 class InstantEngine extends GuestEngine {
   send = vi.fn();
@@ -60,7 +67,7 @@ const shrinkToNothing = backendCall('set_client_size', { cols: 10, rows: 5 });
 describe('the first state', () => {
   it('is the one sized to the viewport, not one streamed on the way to it', async () => {
     const engine = new InstantEngine();
-    const adapter = new GuestTmuxAdapter(engine, true);
+    const adapter = new GuestTmuxAdapter(engine, true, SNAPSHOT);
     const widths: number[] = [];
     adapter.events.subscribe((event) => {
       if (event._tag === 'State') widths.push(event.state.total_width);
@@ -81,8 +88,8 @@ describe('two stories on one shared guest engine', () => {
   it("leaves the next story's tmux to the next story while the previous app unmounts", async () => {
     const engine = new InstantEngine();
     const resize = vi.spyOn(engine, 'setClientSize');
-    const previous = new GuestTmuxAdapter(engine, false);
-    const next = new GuestTmuxAdapter(engine, false);
+    const previous = new GuestTmuxAdapter(engine, false, SNAPSHOT);
+    const next = new GuestTmuxAdapter(engine, false, SNAPSHOT);
 
     await previous.connect();
     await previous.send(backendCall('set_client_size', { cols: 40, rows: 30 }));
@@ -123,12 +130,12 @@ class ScriptedGuest extends GuestEngine {
   send(cmd: string): void {
     this.typed.push(cmd);
   }
-  protected async doBoot(initCommands: string[]): Promise<void> {
-    await this.freshCore();
+  protected async doBoot(snapshot: GuestSnapshot, initCommands: string[]): Promise<void> {
+    await this.freshCore(snapshot.session);
     await this.start(initCommands, ATTACH_LINE, TIMING);
   }
-  protected doReset(initCommands: string[]): Promise<void> {
-    return this.doBoot(initCommands);
+  protected doReset(snapshot: GuestSnapshot, initCommands: string[]): Promise<void> {
+    return this.doBoot(snapshot, initCommands);
   }
   protected teardown(): void {}
   says(text: string): void {
@@ -152,7 +159,7 @@ describe("the guest's attach", () => {
   });
 
   it("holds the core's commands until the guest's tmux announces its control client", async () => {
-    const started = guest.boot(['init']);
+    const started = guest.boot(SNAPSHOT, ['init']);
     await vi.advanceTimersByTimeAsync(0);
     expect(guest.typed).toEqual([ATTACH_LINE]);
 
@@ -177,7 +184,7 @@ describe("the guest's attach", () => {
   });
 
   it('types the attach line again into a guest that stays silent', async () => {
-    void guest.boot([]);
+    void guest.boot(SNAPSHOT, []);
     await vi.advanceTimersByTimeAsync(TIMING.attemptMs - 1);
     expect(guest.typed).toEqual([ATTACH_LINE]);
     await vi.advanceTimersByTimeAsync(1);
@@ -185,7 +192,7 @@ describe("the guest's attach", () => {
   });
 
   it('starts cleanly when the first line was only slow and the second lands in the live client', async () => {
-    const started = guest.boot(['init']);
+    const started = guest.boot(SNAPSHOT, ['init']);
     await vi.advanceTimersByTimeAsync(TIMING.attemptMs);
     expect(guest.attachLines()).toBe(2);
 
@@ -204,7 +211,7 @@ describe("the guest's attach", () => {
   });
 
   it('gives up at the deadline when the guest never answers', async () => {
-    const started = guest.boot(['init']);
+    const started = guest.boot(SNAPSHOT, ['init']);
     const outcome = started.then(
       () => 'started',
       (err: Error) => err.message,

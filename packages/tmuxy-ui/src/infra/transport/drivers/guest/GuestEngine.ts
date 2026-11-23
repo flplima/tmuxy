@@ -33,13 +33,14 @@ import {
 export const GUEST_DEFAULT_COLS = 80;
 export const GUEST_DEFAULT_ROWS = 30;
 
-export interface GuestFile {
-  name: string;
-  bytes: Uint8Array;
+/**
+ * What a start restores: a machine state, fetched from `url`, and the tmux
+ * session in it the control client attaches to.
+ */
+export interface GuestSnapshot {
+  url: string;
+  session: string;
 }
-
-/** The session the guest's snapshot starts (`scripts/build-v86-snapshot.mjs`). */
-const GUEST_SESSION = 'm';
 
 /** How often the core is asked what is due (its own deadlines are finer
  *  than this only for the settling flush, which tolerates it). */
@@ -100,7 +101,8 @@ export abstract class GuestEngine {
   private lastState: ServerStateEncoded = EMPTY_STATE;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private resolveFirstState: (() => void) | null = null;
-  private session = GUEST_SESSION;
+  /** The session the control client is on: the snapshot's, until a switch. */
+  private session = '';
   /** The viewport last asked for, which a new window is made at. */
   private clientSize: { cols: number; rows: number } = {
     cols: GUEST_DEFAULT_COLS,
@@ -114,12 +116,12 @@ export abstract class GuestEngine {
 
   /** Queue a control-mode command (one line, or several) for the guest. */
   abstract send(cmd: string): void;
-  /** Bring the machine up and attach; runs inside the lifecycle queue. Puts
-   *  `files` in the guest's `/mnt` before `initCommands` run. */
-  protected abstract doBoot(initCommands: string[], files: GuestFile[]): Promise<void>;
-  /** Give the next adapter a clean start; runs inside the lifecycle queue.
-   *  Puts `files` in the guest's `/mnt` before `initCommands` run. */
-  protected abstract doReset(initCommands: string[], files: GuestFile[]): Promise<void>;
+  /** Bring the machine up from `snapshot` and attach; runs inside the
+   *  lifecycle queue. */
+  protected abstract doBoot(snapshot: GuestSnapshot, initCommands: string[]): Promise<void>;
+  /** Give the next adapter a clean start from `snapshot`; runs inside the
+   *  lifecycle queue. */
+  protected abstract doReset(snapshot: GuestSnapshot, initCommands: string[]): Promise<void>;
   protected abstract teardown(): void;
 
   isBooted(): boolean {
@@ -276,17 +278,18 @@ export abstract class GuestEngine {
     return next;
   }
 
-  boot(initCommands: string[], files: GuestFile[] = []): Promise<void> {
-    return this.enqueue(() => this.doBoot(initCommands, files));
+  boot(snapshot: GuestSnapshot, initCommands: string[]): Promise<void> {
+    return this.enqueue(() => this.doBoot(snapshot, initCommands));
   }
 
-  reset(initCommands: string[], files: GuestFile[] = []): Promise<void> {
-    return this.enqueue(() => this.doReset(initCommands, files));
+  reset(snapshot: GuestSnapshot, initCommands: string[]): Promise<void> {
+    return this.enqueue(() => this.doReset(snapshot, initCommands));
   }
 
-  protected async freshCore(): Promise<void> {
+  /** A core for a client attached to `session`. */
+  protected async freshCore(session: string): Promise<void> {
     this.wasmModule ??= await loadWasmModule();
-    this.session = GUEST_SESSION;
+    this.session = session;
     this.core = new this.wasmModule.WasmTmux(this.session);
     this.lastState = EMPTY_STATE;
     // Inline terminal images are served from the current wasm store: there

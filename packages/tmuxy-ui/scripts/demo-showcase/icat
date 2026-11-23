@@ -1,0 +1,30 @@
+#!/bin/bash
+# Show an image with the Kitty graphics protocol, as large as the pane, and
+# draw it again whenever the pane changes size or its window comes to the
+# front: a client learns of a picture only as it is printed, so one that
+# attached since the last draw has none to show. Ctrl+C ends it.
+#
+# It goes through tmux's passthrough (every ESC doubled), so tmux hands it
+# on rather than reading it as a pane title. `f=100` names a PNG; tmuxy reads
+# the format off the bytes, so a GIF keeps its animation. The picture goes in
+# one transfer, not the protocol's 4096-byte chunks: a client that refreshes
+# the pane mid-transfer drops a chunked one, and tmuxy refreshes a pane on a
+# resize or a tab switch, the very moments a draw happens.
+image=${1:?usage: icat IMAGE}
+data=$(base64 "$image" | tr -d '\n')
+
+draw() {
+  printf '\033[H\033Ptmux;\033\033_Ga=T,f=100,c=%s,r=%s;%s\033\033\\\033\\' "$1" "$2" "$data"
+}
+
+trap 'printf "\033[?25h\033[H\033[2J"; exit' INT TERM
+printf '\033[?25l\033[H\033[2J'
+seen=
+while :; do
+  now=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_width} #{pane_height} #{window_active}')
+  if [ "$now" != "$seen" ]; then
+    seen=$now
+    draw $now
+  fi
+  sleep 1
+done

@@ -9,7 +9,7 @@ describe('fetchGuestSnapshot', () => {
     const fetchMock = vi.fn(async () => new Response(zst));
     vi.stubGlobal('fetch', fetchMock);
 
-    const bytes = await fetchGuestSnapshot();
+    const bytes = await fetchGuestSnapshot('/v86-img/tmux-state.bin.zst');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith('/v86-img/tmux-state.bin.zst');
@@ -22,6 +22,6 @@ describe('fetchGuestSnapshot', () => {
       vi.fn(async () => new Response('not found', { status: 404 })),
     );
 
-    await expect(fetchGuestSnapshot()).rejects.toThrow('HTTP 404');
+    await expect(fetchGuestSnapshot('/v86-img/tmux-state.bin.zst')).rejects.toThrow('HTTP 404');
   });
 });
