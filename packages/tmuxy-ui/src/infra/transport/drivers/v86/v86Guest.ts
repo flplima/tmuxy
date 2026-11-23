@@ -2,12 +2,7 @@
 
 const V86_JS = '/v86/libv86.mjs';
 const V86_WASM = '/v86/v86.wasm';
-const STATE_URL = '/v86-img/tmux-state.bin';
-const STATE_GZ_URL = '/v86-img/tmux-state.bin.gz';
-const SEABIOS_URL = '/v86-img/seabios.bin';
-const VGABIOS_URL = '/v86-img/vgabios.bin';
-const BZIMAGE_URL = '/v86-img/buildroot-bzimage.bin';
-const CMDLINE = 'tsc=reliable mitigations=off random.trust_cpu=on';
+const STATE_URL = '/v86-img/tmux-state.bin.zst';
 // The snapshot has session `m` with tmux already running; attach a fresh control
 // client each boot/reset (the snapshot predates any control-mode attach).
 export const ATTACH = '/tmp/tb/tmux -CC attach -t m\n';
@@ -63,10 +58,10 @@ export function createDetachedScreen(): HTMLElement {
 /**
  * Constructed without `initial_state` and without autostart: v86 does not
  * decompress an `initial_state` URL (build/libv86: `f.url.endsWith(".zst") &&
- * "initial_state" !== f.name`), so restore_state got compressed bytes and
- * silently fell back to a ~30s cold boot. The caller replays v86's own
- * sequence — init → restore_state → run — with bytes `fetchGuestSnapshot`
- * inflated.
+ * "initial_state" !== f.name`), but its `restore_state` does inflate zstd
+ * itself. The caller replays v86's own sequence — init → restore_state → run
+ * — with the snapshot bytes as `fetchGuestSnapshot` got them. No kernel,
+ * BIOS or command line is given: the machine never boots, it resumes.
  */
 export async function createV86Emulator(
   screen: HTMLElement,
@@ -79,10 +74,6 @@ export async function createV86Emulator(
   };
   const emu: V86Emulator = new V86({
     wasm_path: V86_WASM,
-    bios: { url: SEABIOS_URL },
-    vga_bios: { url: VGABIOS_URL },
-    bzimage: { url: BZIMAGE_URL },
-    cmdline: CMDLINE,
     filesystem: {},
     memory_size: 64 * 1024 * 1024,
     vga_memory_size: 2 * 1024 * 1024,
@@ -101,27 +92,11 @@ export async function createV86Emulator(
   return { emu, loaded };
 }
 
-/**
- * Fetch the machine snapshot, preferring the gzip + local inflate (half
- * the wire size); falls back to the raw file when the .gz or
- * DecompressionStream is unavailable.
- */
+/** Fetch the machine snapshot, zstd-compressed; `restore_state` inflates it. */
 export async function fetchGuestSnapshot(): Promise<ArrayBuffer> {
-  if (typeof DecompressionStream !== 'undefined') {
-    const res = await fetch(STATE_GZ_URL);
-    if (res.ok && res.body) {
-      // If the server declared `Content-Encoding: gzip` the browser already
-      // inflated the body — piping it through DecompressionStream again would
-      // double-inflate and corrupt the snapshot. Only inflate ourselves when
-      // the bytes are still compressed.
-      const alreadyInflated = /gzip/i.test(res.headers.get('content-encoding') ?? '');
-      const stream = alreadyInflated
-        ? res.body
-        : res.body.pipeThrough(new DecompressionStream('gzip'));
-      return new Response(stream).arrayBuffer();
-    }
-  }
-  return fetch(STATE_URL).then((r) => r.arrayBuffer());
+  const res = await fetch(STATE_URL);
+  if (!res.ok) throw new Error(`guest snapshot ${STATE_URL}: HTTP ${res.status}`);
+  return res.arrayBuffer();
 }
 
 /**

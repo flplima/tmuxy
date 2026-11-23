@@ -1,9 +1,9 @@
 // The demo runs real tmux in an in-browser v86 guest, which loads its pieces
 // at runtime from the site's own origin: the emulator (/v86), the guest's
-// BIOS, kernel and pre-booted snapshot (/v86-img), and the tmuxy-core engine
-// compiled to wasm (/wasm). This copies them into public/ for `next dev` and
-// the static export. None is in git; each is built by the command named in
-// the error, which is what the Deploy Demo workflow runs first.
+// pre-booted snapshot (/v86-img), and the tmuxy-core engine compiled to wasm
+// (/wasm). This copies them into public/ for `next dev` and the static
+// export. None is in git; each is built by the command named in the error,
+// which is what the Deploy Demo workflow runs first.
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -21,8 +21,8 @@ const SETS = [
   {
     to: 'v86-img',
     from: join(ui, 'v86-assets'),
-    // The snapshot goes gzipped only: the engine inflates it in the page.
-    files: ['seabios.bin', 'vgabios.bin', 'buildroot-bzimage.bin', 'tmux-state.bin.gz'],
+    // Only the zstd snapshot: the machine restores it, so it needs no kernel or BIOS.
+    files: ['tmux-state.bin.zst'],
     build: 'npm run fetch:v86-image -w tmuxy-ui && npm run build:v86-snapshot -w tmuxy-ui',
   },
   {

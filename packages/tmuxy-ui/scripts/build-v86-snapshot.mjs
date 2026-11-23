@@ -249,14 +249,21 @@ async function buildSnapshot() {
   await writeFile(STATE_BIN, Buffer.from(state));
   const size = (await stat(STATE_BIN)).size;
   console.log(`✓ tmux-state.bin written (${(size / 1e6).toFixed(1)} MB)`);
-  // The raw snapshot dominates the client payload, so a gzip is served
-  // alongside (inflated in the page, V86Engine.fetchSnapshot). v86's
-  // constructor `initial_state` skips zstd decompression for that resource, so
-  // the engine restores the snapshot itself and no .zst is built.
-  const { gzipSync } = await import('node:zlib');
-  const gz = gzipSync(Buffer.from(state), { level: 9 });
-  await writeFile(`${STATE_BIN}.gz`, gz);
-  console.log(`✓ tmux-state.bin.gz written (${(gz.length / 1e6).toFixed(1)} MB wire)`);
+  // The raw snapshot dominates the client payload, so the page fetches it as
+  // zstd and v86's restore_state inflates it. Long-distance matching with a
+  // 32 MB window finds the repeats across the 35 MB image (the page cache and
+  // the bundle's copies); a longer window gains nothing and costs the
+  // decoder more memory.
+  const { zstdCompressSync, constants } = await import('node:zlib');
+  const zst = zstdCompressSync(Buffer.from(state), {
+    params: {
+      [constants.ZSTD_c_compressionLevel]: 19,
+      [constants.ZSTD_c_windowLog]: 25,
+      [constants.ZSTD_c_enableLongDistanceMatching]: 1,
+    },
+  });
+  await writeFile(`${STATE_BIN}.zst`, zst);
+  console.log(`✓ tmux-state.bin.zst written (${(zst.length / 1e6).toFixed(1)} MB wire)`);
   await emulator.destroy?.();
   process.exit(0);
 }

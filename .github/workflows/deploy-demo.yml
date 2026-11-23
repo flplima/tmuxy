@@ -69,7 +69,7 @@ jobs:
         run: |
           test -d packages/tmuxy-demo/out || { echo "demo export missing"; exit 1; }
           test -n "$(ls -A packages/tmuxy-demo/out)" || { echo "demo export is empty"; exit 1; }
-          test -s packages/tmuxy-demo/out/v86-img/tmux-state.bin.gz || { echo "demo export has no v86 snapshot"; exit 1; }
+          test -s packages/tmuxy-demo/out/v86-img/tmux-state.bin.zst || { echo "demo export has no v86 snapshot"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
