@@ -84,6 +84,11 @@ function withoutRunShellWrap(tmuxCalls) {
  * @param {string} [opts.input] - Stdin input
  * @param {string} [opts.cli] - The dispatcher to run, when not the repo's
  * @param {string} [opts.path] - PATH in place of the mocks' directory and the inherited one
+ * @param {string} [opts.parent] - Run the CLI as the child of a shell whose
+ *   process is named this (`-bash`: a login shell), which `ps -o comm=` then
+ *   reports for the CLI's `$PPID`. On Linux that name is the executable's, so
+ *   the shell is run through a link of that name; on macOS it is `argv[0]`,
+ *   which is set to it too.
  * @returns {{ stdout: string, stderr: string, exitCode: number, tmuxCalls: Array<{args: string[]}>, paneResolution: {args: string[]} | null }}
  */
 function runCLI(args, opts = {}) {
@@ -94,7 +99,18 @@ function runCLI(args, opts = {}) {
       ...(opts.path && { PATH: opts.path }),
       ...opts.env,
     });
-    const result = spawnSync(opts.cli ?? CLI_PATH, args, {
+    const cli = opts.cli ?? CLI_PATH;
+    let file = cli;
+    let argv = args;
+    if (opts.parent) {
+      file = path.join(home, opts.parent);
+      fs.symlinkSync('/bin/bash', file);
+      // Not the last command, so the shell waits for the CLI instead of
+      // becoming it.
+      argv = ['--noprofile', '--norc', '-c', '"$@"; exit $?', 'parent', cli, ...args];
+    }
+    const result = spawnSync(file, argv, {
+      ...(opts.parent && { argv0: opts.parent }),
       env,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],

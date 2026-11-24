@@ -113,6 +113,24 @@ describe('tmuxy pane send', () => {
     expect(queueArgs(stray.stdout)).toBeNull();
   });
 
+  // macOS `ps` names a login shell `-zsh` or `-bash`, and `basename` read
+  // that as an option: from a login shell's prompt, send and ask exited 1.
+  test('a caller at a login shell’s prompt is named by its shell, and the send goes on', () => {
+    for (const verb of ['send', 'ask']) {
+      const { exitCode, stdout, stderr } = runCLI(['pane', verb, '-t', '%3', 'x?'], {
+        env: IN_PANE_1,
+        parent: '-bash',
+      });
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: '' });
+      expect(stdout).toMatch(
+        new RegExp(
+          `^mock-server-started ${verb} --target %3 --caller-pane %1 --caller-process bash `,
+          'm',
+        ),
+      );
+    }
+  });
+
   describe('refusals', () => {
     test('needs keys to send', () => {
       const { exitCode, stderr } = send(['-t', '%3']);
