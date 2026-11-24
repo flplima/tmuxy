@@ -51,6 +51,45 @@ export function standaloneShortfall(h: StandaloneHeights): number {
   return Math.abs(short - h.insetTop) <= 2 ? short : 0;
 }
 
+/** The visual viewport as the browser reports it, and the page's last unzoomed pin. */
+export interface ViewportReading {
+  height: number;
+  offsetTop: number;
+  /** `visualViewport.scale`: the pinch zoom. */
+  scale: number;
+  inner: number;
+}
+
+export interface ViewportPin {
+  height: number;
+  top: number;
+  keyboard: boolean;
+}
+
+/** A pinch zoom shows less of the page; anything over this is one. */
+const ZOOM_EPSILON = 0.01;
+
+/**
+ * What the app pins itself to. Unzoomed, the visual viewport. Pinch-zoomed it
+ * is smaller by the zoom whatever the keyboard does, and its offset moves with
+ * every pan, so the app keeps the `last` pin: only a keyboard under a zoom
+ * shows, as the visual height in layout px (`height * scale`) falling short
+ * of `inner`, and it shrinks the app by that much, the top left where it was.
+ */
+export function pinViewport(read: ViewportReading, last: ViewportPin): ViewportPin {
+  if (read.scale <= 1 + ZOOM_EPSILON) {
+    return {
+      height: read.height,
+      top: read.offsetTop,
+      keyboard: read.height < read.inner - 1,
+    };
+  }
+  const layout = read.height * read.scale;
+  const keyboard = layout < read.inner - read.scale;
+  if (keyboard) return { height: layout, top: last.top, keyboard };
+  return { height: last.keyboard ? read.inner : last.height, top: last.top, keyboard };
+}
+
 /** `100lvh` and the top safe-area inset, read off an invisible probe. */
 function measureProbe(): { large: number; insetTop: number } {
   const probe = document.createElement('div');
@@ -75,15 +114,25 @@ export function useVisualViewport(enabled: boolean): void {
     // window resize), not on every scroll of the visual viewport.
     const standalone = window.matchMedia?.('(display-mode: standalone)').matches ?? false;
     let full = standalone ? measureProbe() : null;
+    let pin: ViewportPin = { height: window.innerHeight, top: 0, keyboard: false };
     const update = () => {
-      const visual = viewport?.height ?? window.innerHeight;
+      pin = pinViewport(
+        {
+          height: viewport?.height ?? window.innerHeight,
+          offsetTop: viewport?.offsetTop ?? 0,
+          scale: viewport?.scale ?? 1,
+          inner: window.innerHeight,
+        },
+        pin,
+      );
+      const visual = pin.height;
       const shortfall = full
         ? standaloneShortfall({ standalone, inner: window.innerHeight, visual, ...full })
         : 0;
       root.style.setProperty('--app-height', `${visual + shortfall}px`);
       // A keyboard shrinks the visual viewport and nothing else.
-      root.classList.toggle(KEYBOARD_CLASS, visual < window.innerHeight - 1);
-      root.style.setProperty('--app-top', `${viewport?.offsetTop ?? 0}px`);
+      root.classList.toggle(KEYBOARD_CLASS, pin.keyboard);
+      root.style.setProperty('--app-top', `${pin.top}px`);
     };
     const rotated = () => {
       if (standalone) full = measureProbe();
