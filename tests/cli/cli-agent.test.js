@@ -24,6 +24,27 @@ async function callsAfterHook(logFile, count) {
   return lines.map((line) => JSON.parse(line).args);
 }
 
+/**
+ * Whether the hook's background job let go of its lock: it runs to its end,
+ * past the tmux write, and every later hook takes the lock at once.
+ */
+async function lockReleased(where) {
+  const locks = () =>
+    fs
+      .readdirSync(where.dir)
+      .filter((name) => name.startsWith('tmuxy-agent-'))
+      .flatMap((base) =>
+        fs
+          .readdirSync(path.join(where.dir, base))
+          .filter((pane) => fs.existsSync(path.join(where.dir, base, pane, '.lock'))),
+      );
+  const deadline = Date.now() + 10000;
+  while (locks().length > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return locks().length === 0;
+}
+
 function scratch() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-agent-test-'));
   return { dir, log: path.join(dir, 'tmux.log') };
@@ -66,6 +87,9 @@ describe('tmuxy agent', () => {
         `tmux -L ${SOCKET} set-option -p -t '%5' @tmuxy-pane-state 'working'`,
       ),
     ]);
+    // macOS's bash 3.2 ran the job's tmux call in the job's own process, so
+    // the job ended with it and never let go of its lock.
+    expect(await lockReleased(where)).toBe(true);
 
     // The same state again: tmux already says it, so nothing is written.
     expect(hook('claude', 'PostToolUse', 'working', where).exitCode).toBe(0);
