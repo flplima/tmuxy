@@ -44,6 +44,9 @@ function ensureInput(): HTMLInputElement {
     input.spellcheck = false;
     input.dataset.keyboardTarget = keyboardTarget;
     Object.assign(input.style, {
+      // iOS zooms the page into a field under 16px that takes the focus,
+      // and the page could stay zoomed, the key row cut off.
+      fontSize: '16px',
       position: 'fixed',
       opacity: '0',
       pointerEvents: 'none',

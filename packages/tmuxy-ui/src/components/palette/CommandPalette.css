@@ -51,6 +51,14 @@
   -webkit-user-select: text;
 }
 
+/* iOS zooms the page into a field under 16px that takes the focus, and the
+   page can stay zoomed after it: on a touch screen, 16px at least. */
+@media (pointer: coarse) {
+  .command-palette-input {
+    font-size: max(16px, 1em);
+  }
+}
+
 .command-palette-input:focus {
   border-color: var(--theme-accent);
 }
