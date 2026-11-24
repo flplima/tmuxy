@@ -5,6 +5,7 @@
  * answers the page's requests.
  */
 import type { MachineEvent, MachineRequest, VgaScreen } from './machine';
+import { waitWhileHalted } from './haltedWait';
 import { PacedWriter, SerialCollector } from './serialLink';
 import {
   createV86Emulator,
@@ -113,6 +114,7 @@ class MachineHost {
     emu.screen_adapter.update_cursor = (row, col) => {
       this.cursor = { row, col };
     };
+    waitWhileHalted(emu.v86);
     await restoreSnapshot(emu, await snapshot);
     await emu.run();
   }

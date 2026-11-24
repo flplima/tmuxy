@@ -227,7 +227,7 @@ export abstract class GuestEngine {
   }
 
   /**
-   * Stop the machine (an idle guest costs the page a third of a core). Refused,
+   * Stop the machine (an idle guest still costs the page part of a core). Refused,
    * with false, while the machine is starting, not attached, or a caller still
    * waits on a reply, which would otherwise be answered by a guest that is not running.
    * Until `resume`, the tick does not run and what is asked of the core or

@@ -81,6 +81,29 @@ describe("the machine's worker", () => {
     expect(machine.raw.run).toHaveBeenCalledTimes(1);
   });
 
+  it('has the machine wait while its guest is halted, from the boot on', async () => {
+    const delays: number[] = [];
+    vi.stubGlobal('scheduler', {
+      postTask: (_task: () => void, options?: { delay?: number }) => {
+        delays.push(options?.delay ?? 0);
+        return Promise.resolve();
+      },
+    });
+    try {
+      const { machine, send, answered } = host();
+      const ownYield = vi.fn();
+      Object.assign(machine.raw.v86, { yield: ownYield, yield_callback: () => {} });
+      send({ type: 'boot', url: DEMO, id: 1 });
+      await answered(1);
+
+      (machine.raw.v86 as unknown as { yield(ms: number, tick: number): void }).yield(0.3, 1);
+      expect(delays).toEqual([1]);
+      expect(ownYield).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('rewinds to whichever state each restore names, fetching each one once', async () => {
     const { machine, send, answered, fetched } = host();
     send({ type: 'boot', url: GENERIC, id: 1 });
