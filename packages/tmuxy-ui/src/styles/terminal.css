@@ -231,7 +231,10 @@
      parent's line-height, so the smaller glyph stays on the row. */
   font-size: calc(1em * var(--glyph-fit, 1));
   line-height: inherit;
-  letter-spacing: 0;
+  /* A run of glyphs that tile (braille, box drawing) shares this box: each
+     glyph's scaled advance is the font's own cell, and the gap snaps it to
+     the grid's cell as it does for text outside a fit. */
+  letter-spacing: var(--cell-gap, 0px);
 }
 
 /* DEC line-size (DECDWL / DECDHL) and Kitty OSC 66 scaled text.

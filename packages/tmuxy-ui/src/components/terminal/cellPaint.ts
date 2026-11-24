@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import type { CellLine, CellStyle } from '../../domain/wireCells';
 import { cellColorToCss, isWideChar, sanitizeTerminalCell } from './terminalShared';
 import { cellsToCss } from '../../infra/dom/cellMetrics';
-import { glyphFit } from './glyphFit';
+import { glyphFit, tilesInRuns } from './glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls, type DetectedUrl } from './urlDetect';
 
@@ -93,7 +93,7 @@ export function cellRuns(
   { urls, urlAt }: ReturnType<typeof rowUrlIndex>,
 ): CellRun[] {
   const runs: CellRun[] = [];
-  let run: (CellRun & { sk: number; urlIdx: number }) | null = null;
+  let run: (CellRun & { sk: number; urlIdx: number; tiles: boolean }) | null = null;
   for (let i = 0; i < line.length; i++) {
     const cell = line[i];
     const sk = styleKey(cell.s);
@@ -109,8 +109,10 @@ export function cellRuns(
       // continuation cell rather than shifting a grouped span.
       !wide &&
       !run.wide &&
-      fit === null &&
-      run.fit === null &&
+      // Fitted glyphs each keep a box of their own, except ones that tile in
+      // runs: those share one box and one scale, so a braille graph is a span
+      // a row, not a span a cell.
+      (fit === null ? run.fit === null : fit === run.fit && tilesInRuns(cell.c) && run.tiles) &&
       blockCh === run.blockCh &&
       sk === run.sk &&
       selected === run.selected &&
@@ -134,6 +136,7 @@ export function cellRuns(
       wide,
       blockCh,
       fit,
+      tiles: fit !== null && tilesInRuns(cell.c),
       sk,
       urlIdx,
     };

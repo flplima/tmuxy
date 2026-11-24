@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fitScale, glyphFit, needsMeasure } from '../glyphFit';
+import { fitScale, glyphFit, needsMeasure, tilesInRuns } from '../glyphFit';
 
 describe('fitScale', () => {
   it('leaves glyphs that fit their cell alone, within tolerance', () => {
@@ -11,6 +11,25 @@ describe('fitScale', () => {
   it('shrinks a fat glyph into one cell', () => {
     expect(fitScale(1.6)).toBeCloseTo(1 / 1.6, 6);
     expect(fitScale(2)).toBe(0.5);
+  });
+});
+
+describe('glyphs that tile in runs', () => {
+  it('are the braille patterns and box drawing, not other symbols', () => {
+    expect(tilesInRuns('⣿')).toBe(true);
+    expect(tilesInRuns('\u2800')).toBe(true);
+    expect(tilesInRuns('─')).toBe(true);
+    expect(tilesInRuns('╬')).toBe(true);
+    expect(tilesInRuns('⎿')).toBe(false);
+    expect(tilesInRuns('a')).toBe(false);
+  });
+
+  it('are shrunk when only a little wide, because the overshoot adds up along a run', () => {
+    // Braille measures 1.11 cells in the fallback font: 60 of them end 6.7 cells late.
+    expect(fitScale(1.11)).toBeNull();
+    expect(fitScale(1.11, true)).toBeCloseTo(1 / 1.11, 6);
+    expect(fitScale(1, true)).toBeNull();
+    expect(fitScale(1.01, true)).toBeNull();
   });
 });
 

@@ -20,6 +20,21 @@ import { TERMINAL_CONTENT } from '../../infra/dom/terminalDom';
 /** Above this many cells a one-column glyph is shrunk into its cell. */
 const FAT_THRESHOLD = 1.15;
 
+/**
+ * Above this many cells a glyph that is drawn in runs is shrunk into its cell.
+ * A run of them adds its overshoot once per glyph: braille is 1.11 cells in
+ * the fallback font, under `FAT_THRESHOLD`, and a 60-glyph graph ends 6.7
+ * cells to the right of where tmux put it.
+ */
+const TILING_THRESHOLD = 1.02;
+
+/** Braille patterns and box drawing: glyphs a program repeats edge to edge. */
+const TILING = /^[\u2500-\u257f\u2800-\u28ff]$/;
+
+export function tilesInRuns(s: string): boolean {
+  return TILING.test(s);
+}
+
 const ratios = new Map<string, number>();
 
 /**
@@ -54,9 +69,12 @@ if (typeof document !== 'undefined' && document.fonts) {
   document.fonts.addEventListener('loadingdone', invalidate);
 }
 
-/** The `scale()` that fits a glyph of `ratio` cells into one cell, or null if it already fits. */
-export function fitScale(ratio: number): number | null {
-  return ratio > FAT_THRESHOLD ? 1 / ratio : null;
+/**
+ * The `scale()` that fits a glyph of `ratio` cells into one cell, or null if
+ * it already fits. A glyph that tiles in runs is held to a tighter bound.
+ */
+export function fitScale(ratio: number, tiles = false): number | null {
+  return ratio > (tiles ? TILING_THRESHOLD : FAT_THRESHOLD) ? 1 / ratio : null;
 }
 
 /**
@@ -135,7 +153,7 @@ function measureRatio(s: string, host: HTMLElement): number | null {
   // cached as fitting. A canvas never fetches a face itself, so ask for it;
   // its `loadingdone` clears the cache.
   requestFace(font, s);
-  return advanceRatio > FAT_THRESHOLD ? advanceRatio : null;
+  return advanceRatio > (tilesInRuns(s) ? TILING_THRESHOLD : FAT_THRESHOLD) ? advanceRatio : null;
 }
 
 /**
@@ -169,5 +187,5 @@ export function glyphFit(s: string, host: HTMLElement = document.body): number |
     ratio = measured;
     ratios.set(s, ratio);
   }
-  return fitScale(ratio);
+  return fitScale(ratio, tilesInRuns(s));
 }
