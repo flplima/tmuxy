@@ -45,15 +45,13 @@ function startPreview(home, file, pane) {
     { mode: 0o755 },
   );
   // In a terminal of its own, as in a pane: the preview reads the terminal
-  // between two looks at the file. `script` gives it one, spelled the
-  // util-linux way or the BSD way.
-  const inTerminal =
-    process.platform === 'darwin'
-      ? ['-q', '/dev/null', CLI_PATH, 'open', file]
-      : ['-qfc', `'${CLI_PATH}' open '${file}'`, '/dev/null'];
-  const child = spawn('script', inTerminal, {
+  // between two looks at the file. Python's `pty` gives it one the same way
+  // on Linux and macOS, whatever this process has for a stdin (`script`
+  // would, but the BSD one refuses a stdin that is a socket).
+  const inTerminal = ['-c', 'import pty, sys; pty.spawn(sys.argv[1:])', CLI_PATH, 'open', file];
+  const child = spawn('python3', inTerminal, {
     detached: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: scriptEnv(home, {
       PATH: `${shims}:${MOCKS_DIR}:${process.env.PATH}`,
       PREVIEW_READS: reads,
