@@ -101,7 +101,7 @@ describe('the Claude review workflow runs on a trusted comment only', () => {
   it('hands the subscription token to the API proxy only, never to Claude', () => {
     expect(workflow).toMatch(/^permissions:\n\s+contents: read$/m);
     expect(workflow).toContain(
-      'uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1',
+      'uses: anthropics/claude-code-action@cc98b3ae241b0fcfb6a42a2690751afffecb4452 # v1',
     );
     expect(workflow).toContain('claude_code_oauth_token: held-by-the-proxy');
     expect(workflow.match(/secrets\.CLAUDE_CODE_OAUTH_TOKEN/g)).toHaveLength(1);
