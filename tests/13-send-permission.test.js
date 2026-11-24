@@ -214,6 +214,35 @@ describeE2E('Scenario: tmuxy pane send asks before typing into another pane', {}
     await waitForNoAskOverlay(page, there);
   }, 180000);
 
+  // A sender killed with no chance to take its question down (SIGKILL, a
+  // timeout) left it up for good, and the pane needing the user under it.
+  test('a question whose sender was killed leaves the screen by itself, and the pane its state', async () => {
+    const { page } = ctx;
+    const { here, there } = await twoPanes();
+    await typeCommand(
+      page,
+      here,
+      `${TMUXY_CLI} pane send -t ${there} 'echo send-orphaned' Enter &`,
+    );
+    await waitForAskOverlay(page, there, here);
+    await waitForCondition(
+      page,
+      async () => (await headerMark(page, there)) === 'needs-input',
+      10000,
+      'the target pane to show it needs input',
+    );
+    // The job's whole process group, the CLI's script and the verb it runs.
+    await typeCommand(page, here, 'kill -KILL %1');
+    await waitForNoAskOverlay(page, there);
+    await waitForCondition(
+      page,
+      async () => (await headerMark(page, there)) !== 'needs-input',
+      10000,
+      'the target pane to stop needing the user',
+    );
+    expect(await screenOf(page, there)).not.toContain('send-orphaned');
+  }, 120000);
+
   test('@tmuxy-send-ask off and @tmuxy-send-allow skip the question, and the target is left unread', async () => {
     const { page } = ctx;
     const { here, there } = await twoPanes();

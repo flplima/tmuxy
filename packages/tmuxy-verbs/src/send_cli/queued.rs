@@ -13,7 +13,7 @@ use std::time::Duration;
 use tmuxy_core::ask::queue::{self, Entry};
 use tmuxy_core::PaneId;
 
-use super::{interrupted, CliTmux, Delivery, Route};
+use super::{interrupted, Delivery, Route};
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_TARGET, EXIT_USAGE};
 
 fn retracted(pane: &PaneId) -> (i32, String) {
@@ -89,7 +89,7 @@ pub struct QueueArgs {
 
 pub async fn run(args: QueueArgs) {
     let answer = Answer::new(args.json);
-    let code = match queue_verb(&CliTmux, args, &answer).await {
+    let code = match queue_verb(&tmuxy_core::ask::Subprocess, args, &answer).await {
         Ok(()) => 0,
         Err((code, message)) => answer.fail(code, &message),
     };

@@ -91,6 +91,11 @@ impl Prompt {
     /// `@tmuxy-ask`'s value for this question from `caller`, pinned by
     /// `token`.
     pub fn encode(&self, token: &str, caller: &str) -> String {
+        base64::engine::general_purpose::STANDARD.encode(self.payload(token, caller).to_string())
+    }
+
+    /// [`Prompt::encode`]'s payload, before base64.
+    pub(super) fn payload(&self, token: &str, caller: &str) -> serde_json::Value {
         let caller: String = caller
             .chars()
             .filter(|c| !c.is_control())
@@ -106,7 +111,7 @@ impl Prompt {
             Answers::Choices(choices) => payload["choices"] = serde_json::json!(choices),
             Answers::Text => payload["text"] = serde_json::json!(true),
         }
-        base64::engine::general_purpose::STANDARD.encode(payload.to_string())
+        payload
     }
 
     /// What an answer after `<token>:` says: `Some(Ok(text))` for the chosen

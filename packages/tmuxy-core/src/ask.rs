@@ -11,7 +11,9 @@
 //! Allow?", and writes `<token>:yes` or `<token>:no` to `@tmuxy-ask-answer`;
 //! the token pins the answer to the question that was on screen. While the
 //! question is up the target pane says it needs the user (`needs-input`),
-//! and what it said before comes back when the question comes down.
+//! and what it said before comes back when the question comes down: taken
+//! down by its sender, or, once that process is gone, by the host's pane
+//! poll or the next sender ([`sweep`]).
 //!
 //! `@tmuxy-send-ask off` skips the question, and so does an `@tmuxy-send-allow`
 //! entry naming the caller (or a word the sender answers to, as `mcp` for
@@ -40,7 +42,7 @@ use crate::constants::tmux_options::{
 use crate::{CommandError, PaneId};
 
 pub use prompt::{Answers, Prompt};
-pub use question::{encode_question, wait_turn, Question};
+pub use question::{encode_question, sweep, wait_turn, Question};
 
 pub type Argv = Vec<String>;
 
@@ -57,13 +59,32 @@ pub trait Tmux: Sync {
     }
 }
 
+/// The CLI's and the host's own `Tmux`: reads as tmux subprocesses, which
+/// tmux runs safely beside an attached control-mode client, and every change
+/// inside `run-shell` (docs/TMUX.md).
+pub struct Subprocess;
+
+impl Tmux for Subprocess {
+    async fn read(&self, argv: Argv) -> Result<String, CommandError> {
+        crate::session::tmux_output(&argv).map_err(|e| CommandError::tmux(e.to_string()))
+    }
+
+    async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {
+        let argv = commands.join(&";".to_string());
+        crate::run_shell::tmux(&crate::paths::Layout::current(), &argv)
+            .map(drop)
+            .map_err(|e| CommandError::tmux(e.to_string()))
+    }
+}
+
 /// How often the answer is read. tmux announces no change to a user option,
 /// so there is nothing to block on, and this only runs while a question is on
 /// screen.
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 
-/// How long a send waits its turn behind another sender's question before
-/// taking it for abandoned (a killed sender's) and asking over it.
+/// How long a send waits its turn behind a question that names no asker (its
+/// sender could not tell when it started) before taking it for abandoned and
+/// asking over it.
 const PENDING_LIMIT: Duration = Duration::from_secs(60);
 
 const NEEDS_INPUT: &str = crate::PaneStateName::NeedsInput.as_str();

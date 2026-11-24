@@ -4,8 +4,11 @@
 agent_dialog -> program
 ask -> agent_dialog
 ask -> constants
+ask -> paths
 ask -> program
 ask -> random
+ask -> run_shell
+ask -> session
 capture_html -> control_mode
 command_router -> control_mode
 command_router -> preview
@@ -29,6 +32,7 @@ groups -> argv
 groups -> constants
 host -> agent_dialog
 host -> argv
+host -> ask
 host -> client_size
 host -> command_router
 host -> constants
