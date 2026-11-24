@@ -143,18 +143,96 @@ export function clipboardWriteMessage(text: string, paneId: PaneId | null): stri
 }
 
 /**
- * What the status line says when the browser refused a pane's write. Firefox
- * and Safari take a clipboard write only while a key press or a click is
- * still fresh, so an OSC 52 that arrives on its own (a command that copies
- * its result when it ends) is turned down there; a page served without https
- * off localhost has no clipboard at all. Saying "Copied" then is how a user
- * pastes something else.
+ * What the status line says when the browser refused a write. Firefox and
+ * Safari take a clipboard write only while a key press or a click is still
+ * fresh, so one that arrives on its own is turned down there; a page served
+ * without https off localhost has no clipboard at all. Saying "Copied" then
+ * is how a user pastes something else. With `willRetry` the text is kept for
+ * the next key or click (`copyOnNextGesture`), and the message says so.
  */
-export function clipboardBlockedMessage(text: string, paneId: PaneId | null): string {
+export function clipboardBlockedMessage(
+  text: string,
+  paneId: PaneId | null,
+  willRetry = false,
+): string {
   const chars = text.length === 1 ? '1 char' : `${text.length} chars`;
   const who = paneId ? `Pane ${paneId} could not copy ${chars}` : `Could not copy ${chars}`;
-  const hasClipboard = typeof navigator !== 'undefined' && !!navigator.clipboard?.writeText;
-  return hasClipboard
-    ? `${who}: the browser wants a key or a click first`
-    : `${who}: no clipboard without https or localhost`;
+  if (!hasClipboard()) return `${who}: no clipboard without https or localhost`;
+  return willRetry
+    ? `${who}: press a key or click to copy`
+    : `${who}: the browser wants a key or a click first`;
+}
+
+function hasClipboard(): boolean {
+  return typeof navigator !== 'undefined' && !!navigator.clipboard?.writeText;
+}
+
+interface PendingCopy {
+  text: string;
+  paneId: PaneId | null;
+  say: (message: string) => void;
+}
+
+/** The copy a program asked for that the browser refused, until the user's next key or click. */
+let pending: PendingCopy | null = null;
+
+/**
+ * The events a browser lets a page write the clipboard from (the HTML spec's
+ * activation-triggering events): a key, a mouse press, a finger lifted. A
+ * finger landing is not one (`pointerdown` from a touch): iOS refused the
+ * write made from it.
+ */
+const GESTURES = ['keydown', 'mousedown', 'pointerup', 'touchend'] as const;
+
+function waitForGesture(copy: PendingCopy): void {
+  pending = copy;
+  for (const type of GESTURES) window.addEventListener(type, finishPendingCopy, true);
+}
+
+function finishPendingCopy(): void {
+  const waiting = pending;
+  forgetPendingCopy();
+  if (!waiting) return;
+  const { text, paneId, say } = waiting;
+  void writeClipboard(text, paneId).then((copied) => {
+    if (copied) {
+      say(clipboardWriteMessage(text, paneId));
+      return;
+    }
+    // A gesture the browser did not count: the next one may be. A newer
+    // request that came meanwhile is the one that waits.
+    if (!pending) waitForGesture(waiting);
+  });
+}
+
+function forgetPendingCopy(): void {
+  pending = null;
+  if (typeof window === 'undefined') return;
+  for (const type of GESTURES) window.removeEventListener(type, finishPendingCopy, true);
+}
+
+/**
+ * Copy text a program asked for on its own (OSC 52) and say what happened.
+ *
+ * A write the browser refuses for want of a recent key or click is kept and
+ * made on the next one, once: the key or click is the gesture the browser
+ * wanted. A newer request replaces the one waiting, and a write that takes
+ * clears it. Resolves whether the first attempt took.
+ */
+export function copyForProgram(
+  text: string,
+  paneId: PaneId | null,
+  say: (message: string) => void,
+): Promise<boolean> {
+  return writeClipboard(text, paneId).then((copied) => {
+    forgetPendingCopy();
+    if (copied) {
+      say(clipboardWriteMessage(text, paneId));
+      return true;
+    }
+    const willRetry = hasClipboard() && typeof window !== 'undefined';
+    if (willRetry) waitForGesture({ text, paneId, say });
+    say(clipboardBlockedMessage(text, paneId, willRetry));
+    return false;
+  });
 }

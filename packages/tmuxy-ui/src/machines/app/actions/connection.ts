@@ -2,11 +2,7 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { takeKeyboard } from '../helpers';
 import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
-import {
-  writeClipboard,
-  clipboardBlockedMessage,
-  clipboardWriteMessage,
-} from '../../../infra/clipboard';
+import { copyForProgram } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import { invokeEvent } from '../../actors/tmuxActor';
 import { profileRequest } from '../../../domain/backendCalls';
@@ -101,11 +97,8 @@ export const connectionActions = {
     if (event.type !== 'TMUX_CLIPBOARD') return;
     const { text, paneId } = event;
     enqueue(() => {
-      void writeClipboard(text, paneId).then((copied) =>
-        self.send({
-          type: 'SHOW_STATUS_MESSAGE',
-          text: (copied ? clipboardWriteMessage : clipboardBlockedMessage)(text, paneId),
-        }),
+      void copyForProgram(text, paneId, (message) =>
+        self.send({ type: 'SHOW_STATUS_MESSAGE', text: message }),
       );
     });
   }),
