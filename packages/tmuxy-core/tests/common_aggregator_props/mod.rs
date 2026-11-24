@@ -194,8 +194,8 @@ pub fn seeded_aggregator() -> StateAggregator {
     });
     // %0's and %2's captures land, as on a real attach: until then a pane
     // that appeared drops its output (A9), and the properties need it
-    // reaching the emulator. %1's stays in flight, asked for twice, for the
-    // tests about a capture landing (`land_capture` lands it).
+    // reaching the emulator. %1's stays in flight, asked for twice and sent
+    // once, for the tests about a capture landing (`land_capture` lands it).
     for pane in ["0", "2"] {
         land_capture(&mut agg, pane);
     }

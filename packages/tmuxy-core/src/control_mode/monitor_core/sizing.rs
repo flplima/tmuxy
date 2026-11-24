@@ -17,14 +17,16 @@ pub(super) const MAX_RESIZE_ATTEMPTS: u8 = 3;
 
 /// `actual` is what tmux reports the window's grid to be (`None` before any
 /// pane of it has been seen), `asked` the size last requested, how many times
-/// running, and which `list-panes` report was current when it was last asked;
-/// `reports` is the report count now. tmux's report is the authority, because
-/// a `resizew` can be dropped.
+/// running, and how many `list-panes` had been sent when it was last asked;
+/// `reports` is how many of them tmux has answered now. tmux's report is the
+/// authority, because a `resizew` can be dropped.
 ///
-/// An ask is judged by the report that follows it: tmux reports nothing in
-/// the first steps of an attach, and counting steps spent the whole budget
-/// before the first report, leaving a phone-width client at the control-mode
-/// PTY's 200 columns.
+/// An ask is judged by the answer to a list sent after it: tmux reports
+/// nothing in the first steps of an attach, and counting steps spent the
+/// whole budget before the first report, leaving a phone-width client at the
+/// control-mode PTY's 200 columns. A list already on its way when the window
+/// was asked reports it as it was, and judged by that, every window the
+/// client resized was asked twice.
 pub(super) fn needs_resize(
     actual: Option<(u32, u32)>,
     desired: (u32, u32),
@@ -36,7 +38,7 @@ pub(super) fn needs_resize(
     }
     match asked {
         Some((prev, tries, asked_at)) if prev == desired => {
-            reports != asked_at && tries < MAX_RESIZE_ATTEMPTS
+            reports > asked_at && tries < MAX_RESIZE_ATTEMPTS
         }
         _ => true,
     }
@@ -100,6 +102,7 @@ impl<W> MonitorCore<W> {
         self.resize_attempts.retain(|wid, _| live.contains(wid));
         self.resize_given_up.retain(|wid| live.contains(wid));
         let reports = self.aggregator.pane_reports;
+        let sent = self.pane_lists_sent;
         let pending: Vec<&(WindowId, (u32, u32))> = desired
             .iter()
             .filter(|(wid, size)| {
@@ -144,11 +147,10 @@ impl<W> MonitorCore<W> {
             match self.resize_attempts.get_mut(wid) {
                 Some(entry) if entry.0 == *size => {
                     entry.1 = entry.1.saturating_add(1);
-                    entry.2 = reports;
+                    entry.2 = sent;
                 }
                 _ => {
-                    self.resize_attempts
-                        .insert(wid.clone(), (*size, 1, reports));
+                    self.resize_attempts.insert(wid.clone(), (*size, 1, sent));
                 }
             }
         }

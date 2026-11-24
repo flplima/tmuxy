@@ -230,10 +230,10 @@ impl WasmTmux {
     /// The native monitor's attach commands, with the window sized to
     /// `cols`x`rows`. The guest image bakes the config in, so there is nothing
     /// to source.
-    pub fn attach(&self, cols: u32, rows: u32) -> Vec<String> {
+    pub fn attach(&mut self, cols: u32, rows: u32) -> Vec<String> {
         self.inner
             .core
-            .attach_commands((cols, rows), AttachConfig::default())
+            .attach_commands((cols, rows), AttachConfig::default(), Instant::now())
     }
 
     #[wasm_bindgen(unchecked_return_type = "Feed")]
@@ -266,14 +266,11 @@ impl WasmTmux {
         to_js(&out)
     }
 
-    /// The full re-list (panes, windows, stash) the state is rebuilt from.
-    pub fn resync(&self) -> Vec<String> {
-        self.inner
-            .core
-            .aggregator()
-            .markers()
-            .window_relist_commands()
-            .to_vec()
+    /// The full re-list (panes, windows, stash) the state is rebuilt from, to
+    /// send now: tmux answers it before anything sent after it. It is the
+    /// paced link's next batch of reads (`MonitorCore::resync`).
+    pub fn resync(&mut self) -> Vec<String> {
+        self.inner.core.resync(Instant::now())
     }
 
     /// Follow `session` from now on: the client is about to switch to it.
@@ -490,14 +487,14 @@ mod tests {
     /// pane's write reach every client) included, panes listed before windows.
     #[test]
     fn the_attach_is_the_native_monitors() {
-        let s = WasmTmux::new("m");
+        let mut s = WasmTmux::new("m");
         let attach = s.attach(80, 30);
         assert!(
             attach.contains(&"set set-clipboard 'off'".to_string()),
             "{attach:?}"
         );
         assert!(attach.contains(&"resizew -t 'm' -x 80 -y 30".to_string()));
-        let relist = s.resync();
+        let relist = s.inner.core.aggregator().markers().window_relist_commands();
         let at = |command: &String| attach.iter().position(|c| c == command).expect("listed");
         assert!(at(&relist[0]) < at(&relist[1]) && at(&relist[1]) < at(&relist[2]));
     }

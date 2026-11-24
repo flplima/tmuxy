@@ -12,6 +12,9 @@
 //! while it is out is merged — each list once, each capture once — and sent
 //! when tmux has answered it, so every read asked for still goes out after
 //! the request, and the copy-mode poll never queues faster than tmux answers.
+//! The attach's lists are the first batch. A host's re-sync is the one batch
+//! that goes even with another out, since the host waits on a round trip
+//! behind it; what is asked for meanwhile waits for both.
 
 use super::*;
 use crate::constants::tmux_formats::TmuxList;
@@ -30,7 +33,8 @@ pub enum ReadPacing {
 
 #[derive(Debug, Default)]
 pub(super) struct ReadGate {
-    in_flight: bool,
+    /// Batches on the wire: one, or two while a re-sync is out beside one.
+    in_flight: usize,
     windows: bool,
     panes: bool,
     captures: Vec<String>,
@@ -52,10 +56,11 @@ impl ReadGate {
         }
     }
 
-    /// The lists in M2's order, then the captures (M3).
-    pub(super) fn take(&mut self, markers: &Markers) -> Option<Vec<String>> {
+    /// The lists in M2's order, then the captures (M3); `even_beside_one`
+    /// takes them with a batch out.
+    pub(super) fn take(&mut self, markers: &Markers, even_beside_one: bool) -> Option<Vec<String>> {
         let wanted = self.windows || self.panes || !self.captures.is_empty();
-        if self.in_flight || !wanted {
+        if (self.in_flight > 0 && !even_beside_one) || !wanted {
             return None;
         }
         let mut lines = if self.windows {
@@ -68,12 +73,12 @@ impl ReadGate {
         lines.append(&mut self.captures);
         self.windows = false;
         self.panes = false;
-        self.in_flight = true;
+        self.in_flight += 1;
         Some(lines)
     }
 
     pub(super) fn answered(&mut self) {
-        self.in_flight = false;
+        self.in_flight = self.in_flight.saturating_sub(1);
     }
 }
 
@@ -85,31 +90,72 @@ impl<W> MonitorCore<W> {
 
     pub(super) fn read(&mut self, commands: Vec<String>, actions: &mut Vec<Action<W>>) {
         match self.read_pacing {
-            ReadPacing::Immediate => actions.push(Action::Send(commands)),
+            ReadPacing::Immediate => {
+                self.count_lists(&commands);
+                actions.push(Action::Send(commands));
+            }
             ReadPacing::OneBatchInFlight => {
                 self.reads.want(self.aggregator.markers(), commands);
             }
         }
     }
 
-    pub(super) fn relists_behind(&mut self, relists: Vec<String>, now: Instant) -> Vec<String> {
+    /// Reads that go out with what the host sends now (a command's re-lists,
+    /// the attach's): as they are, or on a paced link as the next batch when
+    /// none is out, merged into it otherwise.
+    pub(super) fn reads_out(&mut self, reads: Vec<String>, now: Instant) -> Vec<String> {
         match self.read_pacing {
-            ReadPacing::Immediate => relists,
+            ReadPacing::Immediate => {
+                self.count_lists(&reads);
+                reads
+            }
             ReadPacing::OneBatchInFlight => {
-                self.reads.want(self.aggregator.markers(), relists);
+                self.reads.want(self.aggregator.markers(), reads);
                 self.next_batch(now).unwrap_or_default()
             }
         }
+    }
+
+    /// The full re-list a host asks for when it is about to wait on a round
+    /// trip behind it (a page's first frame, a resume, a session switch), to
+    /// send now. On a paced link it is a batch of its own, with the reads
+    /// that were waiting, even beside a batch already out: the host's wait
+    /// has to see it answered.
+    pub fn resync(&mut self, now: Instant) -> Vec<String> {
+        let relist = self.aggregator.markers().window_relist_commands().to_vec();
+        match self.read_pacing {
+            ReadPacing::Immediate => {
+                self.count_lists(&relist);
+                relist
+            }
+            ReadPacing::OneBatchInFlight => {
+                self.reads.want(self.aggregator.markers(), relist);
+                self.batch(now, true).unwrap_or_default()
+            }
+        }
+    }
+
+    fn count_lists(&mut self, lines: &[String]) {
+        let panes = self.aggregator.markers().list_command(TmuxList::Panes);
+        let sent = lines.iter().filter(|line| **line == panes).count() as u64;
+        self.pane_lists_sent = self.pane_lists_sent.wrapping_add(sent);
     }
 
     pub(super) fn flush_reads(&mut self, now: Instant) -> Option<Action<W>> {
         self.next_batch(now).map(Action::Send)
     }
 
+    fn next_batch(&mut self, now: Instant) -> Option<Vec<String>> {
+        self.batch(now, false)
+    }
+
     /// tmux answers commands in order, so the empty reply-wrapped command
     /// after the reads is answered once they all are.
-    fn next_batch(&mut self, now: Instant) -> Option<Vec<String>> {
-        let mut lines = self.reads.take(self.aggregator.markers())?;
+    fn batch(&mut self, now: Instant, even_beside_one: bool) -> Option<Vec<String>> {
+        let mut lines = self
+            .reads
+            .take(self.aggregator.markers(), even_beside_one)?;
+        self.count_lists(&lines);
         let id = self.fresh_reply_id();
         lines.extend(self.aggregator.markers().reply_wrapped_lines(id, ""));
         self.replies.insert(id, (Waiter::Reads, now));

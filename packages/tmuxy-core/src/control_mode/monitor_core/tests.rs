@@ -15,8 +15,8 @@ pub(super) fn core(session: &str) -> (Core, Instant) {
 }
 
 fn initial_resize(session: &str) -> String {
-    let (core, _) = core(session);
-    core.attach_commands((200, 50), AttachConfig::default())
+    let (mut core, now) = core(session);
+    core.attach_commands((200, 50), AttachConfig::default(), now)
         .into_iter()
         .find(|c| c.starts_with("resizew"))
         .expect("the attach sizes the session")
@@ -195,13 +195,14 @@ pub(super) fn with_a_pane(core: &mut Core, now: Instant) {
 /// pane's OSC 52 reached every client through the server's paste buffer.
 #[test]
 fn an_attach_enforces_the_settings_after_the_config_and_lists_panes_first() {
-    let (core, _) = core("app");
+    let (mut core, now) = core("app");
     let cmds = core.attach_commands(
         (80, 24),
         AttachConfig {
             config: vec!["source-file x".to_string()],
             host: vec!["setenv -g X 1".to_string()],
         },
+        now,
     );
     let at = |wanted: &str| {
         cmds.iter()

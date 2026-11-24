@@ -168,10 +168,11 @@ impl StateAggregator {
         let mut queued = Vec::new();
         for pane_id in pane_ids {
             if self.pending_captures.contains(pane_id) {
-                // The capture in flight shows the pane as it was when it was
-                // issued, not as the change behind this request leaves it:
-                // one more follows once it lands (see `on_capture`).
-                self.recapture.insert(pane_id.clone());
+                // The change behind this request was reported before the
+                // pending capture's answer, so tmux made it before it ran
+                // that capture: tmux runs a client's commands in the order
+                // sent and writes their output and its notifications in the
+                // order they happen. The capture on its way shows it.
                 continue;
             }
             debug!(pane = %pane_id, "capture requested");
@@ -221,7 +222,6 @@ impl StateAggregator {
     pub(super) fn prune_capture_bookkeeping(&mut self) {
         self.pending_captures
             .retain(|id| self.panes.contains_key(id));
-        self.recapture.retain(|id| self.panes.contains_key(id));
         self.panes_awaiting_capture
             .retain(|id| self.panes.contains_key(id));
     }
@@ -310,10 +310,17 @@ impl StateAggregator {
     /// untagged that turns out to be a sidebar or a float.
     pub fn window_setup_commands(&mut self) -> Vec<String> {
         let mut cmds = Vec::new();
+        let mut border_rows = Vec::new();
         for (id, window) in &self.windows {
             let now = WindowSetup::of(window);
             let before = self.window_setup.insert(id.clone(), now);
+            if let Some(top) = now.border_top().filter(|_| before != Some(now)) {
+                border_rows.push((id.clone(), top));
+            }
             cmds.extend(window_setup(id, before, now));
+        }
+        for (id, top) in border_rows {
+            self.border_row_set(&id, top);
         }
         cmds
     }
@@ -357,6 +364,16 @@ pub(super) enum WindowSetup {
 }
 
 impl WindowSetup {
+    /// Whether `window_setup` gives the window `pane-border-status top`;
+    /// `None` when it leaves the option alone.
+    fn border_top(self) -> Option<bool> {
+        match self {
+            WindowSetup::Unlisted => None,
+            WindowSetup::Tab => Some(true),
+            WindowSetup::Sidebar | WindowSetup::Float => Some(false),
+        }
+    }
+
     fn of(window: &WindowState) -> Self {
         if !window.listed {
             return WindowSetup::Unlisted;

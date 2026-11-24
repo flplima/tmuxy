@@ -127,7 +127,7 @@ fn the_version_the_server_reports_decides_what_is_re_listed() {
         let (mut core, now) = core("app");
         let ask = core.aggregator().markers().version_read_command();
         assert!(core
-            .attach_commands((80, 24), AttachConfig::default())
+            .attach_commands((80, 24), AttachConfig::default(), now)
             .contains(&ask));
         if let Some(answer) = answer {
             let event = marked(&core, VERSION_MARKER, answer);
