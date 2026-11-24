@@ -3,36 +3,25 @@ import { GuestEngine } from '../../guest/GuestEngine';
 import { V86TmuxAdapter } from '../V86TmuxAdapter';
 import { attachLine } from '../v86Guest';
 
-const { fetched, restored } = vi.hoisted(() => ({
-  fetched: [] as string[],
-  restored: [] as string[],
-}));
+const { asked } = vi.hoisted(() => ({ asked: [] as string[] }));
 
-// A machine with nothing in it, whose states are their own URLs: what is
-// under test is which state a start is handed and which session it attaches.
-vi.mock('../v86Guest', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../v86Guest')>()),
-  createV86Emulator: async () => ({
-    emu: {
-      add_listener: () => {},
-      serial0_send: () => {},
-      run: async () => {},
-      destroy: async () => {},
-    },
-    loaded: Promise.resolve(),
+// Machines with nothing in them: what is under test is which state a start
+// asks its machine for. Fetching and keeping each state is the machine
+// worker's (machineHost.test.ts).
+vi.mock('../machine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../machine')>()),
+  spawnV86Machine: () => ({
+    boot: async (url: string) => void asked.push(`boot ${url}`),
+    restore: async (url: string) => void asked.push(`restore ${url}`),
+    write: () => {},
+    watchScreen: () => {},
+    destroy: () => {},
   }),
-  fetchGuestSnapshot: async (url: string) => {
-    fetched.push(url);
-    return new TextEncoder().encode(url).buffer;
-  },
-  restoreSnapshot: async (_emu: unknown, bytes: ArrayBuffer) => {
-    restored.push(new TextDecoder().decode(bytes));
-  },
 }));
 
 /** The attach and the wasm core, which need a guest that answers. */
 interface Attach {
-  start(initCommands: string[], attachLine: string | null): Promise<void>;
+  start(initCommands: string[], attachLine: string): Promise<void>;
   freshCore(session: string): Promise<void>;
 }
 const attach = GuestEngine.prototype as unknown as Attach;
@@ -48,8 +37,7 @@ async function connectAndLeave(adapter: V86TmuxAdapter): Promise<void> {
 }
 
 beforeEach(() => {
-  fetched.length = 0;
-  restored.length = 0;
+  asked.length = 0;
   start.mockClear();
   freshCore.mockClear();
 });
@@ -59,7 +47,7 @@ describe('the state a v86 start restores', () => {
     await connectAndLeave(new V86TmuxAdapter({ snapshot: 'demo' }));
     await connectAndLeave(new V86TmuxAdapter());
 
-    expect(restored).toEqual([DEMO, GENERIC]);
+    expect(asked).toEqual([`boot ${DEMO}`, `boot ${GENERIC}`]);
     expect(freshCore.mock.calls).toEqual([['tmuxy'], ['m']]);
     expect(start.mock.calls.map(([, line]) => line)).toEqual([
       attachLine('tmuxy'),
@@ -67,13 +55,17 @@ describe('the state a v86 start restores', () => {
     ]);
   });
 
-  it('is the one each story names on a shared engine, each fetched once', async () => {
+  it('is the one each story names on a shared engine, which keeps its machine', async () => {
     for (const snapshot of ['generic', 'demo', 'generic', 'demo'] as const) {
       await connectAndLeave(new V86TmuxAdapter({ shared: true, snapshot }));
     }
 
-    expect(restored).toEqual([GENERIC, DEMO, GENERIC, DEMO]);
-    expect(fetched).toEqual([GENERIC, DEMO]);
+    expect(asked).toEqual([
+      `boot ${GENERIC}`,
+      `restore ${DEMO}`,
+      `restore ${GENERIC}`,
+      `restore ${DEMO}`,
+    ]);
     expect(start.mock.calls.map(([, line]) => line)).toEqual(
       ['m', 'tmuxy', 'm', 'tmuxy'].map(attachLine),
     );

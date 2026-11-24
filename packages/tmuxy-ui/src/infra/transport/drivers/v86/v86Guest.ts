@@ -1,4 +1,6 @@
-// The v86 machine: its emulator, BIOS, kernel and pre-booted snapshot.
+// The v86 machine: its emulator and pre-booted states. Built and driven
+// inside the machine's worker (machineHost.ts); the page names the state and
+// spells the lines it sends.
 import type { GuestSnapshot } from '../guest/GuestEngine';
 import SNAPSHOTS from './snapshots.json';
 
@@ -26,14 +28,19 @@ export function attachLine(session: string): string {
 
 export interface V86Emulator {
   add_listener(event: string, cb: (arg: number) => void): void;
+  /** Bytes as a string of one char per byte (`byteString`). */
   serial0_send(data: string): void;
   restore_state(state: ArrayBuffer): Promise<void>;
   /** Start the CPU. Used to boot from an explicitly-restored snapshot (the
-   *  constructor runs with `autostart: false`; see doBoot). */
+   *  constructor runs with `autostart: false`; see `boot` in machineHost.ts). */
   run(): Promise<void>;
-  destroy?: () => Promise<void>;
-  /** v86's ScreenAdapter — present once a `screen_container` was supplied. */
-  screen_adapter?: { pause(): void; continue(): void };
+  /** With no `screen_container` (a worker has no DOM), v86's text-only
+   *  screen: it keeps the console's characters, and is told where the cursor
+   *  moves without keeping it. Made in v86's own init: there once `loaded`. */
+  screen_adapter: {
+    get_text_screen(): string[];
+    update_cursor(row: number, col: number): void;
+  };
   /** The emulator's internals; `restoreSnapshot` sets the guest's TSC through them. */
   v86: { cpu: V86Cpu };
 }
@@ -63,13 +70,6 @@ export async function restoreSnapshot(emu: V86Emulator, snapshot: ArrayBuffer): 
   await emu.restore_state(snapshot.slice(0));
 }
 
-export function createDetachedScreen(): HTMLElement {
-  const el = document.createElement('div');
-  el.appendChild(document.createElement('div'));
-  el.appendChild(document.createElement('canvas'));
-  return el;
-}
-
 /**
  * Constructed without `initial_state` and without autostart: v86 does not
  * decompress an `initial_state` URL (build/libv86: `f.url.endsWith(".zst") &&
@@ -78,23 +78,24 @@ export function createDetachedScreen(): HTMLElement {
  * — with the snapshot bytes as `fetchGuestSnapshot` got them. No kernel,
  * BIOS or command line is given: the machine never boots, it resumes.
  */
-export async function createV86Emulator(
-  screen: HTMLElement,
-): Promise<{ emu: V86Emulator; loaded: Promise<void> }> {
+export async function createV86Emulator(): Promise<{ emu: V86Emulator; loaded: Promise<void> }> {
   // Served, like the engine's glue, rather than bundled: v86 takes its Node
   // branches wherever `process` exists, and a bundler's `process` shim is
   // enough to send it there.
-  const { V86 } = (await import(/* @vite-ignore */ /* webpackIgnore: true */ V86_JS)) as {
-    V86: new (opts: Record<string, unknown>) => V86Emulator;
-  };
+  const [{ V86 }, wasm] = await Promise.all([
+    import(/* @vite-ignore */ /* webpackIgnore: true */ V86_JS) as Promise<{
+      V86: new (opts: Record<string, unknown>) => V86Emulator;
+    }>,
+    compileV86Wasm(),
+  ]);
   const emu: V86Emulator = new V86({
-    wasm_path: V86_WASM,
+    wasm_fn: async (imports: WebAssembly.Imports) =>
+      (await WebAssembly.instantiate(wasm, imports)).exports,
     filesystem: {},
     memory_size: 64 * 1024 * 1024,
     vga_memory_size: 2 * 1024 * 1024,
     disable_keyboard: true,
     disable_mouse: true,
-    screen_container: screen,
     autostart: false,
   });
   // Machine-initialized signal (fired after v86's own init, before any run):
@@ -102,9 +103,19 @@ export async function createV86Emulator(
   const loaded = new Promise<void>((resolve) =>
     emu.add_listener('emulator-loaded', () => resolve()),
   );
-  // Nobody is looking at the VGA console yet — see `screen`.
-  emu.screen_adapter?.pause();
   return { emu, loaded };
+}
+
+/**
+ * Compiled here rather than by v86 (`wasm_fn` above): v86's own loader logs a
+ * failed download and never finishes, which a page waiting on the machine
+ * could only see as a hang. A download or compile that fails here fails the
+ * boot with its reason.
+ */
+async function compileV86Wasm(): Promise<WebAssembly.Module> {
+  const res = await fetch(V86_WASM);
+  if (!res.ok) throw new Error(`${V86_WASM}: HTTP ${res.status}`);
+  return WebAssembly.compile(await res.arrayBuffer());
 }
 
 /** Fetch the machine state at `url`, zstd-compressed; `restore_state` inflates it. */
@@ -115,53 +126,10 @@ export async function fetchGuestSnapshot(url: string): Promise<ArrayBuffer> {
 }
 
 /**
- * Enqueue as UTF-8: v86's serial0_send writes one byte per JS char
- * (charCode & 0xFF), so multibyte characters (CJK from IME composition,
- * emoji in pasted text) must be expanded to their UTF-8 bytes here — and
- * the pacing must count bytes, not UTF-16 units.
+ * A control-mode line as the bytes the UART carries: UTF-8, so multibyte
+ * characters (CJK from IME composition, emoji in pasted text) reach the guest
+ * whole, and the pacing counts bytes, not UTF-16 units.
  */
-export function encodeUtf8SerialBytes(cmd: string): string {
-  const text = cmd.endsWith('\n') ? cmd : `${cmd}\n`;
-  const utf8 = new TextEncoder().encode(text);
-  let bin = '';
-  for (const b of utf8) bin += String.fromCharCode(b);
-  return bin;
-}
-
-/**
- * Collects the guest's serial output, which v86 emits one byte per event, and
- * hands each burst to `receive` as one string decoded in a single call. The
- * decoder streams, so a multibyte character split across two bursts survives;
- * `reset` drops the bytes and any half character of the machine it replaces.
- */
-export function createSerialPump(receive: (text: string) => void, delayMs = 8) {
-  let bytes = new Uint8Array(4096);
-  let length = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let decoder = new TextDecoder();
-
-  const flush = () => {
-    timer = null;
-    const text = decoder.decode(bytes.subarray(0, length), { stream: true });
-    length = 0;
-    receive(text);
-  };
-
-  return {
-    push(byte: number): void {
-      if (length === bytes.length) {
-        const grown = new Uint8Array(length * 2);
-        grown.set(bytes);
-        bytes = grown;
-      }
-      bytes[length++] = byte;
-      if (timer === null) timer = setTimeout(flush, delayMs);
-    },
-    reset(): void {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-      length = 0;
-      decoder = new TextDecoder();
-    },
-  };
+export function serialLine(cmd: string): Uint8Array {
+  return new TextEncoder().encode(cmd.endsWith('\n') ? cmd : `${cmd}\n`);
 }

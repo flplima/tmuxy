@@ -1,8 +1,11 @@
 /**
  * Shows the raw tmux TUI behind a v86 story: a second, ordinary tmux client
- * on the guest's VGA text console (/dev/tty1), as v86's ScreenAdapter paints
- * it. No tmuxy code is in that path, so it is the reference to compare the
- * React rendering against.
+ * on the guest's VGA text console (/dev/tty1), as the machine reads it back
+ * (`V86Engine.watchScreen`). No tmuxy code is in that path, so it is the
+ * reference to compare the React rendering against. The machine runs in a
+ * worker, where v86 has no DOM to paint and keeps the console as text: what
+ * crosses, and is drawn here, is its characters and its cursor. tmux's
+ * colours (the status line, the active border) and blinking do not.
  *
  * The client is read-only (`-r`) and excluded from window sizing
  * (`-f ignore-size`), so it never steals input or resizes the window the
@@ -23,6 +26,7 @@
  */
 
 import { getSharedEngine, type V86Engine } from '../infra/transport/drivers/v86/V86Engine';
+import type { VgaScreen } from '../infra/transport/drivers/v86/machine';
 
 const TTY = '/dev/tty1';
 // The tty is opened READ-WRITE as stdin (`<>`): the client hands that fd to the
@@ -39,36 +43,20 @@ export interface VgaMirrorOptions {
 
 export class VgaMirror {
   private readonly engine: V86Engine = getSharedEngine();
+  private readonly screen = createScreen();
   private host: HTMLElement | null = null;
   private alignTo: HTMLElement | null = null;
   private offReady: (() => void) | null = null;
+  private stopWatching: (() => void) | null = null;
   private realignTimer: ReturnType<typeof setInterval> | null = null;
-  private revealed = false;
 
   mount(host: HTMLElement, options: VgaMirrorOptions = {}): void {
     this.host = host;
     this.alignTo = options.alignTo ?? null;
-    // Revealed only once the engine is booted: a screen_container in a visible
-    // tree during a cold boot makes v86 paint the console every frame while it
-    // restores the snapshot, slow enough that the app's bounded attach window
-    // elapses before tmux answers and the story boots to a bare 0-pane shell.
-    this.offReady = this.engine.onReady(() => {
-      this.reveal();
-      this.attach();
-    });
-    if (this.engine.isBooted()) {
-      this.reveal();
-      this.attach();
-    }
-  }
-
-  private reveal(): void {
-    if (this.revealed || !this.host) return;
-    this.revealed = true;
-    const screen = this.engine.getScreen();
-    screen.classList.add('vga-screen');
-    this.host.appendChild(screen);
-    this.engine.setScreenPainting(true);
+    host.appendChild(this.screen);
+    this.stopWatching = this.engine.watchScreen((screen) => paint(this.screen, screen));
+    this.offReady = this.engine.onReady(() => this.attach());
+    if (this.engine.isBooted()) this.attach();
     if (this.alignTo) {
       this.realign();
       this.realignTimer = setInterval(() => this.realign(), REALIGN_MS);
@@ -78,12 +66,12 @@ export class VgaMirror {
   unmount(): void {
     this.offReady?.();
     this.offReady = null;
+    this.stopWatching?.();
+    this.stopWatching = null;
     if (this.realignTimer) clearInterval(this.realignTimer);
     this.realignTimer = null;
     if (this.engine.isBooted()) this.engine.send(DETACH_VGA);
-    this.engine.setScreenPainting(false);
-    this.engine.getScreen().remove();
-    this.revealed = false;
+    this.screen.remove();
     this.host = null;
     this.alignTo = null;
   }
@@ -114,4 +102,30 @@ export class VgaMirror {
     this.host.style.left = `${left - origin.left + cellW / 2}px`;
     this.host.style.top = `${top - origin.top}px`;
   }
+}
+
+/** The shape v86's own text screen had, which tmuxView.css styles: a <div> of
+ *  one <div> per row, the cursor a `.cursor` span on its row. */
+function createScreen(): HTMLElement {
+  const screen = document.createElement('div');
+  screen.className = 'vga-screen';
+  screen.appendChild(document.createElement('div'));
+  return screen;
+}
+
+function paint(screen: HTMLElement, { rows, cursor }: VgaScreen): void {
+  const text = screen.firstElementChild as HTMLElement;
+  while (text.childElementCount > rows.length) text.lastElementChild?.remove();
+  while (text.childElementCount < rows.length) text.appendChild(document.createElement('div'));
+  rows.forEach((row, i) => {
+    const line = text.children[i] as HTMLElement;
+    if (cursor?.row !== i) {
+      line.textContent = row;
+      return;
+    }
+    const mark = document.createElement('span');
+    mark.className = 'cursor';
+    mark.textContent = row[cursor.col] ?? ' ';
+    line.replaceChildren(row.slice(0, cursor.col), mark, row.slice(cursor.col + 1));
+  });
 }
