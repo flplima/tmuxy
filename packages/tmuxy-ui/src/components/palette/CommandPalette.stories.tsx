@@ -11,6 +11,7 @@ import panes from '../../stories/fixtures/gen/panes.json';
 import tabs from '../../stories/fixtures/gen/tabs.json';
 import { openAppMenu, paneGroups, tabWindows } from '../../stories/appStoryHelpers';
 import { appContext } from '../../stories/storyApp';
+import { isMacPlatform } from '../../infra/platform';
 
 const held = adapterHolder();
 const meta: Meta<typeof FixtureApp> = {
@@ -67,7 +68,9 @@ async function appReady(canvasElement: HTMLElement) {
   return canvas;
 }
 
-const openPalette = (user: User) => user.keyboard('{Control>}{Shift>}K{/Shift}{/Control}');
+/** The chord the app binds on this platform (`isPaletteChord`): Cmd+K on a Mac, Ctrl+Shift+K elsewhere. */
+const openPalette = (user: User) =>
+  user.keyboard(isMacPlatform() ? '{Meta>}K{/Meta}' : '{Control>}{Shift>}K{/Shift}{/Control}');
 
 export const TypingSplitOffersBothSplits: Story = {
   args: {
@@ -79,7 +82,7 @@ export const TypingSplitOffersBothSplits: Story = {
     docs: {
       description: {
         story:
-          'Ctrl+Shift+K opens the palette with the keyboard in its box. Typing "split" narrows the list to the two splits, each with the key that does the same, and Enter runs the one highlighted: the pane is split and the palette is gone.',
+          'Cmd+K (Ctrl+Shift+K off a Mac) opens the palette with the keyboard in its box. Typing "split" narrows the list to the two splits, each with the key that does the same, and Enter runs the one highlighted: the pane is split and the palette is gone.',
       },
     },
   },
