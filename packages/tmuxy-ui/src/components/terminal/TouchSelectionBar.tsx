@@ -14,7 +14,7 @@ export function TouchSelectionBar({ paneId }: { paneId: PaneId }) {
   const cancel = useCallback(() => send({ type: 'EXIT_COPY_MODE', paneId }), [send, paneId]);
 
   return (
-    <div className="touch-selection-bar" role="toolbar" aria-label="Selection">
+    <div className="touch-selection-bar" role="toolbar" aria-label="Selection" data-own-touch>
       <button
         type="button"
         className="touch-selection-button"

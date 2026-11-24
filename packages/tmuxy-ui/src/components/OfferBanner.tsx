@@ -28,6 +28,7 @@ export const OfferBanner = memo(function OfferBanner({ paneId }: { paneId: PaneI
       role="status"
       aria-label={`Restored command: ${offer.command}`}
       data-pane-offer={paneId}
+      data-own-touch
       // The pane keeps the keyboard, so Enter and Escape still reach it.
       onMouseDown={(e) => e.preventDefault()}
     >

@@ -30,4 +30,12 @@ export const dot = (className: string): string => `.${className}`;
  */
 export const PANE_SURFACE = '.pane-wrapper[data-pane-id], .float-container[data-pane-id]';
 
+/**
+ * Controls drawn inside a pane that take a finger's tap themselves: a
+ * question's buttons, a restore's offer, the selection's Copy and Cancel.
+ * The pane's own touch handling (`usePaneTouch`) leaves a touch that starts
+ * on one alone, or it would suppress the tap's click.
+ */
+export const OWN_TOUCH = '[data-own-touch]';
+
 export const TILED_PANE = '.pane-layout-item[data-pane-id]';
