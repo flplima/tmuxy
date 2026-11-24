@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import {
+  isPinchZoomed,
   pinViewport,
   standaloneShortfall,
   useCursorInView,
@@ -182,6 +183,14 @@ describe('useCursorInView', () => {
     // The cursor moves: its column is brought back into view.
     rerender({ key: '%1 0 4', x: xRef });
     expect(scrolledTo).toBe(0);
+  });
+});
+
+describe('isPinchZoomed', () => {
+  it('is a scale above 1, past rounding', () => {
+    expect(isPinchZoomed(1)).toBe(false);
+    expect(isPinchZoomed(1.005)).toBe(false);
+    expect(isPinchZoomed(1.5)).toBe(true);
   });
 });
 

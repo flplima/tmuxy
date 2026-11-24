@@ -67,6 +67,11 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
       const t = e.touches[0];
       const onTabs = (e.target as Element | null)?.closest?.('.phone-tabs');
       if (!t || e.touches.length !== 1 || settling || onTabs) {
+        // A second finger makes it the browser's pinch: a slide begun goes back.
+        if (startRef.current && intentRef.current === 'swipe') {
+          moveTrack(0, 'none');
+          setNeighbor(null);
+        }
         startRef.current = null;
         return;
       }

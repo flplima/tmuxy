@@ -73,8 +73,9 @@
   background-color: transparent;
 }
 
+/* One finger is the app's (usePaneTouch.ts); two are the browser's pinch. */
 .pane-wrapper {
-  touch-action: none;
+  touch-action: pinch-zoom;
 }
 
 .pane-wrapper:focus {

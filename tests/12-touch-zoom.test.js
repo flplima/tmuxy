@@ -20,11 +20,19 @@ const {
   typeOnVirtualKeyboard,
   keyRowCentre,
   doubleTapTerminal,
+  pinch,
+  swipe,
   boxOf,
   waitForPhoneGrid,
 } = require('./helpers/phone');
 const { showKeyboard, hideKeyboard } = require('./helpers/keyboard-mock');
-const { describeE2E, waitForCondition } = require('./helpers');
+const {
+  describeE2E,
+  waitForCondition,
+  waitForTerminalText,
+  waitForCopyMode,
+  getCopyModeState,
+} = require('./helpers');
 
 const SIDEWAYS = { width: 844, height: 390 };
 
@@ -134,6 +142,131 @@ describeE2E(
         barBefore.top,
         0,
       );
+    }, 120000);
+
+    // The browser's own zoom, which the app's double tap is not: the page's
+    // pinch. A touch the app claims (a preventDefault) is one the browser
+    // cannot pinch with, so the page zoomed in and could not zoom back out.
+    test("two fingers are the browser's pinch, in and back out, on the terminal and on the bottom view: the app claims none of it, and one finger still scrolls", async () => {
+      await ctx.setupPage();
+      await waitForPhoneGrid(ctx.page);
+
+      // History, so a finger dragged down on the pane would open the scroll view.
+      await keyboardUp(ctx.page, 300);
+      await typeOnVirtualKeyboard(ctx.page, 'for i in $(seq 0 79); do echo "line-$i"; done\n');
+      await waitForTerminalText(ctx.page, 'line-79', 20000);
+      await hideKeyboard(ctx.page);
+      const key = await keyRowCentre(ctx.page, '⌨');
+      await ctx.page.touchscreen.tap(key.x, key.y);
+      const tab = await ctx.page.evaluate(() => window.app.view().activeTabId);
+
+      // Every touch event with two fingers in it, and how many of them a
+      // handler on the way up (the pane's, the view's) took from the browser.
+      await ctx.page.evaluate(() => {
+        window.__twoFingers = { seen: 0, prevented: 0 };
+        for (const type of ['touchstart', 'touchmove', 'touchend']) {
+          window.addEventListener(type, (e) => {
+            if (e.touches.length + (type === 'touchend' ? e.changedTouches.length : 0) < 2) return;
+            window.__twoFingers.seen += 1;
+            if (e.defaultPrevented) window.__twoFingers.prevented += 1;
+          });
+        }
+      });
+      const twoFingers = () => ctx.page.evaluate(() => window.__twoFingers);
+
+      // The page's zoom, as the browser draws it.
+      const scale = () => ctx.page.evaluate(() => window.visualViewport.scale);
+      const zoomTo = (zoomedIn, where) =>
+        waitForCondition(
+          ctx.page,
+          async () => (await scale()) > 1.2 === zoomedIn,
+          5000,
+          async () =>
+            `a pinch on ${where} to zoom the page ${zoomedIn ? 'in' : 'back out'} (scale ${await scale()})`,
+        );
+
+      // On the bottom view, the fingers sideways, as its slide between views goes.
+      const bottom = await boxOf(ctx.page, '.phone-bottom-stage');
+      const y = bottom.top + bottom.height / 2;
+      const along = (f) => bottom.left + bottom.width * f;
+      const near = [
+        { x: along(0.45), y },
+        { x: along(0.55), y },
+      ];
+      const far = [
+        { x: along(0.1), y },
+        { x: along(0.9), y },
+      ];
+      // Whether the pane takes a finger landing on it from the browser (the
+      // hold's guard against the long press): on iOS a first finger taken so
+      // takes the whole gesture, and a pinch on the terminal never zoomed back out.
+      const paneTakesFinger = () =>
+        ctx.page.evaluate(() => {
+          const wrapper = document.querySelector('.pane-active .pane-wrapper');
+          const r = wrapper.getBoundingClientRect();
+          const touch = new Touch({
+            identifier: 99,
+            target: wrapper,
+            clientX: r.left + r.width / 2,
+            clientY: r.top + r.height / 2,
+          });
+          const down = new TouchEvent('touchstart', {
+            touches: [touch],
+            targetTouches: [touch],
+            changedTouches: [touch],
+            bubbles: true,
+            cancelable: true,
+          });
+          wrapper.dispatchEvent(down);
+          const up = new TouchEvent('touchcancel', { changedTouches: [touch], bubbles: true });
+          wrapper.dispatchEvent(up);
+          return down.defaultPrevented;
+        });
+      expect(await paneTakesFinger()).toBe(true);
+      await pinch(ctx.page, near, far);
+      await zoomTo(true, 'the bottom view');
+      expect(await paneTakesFinger()).toBe(false);
+      await pinch(ctx.page, far, near);
+      await zoomTo(false, 'the bottom view');
+      expect(await paneTakesFinger()).toBe(true);
+      // On the terminal, a pinch in slower than a hold, its first finger the
+      // upper one coming down, as the finger that opens the scroll view does.
+      const pane = await boxOf(ctx.page, '.pane-active [role="log"]');
+      const x = pane.left + pane.width / 2;
+      const across = (f) => pane.top + pane.height * f;
+      await pinch(
+        ctx.page,
+        [
+          { x, y: across(0.2) },
+          { x, y: across(0.8) },
+        ],
+        [
+          { x, y: across(0.45) },
+          { x, y: across(0.55) },
+        ],
+        48,
+      );
+
+      // None of it was the app's: no handler took a two-finger touch from
+      // the browser, no hold, scroll view or tab slide began.
+      const seen = await twoFingers();
+      expect(seen.seen).toBeGreaterThan(40);
+      expect(seen.prevented).toBe(0);
+      expect(await getCopyModeState(ctx.page)).toBeNull();
+      expect(await ctx.page.evaluate(() => window.app.view().activeTabId)).toBe(tab);
+      // The terminal lets the browser pinch, as `touch-action` tells it
+      // before any handler runs. (Chromium also drops a pinch whose first
+      // finger's touchstart was taken — the hold's guard against the long
+      // press — so the zoom itself is asserted on the bottom view.)
+      expect(
+        await ctx.page.evaluate(
+          () => getComputedStyle(document.querySelector('.pane-active .pane-wrapper')).touchAction,
+        ),
+      ).toBe('pinch-zoom');
+
+      // One finger is still the app's: dragged down, it opens the scroll view.
+      await swipe(ctx.page, x, pane.top + pane.height * 0.25, pane.top + pane.height * 0.85);
+      expect((await waitForCopyMode(ctx.page, true, 15000)).mode).toBe('scroll');
     }, 120000);
   },
 );

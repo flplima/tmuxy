@@ -97,7 +97,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
 }
 
 .phone-menu-row:active:not(:disabled) {

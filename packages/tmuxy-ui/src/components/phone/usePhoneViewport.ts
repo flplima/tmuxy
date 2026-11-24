@@ -69,6 +69,11 @@ export interface ViewportPin {
 /** A pinch zoom shows less of the page; anything over this is one. */
 const ZOOM_EPSILON = 0.01;
 
+/** The page is pinch-zoomed: the visual viewport's scale is above 1. */
+export function isPinchZoomed(scale = globalThis.visualViewport?.scale ?? 1): boolean {
+  return scale > 1 + ZOOM_EPSILON;
+}
+
 /**
  * What the app pins itself to. Unzoomed, the visual viewport. Pinch-zoomed it
  * is smaller by the zoom whatever the keyboard does, and its offset moves with
@@ -77,7 +82,7 @@ const ZOOM_EPSILON = 0.01;
  * of `inner`, and it shrinks the app by that much, the top left where it was.
  */
 export function pinViewport(read: ViewportReading, last: ViewportPin): ViewportPin {
-  if (read.scale <= 1 + ZOOM_EPSILON) {
+  if (!isPinchZoomed(read.scale)) {
     return {
       height: read.height,
       top: read.offsetTop,

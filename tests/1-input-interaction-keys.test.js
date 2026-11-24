@@ -224,13 +224,14 @@ describeE2E('Scenario 21: Touch Scrolling', {}, (ctx) => {
     await ctx.setupPage();
     await assertContentMatch(ctx.page, 'Scenario 21 setup');
 
-    // Step 1: Verify touch-action: none is set on pane-wrapper
+    // Step 1: the pane takes every one-finger gesture from the browser and
+    // leaves it only the two-finger pinch (touch-action: pinch-zoom)
     const touchAction = await ctx.page.evaluate(() => {
       const wrapper = document.querySelector('.pane-wrapper');
       if (!wrapper) return null;
       return getComputedStyle(wrapper).touchAction;
     });
-    expect(touchAction).toBe('none');
+    expect(touchAction).toBe('pinch-zoom');
 
     // Step 2: Generate scrollback history for copy-mode scroll test
     // Wait for terminal content to stabilize after sourceConfig (move-window triggers re-render)

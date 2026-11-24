@@ -19,6 +19,9 @@
  *   (components/terminal/TouchSelectionBar) end it.
  * - A sideways slide pulls the next tab in, as the desktop's two-finger
  *   slide does (GESTURE_SWIPE, machines/gestures/gestureActor.ts).
+ *
+ * Two fingers are not the app's: a second finger ends whatever the first
+ * began, and the pinch is the browser's zoom (`touch-action: pinch-zoom`).
  */
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
@@ -43,6 +46,7 @@ import {
 } from '../phone/touchGesture';
 import type { PaneId } from '../../domain/ids';
 import { OWN_TOUCH } from '../../infra/dom/terminalDom';
+import { isPinchZoomed } from '../phone/usePhoneViewport';
 
 const nextFrame = Effect.async<number>((resume) => {
   const id = requestAnimationFrame((t) => resume(Effect.succeed(t)));
@@ -215,9 +219,24 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     [send, paneId, pixelToCell, paneHeight, copyModeActive],
   );
 
+  // The finger's gesture ends unfinished: the browser took the touch (a
+  // system gesture, a dialog), or a second finger made it a pinch, which is
+  // the browser's zoom.
+  const letGo = useCallback(() => {
+    if (!gestureRef.current) return;
+    gestureRef.current = false;
+    cancelHold();
+    if (intentRef.current === 'swipe') send({ type: 'GESTURE_SWIPE_END', speed: 0 });
+    intentRef.current = 'undecided';
+    startRef.current = null;
+  }, [cancelHold, send]);
+
   const handleTouchStart = useCallback(
     (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1) {
+        letGo();
+        return;
+      }
       // A preventDefault here would suppress the click of a control drawn
       // over the pane: a question's answer, an offer, Copy and Cancel.
       if (e.target instanceof Element && e.target.closest(OWN_TOUCH)) return;
@@ -235,7 +254,10 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       velocitySamplesRef.current = [{ t: e.timeStamp, y: touch.clientY }];
       slideSamplesRef.current = [start];
 
-      if (canHold && !phoneZoomed) {
+      // Pinch-zoomed, a finger is left to the browser: on iOS a first finger
+      // whose touchstart was cancelled takes the whole gesture from it, so a
+      // pinch back out would never zoom.
+      if (canHold && !phoneZoomed && !isPinchZoomed()) {
         // Otherwise a finger resting on text is the browser's long press (its
         // own selection, or a context menu), which cancels the touch.
         e.preventDefault();
@@ -245,7 +267,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
         }, HOLD_MS);
       }
     },
-    [cancelMomentum, cancelHold, canHold, phoneZoomed, beginHold],
+    [cancelMomentum, cancelHold, canHold, phoneZoomed, beginHold, letGo],
   );
 
   const handleTouchMove = useCallback(
@@ -434,20 +456,10 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     ],
   );
 
-  // The browser took the touch (a system gesture, a dialog).
-  const handleTouchCancel = useCallback(() => {
-    if (!gestureRef.current) return;
-    gestureRef.current = false;
-    cancelHold();
-    if (intentRef.current === 'swipe') send({ type: 'GESTURE_SWIPE_END', speed: 0 });
-    intentRef.current = 'undecided';
-    startRef.current = null;
-  }, [cancelHold, send]);
-
   return {
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,
-    handleTouchCancel,
+    handleTouchCancel: letGo,
   };
 }
