@@ -358,6 +358,58 @@ pub(crate) fn status_is_for(status: &str, pane_state: Option<&str>) -> bool {
         .is_some_and(|state| pane_state == Some(state.pane_state().as_str()))
 }
 
+/// What a blocked program waits for, as a report body `@tmuxy-pane-status`
+/// holds (`state=blocked:kind=question:app=claude:msg=<base64>`): an agent's
+/// hook says it this way, so every reader of a program's report reads it too.
+/// `kind` is `permission`, `question` or `auth`; another is left out. The text
+/// becomes one line within the protocol's limit; `None` when none of it is left.
+pub fn blocked_status(kind: &str, app: &str, msg: &str) -> Option<String> {
+    use base64::Engine;
+    let line = msg
+        .split(|c: char| c.is_whitespace() || is_control(c))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut end = line.len().min(MAX_MSG_DECODED_BYTES);
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    let line = &line[..end];
+    if line.is_empty() {
+        return None;
+    }
+    let mut pairs = vec!["state=blocked".to_string()];
+    if matches!(kind, "permission" | "question" | "auth") {
+        pairs.push(format!("kind={kind}"));
+    }
+    if !app.is_empty() && app.len() <= MAX_APP_BYTES && app.bytes().all(is_name_byte) {
+        pairs.push(format!("app={app}"));
+    }
+    let encoded = base64::engine::general_purpose::STANDARD.encode(line);
+    pairs.push(format!("msg={encoded}"));
+    Some(pairs.join(":"))
+}
+
+/// The text `status` says the pane waits for or did, when the status is
+/// behind `pane_state` ([`status_is_for`]): one line, without the characters
+/// that hide in a line or turn its direction. `None` without one, or when the
+/// text holds a control character: then it is not a line of text.
+pub fn status_message(status: &str, pane_state: &str) -> Option<String> {
+    if !status_is_for(status, Some(pane_state)) {
+        return None;
+    }
+    let encoded = Pairs::read(status)?.msg?;
+    let bytes = crate::control_mode::images::base64_decode(encoded)?;
+    let text = String::from_utf8(bytes).ok()?;
+    if text.chars().any(is_control) {
+        return None;
+    }
+    let invisible = |c: &char| matches!(*c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2069}' | '\u{feff}');
+    let shown: String = text.chars().filter(|c| !invisible(c)).collect();
+    let shown = shown.trim();
+    (!shown.is_empty()).then(|| shown.to_string())
+}
+
 /// A change in what a pane shows of its records, and which of the two
 /// options tmux holds it in is to be written.
 #[derive(Debug, PartialEq, Eq)]

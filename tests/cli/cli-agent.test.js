@@ -45,6 +45,18 @@ async function lockReleased(where) {
   return locks().length === 0;
 }
 
+/** The commands the hook's job handed to `run-shell`, once `count` of them are there. */
+async function writesAfterHook(logFile, count) {
+  const writes = (calls) => calls.filter((c) => c[2] === 'run-shell').map((c) => c[5]);
+  const deadline = Date.now() + 10000;
+  let seen = writes(await callsAfterHook(logFile, 0));
+  while (seen.length < count && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    seen = writes(await callsAfterHook(logFile, 0));
+  }
+  return seen;
+}
+
 function scratch() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-agent-test-'));
   return { dir, log: path.join(dir, 'tmux.log') };
@@ -107,15 +119,55 @@ describe('tmuxy agent', () => {
         ],
       }) + '\n',
     );
-    expect(hook('claude', 'PostToolUse', 'working', where).exitCode).toBe(0);
-    calls = await callsAfterHook(where.log, 6);
-    expect(writes(calls).slice(-1)[0]).toContain("@tmuxy-pane-state 'working'");
+    // Leaving needs-input takes what the pane was asked off it too (the
+    // binary's `-`).
+    expect(hook('claude', 'PostToolUse', 'working\n-', where).exitCode).toBe(0);
+    expect((await writesAfterHook(where.log, 3)).slice(-2)).toEqual([
+      expect.stringContaining("set-option -p -u -t '%5' @tmuxy-pane-status"),
+      expect.stringContaining("@tmuxy-pane-state 'working'"),
+    ]);
 
-    // The session ending unsets it. It also reads the inbox bridge's switch
-    // (docs/AGENT-INBOX.md), one call more.
+    // The session ending unsets it.
     expect(hook('claude', 'SessionEnd', 'clear', where).exitCode).toBe(0);
-    calls = await callsAfterHook(where.log, 9);
-    expect(writes(calls).slice(-1)[0]).toContain("set-option -p -u -t '%5' @tmuxy-pane-state");
+    expect((await writesAfterHook(where.log, 4)).slice(-1)[0]).toContain(
+      "set-option -p -u -t '%5' @tmuxy-pane-state",
+    );
+  });
+
+  // What the user is asked (`agent state`'s second line) goes on the pane
+  // before the state, so a push sent on the state finds it there; another
+  // question while the pane still waits replaces it.
+  test('a question goes on the pane before the state that it needs the user', async () => {
+    const where = scratch();
+    const asked = 'state=blocked:kind=question:app=claude:msg=V2hpY2ggZnJhbWV3b3JrPw==';
+    const said = `needs-input\n${asked}`;
+    expect(hook('claude', 'PreToolUse', said, where).exitCode).toBe(0);
+    expect(await writesAfterHook(where.log, 2)).toEqual([
+      expect.stringContaining(`set-option -p -t '%5' @tmuxy-pane-status '${asked}'`),
+      expect.stringContaining("set-option -p -t '%5' @tmuxy-pane-state 'needs-input'"),
+    ]);
+
+    const again = 'state=blocked:kind=permission:app=claude:msg=QWxsb3cgQmFzaDogbHM=';
+    expect(hook('claude', 'PermissionRequest', `needs-input\n${again}`, where).exitCode).toBe(0);
+    expect((await writesAfterHook(where.log, 3)).slice(2)).toEqual([
+      expect.stringContaining(`@tmuxy-pane-status '${again}'`),
+    ]);
+
+    // Claude Code's later permission notification says nothing more: the
+    // question stays. Its job is done once it has read the state.
+    const reads = () =>
+      callsAfterHook(where.log, 0).then(
+        (calls) =>
+          calls.filter((c) => c.includes('@tmuxy-pane-state') && c.includes('show-options')).length,
+      );
+    const before = await reads();
+    expect(hook('claude', 'Notification', 'needs-input', where).exitCode).toBe(0);
+    const deadline = Date.now() + 10000;
+    while ((await reads()) === before && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(await reads()).toBe(before + 1);
+    expect(await writesAfterHook(where.log, 3)).toHaveLength(3);
   });
 
   // The agent inbox bridge, a spike (docs/AGENT-INBOX.md): off unless

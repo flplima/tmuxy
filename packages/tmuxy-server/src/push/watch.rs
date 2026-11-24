@@ -43,14 +43,33 @@ impl Notice {
         } else {
             row.session.as_str()
         };
+        // Where it is, under what the pane said: the question an agent asks,
+        // what a program finished with.
+        let place = format!("{place} ({})", row.pane_id);
+        let body = match row.message() {
+            Some(message) => format!("{}\n{place}", shorten(&message)),
+            None => place,
+        };
         Self {
             title,
-            body: format!("{place} ({})", row.pane_id),
+            body,
             tag: format!("tmuxy-{}-{}", row.pane_id, row.state),
             url: format!("/?session={}", urlencode(session)),
             pane_id: row.pane_id.clone(),
         }
     }
+}
+
+/// What a notification shows of a pane's text: as much as a banner shows,
+/// the protocol allowing 2048 bytes.
+const MAX_MESSAGE_CHARS: usize = 240;
+
+fn shorten(message: &str) -> String {
+    if message.chars().count() <= MAX_MESSAGE_CHARS {
+        return message.to_string();
+    }
+    let kept: String = message.chars().take(MAX_MESSAGE_CHARS - 1).collect();
+    format!("{}\u{2026}", kept.trim_end())
 }
 
 /// A session name as a query value: of `SessionName`'s alphabet, `@` and `+`

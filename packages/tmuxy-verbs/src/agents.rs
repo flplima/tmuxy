@@ -15,6 +15,8 @@ use crate::cli_json::{self, Answer, EXIT_FAILED};
 use serde_json::Value;
 
 mod config;
+mod question;
+pub use question::status_line;
 #[cfg(feature = "native")]
 mod fork;
 mod session;
@@ -87,6 +89,9 @@ impl Agent {
 /// is left out: by the time it fires, `Stop` has already said idle.
 const CLAUDE_NEEDS_INPUT: &str =
     "permission_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input";
+/// Claude Code's tools that are themselves a question to the user: they run
+/// no permission prompt of their own, so the tool starting is the one sign.
+const CLAUDE_ASKING_TOOLS: &str = "AskUserQuestion|ExitPlanMode";
 const HOOK_TIMEOUT: u32 = 5;
 
 const CLAUDE_HOOKS: &[Hook] = &[
@@ -94,6 +99,11 @@ const CLAUDE_HOOKS: &[Hook] = &[
     Hook::on("UserPromptSubmit"),
     Hook::on("PostToolUse"),
     Hook::on("PermissionRequest"),
+    Hook {
+        event: "PreToolUse",
+        matcher: Some(CLAUDE_ASKING_TOOLS),
+        timeout: HOOK_TIMEOUT,
+    },
     Hook {
         event: "Notification",
         matcher: Some(CLAUDE_NEEDS_INPUT),
@@ -160,6 +170,8 @@ pub fn state(agent: Agent, event: &str, payload: &Value) -> Option<&'static str>
         (_, "SessionStart") => Idle,
         (_, "UserPromptSubmit" | "PostToolUse" | "PreInvocation") => Working,
         (_, "PermissionRequest") => NeedsInput,
+        // Installed for the asking tools alone (`CLAUDE_ASKING_TOOLS`).
+        (Agent::Claude, "PreToolUse") => NeedsInput,
         (Agent::Claude, "Notification") => {
             let kind = field("notification_type");
             if !CLAUDE_NEEDS_INPUT.split('|').any(|k| k == kind) {
@@ -297,8 +309,12 @@ pub fn run(args: AgentArgs) {
                 .read_to_string(&mut input);
         }
         let payload = serde_json::from_str(&input).unwrap_or(Value::Null);
+        // The state, then what the user is asked on a line of its own.
         if let Some(state) = state(*agent, event, &payload) {
             println!("{state}");
+            if let Some(line) = status_line(*agent, event, &payload, state) {
+                println!("{line}");
+            }
         }
         if let Some(pane) = tmuxy_core::run_shell::caller_pane() {
             session::record(&pane, *agent, event, &payload);

@@ -418,3 +418,52 @@ fn text_is_for_a_pane_only_while_the_pane_is_in_the_state_it_was_reported_with()
     assert!(!status_is_for("state=sleeping", Some("idle")));
     assert!(status_is_for("state=done", Some("unread")));
 }
+
+/// What a hook says a pane waits for is a report every reader of one takes:
+/// one line, within the limit, read back only while the pane still needs the
+/// user.
+#[test]
+fn a_hooks_question_is_a_report_read_back_while_the_pane_waits() {
+    let status = blocked_status("question", "claude", "Which framework?\n\tReact or Vue").unwrap();
+    assert_eq!(
+        status,
+        format!(
+            "state=blocked:kind=question:app=claude:msg={}",
+            b64("Which framework? React or Vue")
+        )
+    );
+    let record = set(&status);
+    assert_eq!(record.kind, Some("question"));
+    assert_eq!(record.app.as_deref(), Some("claude"));
+    assert_eq!(
+        status_message(&status, "needs-input").as_deref(),
+        Some("Which framework? React or Vue")
+    );
+    assert_eq!(
+        status_message(&status, "working"),
+        None,
+        "an answered question"
+    );
+
+    // An unknown kind or an app name outside the grammar is left out; text
+    // past the protocol's limit is cut on a character, and none is nothing.
+    let long = "é".repeat(MAX_MSG_DECODED_BYTES);
+    let status = blocked_status("bogus", "no spaces", &long).unwrap();
+    assert!(status.starts_with("state=blocked:msg="), "{status}");
+    assert!(matches!(
+        Report::parse(status.as_bytes()),
+        Some(Report::Set { .. })
+    ));
+    assert_eq!(
+        status_message(&status, "needs-input").map(|m| m.len()),
+        Some(MAX_MSG_DECODED_BYTES)
+    );
+    assert_eq!(blocked_status("question", "claude", " \n\u{7} "), None);
+
+    // What a program sent with a control character, or only characters that
+    // hide, is not a line of text.
+    let hidden = format!("state=blocked:msg={}", b64("\u{202e}\u{200b}"));
+    assert_eq!(status_message(&hidden, "needs-input"), None);
+    let control = format!("state=blocked:msg={}", b64("a\u{1b}[2Jb"));
+    assert_eq!(status_message(&control, "needs-input"), None);
+}

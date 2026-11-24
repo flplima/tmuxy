@@ -21,7 +21,14 @@ esac
 # shellcheck source=_lib
 source "${0%/*}/_lib"
 find_server_cmd 2>/dev/null || exit 0
-state="$("${SERVER_CMD[@]}" agent state "$agent" "$event" 2>/dev/null)" || exit 0
+# The state, and on a second line what the user is asked: a report body for
+# @tmuxy-pane-status (the question, or the tool and what it would do), `-` to
+# take it off, or nothing to leave it (tmuxy-verbs `agents::status_line`).
+said="$("${SERVER_CMD[@]}" agent state "$agent" "$event" 2>/dev/null)" || exit 0
+state="${said%%$'\n'*}"
+status=""
+[ "$state" = "$said" ] || status="${said#*$'\n'}"
+status="${status%%$'\n'*}"
 [ -n "$state" ] || exit 0
 
 # The agent inbox bridge, a spike (docs/AGENT-INBOX.md), only while
@@ -100,22 +107,34 @@ base="${TMPDIR:-/tmp}/tmuxy-agent-$UID"
 chmod 700 "$base" 2>/dev/null || exit 0
 dir="$base/${TMUX//[^A-Za-z0-9]/_}_${TMUX_PANE#%}"
 [ -d "$dir" ] || (umask 077 && mkdir -p "$dir") 2>/dev/null || exit 0
-echo "$state" >"$dir/wanted" 2>/dev/null || exit 0
+printf '%s\n%s\n' "$state" "$status" >"$dir/wanted" 2>/dev/null || exit 0
 
 # What the pane says is read from tmux, not remembered: other writers set the
 # state too — the server reading a dialog off the screen
 # (tmuxy-core/src/host/socket_watch/agent_screen.rs), a send's question, `tmuxy pane state` —
 # and a remembered "already applied" skipped the hook that should have put it
 # back (a pane left `needs-input` after the user had answered).
+#
+# The question goes in before the state, so whatever sees the pane come to
+# need the user (a push notification) finds what it is asked already there;
+# a new question while the pane still needs the user replaces the old one.
+# Moving to another state takes the question off: a dialog the screen finds
+# later (agent_screen.rs) would otherwise show an answered question again.
 apply() {
-  local wanted="" current=""
+  local wanted="" wanted_status="" current="" pane_t
+  pane_t="$(shquote "$TMUX_PANE")"
   _lock_acquire "$dir"
-  read -r wanted <"$dir/wanted"
+  { read -r wanted; read -r wanted_status; } <"$dir/wanted"
   current="$(_tmux show-options -pqv -t "$TMUX_PANE" "$OPT_PANE_STATE" 2>/dev/null || true)"
+  if [ "$wanted_status" = - ]; then
+    [ "$wanted" = "$current" ] || _run_safe "set-option -p -u -t $pane_t $OPT_PANE_STATUS"
+  elif [[ "$wanted_status" =~ ^[A-Za-z0-9=:+/,._-]+$ ]]; then
+    _run_safe "set-option -p -t $pane_t $OPT_PANE_STATUS $(shquote "$wanted_status")"
+  fi
   if [ "$wanted" = clear ]; then
-    [ -z "$current" ] || _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") $OPT_PANE_STATE"
+    [ -z "$current" ] || _run_safe "set-option -p -u -t $pane_t $OPT_PANE_STATE"
   elif [ -n "$wanted" ] && [ "$wanted" != "$current" ]; then
-    _run_safe "set-option -p -t $(shquote "$TMUX_PANE") $OPT_PANE_STATE $(shquote "$wanted")"
+    _run_safe "set-option -p -t $pane_t $OPT_PANE_STATE $(shquote "$wanted")"
   fi
   _lock_release "$dir"
 }

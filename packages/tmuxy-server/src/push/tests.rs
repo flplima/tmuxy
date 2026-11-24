@@ -294,6 +294,45 @@ fn a_pane_coming_to_need_the_user_is_one_notice() {
         .is_empty());
 }
 
+/// A notification says what the pane said behind its state, above where it
+/// is: the question an agent's hook wrote, cut to a banner's length. Text an
+/// earlier state left behind is not this state's, and is not said.
+#[test]
+fn a_notice_says_the_question_the_pane_waits_on() {
+    let asked = tmuxy_core::control_mode::blocked_status(
+        "question",
+        "claude",
+        "Which framework should the dashboard use?",
+    )
+    .unwrap();
+    let mut watch = Watch::default();
+    watch.update(&rows(&[("%1", "working")], "on"), "");
+    let notices = watch.update(
+        &rows_reporting(&[("%1", "needs-input", &asked)], "on"),
+        "devbox",
+    );
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].title, "claude needs you");
+    assert_eq!(
+        notices[0].body,
+        "Which framework should the dashboard use?\ndevbox · work · main (%1)"
+    );
+
+    let long = tmuxy_core::control_mode::blocked_status("question", "claude", &"why ".repeat(100))
+        .unwrap();
+    watch.update(&rows(&[("%1", "working")], "on"), "");
+    let notices = watch.update(&rows_reporting(&[("%1", "needs-input", &long)], "on"), "");
+    let said = notices[0].body.lines().next().unwrap();
+    assert_eq!(said.chars().count(), 240);
+    assert!(said.ends_with("why\u{2026}"), "{said}");
+
+    // The question was answered and the pane moved on; a later error does
+    // not say it.
+    watch.update(&rows(&[("%1", "working")], "on"), "");
+    let notices = watch.update(&rows_reporting(&[("%1", "error", &asked)], "on"), "");
+    assert_eq!(notices[0].body, "work · main (%1)");
+}
+
 /// A result (`unread`) is cleared by the client that shows the pane, within
 /// the moment it appears there. So it is news only once it has outlasted a
 /// read, and then once.
