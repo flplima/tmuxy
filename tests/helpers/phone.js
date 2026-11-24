@@ -93,6 +93,32 @@ async function swipeSidewaysPausing(page, y, fromX, toX, midway) {
 }
 
 /**
+ * Two fingers, the way a pinch starts: one lands at `from[0]`, the other at
+ * `from[1]` a moment later, both move to `to`, and both lift.
+ */
+async function pinch(page, from, to, steps = 12) {
+  const cdp = await page.context().newCDPSession(page);
+  const at = (i) =>
+    [0, 1].map((f) => ({
+      x: from[f].x + ((to[f].x - from[f].x) * i) / steps,
+      y: from[f].y + ((to[f].y - from[f].y) * i) / steps,
+      id: f,
+    }));
+  try {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [at(0)[0]] });
+    await delay(16);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(0) });
+    for (let i = 1; i <= steps; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(i) });
+      await delay(16);
+    }
+  } finally {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+  }
+}
+
+/**
  * Rest one finger at `point`, without moving it, until `until` holds — what
  * the hold was for has happened — then lift it.
  */
@@ -188,6 +214,7 @@ module.exports = {
   swipe,
   swipeSideways,
   swipeSidewaysPausing,
+  pinch,
   hold,
   keyRowCentre,
   doubleTapTerminal,
