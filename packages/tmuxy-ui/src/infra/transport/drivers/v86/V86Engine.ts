@@ -95,6 +95,7 @@ export class V86Engine extends GuestEngine {
     const machine = this.machine;
     if (!machine) return this.doBoot(snapshot, initCommands);
     // Stop feeding the (old) core while the machine rewinds.
+    this.discardPause();
     this.attached = false;
     this.failInFlight('engine reset');
     await this.onMachine(() => machine.restore(snapshot.url));
@@ -104,7 +105,16 @@ export class V86Engine extends GuestEngine {
   }
 
   send(cmd: string): void {
-    this.machine?.write(serialLine(cmd));
+    if (this.isPaused()) this.hold(() => this.send(cmd));
+    else this.machine?.write(serialLine(cmd));
+  }
+
+  protected haltMachine(): void {
+    this.machine?.pause();
+  }
+
+  protected continueMachine(): void {
+    this.machine?.resume();
   }
 
   private dropMachine(): void {

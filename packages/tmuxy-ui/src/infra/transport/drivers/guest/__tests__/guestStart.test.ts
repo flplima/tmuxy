@@ -53,6 +53,8 @@ class InstantEngine extends GuestEngine {
   protected async doBoot(): Promise<void> {}
   protected async doReset(): Promise<void> {}
   protected teardown(): void {}
+  protected haltMachine(): void {}
+  protected continueMachine(): void {}
   currentSink(): EngineSink | null {
     return this.sink;
   }
@@ -127,6 +129,8 @@ const CORE_ATTACH = ['refresh-client -C 80x30', 'list-windows'];
  *  typed into it, `says` is what the guest prints back. */
 class ScriptedGuest extends GuestEngine {
   readonly typed: string[] = [];
+  protected haltMachine(): void {}
+  protected continueMachine(): void {}
   send(cmd: string): void {
     this.typed.push(cmd);
   }

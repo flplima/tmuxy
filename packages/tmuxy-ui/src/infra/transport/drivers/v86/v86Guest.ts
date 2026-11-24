@@ -34,6 +34,8 @@ export interface V86Emulator {
   /** Start the CPU. Used to boot from an explicitly-restored snapshot (the
    *  constructor runs with `autostart: false`; see `boot` in machineHost.ts). */
   run(): Promise<void>;
+  /** Halt the CPU after its current slice; `run()` continues it. */
+  stop(): Promise<void>;
   /** With no `screen_container` (a worker has no DOM), v86's text-only
    *  screen: it keeps the console's characters, and is told where the cursor
    *  moves without keeping it. Made in v86's own init: there once `loaded`. */

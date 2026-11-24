@@ -80,6 +80,10 @@ export class ReplyBook {
   private nextId = 0;
   private waiting = new Map<number, (reply: Reply) => void>();
 
+  get pending(): number {
+    return this.waiting.size;
+  }
+
   open(): { id: number; reply: Promise<Reply> } {
     const id = ++this.nextId;
     const reply = new Promise<Reply>((resolve) => this.waiting.set(id, resolve));

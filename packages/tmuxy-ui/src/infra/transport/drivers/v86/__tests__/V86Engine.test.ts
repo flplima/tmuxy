@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EngineSink } from '../../guest/GuestEngine';
 import type { Feed } from '../../guest/controlMode';
 import type { MachineHandlers, V86Machine } from '../machine';
@@ -7,7 +7,13 @@ import { attachLine, guestSnapshot } from '../v86Guest';
 
 /** What the control-mode core was fed: the engine's decoding is under test.
  *  A core that was fed anything reports a pane, which ends a start. */
-const core = vi.hoisted(() => ({ fed: [] as string[] }));
+const core = vi.hoisted(() => ({
+  fed: [] as string[],
+  ticks: 0,
+  ran: [] as { command: string; replyId?: number }[],
+  /** The reply the core hands back with its next feed. */
+  answer: null as { id: number; output: string } | null,
+}));
 
 vi.mock('../../guest/controlMode', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../guest/controlMode')>();
@@ -29,10 +35,19 @@ vi.mock('../../guest/controlMode', async (importOriginal) => {
     feed(text: string) {
       core.fed.push(text);
       this.fedAny = true;
-      return { ...quiet(), changed: true };
+      const feed = { ...quiet(), changed: true };
+      if (core.answer) feed.replies.push({ ...core.answer, error: null });
+      core.answer = null;
+      return feed;
     }
-    tick = quiet;
-    run = quiet;
+    tick() {
+      core.ticks++;
+      return quiet();
+    }
+    run(command: string, replyId?: number) {
+      core.ran.push({ command, replyId });
+      return quiet();
+    }
     setClientSize = quiet;
     attach = () => [];
     resync = () => [];
@@ -61,6 +76,8 @@ function machines({ failBoot, onWrite }: MachineScript = {}) {
       restore: vi.fn(async () => {}),
       write: vi.fn((bytes: Uint8Array) => onWrite?.(bytes, handlers)),
       watchScreen: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
       destroy: vi.fn(),
     };
     spawned.push({ machine, handlers });
@@ -73,6 +90,10 @@ function machines({ failBoot, onWrite }: MachineScript = {}) {
  *  records that it ran and lets the stream through. */
 class Engine extends V86Engine {
   readonly starts: string[] = [];
+  /** What the guest printed, as the machine delivers it. */
+  hear(text: string): void {
+    this.receive(text);
+  }
   protected async start(_initCommands: string[], attachLine: string): Promise<void> {
     this.starts.push(attachLine);
     this.attached = true;
@@ -195,5 +216,105 @@ describe('the v86 engine over its machine', () => {
     expect(core.fed).toEqual(['%begin 1', '%begin 2']);
     engine.destroy();
     vi.useRealTimers();
+  });
+});
+
+describe('pausing the machine', () => {
+  const PAUSE_MS = 10 * 60 * 1000;
+
+  async function booted() {
+    vi.useFakeTimers();
+    core.ticks = 0;
+    core.ran.length = 0;
+    const { spawn, last } = machines();
+    const engine = new Engine(spawn);
+    await engine.boot(GENERIC, []);
+    return { engine, machine: last().machine };
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("stops the machine and the core's tick for as long as the pause lasts", async () => {
+    const { engine, machine } = await booted();
+    vi.advanceTimersByTime(200);
+    const before = core.ticks;
+    expect(before).toBeGreaterThan(0);
+
+    expect(engine.pause()).toBe(true);
+    expect(machine.pause).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(PAUSE_MS);
+    expect(core.ticks).toBe(before);
+
+    engine.resume();
+    expect(machine.resume).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(200);
+    expect(core.ticks).toBeGreaterThan(before);
+  });
+
+  it('refuses to pause while a caller waits on a reply, and pauses once it is answered', async () => {
+    const { engine, machine } = await booted();
+    const reply = engine.ask('display-message -p x');
+    expect(engine.pause()).toBe(false);
+    expect(machine.pause).not.toHaveBeenCalled();
+
+    core.answer = { id: core.ran[0].replyId ?? 0, output: 'x' };
+    engine.hear('%begin');
+    await expect(reply).resolves.toEqual({ output: 'x', error: null });
+    expect(engine.pause()).toBe(true);
+  });
+
+  it('holds what is asked of the machine and sends it, in order, on resume', async () => {
+    const { engine, machine } = await booted();
+    engine.pause();
+    engine.send('first');
+    engine.run('send-keys a');
+    engine.send('second');
+    const answer = engine.ask('display-message -p x');
+    vi.advanceTimersByTime(PAUSE_MS);
+    expect(machine.write).not.toHaveBeenCalled();
+    expect(core.ran).toEqual([]);
+
+    engine.resume();
+    expect(
+      vi.mocked(machine.write).mock.calls.map(([bytes]) => new TextDecoder().decode(bytes)),
+    ).toEqual(['first\n', 'second\n']);
+    expect(core.ran.map((c) => c.command)).toEqual(['send-keys a', 'display-message -p x']);
+
+    // The core got the question at the resume, so its reply clock (5 s) did not run in the pause.
+    core.answer = { id: core.ran[1].replyId ?? 0, output: 'x' };
+    engine.hear('%begin');
+    await expect(answer).resolves.toEqual({ output: 'x', error: null });
+  });
+
+  it('drops what was held when the machine is rewound, and runs it again', async () => {
+    const { engine, machine } = await booted();
+    engine.pause();
+    const stale = engine.ask('display-message -p x');
+    await engine.reset(GENERIC, []);
+    await expect(stale).resolves.toEqual({ output: '', error: 'engine reset' });
+    expect(engine.isPaused()).toBe(false);
+    expect(machine.resume).toHaveBeenCalledTimes(1);
+    expect(core.ran).toEqual([]);
+  });
+
+  it('does not pause while a start is queued or running, and a reset leaves the next one clean', async () => {
+    const { engine, machine } = await booted();
+    expect(engine.pause()).toBe(true);
+    await engine.reset(GENERIC, []);
+    expect(machine.resume).toHaveBeenCalledTimes(1);
+    expect(engine.isPaused()).toBe(false);
+
+    const resetting = engine.reset(GENERIC, []);
+    expect(engine.pause()).toBe(false);
+    await resetting;
+    expect(engine.pause()).toBe(true);
+  });
+
+  it('does not pause a machine that is not attached', async () => {
+    vi.useFakeTimers();
+    const { spawn } = machines();
+    const engine = new V86Engine(spawn);
+    expect(engine.pause()).toBe(false);
   });
 });

@@ -99,6 +99,12 @@ export abstract class GuestEngine {
 
   private readonly replies = new ReplyBook();
   private lastState: ServerStateEncoded = EMPTY_STATE;
+  /** Whether the machine is stopped (`pause`): nothing is sent to it, and the
+   *  core's tick, which drives reply timeouts, heartbeats and re-lists on the
+   *  page's clock, does not run against a guest that cannot answer. */
+  private paused = false;
+  /** What was asked of the core or the machine while paused, in order. */
+  private held: (() => void)[] = [];
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private resolveFirstState: (() => void) | null = null;
   /** The session the control client is on: the snapshot's, until a switch. */
@@ -123,6 +129,9 @@ export abstract class GuestEngine {
    *  lifecycle queue. */
   protected abstract doReset(snapshot: GuestSnapshot, initCommands: string[]): Promise<void>;
   protected abstract teardown(): void;
+  /** Stop the machine's CPU, and run it again. */
+  protected abstract haltMachine(): void;
+  protected abstract continueMachine(): void;
 
   isBooted(): boolean {
     return this.booted;
@@ -202,13 +211,64 @@ export abstract class GuestEngine {
   ask(command: string): Promise<Reply> {
     if (!this.core) return Promise.resolve({ output: '', error: 'the guest is not running' });
     const { id, reply } = this.replies.open();
-    this.emit(this.core.run(command, id));
+    // The core's reply clock starts when it is handed the command, so while
+    // paused that waits for the resume rather than expiring in the pause.
+    this.holdOrDo(() => this.core && this.emit(this.core.run(command, id)));
     return reply;
   }
 
   /** tmux's refusal reaches the sink. */
   run(command: string): void {
-    if (this.core) this.emit(this.core.run(command));
+    if (this.core) this.holdOrDo(() => this.core && this.emit(this.core.run(command)));
+  }
+
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  /**
+   * Stop the machine (an idle guest costs the page a third of a core). Refused,
+   * with false, while the machine is starting, not attached, or a caller still
+   * waits on a reply, which would otherwise be answered by a guest that is not running.
+   * Until `resume`, the tick does not run and what is asked of the core or
+   * sent to the machine is held and goes out in order on resume.
+   */
+  pause(): boolean {
+    const busy = this.starting > 0 || this.replies.pending > 0;
+    if (this.paused || busy || !this.attached || !this.core) return false;
+    this.haltMachine();
+    this.paused = true;
+    return true;
+  }
+
+  /** Run the machine again, send what was held, and re-list: what the core
+   *  asked tmux for just before the pause may have been given up on since,
+   *  by the page's clock, which kept going. */
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.continueMachine();
+    const held = this.held.splice(0);
+    for (const action of held) action();
+    this.resync();
+  }
+
+  /** Forget a pause with the machine about to be rewound or dropped; what was
+   *  held is for a core that is going away. */
+  protected discardPause(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.held = [];
+    this.continueMachine();
+  }
+
+  protected hold(action: () => void): void {
+    this.held.push(action);
+  }
+
+  private holdOrDo(action: () => void): void {
+    if (this.paused) this.hold(action);
+    else action();
   }
 
   /** The engine's own reads, outside the routing a client's get: empty when
@@ -272,8 +332,11 @@ export abstract class GuestEngine {
    * rejects its own caller only.
    */
   private lifecycle: Promise<void> = Promise.resolve();
+  /** Boots and resets queued or running: none pauses meanwhile. */
+  private starting = 0;
   private enqueue(op: () => Promise<void>): Promise<void> {
-    const next = this.lifecycle.then(op, op);
+    this.starting++;
+    const next = this.lifecycle.then(op, op).finally(() => this.starting--);
     this.lifecycle = next.catch(() => {});
     return next;
   }
@@ -299,7 +362,7 @@ export abstract class GuestEngine {
     ).__tmuxyImageSrc = (paneId, imageId) => this.core?.image_url(paneId, imageId);
     if (this.tickTimer) return;
     this.tickTimer = setInterval(() => {
-      if (this.core && this.attached) this.emit(this.core.tick());
+      if (this.core && this.attached && !this.paused) this.emit(this.core.tick());
     }, TICK_MS);
   }
 
@@ -416,6 +479,8 @@ export abstract class GuestEngine {
   }
 
   destroy(): void {
+    this.paused = false;
+    this.held = [];
     this.failInFlight('engine destroyed');
     if (this.tickTimer) clearInterval(this.tickTimer);
     this.tickTimer = null;

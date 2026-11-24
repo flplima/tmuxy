@@ -81,6 +81,10 @@ class MachineHost {
         return this.writer?.push(request.bytes);
       case 'watch-screen':
         return this.watchScreen(request.on);
+      case 'pause':
+        return void this.emu?.stop();
+      case 'resume':
+        return void this.emu?.run();
     }
   }
 
