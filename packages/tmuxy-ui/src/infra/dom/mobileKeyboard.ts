@@ -174,6 +174,18 @@ export function focusKeyboardInput(paneId: PaneId): void {
   focusInput(paneId);
 }
 
+/**
+ * Note whether the hidden input has the focus now; the returned function puts
+ * it back if it has lost it since. WebKit moves the focus on a touch whatever
+ * a handler prevents, and a tap on a key must not change who has the keyboard.
+ */
+export function holdMobileKeyboard(): () => void {
+  const held = input !== null && document.activeElement === input;
+  return () => {
+    if (held && input && document.activeElement !== input) input.focus({ preventScroll: true });
+  };
+}
+
 export function isMobileKeyboardOpen(): boolean {
   return input !== null && document.activeElement === input;
 }

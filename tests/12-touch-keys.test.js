@@ -44,13 +44,22 @@ describeE2E(
             .map((l) => l.textContent.trimEnd())
             .filter((t) => t.length > 0),
         );
-      // The prompt before anything is typed: the last line on screen once the
-      // shell has drawn one.
-      const fresh = await waitForCondition(
+      // A short prompt, so a typed line never wraps onto the next row.
+      await waitForCondition(
         ctx.page,
         async () => (await screenLines()).at(-1) ?? null,
         15000,
         'the shell prompt',
+      );
+      await openKeyboard();
+      await typeOnVirtualKeyboard(ctx.page, "PS1='$ '");
+      await ctx.page.keyboard.press('Enter');
+      // The prompt before anything is typed: the last line on screen.
+      const fresh = await waitForCondition(
+        ctx.page,
+        async () => ((await screenLines()).at(-1) === '$' ? '$' : null),
+        15000,
+        'the short prompt',
       );
       // What the prompt line says now: the last line that starts with the
       // prompt. A shell's suggestion of an old command can wrap onto the line
@@ -81,7 +90,6 @@ describeE2E(
         ctx.page.evaluate(() => document.querySelectorAll('.phone-tree .sidebar-tree-tab').length);
 
       // 1. Two lines of history to walk.
-      await openKeyboard();
       await typeOnVirtualKeyboard(ctx.page, 'echo KEYROW_ONE');
       await ctx.page.keyboard.press('Enter');
       await waitForTerminalText(ctx.page, 'KEYROW_ONE', 15000, { notOnLineWith: 'echo' });
