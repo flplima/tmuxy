@@ -4,7 +4,7 @@
  * used to keep its own copy, which had drifted — no block glyphs, and a
  * selected link lost its link class.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { TerminalLine } from '../TerminalLine';
 import { renderLineToDOM } from '../terminalRendering';
@@ -80,5 +80,25 @@ describe('one painter for both renderers', () => {
     } finally {
       window.open = origOpen;
     }
+  });
+});
+
+describe('a run of glyphs that tile', () => {
+  it('shares one fitted box, so a braille graph is not a span per cell', async () => {
+    vi.resetModules();
+    vi.doMock('../glyphFit', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../glyphFit')>()),
+      glyphFit: (s: string) => (s === '⎿' || /[\u2800-\u28ff]/.test(s) ? 0.9 : null),
+    }));
+    const { cellRuns, rowUrlIndex } = await import('../cellPaint');
+    const row = [...'⣿⣀⣿⣀⣿⣀', '⎿', '⎿'].map((c) => ({ c })) satisfies CellLine;
+    const runs = cellRuns(row, null, rowUrlIndex(row, []));
+    // One run for the six braille cells; each fat symbol keeps a box of its own.
+    expect(runs.map((r) => [r.text, r.cells])).toEqual([
+      ['⣿⣀⣿⣀⣿⣀', 6],
+      ['⎿', 1],
+      ['⎿', 1],
+    ]);
+    vi.doUnmock('../glyphFit');
   });
 });

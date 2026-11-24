@@ -174,3 +174,35 @@ export const EveryOversizedGlyphOnOneRow: Story = {
     }
   },
 };
+
+const BRAILLE_RUN = 60;
+
+/**
+ * A graph drawn in braille (btop, a sparkline): the glyph is a little wider
+ * than its cell in the fallback font, and 60 of them end several cells late.
+ */
+export const BrailleRunStaysOnTheGrid: Story = {
+  args: {
+    line: [...'⣿⣀⣶⣤⣴⣦'.repeat(BRAILLE_RUN / 6), '|'].map((c) => ({ c })),
+  },
+  play: async ({ canvasElement }) => {
+    await cellGridReady();
+    const grid = canvasElement.querySelector('.terminal-container') as HTMLElement;
+    const cellW = cellWidthOf(grid);
+    const line = canvasElement.querySelector('.terminal-line') as HTMLElement;
+
+    const style = getComputedStyle(grid.querySelector('.terminal-content')!);
+    const font =
+      style.font || `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    await document.fonts.load(font, '⣿').catch(() => []);
+    await document.fonts.ready;
+
+    await waitFor(() => {
+      const left = line.getBoundingClientRect().left;
+      const run = rectForCells(line, 0, BRAILLE_RUN);
+      expect(Math.abs((run.right - left) / cellW - BRAILLE_RUN)).toBeLessThan(0.5);
+      const bar = rectForCells(line, BRAILLE_RUN, BRAILLE_RUN + 1);
+      expect(Math.abs((bar.left - left) / cellW - BRAILLE_RUN)).toBeLessThan(0.5);
+    });
+  },
+};
