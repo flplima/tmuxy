@@ -211,6 +211,8 @@ export const appMachine = setup({
         // Held until connected, then replayed in order (`heldCommands`).
         SEND_TMUX_COMMAND: { actions: 'connection_holdCommand' },
         DISPATCH_OP: { actions: 'connection_holdCommand' },
+        // The global handler's work, and the size reported at once.
+        SET_TARGET_SIZE: { actions: ['viewport_setTargetSize', 'viewport_reportWhileConnecting'] },
       },
     },
 

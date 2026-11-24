@@ -65,7 +65,10 @@ export interface TmuxTransportService {
   readonly run: (op: TmuxOp) => Effect.Effect<void, AdapterError>;
   /** The session's state at `viewport`, which is also the size this client reports. */
   readonly fetchState: (viewport: Viewport) => Effect.Effect<ServerState, AdapterError>;
+  /** This client's size, sent when `sendsClientSize`; else only kept for a state refetch. */
   readonly setClientSize: (viewport: Viewport) => Effect.Effect<void, AdapterError>;
+  /** Whether a size reaches the backend now: once `connect` is done, or before on a driver that `takesSizeWhileConnecting`. */
+  readonly sendsClientSize: () => boolean;
   /** Read from tmux: what the command printed. A TransportError where nothing answers (recorded fixtures). */
   readonly query: (command: string) => Effect.Effect<string, AdapterError>;
   /** Whether `query` reaches a tmux at all: false on recorded fixtures and mocks. */
@@ -168,6 +171,7 @@ export function serviceOver(
     driver.send(call, actionId, ordered);
   const lane = commandLane(send, driver.ordersSends === true);
   let viewport: Viewport | null = null;
+  let connected = false;
 
   const attempt = <A>(context: string, run: () => Promise<A>): Effect.Effect<A, AdapterError> =>
     Effect.tryPromise({
@@ -192,7 +196,10 @@ export function serviceOver(
   const run = (op: TmuxOp) => attempt(toTmuxCommand(op), () => lane.run(op));
 
   const service: TmuxTransportService = {
-    connect: attempt('connect', () => driver.connect()),
+    connect: attempt('connect', async () => {
+      await driver.connect();
+      connected = true;
+    }),
     disconnect: Effect.sync(() => {
       lane.close();
       driver.disconnect();
@@ -209,6 +216,7 @@ export function serviceOver(
     setClientSize: (size) =>
       Effect.suspend(() => {
         viewport = size;
+        if (!service.sendsClientSize()) return Effect.void;
         return Effect.asVoid(sendDecoded('set_client_size', size));
       }),
     // Not on the lane: the host answers a read in-band on the connection the
@@ -231,6 +239,7 @@ export function serviceOver(
 
     enumeratesSessions: () => driver.enumeratesSessions === true,
     answersQueries: () => driver.answersQueries === true,
+    sendsClientSize: () => connected || driver.takesSizeWhileConnecting === true,
     pendingCommands: () => lane.pending(),
     streamPosition: () => options.streamPosition?.() ?? null,
     subscribe: Stream.fromPubSub(pubsub, { scoped: true }),

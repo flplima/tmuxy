@@ -31,10 +31,17 @@ import { PausePolicy } from './pausePolicy';
 import {
   GUEST_DEFAULT_COLS,
   GUEST_DEFAULT_ROWS,
+  type ClientSize,
   type EngineSink,
   type GuestEngine,
   type GuestSnapshot,
 } from './GuestEngine';
+
+/** A reported viewport, a missing side taken from the default. */
+const sizeOf = ({ cols, rows }: ClientSize): ClientSize => ({
+  cols: cols || GUEST_DEFAULT_COLS,
+  rows: rows || GUEST_DEFAULT_ROWS,
+});
 
 /** A command the routing policy refused, as the native transports refuse it. */
 function forbidden(reason: string): CommandFailure {
@@ -62,16 +69,24 @@ export interface GuestTmuxAdapterOptions {
 export class GuestTmuxAdapter implements TransportDriver {
   readonly answersQueries = true;
   readonly ordersSends = true;
+  /** The machine boots for a second and more, and the app measures its
+   *  viewport long before: the start attaches at it. */
+  readonly takesSizeWhileConnecting = true;
   private readonly initCommands: string[];
   private readonly initDoneOption: string | null;
   private sink: EngineSink | null = null;
   /**
-   * Whether the app has its first state. Until then the states stay here: the
-   * init ran at another size, and the resize to the client's viewport streams
-   * the windows one by one, so one drawn on the way is a frame at a size the
-   * start never stays at.
+   * Whether the app has its first state. Until then the states stay here: an
+   * init's work streams in step by step, and a start at another size than the
+   * viewport is resized window by window, so one drawn on the way is a frame
+   * the start never stays at.
    */
   private started = false;
+  /** The viewport this adapter's app last reported: what its start attaches at. */
+  private viewport: ClientSize | null = null;
+  /** Whether connect() has claimed the engine: an engine another adapter
+   *  owns since means this one was superseded. */
+  private claimed = false;
   private readonly pauseTarget: (() => Element | null) | null;
   private pausePolicy: PausePolicy | null = null;
 
@@ -90,7 +105,8 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async connect(): Promise<void> {
-    this.engine.claim(this);
+    this.engine.claim(this, this.viewport);
+    this.claimed = true;
     this.started = false;
     this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', hostname: null }));
     this.events.emit(TransportEvent.KeyBindings({ keybindings: DEFAULT_KEYBINDINGS }));
@@ -135,6 +151,11 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async send(call: BackendCall): Promise<unknown> {
+    // Before the start claims the engine, the viewport is kept for it.
+    if (call.cmd === 'set_client_size' && !this.claimed) {
+      this.viewport = sizeOf(call.args);
+      return null;
+    }
     // Another adapter has started on this (shared) engine since.
     if (!this.engine.ownedBy(this)) return noAnswer(call.cmd);
     if (isThemeCall(call)) {
@@ -146,18 +167,18 @@ export class GuestTmuxAdapter implements TransportDriver {
     switch (call.cmd) {
       case 'get_initial_state': {
         // Sized to the client's viewport first, as the native server does, so
-        // the first frame is drawn at the size it stays at.
+        // the first frame is drawn at the size it stays at. A start already
+        // sized and synced at it (`isReadyAt`) answers its first fetch as is.
         const { cols, rows } = call.args;
-        if (cols > 0 && rows > 0) await this.engine.resize(cols, rows);
+        const ready = !this.started && this.engine.isReadyAt(cols, rows);
+        if (cols > 0 && rows > 0 && !ready) await this.engine.resize(cols, rows);
         this.started = true;
         this.watchVisibility();
         return this.engine.getLastState();
       }
       case 'set_client_size':
-        this.engine.setClientSize(
-          call.args.cols || GUEST_DEFAULT_COLS,
-          call.args.rows || GUEST_DEFAULT_ROWS,
-        );
+        this.viewport = sizeOf(call.args);
+        this.engine.setClientSize(this.viewport.cols, this.viewport.rows);
         return null;
       case 'run_tmux_command':
         await this.runCommand(call.args.command);
