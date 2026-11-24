@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { standaloneShortfall, useCursorInView, useVisualViewport } from '../usePhoneViewport';
+import {
+  pinViewport,
+  standaloneShortfall,
+  useCursorInView,
+  useVisualViewport,
+} from '../usePhoneViewport';
 
 /** A visual viewport a test can resize, as a keyboard does on a phone. */
 class FakeViewport extends EventTarget {
   height = 844;
   offsetTop = 0;
+  scale = 1;
   resize(height: number, offsetTop = 0) {
     this.height = height;
     this.offsetTop = offsetTop;
@@ -176,5 +182,51 @@ describe('useCursorInView', () => {
     // The cursor moves: its column is brought back into view.
     rerender({ key: '%1 0 4', x: xRef });
     expect(scrolledTo).toBe(0);
+  });
+});
+
+describe('pinViewport', () => {
+  const rest = { height: 844, top: 0, keyboard: false };
+
+  it('follows the visual viewport unzoomed', () => {
+    expect(pinViewport({ height: 500, offsetTop: 20, scale: 1, inner: 844 }, rest)).toEqual({
+      height: 500,
+      top: 20,
+      keyboard: true,
+    });
+  });
+
+  it('keeps the last pin while pinch-zoomed, however the view pans', () => {
+    expect(pinViewport({ height: 422, offsetTop: 150, scale: 2, inner: 844 }, rest)).toEqual(rest);
+  });
+
+  it('takes a keyboard under a zoom at its height in layout px', () => {
+    expect(pinViewport({ height: 250, offsetTop: 150, scale: 2, inner: 844 }, rest)).toEqual({
+      height: 500,
+      top: 0,
+      keyboard: true,
+    });
+  });
+
+  it('goes back to the full height when the keyboard leaves under a zoom', () => {
+    const up = { height: 500, top: 0, keyboard: true };
+    expect(pinViewport({ height: 422, offsetTop: 0, scale: 2, inner: 844 }, up)).toEqual(rest);
+  });
+});
+
+describe('useVisualViewport pinch zoom', () => {
+  it('does not squeeze the app into the zoomed view', () => {
+    const viewport = new FakeViewport();
+    viewport.height = window.innerHeight;
+    vi.stubGlobal('visualViewport', viewport);
+    const root = document.documentElement;
+    const { unmount } = renderHook(() => useVisualViewport(true));
+    const before = root.style.getPropertyValue('--app-height');
+    Object.assign(viewport, { scale: 2 });
+    viewport.resize(window.innerHeight / 2, 80);
+    expect(root.style.getPropertyValue('--app-height')).toBe(before);
+    expect(root.style.getPropertyValue('--app-top')).toBe('0px');
+    expect(root.classList.contains('tmuxy-keyboard-up')).toBe(false);
+    unmount();
   });
 });
