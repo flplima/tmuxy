@@ -36,7 +36,7 @@ describe('a pane writes the clipboard', () => {
     // Firefox: "Clipboard write was blocked due to lack of user activation."
     clipboardThat(() => Promise.reject(new DOMException('blocked', 'NotAllowedError')));
     expect(await statusAfterPaneCopies('late-osc52')).toBe(
-      'Pane %6 could not copy 10 chars: the browser wants a key or a click first',
+      'Pane %6 could not copy 10 chars: press a key or click to copy',
     );
   });
 

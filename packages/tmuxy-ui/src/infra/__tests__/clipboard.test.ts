@@ -1,6 +1,11 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { pid } from '../../test/wire';
-import { clipboardWriteMessage, writeClipboardWhenKnown } from '../clipboard';
+import {
+  clipboardBlockedMessage,
+  clipboardWriteMessage,
+  copyForProgram,
+  writeClipboardWhenKnown,
+} from '../clipboard';
 
 /**
  * An OSC 52 write arrives in pane OUTPUT, so `cat` of a crafted file
@@ -82,5 +87,108 @@ describe('writeClipboardWhenKnown', () => {
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     expect(await writeClipboardWhenKnown(Promise.resolve('later'), null)).toBe(true);
     expect(writeText).toHaveBeenCalledWith('later');
+  });
+});
+
+/**
+ * Firefox and Safari refuse a clipboard write that no recent key or click
+ * came before. A program asking for one on its own (`sleep 10; printf OSC 52`)
+ * is turned down, so the text waits for the next gesture.
+ */
+describe('copyForProgram', () => {
+  let fresh = false;
+  const taken: string[] = [];
+  const said: string[] = [];
+  const say = (message: string) => said.push(message);
+
+  /** A browser event, during which the "gesture" is fresh. */
+  const gesture = async (event: Event) => {
+    fresh = true;
+    window.dispatchEvent(event);
+    fresh = false;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  beforeEach(() => {
+    fresh = false;
+    taken.length = 0;
+    said.length = 0;
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        writeText: (text: string) =>
+          fresh
+            ? (taken.push(text), Promise.resolve())
+            : Promise.reject(new DOMException('needs a gesture', 'NotAllowedError')),
+      },
+    });
+  });
+
+  afterEach(async () => {
+    // Settle whatever a test left waiting, so it cannot reach the next one.
+    await copyForProgram('', null, () => {});
+    vi.unstubAllGlobals();
+  });
+
+  it('says what it will do when the browser refuses, and writes on the next key', async () => {
+    expect(await copyForProgram('hi', pid('%1'), say)).toBe(false);
+    expect(said).toEqual(['Pane %1 could not copy 2 chars: press a key or click to copy']);
+    expect(taken).toEqual([]);
+
+    await gesture(new KeyboardEvent('keydown', { key: 'a' }));
+    expect(taken).toEqual(['hi']);
+    expect(said[said.length - 1]).toBe('Copied 2 chars from pane %1');
+  });
+
+  it('writes on the next click too', async () => {
+    await copyForProgram('hi', null, say);
+    await gesture(new MouseEvent('mousedown'));
+    expect(taken).toEqual(['hi']);
+  });
+
+  it('waits for a lifted finger, not a landing one, which a phone does not count', async () => {
+    await copyForProgram('hi', null, say);
+    await gesture(new Event('pointerdown'));
+    expect(taken).toEqual([]);
+    await gesture(new Event('pointerup'));
+    expect(taken).toEqual(['hi']);
+  });
+
+  it('keeps the text when the browser refuses the retry too, for the gesture after', async () => {
+    await copyForProgram('hi', null, say);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(taken).toEqual([]);
+    await gesture(new KeyboardEvent('keydown', { key: 'b' }));
+    expect(taken).toEqual(['hi']);
+  });
+
+  it('writes once: the text is forgotten after the gesture', async () => {
+    await copyForProgram('hi', null, say);
+    await gesture(new KeyboardEvent('keydown', { key: 'a' }));
+    await gesture(new KeyboardEvent('keydown', { key: 'b' }));
+    expect(taken).toEqual(['hi']);
+  });
+
+  it('keeps only the newest request', async () => {
+    await copyForProgram('old', null, say);
+    await copyForProgram('new', null, say);
+    await gesture(new KeyboardEvent('keydown', { key: 'a' }));
+    expect(taken).toEqual(['new']);
+  });
+
+  it('forgets a request a later write that took has replaced', async () => {
+    await copyForProgram('old', null, say);
+    fresh = true;
+    expect(await copyForProgram('new', null, say)).toBe(true);
+    fresh = false;
+    await gesture(new KeyboardEvent('keydown', { key: 'a' }));
+    expect(taken).toEqual(['new']);
+  });
+
+  it('does not promise a retry where there is no clipboard at all', async () => {
+    vi.stubGlobal('navigator', {});
+    expect(await copyForProgram('hi', null, say)).toBe(false);
+    expect(said).toEqual(['Could not copy 2 chars: no clipboard without https or localhost']);
+    expect(clipboardBlockedMessage('hi', null, true)).toContain('no clipboard');
   });
 });
