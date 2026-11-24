@@ -134,3 +134,41 @@ describe('useTerminalPaneScroll on a pane whose tab is hidden and shown again', 
     expect(el.scrollTop).toBe(123);
   });
 });
+
+describe('useTerminalPaneScroll at a row height that is not a whole number of pixels', () => {
+  it('puts the view on its last row scrolled to the far end, a fraction of a row short of it', () => {
+    // 100 lines of 17.6px in a 24-row view: the last row starts at 1337.6px,
+    // but the container's far end is 1760 - 423 = 1337px, as far as it goes.
+    const charHeight = 17.6;
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'clientHeight', { get: () => 423 });
+    Object.defineProperty(el, 'scrollHeight', { get: () => 1760 });
+    let scrollTop = 0;
+    Object.defineProperty(el, 'scrollTop', {
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+    const sent: unknown[] = [];
+    const { result } = renderHook(() =>
+      useTerminalPaneScroll({
+        paneId: pid('%1'),
+        charHeight,
+        copyState: { mode: 'scroll', scrollTop: 70, totalLines: 100, height: 24 } as CopyModeState,
+        scrollRef: { current: el },
+        send: (event) => sent.push(event),
+      }),
+    );
+    const scrolledTo = (px: number) => {
+      scrollTop = px;
+      result.current.handleContainerScroll({
+        currentTarget: el,
+      } as unknown as React.UIEvent<HTMLDivElement>);
+      return (sent[sent.length - 1] as { scrollTop: number }).scrollTop;
+    };
+
+    expect(scrolledTo(1337)).toBe(76);
+    expect(scrolledTo(176)).toBe(10);
+  });
+});

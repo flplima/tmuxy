@@ -4,17 +4,22 @@ import { claimTypedText } from '../modalAndCopyKeys';
 import type { KeyContext } from '../../../selectors/keyboard';
 import type { PaneAsk } from '../../../../domain/paneAsk';
 import type { PaneId } from '../../../../domain/ids';
+import type { CopyModeState } from '../../../../domain/copyMode';
 
 const PANE = '%3' as PaneId;
 
 /** What a phone keyboard typed, against the pane's question; the events it raised and the text left for the pane. */
-function typed(text: string, over: { ask?: PaneAsk | null; closePending?: boolean }) {
+function typed(
+  text: string,
+  over: { ask?: PaneAsk | null; closePending?: boolean; copy?: CopyModeState },
+) {
   const sent: unknown[] = [];
   const parent = { send: (event: unknown) => sent.push(event) } as unknown as AnyActorRef;
   const keys = {
     focusPaneId: PANE,
     ask: over.ask ?? null,
     closePending: over.closePending ?? false,
+    copy: over.copy,
   } as KeyContext;
   return { left: claimTypedText(text, parent, keys), sent };
 }
@@ -53,6 +58,13 @@ describe('claimTypedText', () => {
 
   it('types nothing into the pane behind the close confirmation', () => {
     expect(typed('y', { closePending: true })).toEqual({ left: '', sent: [] });
+  });
+
+  it('closes an open scroll view and types on at the prompt', () => {
+    expect(typed('ls', { copy: { mode: 'scroll' } as CopyModeState })).toEqual({
+      left: 'ls',
+      sent: [{ type: 'EXIT_SCROLL_MODE', paneId: PANE }],
+    });
   });
 
   it('leaves text with no question up to the pane', () => {

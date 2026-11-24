@@ -252,7 +252,10 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
             className="pane-scroll-container hide-scrollbar"
             onScroll={handleContainerScroll}
             style={{
-              overflowY: copyState ? 'auto' : 'hidden',
+              // On a phone the finger moves the view (usePaneTouch) and the
+              // browser never does: a native scroller under the finger is
+              // iOS's, and the tap meant to bring the keyboard up is its too.
+              overflowY: copyState && !phoneLayout ? 'auto' : 'hidden',
               height: '100%',
               position: 'relative',
             }}
