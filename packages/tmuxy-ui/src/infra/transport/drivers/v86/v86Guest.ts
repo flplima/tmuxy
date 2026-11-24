@@ -2,6 +2,7 @@
 // inside the machine's worker (machineHost.ts); the page names the state and
 // spells the lines it sends.
 import type { GuestSnapshot } from '../guest/GuestEngine';
+import type { YieldingMachine } from './haltedWait';
 import SNAPSHOTS from './snapshots.json';
 
 const V86_JS = '/v86/libv86.mjs';
@@ -43,8 +44,9 @@ export interface V86Emulator {
     get_text_screen(): string[];
     update_cursor(row: number, col: number): void;
   };
-  /** The emulator's internals; `restoreSnapshot` sets the guest's TSC through them. */
-  v86: { cpu: V86Cpu };
+  /** The emulator's internals: `restoreSnapshot` sets the guest's TSC through
+   *  them, and `waitWhileHalted` changes how the machine yields. */
+  v86: { cpu: V86Cpu } & Partial<YieldingMachine>;
 }
 
 interface V86Cpu {
