@@ -42,8 +42,14 @@ export function useTerminalPaneScroll({
 
       if (copyState) {
         const el = e.currentTarget;
-        const scrollTop = el.scrollTop;
-        const newScrollTop = Math.floor(scrollTop / charHeight);
+        // At the far end the view is on its last row, whatever the pixels
+        // say: at a row height that is not a whole number of pixels the
+        // browser stops a fraction of a row short of it, and the floor left
+        // the view a row above the bottom, where it never closed.
+        const atEnd = el.scrollHeight - el.clientHeight - el.scrollTop < 1;
+        const newScrollTop = atEnd
+          ? copyState.totalLines - copyState.height
+          : Math.floor(el.scrollTop / charHeight);
         lastDomScrollTopRef.current = newScrollTop;
         send({
           type: 'COPY_MODE_SCROLL',

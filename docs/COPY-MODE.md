@@ -92,9 +92,10 @@ is closed — `reconcilePaneMode` (`machines/app/actions/copyMode/scrollback.ts`
   what keeps the view out of nvim, htop, less and Claude Code: a full-screen application's scroll is
   its own, forwarded as SGR or arrow keys (`scrollUtils.sendScrollLines`).
 - The first real keystroke closes it (`keyboardActor` sends `EXIT_SCROLL_MODE`) and the key goes on to
-  the pane, so typing while scrolled up lands at the prompt. Modifier-only presses do not, or holding
-  Shift to extend a selection would close what you are selecting from. `Escape` closes it and is spent.
-- Scrolling back to the bottom with nothing selected closes it (`copyMode_scroll`).
+  the pane, so typing while scrolled up lands at the prompt; so does a phone keyboard's text.
+  Modifier-only presses do not, so Shift can extend a selection. `Escape` closes it and is spent.
+- Scrolling back to the bottom with nothing selected closes it (`copyMode_scroll`), at fractional-pixel
+  row heights too.
 - No `send-keys -X cancel` and no re-entry cooldown on the way out — both belong to a tmux mode this
   view never enters.
 
