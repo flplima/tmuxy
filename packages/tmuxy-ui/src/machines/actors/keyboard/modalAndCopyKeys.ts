@@ -191,3 +191,25 @@ export function handleModalOrCopyKeyDown(
 
   return false;
 }
+
+/**
+ * Text typed without a keydown to claim it — a phone keyboard's letters
+ * reach the hidden input as `input` events, an IME commits a composition —
+ * meets a question as the same keys pressed would (above): a send's or a
+ * question's buttons take each character (a digit moves the highlight), and
+ * an offer is declined by it. The close confirmation takes nothing typed.
+ * Returns what of the text still goes to the pane.
+ */
+export function claimTypedText(text: string, parent: AnyActorRef, keys: KeyContext): string {
+  if (keys.closePending) return '';
+  const paneId = keys.focusPaneId;
+  if (keys.ask && paneId) {
+    if (keys.ask.kind === 'offer') {
+      parent.send({ type: 'ASK_KEY', paneId, key: text });
+      return text;
+    }
+    for (const key of text) parent.send({ type: 'ASK_KEY', paneId, key });
+    return '';
+  }
+  return text;
+}

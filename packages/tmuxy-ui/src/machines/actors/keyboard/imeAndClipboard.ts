@@ -29,6 +29,7 @@ import { isModelPaneId, realId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
 import { isRealFormControl } from './keyFormatting';
+import { claimTypedText } from './modalAndCopyKeys';
 import type { ContextView } from '../../contextView';
 import { overlayPaneId, type KeyContext } from '../../selectors/keyboard';
 
@@ -94,8 +95,10 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     if (document.visibilityState === 'visible') reclaimKeyboard();
   };
 
-  const cleanupKeyboardInput = setupMobileKeyboard((text, paneId) => {
+  const cleanupKeyboardInput = setupMobileKeyboard((typed, paneId) => {
     if (!deps.keys.get().enabled || deps.keys.get().owner.kind === 'left') return;
+    let text = claimTypedText(typed, deps.parent, deps.keys.get());
+    if (!text) return;
     if (getLatches().ctrl !== 'off' || getLatches().alt !== 'off') {
       const [first, ...rest] = [...text];
       if (first) pressKey(first);
@@ -128,7 +131,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     if (!deps.keys.get().enabled) return;
     if (event.target === getMobileInput()) return;
 
-    const composedText = event.data;
+    const composedText = claimTypedText(event.data ?? '', deps.parent, deps.keys.get());
     if (!composedText) return;
     deps.parent.send({
       type: 'DISPATCH_OP',
