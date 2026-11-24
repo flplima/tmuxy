@@ -22,18 +22,22 @@ type_line() {
 
 tmux rename-session -t "$from" "$s"
 tmux rename-window -t "$s:" welcome
+# Each window is left as the app's attach leaves it (GUEST_DEFAULT_COLS x
+# _ROWS in GuestEngine.ts, pane titles on), so the attach changes no layout:
+# a changed layout is one more round of screen captures before the first
+# frame. The app's resize to the viewport comes after.
+as_attached() {
+  tmux set-option -w -t "$1" pane-border-status top
+  tmux resize-window -t "$1" -x 80 -y 30
+}
+as_attached "$s:welcome"
 printf 'Did you notice that this pane has two tabs?\n' >~/pane-group-1.txt
 printf '%s\n' 'A pane group lets you stack several panes in the same position within your layout. The inactive panes live in hidden tmux windows.' '' 'When you switch tabs, tmuxy swaps the visible pane with the hidden one.' >~/pane-group-2.txt
 
 # The second tab: a pane group on the left, an animated picture below it and
 # a markdown preview on the right.
 group=$(tmux new-window -P -F '#{pane_id}' -t "$s:" -n features)
-# As the app's attach leaves every window (GUEST_DEFAULT_COLS x _ROWS in
-# GuestEngine.ts, pane titles on), so the attach does not resize the
-# picture's pane: the app drops what a pane prints until its first look at
-# it, and a draw then would be lost. Its resize to the viewport comes after.
-tmux set-option -w -t "$s:features" pane-border-status top
-tmux resize-window -t "$s:features" -x 80 -y 30
+as_attached "$s:features"
 preview=$(tmux split-window -h -P -F '#{pane_id}' -t "$group")
 image=$(tmux split-window -v -P -F '#{pane_id}' -t "$group")
 # Typed before the shell is up, so its output starts on the prompt's line;
@@ -56,9 +60,9 @@ parked() {
   done <<<"$(tmux list-panes -s -t __tmuxy_stash -F '#{pane_id} #{@tmuxy-group-id}' 2>/dev/null)"
   return 1
 }
-# icat sleeps between its looks at the pane's size, and only once it drew:
+# icat is ready once it sleeps, waiting to be told its window is in front:
 # a `sleep` whose parent runs icat.
-drawn() {
+waiting() {
   local stat comm ppid
   for stat in /proc/[0-9]*/stat; do
     read -r _ comm _ ppid _ <"$stat" 2>/dev/null || continue
@@ -85,7 +89,8 @@ wait_until settled
 tmux set -gu @tmuxy-showcase-built
 
 # The picture last, its tab already in the back as the demo starts: icat
-# draws it once and is asleep when the state is saved.
+# draws nothing there, and is asleep when the state is saved. It draws when
+# a visitor brings the tab to the front.
 tmux select-window -t "$s:welcome"
 type_line "$image" "bash $here/icat $here/nyan-cat.gif"
-wait_until drawn
+wait_until waiting

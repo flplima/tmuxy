@@ -1,8 +1,13 @@
 #!/bin/bash
-# Show an image with the Kitty graphics protocol, as large as the pane, and
-# draw it again whenever the pane changes size or its window comes to the
-# front: a client learns of a picture only as it is printed, so one that
-# attached since the last draw has none to show. Ctrl+C ends it.
+# Show an image with the Kitty graphics protocol, as large as the pane, while
+# its window is in front: drawn when the window comes to the front, again when
+# the pane changes size, and again for a client that attached since (a client
+# learns of a picture only as it is printed). Ctrl+C ends it.
+#
+# Nothing here polls: tmux says when to look. A resize is the terminal's
+# SIGWINCH; the window coming to the front and a client attaching are tmux
+# hooks that signal this script. Between them it sleeps, at no cost to the
+# machine.
 #
 # It goes through tmux's passthrough (every ESC doubled), so tmux hands it
 # on rather than reading it as a pane title. `f=100` names a PNG; tmuxy reads
@@ -17,14 +22,47 @@ draw() {
   printf '\033[H\033Ptmux;\033\033_Ga=T,f=100,c=%s,r=%s;%s\033\033\\\033\\' "$1" "$2" "$data"
 }
 
-trap 'printf "\033[?25h\033[H\033[2J"; exit' INT TERM
+# One slot per pane in each hook's list, so two of these never share one and
+# leaving takes only its own.
+slot=$((100 + ${TMUX_PANE#%}))
+tmux set-hook -g "session-window-changed[$slot]" "run-shell -b 'kill -USR1 $$ 2>/dev/null || true'"
+tmux set-hook -g "client-attached[$slot]" "run-shell -b 'kill -USR2 $$ 2>/dev/null || true'"
+leave() {
+  [ -z "$nap" ] || kill "$nap" 2>/dev/null
+  tmux set-hook -gu "session-window-changed[$slot]"
+  tmux set-hook -gu "client-attached[$slot]"
+  printf '\033[?25h\033[H\033[2J'
+  exit
+}
+
+look=1
+unseen=1
+nap=
+# A signal ends the sleep it finds, so one that lands between the test below
+# and the wait is not slept through.
+wake() {
+  look=1
+  [ -z "$nap" ] || kill "$nap" 2>/dev/null
+}
+trap wake WINCH USR1
+trap 'unseen=1; wake' USR2
+trap leave INT TERM
 printf '\033[?25l\033[H\033[2J'
-seen=
+drawn=
 while :; do
-  now=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_width} #{pane_height} #{window_active}')
-  if [ "$now" != "$seen" ]; then
-    seen=$now
-    draw $now
+  if [ -n "$look" ]; then
+    look=
+    # shellcheck disable=SC2046 # three words: the pane's width, its height, whether its window is in front
+    set -- $(tmux display-message -p -t "$TMUX_PANE" '#{pane_width} #{pane_height} #{window_active}')
+    if [ "$3" = 1 ] && { [ -n "$unseen" ] || [ "$1 $2" != "$drawn" ]; }; then
+      unseen=
+      drawn="$1 $2"
+      draw "$1" "$2"
+    fi
   fi
-  sleep 1
+  # Asleep until a signal.
+  sleep 86400 &
+  nap=$!
+  [ -n "$look" ] || wait "$nap"
+  kill "$nap" 2>/dev/null
 done

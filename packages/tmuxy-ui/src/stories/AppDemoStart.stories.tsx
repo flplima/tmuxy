@@ -38,11 +38,11 @@ const panes = (root: HTMLElement) =>
  * The demo site's start: the state it restores was saved after its showcase
  * was built (`scripts/demo-showcase/showcase.sh`), so the first frame is the
  * finished session. What a restore does not bring back comes back on its own:
- * the picture, which tmux printed to no client, is drawn again when its tab
- * comes to the front (this box is the size the attach leaves every window
- * at, so no resize draws it first); the preview's document is read from the
- * restored share; the pane group's hidden member is in the restored stash
- * session.
+ * the picture is not in the saved state at all, its script draws it when
+ * tmux says its tab came to the front (this box is the size the attach
+ * leaves every window at, so no resize draws it first); the preview's
+ * document is read from the restored share; the pane group's hidden member
+ * is in the restored stash session.
  */
 export const OpensOnTheBakedShowcase: Story = {
   tags: ['gate'],
