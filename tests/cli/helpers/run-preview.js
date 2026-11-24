@@ -15,6 +15,20 @@ const REV = '__REV__:';
 /** How long a wait lasts before it fails. */
 const WAIT_MS = 15000;
 
+/** The first `name` on the test's own PATH, by its full path: what a shim of that name runs. */
+function theReal(name) {
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    const file = path.join(dir, name);
+    try {
+      fs.accessSync(file, fs.constants.X_OK);
+      return file;
+    } catch {
+      // not in this directory
+    }
+  }
+  throw new Error(`no ${name} on PATH`);
+}
+
 /**
  * @param {string} home - The scratch directory the CLI takes as `HOME`
  * @param {string} file - The document to preview
@@ -27,7 +41,7 @@ function startPreview(home, file, pane) {
   fs.mkdirSync(shims);
   fs.writeFileSync(
     path.join(shims, 'cksum'),
-    '#!/bin/bash\necho >>"$PREVIEW_READS"\nPATH="${PATH#*:}" exec cksum "$@"\n',
+    `#!/bin/bash\necho >>"$PREVIEW_READS"\nexec '${theReal('cksum')}' "$@"\n`,
     { mode: 0o755 },
   );
   // In a terminal of its own, as in a pane: the preview reads the terminal
@@ -39,7 +53,7 @@ function startPreview(home, file, pane) {
       : ['-qfc', `'${CLI_PATH}' open '${file}'`, '/dev/null'];
   const child = spawn('script', inTerminal, {
     detached: true,
-    stdio: ['pipe', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     env: scriptEnv(home, {
       PATH: `${shims}:${MOCKS_DIR}:${process.env.PATH}`,
       PREVIEW_READS: reads,
@@ -50,9 +64,16 @@ function startPreview(home, file, pane) {
     }),
   });
   let printed = '';
+  let complained = '';
   child.stdout.on('data', (chunk) => {
     printed += chunk.toString();
   });
+  child.stderr.on('data', (chunk) => {
+    complained += chunk.toString();
+  });
+  /** What the preview wrote, for a wait that gave up. */
+  const said = () =>
+    `it printed ${JSON.stringify(printed.slice(-400))}, and on stderr ${JSON.stringify(complained.slice(-400))}`;
   const revisions = () =>
     printed
       .split(/\r?\n/)
@@ -68,7 +89,9 @@ function startPreview(home, file, pane) {
       const deadline = Date.now() + WAIT_MS;
       while (revisions().length < count) {
         if (Date.now() > deadline) {
-          throw new Error(`the preview printed ${revisions().length} revisions, not ${count}`);
+          throw new Error(
+            `the preview printed ${revisions().length} revisions, not ${count}: ${said()}`,
+          );
         }
         await pause(50);
       }
@@ -81,7 +104,7 @@ function startPreview(home, file, pane) {
       let since = Date.now();
       while (Date.now() - since < ms) {
         if (Date.now() > deadline) {
-          throw new Error(`the file is still being read: ${seen} times so far`);
+          throw new Error(`the file is still being read, ${seen} times so far: ${said()}`);
         }
         await pause(50);
         if (readCount() !== seen) {
