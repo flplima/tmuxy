@@ -93,3 +93,13 @@ describe('keyboard target mark', () => {
     expect(getMobileInput()?.dataset.keyboardTarget).toBe('left-sidebar');
   });
 });
+
+describe('the hidden input', () => {
+  it('is 16px or more, the size iOS types into without zooming the page', () => {
+    const cleanup = setupMobileKeyboard(() => {});
+    const input = getMobileInput();
+    expect(input).not.toBeNull();
+    expect(parseFloat(getComputedStyle(input!).fontSize)).toBeGreaterThanOrEqual(16);
+    cleanup();
+  });
+});

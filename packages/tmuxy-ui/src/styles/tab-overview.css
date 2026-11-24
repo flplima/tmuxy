@@ -245,6 +245,14 @@
   outline: none;
 }
 
+/* iOS zooms the page into a field under 16px that takes the focus, and the
+   page can stay zoomed after it: on a touch screen, 16px at least. */
+@media (pointer: coarse) {
+  .inline-rename {
+    font-size: max(16px, 1em);
+  }
+}
+
 .inline-rename::selection {
   background: color-mix(in srgb, var(--term-white) 35%, transparent);
 }
