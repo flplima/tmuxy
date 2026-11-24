@@ -87,10 +87,15 @@ pub fn started(pid: u32) -> Option<String> {
     (out.status.success() && !said.is_empty()).then_some(said)
 }
 
-/// The entry's sender still runs: its pid names a process that started when
-/// the sender did, not one that took the pid over after it died.
+/// The entry's sender still runs ([`runs`]).
 fn alive(id: &str, sender_started: &str) -> bool {
-    !sender_started.is_empty() && pid_of(id).and_then(started).as_deref() == Some(sender_started)
+    pid_of(id).is_some_and(|pid| runs(pid, sender_started))
+}
+
+/// Process `pid` is the one that started at `when` ([`started`]), not one
+/// that took the pid over after it died.
+pub(super) fn runs(pid: u32, when: &str) -> bool {
+    !when.is_empty() && started(pid).as_deref() == Some(when)
 }
 
 struct Payload {

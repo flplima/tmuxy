@@ -394,3 +394,103 @@ async fn a_question_is_answered_with_a_choice_or_a_line_of_text() {
     );
     assert_eq!(ask("text:", name()).await, Ok(String::new()));
 }
+
+/// A process that has ended, as the asker it would have recorded while it
+/// ran.
+fn gone_asker() -> question::Asker {
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .expect("sleep starts");
+    let pid = child.id();
+    let started = queue::started(pid).expect("a running process has a start time");
+    child.kill().unwrap();
+    child.wait().unwrap();
+    question::Asker { pid, started }
+}
+
+/// A sender killed without the chance to take its question down (SIGKILL, a
+/// timeout) left it up for good, the pane `needs-input` under it, and a yes
+/// that typed nothing. The question records its asker and the state it
+/// covers, so whoever finds it next puts both back (invariant X11).
+#[tokio::test]
+async fn a_question_whose_asker_is_gone_comes_down_with_the_panes_state_back() {
+    let deploy = Prompt::new("Deploy?", choices(&["yes", "no"]), false).unwrap();
+    for (before, question) in [
+        (
+            "working",
+            Question::new(
+                &pane(),
+                "1",
+                "zsh",
+                &keys(),
+                &SendRules {
+                    pane_state: "working".into(),
+                    ..SendRules::default()
+                },
+            ),
+        ),
+        ("", Question::asking(&pane(), "1", "claude", &deploy, "")),
+    ] {
+        let tmux = Fake::new(None);
+        tmux.0.lock().unwrap().state = before.into();
+        let question = question.asked_by(gone_asker());
+        question.put_up(&tmux).await.unwrap();
+        // The user answers a question nobody is waiting on.
+        tmux.0.lock().unwrap().answer = format!("{}:no", question.token);
+        assert_eq!(tmux.0.lock().unwrap().state, "needs-input");
+
+        assert_eq!(sweep(&tmux, &pane()).await, Ok(true));
+        let p = tmux.0.lock().unwrap();
+        assert!(p.ask.is_empty(), "the question is left up");
+        assert!(p.answer.is_empty(), "the answer is left behind");
+        assert_eq!(p.state, before);
+    }
+}
+
+/// A question stays up while its asker runs, and only then: a pid another
+/// process took over after the asker died is not the asker. One that names
+/// no asker (a restore's offer) is not this sweep's to take down.
+#[tokio::test]
+async fn a_question_stays_up_while_its_asker_runs_and_a_reused_pid_is_not_it() {
+    let asked = |question: Question| async move {
+        let tmux = Fake::new(None);
+        question.put_up(&tmux).await.unwrap();
+        let swept = sweep(&tmux, &pane()).await.unwrap();
+        let up = !tmux.0.lock().unwrap().ask.is_empty();
+        (swept, up)
+    };
+    let mine = Question::new(&pane(), "1", "zsh", &keys(), &SendRules::default());
+    assert_eq!(asked(mine.clone()).await, (false, true));
+    let reused = question::Asker {
+        pid: std::process::id(),
+        started: "when another process with this pid started".into(),
+    };
+    assert_eq!(asked(mine.asked_by(reused)).await, (true, false));
+
+    let tmux = Fake::new(None);
+    let offer = serde_json::json!({ "token": "t", "kind": "offer", "command": "make" });
+    tmux.0.lock().unwrap().ask =
+        base64::engine::general_purpose::STANDARD.encode(offer.to_string());
+    assert_eq!(sweep(&tmux, &pane()).await, Ok(false));
+    assert!(!tmux.0.lock().unwrap().ask.is_empty());
+}
+
+/// The next sender does not wait out a question whose asker is gone: it
+/// takes it down and asks at once.
+#[tokio::test]
+async fn a_send_does_not_wait_behind_a_question_whose_asker_is_gone() {
+    let tmux = Fake::new(None);
+    tmux.0.lock().unwrap().state = "idle".into();
+    let rules = SendRules {
+        pane_state: "idle".into(),
+        ..SendRules::default()
+    };
+    let left = Question::new(&pane(), "1", "zsh", &keys(), &rules).asked_by(gone_asker());
+    left.put_up(&tmux).await.unwrap();
+    let waited = wait_turn(&tmux, &pane(), Some(Deadline::after(Duration::ZERO))).await;
+    assert_eq!(waited, Ok(()));
+    let p = tmux.0.lock().unwrap();
+    assert!(p.ask.is_empty());
+    assert_eq!(p.state, "idle");
+}

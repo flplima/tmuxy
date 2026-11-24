@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use tmuxy_core::ask::{self, Argv, Deadline, Question, Refused, SendRules};
+use tmuxy_core::ask::{self, Deadline, Question, Refused, SendRules};
 use tmuxy_core::permissions::{self, Decision};
 use tmuxy_core::{CommandError, PaneId};
 
@@ -57,30 +57,11 @@ pub struct SendArgs {
     keys: Vec<String>,
 }
 
-/// The CLI's own `Tmux`: reads as tmux subprocesses, which tmux runs safely
-/// beside an attached control-mode client, and every change inside
-/// `run-shell` (docs/TMUX.md). `tmuxy pane ask` (`ask_cli.rs`) asks over it
-/// too.
-pub(crate) struct CliTmux;
-
-impl ask::Tmux for CliTmux {
-    async fn read(&self, argv: Argv) -> Result<String, CommandError> {
-        tmuxy_core::session::tmux_output(&argv).map_err(|e| CommandError::tmux(e.to_string()))
-    }
-
-    async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {
-        let argv = commands.join(&";".to_string());
-        tmuxy_core::run_shell::tmux(&tmuxy_core::paths::Layout::current(), &argv)
-            .map(drop)
-            .map_err(|e| CommandError::tmux(e.to_string()))
-    }
-}
-
 pub async fn run(args: SendArgs) {
     let answer = Answer::new(args.json);
     // The user's permissions file, read from disk for this send and no other.
     let file = permissions::Loaded::read(&crate::permissions_file::path());
-    let code = match send(&CliTmux, args, &answer, &file).await {
+    let code = match send(&ask::Subprocess, args, &answer, &file).await {
         Ok(()) => 0,
         // Under --json a wait that failed after the keys went in says so.
         Err((EXIT_SENT, message)) => {
@@ -288,17 +269,23 @@ pub(crate) async fn caller_name<T: ask::Tmux>(
     name.unwrap_or_else(|| "a script".to_string())
 }
 
+/// A signal that ends the sender: an interrupt, a kill, its terminal closing
+/// (SIGHUP) or a quit. Each takes its question down on the way out.
 pub(crate) async fn interrupted() {
     use tokio::signal::unix::{signal, SignalKind};
-    let (Ok(mut int), Ok(mut term)) = (
+    let (Ok(mut int), Ok(mut term), Ok(mut hup), Ok(mut quit)) = (
         signal(SignalKind::interrupt()),
         signal(SignalKind::terminate()),
+        signal(SignalKind::hangup()),
+        signal(SignalKind::quit()),
     ) else {
         return std::future::pending().await;
     };
     tokio::select! {
         _ = int.recv() => {}
         _ = term.recv() => {}
+        _ = hup.recv() => {}
+        _ = quit.recv() => {}
     }
 }
 

@@ -1,7 +1,7 @@
 //! `tmuxy pane ask`: a script or an agent asks the person a question over a
 //! pane, and prints the first answer any client gives. The question is
 //! `tmuxy_core::ask`'s `question` kind (`ask/prompt.rs`), put up and waited
-//! on as a send question is, over the same [`CliTmux`]. Exit 0 answered ·
+//! on as a send question is, over the same [`ask::Subprocess`]. Exit 0 answered ·
 //! 1 dismissed, unanswered by `--for` or still behind another question then
 //! · 2 bad command line · 3 the pane is gone · 130 interrupted, with the
 //! question taken down.
@@ -13,7 +13,7 @@ use tmuxy_core::constants::tmux_options::PANE_STATE;
 use tmuxy_core::PaneId;
 
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_TARGET, EXIT_USAGE};
-use crate::send_cli::{self, CliTmux};
+use crate::send_cli;
 
 #[derive(clap::Args, Debug)]
 pub struct AskArgs {
@@ -46,7 +46,7 @@ pub struct AskArgs {
 
 pub async fn run(args: AskArgs) {
     let answer = Answer::new(args.json);
-    let code = match ask(&CliTmux, args).await {
+    let code = match ask(&ask::Subprocess, args).await {
         Ok(said) => {
             answer.done(&[("answer", cli_json::string(&said))], &said);
             0

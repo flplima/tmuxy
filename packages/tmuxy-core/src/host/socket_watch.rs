@@ -104,10 +104,28 @@ pub fn read_panes() -> Option<Vec<PaneRow>> {
 /// The rows as last read: empty until the first read.
 pub type Rows = watch::Receiver<Arc<Vec<PaneRow>>>;
 
+/// Take down every question on the socket whose asker is gone
+/// ([`crate::ask::sweep`]). The host is the process on the tmux server's
+/// machine that runs for as long as anyone looks at the panes, so a question
+/// a killed sender left comes down within one pass. Run on a blocking thread.
+fn sweep_questions(rows: &[PaneRow]) {
+    for row in rows.iter().filter(|row| row.asking) {
+        let Ok(pane) = crate::PaneId::parse(&row.pane_id) else {
+            continue;
+        };
+        let swept = tokio::runtime::Handle::current()
+            .block_on(crate::ask::sweep(&crate::ask::Subprocess, &pane));
+        if swept.unwrap_or(false) {
+            tracing::debug!(target: "tmuxy_core::ask", pane = %row.pane_id, "a question whose asker is gone came down");
+        }
+    }
+}
+
 /// Read the panes every [`INTERVAL`] for as long as the future runs,
 /// correcting agent panes from their screens, giving agents without hooks a
-/// state from theirs (`agent_rules`), and publishing each read (a
-/// server that cannot be asked publishes nothing).
+/// state from theirs (`agent_rules`), taking down questions their askers
+/// left ([`sweep_questions`]), and publishing each read (a server that
+/// cannot be asked publishes nothing).
 pub async fn run(watch: watch::Sender<Arc<Vec<PaneRow>>>) {
     let mut corrector = agent_screen::Corrector::default();
     let mut rules = agent_rules::Rules::default();
@@ -119,6 +137,7 @@ pub async fn run(watch: watch::Sender<Arc<Vec<PaneRow>>>) {
             if let Some(rows) = &rows {
                 corrector.pass(rows);
                 rules.pass(rows);
+                sweep_questions(rows);
             }
             (corrector, rules, rows)
         })
