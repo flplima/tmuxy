@@ -103,5 +103,45 @@ describeE2E(
       );
       await waitForTerminalText(ctx.page, 'tapped=[no]', 20000, { notOnLineWith: 'echo' });
     }, 120000);
+
+    // A phone's keyboard types into the hidden input, and its letters arrive
+    // as text (`input` events), with no keydown the question could claim.
+    test('a digit typed on the phone keyboard picks a choice, Enter takes it, and nothing typed reaches the shell', async () => {
+      await ctx.setupPage();
+      await waitForPhoneGrid(ctx.page);
+
+      await ask('typed');
+      const selected = () =>
+        ctx.page.evaluate(() =>
+          [...document.querySelectorAll('.pane-active .ask-overlay-choice-selected')].map(
+            (b) => b.textContent,
+          ),
+        );
+      expect(await selected()).toEqual(['1.yes']);
+
+      // The text the keyboard types, as it types it: no keydown before it.
+      await ctx.page.keyboard.insertText('2');
+      await waitForCondition(
+        ctx.page,
+        async () => (await selected()).join() === '2.no',
+        5000,
+        async () => `"2" to highlight the second choice (highlighted: ${await selected()})`,
+      );
+      await ctx.page.keyboard.press('Enter');
+      await waitForCondition(
+        ctx.page,
+        () => questionGone(ctx.page),
+        10000,
+        'the answered question to leave the screen',
+      );
+      await waitForTerminalText(ctx.page, 'typed=[no]', 20000, { notOnLineWith: 'echo' });
+
+      // The "2" went to the question, not into the shell's input waiting
+      // behind it: the next line typed runs as typed.
+      await typeOnVirtualKeyboard(ctx.page, 'echo AFTER_THE_QUESTION');
+      await ctx.page.keyboard.press('Enter');
+      await waitForTerminalText(ctx.page, 'AFTER_THE_QUESTION', 20000, { notOnLineWith: 'echo' });
+      expect(await getTerminalText(ctx.page)).not.toContain('2echo');
+    }, 120000);
   },
 );

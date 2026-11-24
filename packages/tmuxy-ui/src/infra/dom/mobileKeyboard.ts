@@ -15,7 +15,9 @@ import type { PaneId } from '../../domain/ids';
  *  - Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events
  *    that bubble to window and are handled by keyboardActor's existing keydown listener.
  *  - Printable characters and finalized IME compositions arrive through `input` or
- *    `compositionend` events and are forwarded through the registered callback.
+ *    `compositionend` events and are forwarded through the registered callback,
+ *    which gives a question over the pane its say first, as a keydown would
+ *    (`claimTypedText`, machines/actors/keyboard/modalAndCopyKeys.ts).
  *  - keyboardActor skips printable keydowns from this input so text is sent once.
  */
 
