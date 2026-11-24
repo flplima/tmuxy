@@ -163,10 +163,25 @@ async function buildBundle({ fetchBinaries }) {
   console.log(`✓ tmux-bundle.tar rebuilt (${(size / 1e6).toFixed(1)} MB)`);
 }
 
+// A state is the machine's memory, less the pages that are all zeroes, and
+// a visitor downloads it whole. The kernel does not zero a page it frees:
+// what the boot and the install leave behind in free memory (the packed
+// kernel image, the bundle's tar, every file deleted since) was 40% of the
+// download, most of it data that does not compress. `init_on_free` has the
+// kernel zero each page as it frees it, from the boot on, so free memory is
+// zeroes whenever a state is saved.
+const GUEST_CMDLINE = 'tsc=reliable mitigations=off random.trust_cpu=on init_on_free=1';
+
+// The base image's files that nothing in the guest can use: its own test
+// files, and a browser and a downloader in a machine with no network.
+const GUEST_UNUSED = ['/root/tests', '/root/test.lua', '/usr/bin/links', '/usr/bin/curl'];
+
 const GUEST_INSTALL = [
+  `rm -rf ${GUEST_UNUSED.join(' ')}`,
   'mkdir -p /dev/pts && mount -t devpts devpts /dev/pts',
   'mkdir -p /mnt && mount -t 9p host9p /mnt',
-  'mkdir -p /tmp/tb && tar -xf /mnt/tmux-bundle.tar -C /tmp/tb',
+  // The tar leaves the share once unpacked: a state keeps the share's files.
+  'mkdir -p /tmp/tb && tar -xf /mnt/tmux-bundle.tar -C /tmp/tb && rm /mnt/tmux-bundle.tar',
   'ln -sf /tmp/tb/ld-musl-i386.so.1 /lib/ld-musl-i386.so.1',
   'for f in /tmp/tb/lib*.so*; do ln -sf $f /lib/; done',
   'ln -sf /tmp/tb/bash /bin/bash',
@@ -227,9 +242,9 @@ function serialConsole(emulator) {
 
 // The raw snapshot dominates the client payload, so the page fetches it as
 // zstd and v86's restore_state inflates it. Long-distance matching with a
-// 32 MB window finds the repeats across the 35 MB image (the page cache and
-// the bundle's copies); a longer window gains nothing and costs the
-// decoder more memory.
+// 32 MB window finds the repeats across the whole image (the page cache and
+// the bundle's copies); a longer window or a higher level gains nothing and
+// costs the decoder more memory.
 const pack = (state) =>
   zstdCompressSync(Buffer.from(state), {
     params: {
@@ -254,8 +269,8 @@ async function writeState(name, state) {
  * Carry the machine on into the demo's state: the showcase's files go in the
  * 9p share (the guest's /mnt), whose files a state keeps, and `showcase.sh`
  * builds the demo's session from the generic one, returning once all of it
- * is on screen. The bundle's tar leaves the share first, unpacked long ago,
- * and the script once it ran: neither is anything a visitor should download.
+ * is on screen. The script leaves the share once it ran: it is nothing a
+ * visitor should download.
  */
 async function bakeShowcase(emulator, { type, waitFor }) {
   for (const name of await readdir(SHOWCASE)) {
@@ -263,7 +278,7 @@ async function bakeShowcase(emulator, { type, waitFor }) {
   }
   // The marker is split in the typed line, whose echo would match it.
   await type(
-    `rm /mnt/tmux-bundle.tar && bash /mnt/showcase.sh ${GENERIC} ${SNAPSHOTS.demo.session} && rm /mnt/showcase.sh && echo SHOWCASE_""IS_READY`,
+    `bash /mnt/showcase.sh ${GENERIC} ${SNAPSHOTS.demo.session} && rm /mnt/showcase.sh && echo SHOWCASE_""IS_READY`,
   );
   await waitFor('SHOWCASE_IS_READY', 360_000);
 }
@@ -278,7 +293,7 @@ async function buildSnapshot() {
     bios: { url: join(ASSETS, 'seabios.bin') },
     vga_bios: { url: join(ASSETS, 'vgabios.bin') },
     bzimage: { url: join(ASSETS, 'buildroot-bzimage.bin') },
-    cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
+    cmdline: GUEST_CMDLINE,
     filesystem: {},
     memory_size: 64 * 1024 * 1024,
     vga_memory_size: 2 * 1024 * 1024,
