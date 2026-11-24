@@ -118,8 +118,15 @@ pub struct MonitorCore<W> {
     /// In cells.
     client_size: Option<(u32, u32)>,
     /// The size each window was last asked for, how many times running, and
-    /// which `list-panes` report was current then (`sizing::needs_resize`).
+    /// how many `list-panes` had been sent then (`sizing::needs_resize`).
     resize_attempts: HashMap<WindowId, ((u32, u32), u8, u64)>,
+    /// How many of the aggregator's `list-panes` have gone to tmux, counted
+    /// as `StateAggregator::pane_reports` counts their answers: a report
+    /// tells whether a `resizew` took only if its list went after it.
+    pane_lists_sent: u64,
+    /// The grid the session's current window was last asked for before the
+    /// window list arrived (the attach's, then the client's).
+    current_window_size: Option<(u32, u32)>,
     resize_given_up: HashSet<WindowId>,
     last_event_at: Instant,
     next_sync_at: Instant,
@@ -140,6 +147,8 @@ impl<W> MonitorCore<W> {
             next_reply_id: 0,
             client_size: None,
             resize_attempts: HashMap::new(),
+            pane_lists_sent: 0,
+            current_window_size: None,
             resize_given_up: HashSet::new(),
             last_event_at: now,
             next_sync_at: now + FIRST_SYNC_DELAY,
@@ -161,6 +170,9 @@ impl<W> MonitorCore<W> {
     pub fn expect_session(&mut self, session: &str) {
         self.session = session.to_string();
         self.aggregator = StateAggregator::with_session_name(session);
+        // The new aggregator counts answers from zero, and the lists in
+        // flight carry the old one's token: none of them is counted.
+        self.pane_lists_sent = 0;
         self.resize_attempts.clear();
         self.resize_given_up.clear();
     }
@@ -172,6 +184,10 @@ impl<W> MonitorCore<W> {
         if let ControlModeEvent::Exit { reason } = event {
             return vec![Action::Ended(reason)];
         }
+        // tmux's answer to one of the core's own reads is no news of output:
+        // a capture lands in the batch whose `list-panes` (M3) has just read
+        // every pane's title, command and history size.
+        let answer = matches!(event, ControlModeEvent::CommandResponse { .. });
         let step = self.aggregator.step_at(event, now);
         let mut actions = Vec::with_capacity(step.effects.len() + 1);
         for effect in step.effects {
@@ -182,7 +198,7 @@ impl<W> MonitorCore<W> {
                 } => self.read(commands, &mut actions),
                 SideEffect::Send { commands, .. } => actions.push(Action::Send(commands)),
                 SideEffect::Emit(change) => {
-                    if matches!(change, ChangeType::Output | ChangeType::Window) {
+                    if !answer && matches!(change, ChangeType::Output | ChangeType::Window) {
                         self.metadata_sync_at
                             .get_or_insert(now + METADATA_SYNC_DELAY);
                     }
@@ -269,7 +285,13 @@ impl<W> MonitorCore<W> {
         self.client_size = Some((cols, rows));
         if self.aggregator.window_ids().is_empty() {
             // Before the window list arrives, the current window is sized so
-            // the visible pane is right at once.
+            // the visible pane is right at once, unless it was just asked for
+            // this grid: the attach sizes it, and a `resizew` costs tmux a
+            // `%layout-change` even when it changes nothing.
+            if self.current_window_size == Some((cols, rows)) {
+                return Vec::new();
+            }
+            self.current_window_size = Some((cols, rows));
             return vec![Action::Send(vec![format!("resizew -x {cols} -y {rows}")])];
         }
         self.size_windows().into_iter().collect()
@@ -285,3 +307,5 @@ impl<W> MonitorCore<W> {
 mod tests;
 #[cfg(test)]
 mod tests_reads;
+#[cfg(test)]
+mod tests_rounds;

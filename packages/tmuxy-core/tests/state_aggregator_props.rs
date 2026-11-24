@@ -338,21 +338,19 @@ proptest! {
     #[test]
     fn a_capture_lands_on_its_pane_whatever_the_pane_shows(content in hostile_block()) {
         let mut agg = seeded_aggregator();
-        // The seed's own steps sent %1's capture, and asked for it again
-        // while it was in flight (the list, then the window focus): once
-        // the block lands as %1's, that second capture follows it.
+        // The seed's own steps sent %1's capture: while it is on its way, a
+        // second one is not queued.
         let pane: PaneId = "%1".parse().unwrap();
+        prop_assert!(agg.queue_captures(std::slice::from_ref(&pane)).is_empty());
         agg.step(signed(&agg, response("TMUXY_CAP_BEGIN 1")));
         let landed = agg.step(response(&content));
         prop_assert_eq!(landed.change_type, ChangeType::Output, "the block is a capture");
-        let follow_up = format!("capture-pane -t {pane} ");
-        prop_assert!(
-            landed.effects.iter().any(|e| matches!(e,
-                SideEffect::Send { batch: Batch::PaneRefresh, commands }
-                    if commands.iter().any(|c| c.contains(&follow_up)))),
-            "the block was %1's capture, so %1 is free for the next: {:?}", landed.effects
-        );
         agg.step(signed(&agg, response("TMUXY_CAP_END")));
+        prop_assert_eq!(
+            agg.queue_captures(std::slice::from_ref(&pane)),
+            vec![pane],
+            "the block was %1's capture, so %1 is free for the next"
+        );
     }
 
     /// A13: a reply is everything between its own markers. No block a pane

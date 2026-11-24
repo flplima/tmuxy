@@ -17,7 +17,7 @@ Events:    Frontend ← Backend ← StateEmitter ← Monitor ← stdout ← tmux
 
 The `TmuxMonitor` (in `tmuxy-core/src/control_mode/monitor.rs`) maintains a persistent `tmux -CC attach-session` subprocess via `ControlModeConnection`. All state-modifying commands flow through the monitor's command channel as `MonitorCommand::RunCommand` messages. The monitor writes commands to control mode stdin, and tmux sends notifications back through stdout (`%output`, `%layout-change`, `%window-add`, etc.).
 
-A connection counts as made only once control mode opens (X7 in [INVARIANTS.md](INVARIANTS.md)). `tmux -CC` writes a DCS (`ESC P 1000 p`) glued to the `%begin` of the block that answers its own `attach-session` or `new-session`: that block closing with `%end`, or a first notification, means attached. An `%error` closing it carries tmux's reason (a session it will not create), `%exit` means the client left, and a plain line before any of it is tmux or ssh talking on its way out; the connect fails with those words and tmux's exit status, and the host's backoff takes over (`tmuxy-core/src/control_mode/connection/spawn.rs`, `host/supervise.rs`). The in-browser guest waits on the same DCS: it types `tmux -CC attach` into the guest's serial shell, and the core is fed, and its attach commands sent, only from the DCS on (`GuestEngine.start`, [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md)).
+A connection counts as made only once control mode opens (X7 in [INVARIANTS-CONNECTION.md](INVARIANTS-CONNECTION.md)). `tmux -CC` writes a DCS (`ESC P 1000 p`) glued to the `%begin` of the block that answers its own `attach-session` or `new-session`: that block closing with `%end`, or a first notification, means attached. An `%error` closing it carries tmux's reason (a session it will not create), `%exit` means the client left, and a plain line before any of it is tmux or ssh talking on its way out; the connect fails with those words and tmux's exit status, and the host's backoff takes over (`tmuxy-core/src/control_mode/connection/spawn.rs`, `host/supervise.rs`). The in-browser guest waits on the same DCS: it types `tmux -CC attach` into the guest's serial shell, and the core is fed, and its attach commands sent, only from the DCS on (`GuestEngine.start`, [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md)).
 
 ## Why Control Mode Only
 
@@ -156,6 +156,20 @@ Titles change without any control-mode event, so they ride the regular `list-pan
 Every list the monitor polls — `list-panes`, `list-windows` and the stash session's panes — is built from one column table (`PaneColumn`, `WindowColumn`, `StashColumn` in `tmuxy-core/src/constants/tmux_formats.rs`): each column's name is the index the parser (`Row`) reads its field at, the command string is assembled from the same list, and the test fixtures write their rows with the same table (`RowBuilder`), so none of them can drift. Every `@tmuxy-*` column is spelled by its `tmux_options` constant. Every free-text column — the app title, the border title, the process name, the restore line, the window name — is comma-escaped by tmux itself (`s/,/%2C/`), so a row always has exactly one field per column and a comma in a title cannot shift the fields after it; the parser drops a row with any other field count, or without a pane size, rather than guess. Only `-F` list output is read this way: `display-message -p` strips the `%` from the escape.
 
 Each of those lists goes out marker-bracketed like a capture (`Markers::list_command`), and its rows are read only as the answer the marker names. A block with no marker before it — the ack of a keystroke, of a setup command, a client's query — is never sniffed for rows and changes nothing.
+
+### Layout cells and panes
+
+A `%layout-change` describes layout cells, `list-panes` the panes in them, and under `pane-border-status top` (every tab's) the two differ: a cell on the window's top edge has no separator above it for its status line, so tmux takes that row out of the pane (`layout_fix_panes`), one row lower and one shorter than its cell. Read as they came, each report undid the other's size and asked a capture of every top pane, at attach and after every resize. The aggregator reads each window's border row off the last list (with it on top, no pane of the window is at y=0) and places a layout's panes as tmux does (A17 in [INVARIANTS.md](INVARIANTS.md), `control_mode/state/border_row.rs`). Before a list has shown it, and on a window tmuxy is setting to something else, the cell is taken as the pane, and a list that says otherwise asks the capture. tmux announces no change of the option itself, so a list is the only way to learn one.
+
+Three more rules keep a pane from being captured twice for one change, each resting on tmux running a client's commands in the order sent and writing their output and its notifications in the order things happen:
+
+| Rule | Why it holds |
+| --- | --- |
+| A capture still on its way covers a change reported before its answer begins (A18) | The report reached the client first, so tmux made the change before it ran the capture |
+| A `resizew` is judged by the answer to a `list-panes` sent after it (M10) | A list already on its way when the window was asked reports it as it was; judged by that, each resized window was asked twice |
+| A title or pane-option notification re-lists the panes and captures none | What changed rides `list-panes`; a pane's screen changes with its `%output`. tmux reports every subscription once when it is made, which was a capture of every pane right after the attach |
+
+The current window is sized by the attach (`attach_commands`), and a client's size before the window list arrives is sent only when it differs: each `resizew` costs tmux a `%layout-change`, even one that changes nothing.
 
 See [TMUX-TAGS.md](TMUX-TAGS.md) for this section: Window Tags (`@tmuxy-*`).
 

@@ -48,7 +48,7 @@ impl<W> MonitorCore<W> {
         }
         let unannounced = crate::tmux_compat::relists_after(&list, self.aggregator.caps());
         let relists = self.aggregator.markers().relist_commands(unannounced);
-        let relists = self.relists_behind(relists, now);
+        let relists = self.reads_out(relists, now);
 
         let id = self.fresh_reply_id();
         let key = run_shell::relay_key(id);

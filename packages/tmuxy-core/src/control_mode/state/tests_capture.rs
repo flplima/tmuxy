@@ -429,43 +429,39 @@ fn a_mode_change_notification_relists_the_pane_instead_of_toggling_copy_mode() {
     assert!(agg.has_pane_in_copy_mode(), "the clipboard gate stays open");
 }
 
-/// A capture asked for while one is already in flight for the pane (the
-/// second resize of a divider drag) is not sent twice — but the reply in
-/// flight shows the pane as it was when it was issued, in the old geometry.
-/// Once it lands, one more capture follows, so the pane is not left showing
-/// the old wrapping until the next layout change.
+/// A capture asked for while one is already on its way for the pane (the
+/// second resize of a divider drag, a list that reports the size the layout
+/// just did) is not sent twice, and none follows once the first lands: the
+/// change behind the second request was reported before the first one's
+/// answer, so tmux made it before it ran that capture, which shows it.
 #[test]
-fn a_capture_requested_while_one_is_in_flight_follows_when_it_lands() {
+fn a_capture_on_its_way_shows_a_change_reported_before_its_answer() {
     let mut agg = StateAggregator::new();
     seed_pane(&mut agg, "%0", "@0");
     assert_eq!(agg.queue_captures(&[pid("%0")]), vec![pid("%0")]);
     assert!(
         agg.queue_captures(&[pid("%0")]).is_empty(),
-        "no second capture while one is in flight"
+        "no second capture while one is on its way"
     );
 
     agg.step(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
-    let landed = agg.step(response("OLD GEOMETRY\n", true));
+    let landed = agg.step(response("NEW GEOMETRY\n", true));
     assert!(
-        landed.effects.iter().any(|e| captures(e, "%0")),
-        "the dropped request is made once the pane is free ({:?})",
-        landed.effects
-    );
-    agg.step(response(&marked(&agg, CAPTURE_END_MARKER, ""), true));
-
-    // The follow-up, in flight since the step queued it, asks for nothing more.
-    agg.step(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
-    let settled = agg.step(response("NEW GEOMETRY\n", true));
-    assert!(
-        !settled.effects.iter().any(|e| matches!(
+        !landed.effects.iter().any(|e| matches!(
             e,
             SideEffect::Send {
                 batch: Batch::PaneRefresh,
                 ..
             }
         )),
-        "a capture nobody asked twice for ends the chain ({:?})",
-        settled.effects
+        "the capture that lands was taken after the change ({:?})",
+        landed.effects
+    );
+    agg.step(response(&marked(&agg, CAPTURE_END_MARKER, ""), true));
+    assert_eq!(
+        agg.queue_captures(&[pid("%0")]),
+        vec![pid("%0")],
+        "a change reported after the answer is captured again"
     );
 }
 

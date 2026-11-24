@@ -126,13 +126,16 @@ impl StateAggregator {
                 }
             }
 
-            // A title changed with no notification of its own: re-list the
-            // panes (the title rides list-panes) for the pane named.
-            ControlModeEvent::SubscriptionChanged { name, pane_id }
+            // A title or a pane option changed with no notification of its
+            // own: re-list the panes, which carry both. The pane's screen is
+            // not in question, so it is not captured: tmux reports every
+            // subscription once when it is made, and that was a capture of
+            // every pane right after the attach had captured them all.
+            ControlModeEvent::SubscriptionChanged { name, .. }
                 if name == crate::constants::tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME =>
             {
                 ProcessEventResult {
-                    panes_needing_refresh: vec![pane_id],
+                    relist_panes: true,
                     ..Default::default()
                 }
             }

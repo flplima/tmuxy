@@ -87,6 +87,10 @@ pub(crate) struct ProcessEventResult {
     pub state_changed: bool,
     /// Panes to capture again.
     pub panes_needing_refresh: Vec<PaneId>,
+    /// The panes are listed again and none captured: what changed (a title,
+    /// a pane option) rides `list-panes`, and a pane's screen only changes
+    /// with its `%output`.
+    pub relist_panes: bool,
     pub change_type: ChangeType,
     /// Newly decoded images: (pane, [(image id, image)]).
     pub new_images: Vec<(PaneId, Vec<(u32, super::images::StoredImage)>)>,
@@ -191,9 +195,10 @@ pub type SidebarSizing = (WindowId, u32, Option<u32>);
 pub type FloatSizing = (WindowId, Option<u32>, Option<u32>);
 
 pub struct StateAggregator {
-    /// How many `list-panes` reports have been applied. A monitor sizing a
-    /// window judges each `resizew` by the report that FOLLOWS it, so this is
-    /// what tells one report from the next (see `monitor_core::sizing::needs_resize`).
+    /// How many of the aggregator's `list-panes` tmux has answered, a failed
+    /// or empty one included, so the count keeps step with the lists sent. A
+    /// monitor sizing a window judges each `resizew` by the answer to a list
+    /// sent AFTER it (see `monitor_core::sizing::needs_resize`).
     pub pane_reports: u64,
     /// Windows whose `@tmuxy-collapsible` just dropped: their first-level rows
     /// are evened out on the next step (see `collapsible_layout_commands`).
@@ -209,13 +214,11 @@ pub struct StateAggregator {
     windows: HashMap<WindowId, WindowState>,
     active_window_id: Option<WindowId>,
     /// Panes with a capture in flight: no second one is sent while one is
-    /// pending, and the first state waits for the initial ones
-    /// (`initial_state_ready`). A capture's reply is routed by its markers
-    /// (`Markers`), never by this order.
+    /// pending (`queue_captures`: the one on its way shows every change
+    /// reported before its answer), and the first state waits for the
+    /// initial ones (`initial_state_ready`). A capture's reply is routed by
+    /// its markers (`Markers`), never by this order.
     pending_captures: std::collections::VecDeque<PaneId>,
-    /// Panes asked for a capture while one was already in flight for them:
-    /// a fresh capture is issued when the in-flight one lands.
-    recapture: std::collections::HashSet<PaneId>,
     /// Whether a list-panes / list-windows response has been parsed yet: the
     /// first ones are the initial sync.
     panes_synced: bool,
@@ -274,6 +277,9 @@ pub struct StateAggregator {
     /// and emitted as `TmuxPane` stubs; the frontend tells a stub from the
     /// visible member by its window id (a stash window is never the active one).
     stash_members: HashMap<PaneId, StashMember>,
+    /// Whether each window has `pane-border-status top`, as the last
+    /// `list-panes` showed it (`border_row`): what a layout cell's pane is.
+    border_top: HashMap<WindowId, bool>,
     /// What each window has been set up as on this connection
     /// (`window_setup_commands`): tabs carry no marker to gate the setup on,
     /// so this is what makes it once per window.
@@ -302,7 +308,6 @@ impl StateAggregator {
             windows: HashMap::new(),
             active_window_id: None,
             pending_captures: std::collections::VecDeque::new(),
-            recapture: std::collections::HashSet::new(),
             panes_synced: false,
             windows_synced: false,
             armed: None,
@@ -322,6 +327,7 @@ impl StateAggregator {
             suppress_window_emissions: false,
             panes_awaiting_capture: std::collections::HashSet::new(),
             stash_members: HashMap::new(),
+            border_top: HashMap::new(),
             window_setup: HashMap::new(),
             settling_until: None,
             settling_started: None,
@@ -350,6 +356,7 @@ impl Default for StateAggregator {
     }
 }
 
+mod border_row;
 mod command_response;
 mod delta_emit;
 mod events;
@@ -384,6 +391,8 @@ mod tests;
 mod tests_announced_windows;
 #[cfg(test)]
 mod tests_awaiting_capture;
+#[cfg(test)]
+mod tests_border_row;
 #[cfg(test)]
 mod tests_capture;
 #[cfg(test)]

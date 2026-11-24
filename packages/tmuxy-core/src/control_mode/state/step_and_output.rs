@@ -66,6 +66,11 @@ impl StateAggregator {
         if !result.panes_needing_refresh.is_empty() {
             let refresh = self.pane_refresh_commands(&result.panes_needing_refresh);
             effects.push(send(Batch::PaneRefresh, refresh));
+        } else if result.relist_panes {
+            effects.push(send(
+                Batch::PaneRefresh,
+                self.markers.pane_refresh_commands(&[]),
+            ));
         }
         if let Some(pane_id) = result.resume.take() {
             effects.push(send(
@@ -236,6 +241,7 @@ impl StateAggregator {
         let parsed_panes: Vec<LayoutPane> = parsed_panes
             .into_iter()
             .map(|lp| drawn.remove(&lp.id).unwrap_or(lp))
+            .map(|cell| self.pane_in_cell(window_id, cell))
             .collect();
 
         let active_pane_id = self

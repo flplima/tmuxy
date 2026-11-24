@@ -19,6 +19,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 config: attach_config(&self.config.session, &unparsed),
                 host: attach_host(),
             },
+            Instant::now(),
         );
         self.connection.send_commands(&commands).await
     }

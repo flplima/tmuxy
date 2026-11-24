@@ -44,7 +44,13 @@ pub(super) fn enforced_settings() -> Vec<String> {
 impl<W> MonitorCore<W> {
     /// `size` is the grid to start the session's current window at, until a
     /// client reports its viewport.
-    pub fn attach_commands(&self, size: (u32, u32), host: AttachConfig) -> Vec<String> {
+    pub fn attach_commands(
+        &mut self,
+        size: (u32, u32),
+        host: AttachConfig,
+        now: Instant,
+    ) -> Vec<String> {
+        self.current_window_size = Some(size);
         // `window-size manual` before the resize, or the resize SIGWINCHes the
         // shell into a prompt redraw that races the captures (M4). Set on the
         // current window only, the one the resize reaches.
@@ -65,7 +71,10 @@ impl<W> MonitorCore<W> {
         commands.push("refresh-client -f pause-after=5".to_string());
         // The server's own version, before anything that depends on it.
         commands.push(self.aggregator.markers().version_read_command());
-        commands.extend(self.aggregator.markers().window_relist_commands());
+        // On a paced link, the first batch of reads: what the layout and the
+        // lists ask for meanwhile goes out once, after it.
+        let relist = self.aggregator.markers().window_relist_commands().to_vec();
+        commands.extend(self.reads_out(relist, now));
         // Title changes have no notification of their own; this asks tmux to
         // send one. Nor does a theme change.
         commands.push(tmux_formats::subscribe_pane_titles_command().to_string());

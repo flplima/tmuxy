@@ -121,8 +121,12 @@ impl StateAggregator {
                 }
                 ProcessEventResult::default()
             }
-            Read::List(_) if !success => ProcessEventResult::default(),
+            Read::List(list) if !success => {
+                self.count_pane_list(list);
+                ProcessEventResult::default()
+            }
             Read::List(list) => {
+                self.count_pane_list(list);
                 let resized_panes = match list {
                     TmuxList::Panes => self.apply_pane_list(output),
                     TmuxList::Windows => {
@@ -210,24 +214,9 @@ impl StateAggregator {
         // `panes_awaiting_capture` would drop every `%output` it prints.
         self.pending_captures.retain(|id| *id != pane_id);
         self.panes_awaiting_capture.remove(&pane_id);
-        // A capture asked for while this one was in flight (a second resize
-        // of a divider drag) was dropped as a duplicate, yet this reply
-        // shows the pane as it was when the capture was issued: ask again,
-        // now that the pane is free, if it is still here to capture. Not
-        // for a pane in copy mode: the copy-mode poll captures it on its
-        // next tick anyway, and a follow-up per tick that found a capture
-        // in flight would keep one on the wire at all times.
-        let asked_again = self.recapture.remove(&pane_id);
-        let panes_needing_refresh = match self.panes.get(&pane_id) {
-            Some(pane) if asked_again && !pane.in_mode => vec![pane_id.clone()],
-            _ => Vec::new(),
-        };
         if !success {
             warn!(?pane_id, "capture command failed");
-            return ProcessEventResult {
-                panes_needing_refresh,
-                ..Default::default()
-            };
+            return ProcessEventResult::default();
         }
         let Some(pane) = self.panes.get_mut(&pane_id) else {
             return ProcessEventResult::default();
@@ -249,7 +238,6 @@ impl StateAggregator {
         ProcessEventResult {
             state_changed: true,
             change_type: ChangeType::Output,
-            panes_needing_refresh,
             ..Default::default()
         }
     }
@@ -290,7 +278,6 @@ impl StateAggregator {
         if seen_panes.is_empty() {
             return resized_panes;
         }
-        self.pane_reports = self.pane_reports.wrapping_add(1);
         self.panes_synced = true;
 
         self.panes.retain(|pane_id, _| {
@@ -301,7 +288,14 @@ impl StateAggregator {
             listed
         });
         self.prune_capture_bookkeeping();
+        self.learn_border_rows();
         resized_panes
+    }
+
+    fn count_pane_list(&mut self, list: TmuxList) {
+        if list == TmuxList::Panes {
+            self.pane_reports = self.pane_reports.wrapping_add(1);
+        }
     }
 
     pub(super) fn apply_window_list(&mut self, output: &str) {
