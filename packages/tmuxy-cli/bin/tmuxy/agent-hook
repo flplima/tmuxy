@@ -86,7 +86,10 @@ record_inbox() {
   [ -n "$pinned" ] || return 0
   _run_safe "set-option -p -t $pane_t $OPT_AGENT_INBOX $(shquote "$pinned|$inbox")"
 }
-[ -z "$inbox" ] || record_inbox </dev/null >/dev/null 2>&1 &
+# Each job runs in a ( subshell ) of its own: macOS's bash 3.2 runs a bare
+# `fn &` without forking for the function's first tmux call, so the job
+# became that call and ended with it, before anything after it ran.
+[ -z "$inbox" ] || (record_inbox) </dev/null >/dev/null 2>&1 &
 
 # Per pane, and per tmux server ($TMUX carries its pid): pane ids start again
 # with the server. The base sits in a shared temp dir, so it has to be ours,
@@ -117,5 +120,5 @@ apply() {
   _lock_release "$dir"
 }
 # Detached from the agent's pipes, or it would wait for the job anyway.
-apply </dev/null >/dev/null 2>&1 &
+(apply) </dev/null >/dev/null 2>&1 &
 exit 0
