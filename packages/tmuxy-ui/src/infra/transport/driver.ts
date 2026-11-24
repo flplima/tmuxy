@@ -53,6 +53,14 @@ export interface TransportDriver<E extends DriverEvent = TransportEvent> {
    */
   readonly ordersSends?: boolean;
   /**
+   * Whether `set_client_size` may reach the backend while `connect()` is
+   * still running: the in-browser guest, which boots for a second and more
+   * and attaches its tmux client at the size it was last given. Elsewhere a
+   * backend is sent nothing before it is connected, and hears the size with
+   * the first state's fetch.
+   */
+  readonly takesSizeWhileConnecting?: boolean;
+  /**
    * Whether `query_tmux` reaches a tmux: the one way to READ from it, since
    * `run_tmux_command` is fire-and-forget and resolves null on every
    * transport. False on the stories' recorded fixtures.

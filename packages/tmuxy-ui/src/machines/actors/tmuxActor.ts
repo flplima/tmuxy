@@ -229,9 +229,13 @@ export function createTmuxActor(runtime: AppRuntime) {
           { logPrefix: event.cmd },
         );
       } else if (event.type === 'SET_CLIENT_SIZE') {
-        logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
         run(
-          withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
+          withTransport((t) => {
+            // Logged only when it goes out: a server still connecting is sent none.
+            if (t.sendsClientSize())
+              logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
+            return t.setClientSize({ cols: event.cols, rows: event.rows });
+          }),
           {
             logPrefix: 'set_client_size',
             // The app reports a size once; one the backend never took has

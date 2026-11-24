@@ -87,6 +87,22 @@ describe('TmuxTransport over a driver', () => {
     ]);
   });
 
+  it('sends the client size before the connection is made only to a driver that attaches at it', async () => {
+    const report = call((t) => t.setClientSize({ cols: 150, rows: 40 }));
+    const reported = [{ cmd: 'set_client_size', args: { cols: 150, rows: 40 } }];
+    const server = fakeTransport();
+    const guest = fakeTransport({ takesSizeWhileConnecting: true });
+
+    await server.run(report);
+    await guest.run(report);
+    expect(server.invocations).toEqual([]);
+    expect(guest.invocations).toEqual(reported);
+
+    await server.run(call((t) => t.connect));
+    await server.run(report);
+    expect(server.invocations).toEqual(reported);
+  });
+
   it('keystrokes batch, and a call sent after them never overtakes them', async () => {
     const adapter = fakeTransport();
     const type = (text: string) => call((t) => t.run(TmuxOp.SendText({ target: '%1', text })));

@@ -11,8 +11,15 @@ import {
 import { EMPTY_STATE, type Feed } from '../controlMode';
 
 /** The wasm core, as far as a start uses it: it answers `attach` with two
- *  commands and has a pane once tmux streamed a layout. */
-const wasm = vi.hoisted(() => ({ fed: [] as string[] }));
+ *  commands, resizes the window to a viewport other than the one it was
+ *  last given, has a pane once tmux streamed a layout, answers every command
+ *  asked with a reply id at once, and keeps what it was asked to do. */
+const wasm = vi.hoisted(() => ({
+  fed: [] as string[],
+  sized: [] as [number, number][],
+  resyncs: 0,
+  asked: [] as string[],
+}));
 vi.mock('../controlMode', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../controlMode')>();
   const quiet = (changed = false): Feed => ({
@@ -25,15 +32,31 @@ vi.mock('../controlMode', async (importOriginal) => {
     ended: null,
   });
   class FakeCore {
-    attach = (cols: number, rows: number) => [`refresh-client -C ${cols}x${rows}`, 'list-windows'];
+    size = '';
+    attach = (cols: number, rows: number) => {
+      this.size = `${cols}x${rows}`;
+      return [`refresh-client -C ${cols}x${rows}`, 'list-windows'];
+    };
     feed = (text: string) => {
       wasm.fed.push(text);
       return quiet(text.includes('%layout-change'));
     };
     tick = () => quiet();
-    run = () => quiet();
-    setClientSize = () => quiet();
-    resync = () => [];
+    run = (command: string, id?: number) => {
+      if (id === undefined) return quiet();
+      wasm.asked.push(command);
+      return { ...quiet(), replies: [{ id, output: '', error: null }] };
+    };
+    setClientSize = (cols: number, rows: number) => {
+      wasm.sized.push([cols, rows]);
+      if (this.size === `${cols}x${rows}`) return quiet();
+      this.size = `${cols}x${rows}`;
+      return { ...quiet(), commands: [`resizew -x ${cols} -y ${rows}`] };
+    };
+    resync = () => {
+      wasm.resyncs++;
+      return [];
+    };
     expectSession = () => {};
     snapshot = () => ({
       ...actual.EMPTY_STATE,
@@ -139,6 +162,8 @@ class ScriptedGuest extends GuestEngine {
     await this.start(initCommands, ATTACH_LINE, TIMING);
   }
   protected doReset(snapshot: GuestSnapshot, initCommands: string[]): Promise<void> {
+    // A rewound machine's tmux has no control client until one attaches again.
+    this.attached = false;
     return this.doBoot(snapshot, initCommands);
   }
   protected teardown(): void {}
@@ -150,12 +175,19 @@ class ScriptedGuest extends GuestEngine {
   }
 }
 
+function freshGuest(): ScriptedGuest {
+  vi.useFakeTimers();
+  wasm.fed.length = 0;
+  wasm.sized.length = 0;
+  wasm.resyncs = 0;
+  wasm.asked.length = 0;
+  return new ScriptedGuest();
+}
+
 describe("the guest's attach", () => {
   let guest: ScriptedGuest;
   beforeEach(() => {
-    vi.useFakeTimers();
-    wasm.fed.length = 0;
-    guest = new ScriptedGuest();
+    guest = freshGuest();
   });
   afterEach(() => {
     guest.destroy();
@@ -179,12 +211,23 @@ describe("the guest's attach", () => {
     expect(guest.typed).toEqual([ATTACH_LINE]);
     guest.says(ANNOUNCED.slice(4));
     await vi.advanceTimersByTimeAsync(0);
-    expect(guest.typed).toEqual([ATTACH_LINE, ...CORE_ATTACH]);
+    // The init just ahead of the core's attach, so its lists hold what it made.
+    expect(guest.typed).toEqual([ATTACH_LINE, 'init', ...CORE_ATTACH]);
     expect(wasm.fed.join('')).toBe(ANNOUNCED.slice('\x1bP1000p'.length));
 
     guest.says(FIRST_LAYOUT);
     await started;
-    expect(guest.typed).toEqual([ATTACH_LINE, ...CORE_ATTACH, 'init']);
+    expect(guest.typed).toEqual([ATTACH_LINE, 'init', ...CORE_ATTACH]);
+  });
+
+  it("sends the init once, though the core's attach goes again to a guest slow to answer it", async () => {
+    const started = guest.boot(SNAPSHOT, ['init']);
+    await vi.advanceTimersByTimeAsync(0);
+    guest.says(ANNOUNCED);
+    await vi.advanceTimersByTimeAsync(TIMING.attemptMs);
+    guest.says(FIRST_LAYOUT);
+    await started;
+    expect(guest.typed).toEqual([ATTACH_LINE, 'init', ...CORE_ATTACH, ...CORE_ATTACH]);
   });
 
   it('types the attach line again into a guest that stays silent', async () => {
@@ -211,7 +254,7 @@ describe("the guest's attach", () => {
     await started;
     await vi.advanceTimersByTimeAsync(TIMING.deadlineMs);
 
-    expect(guest.typed).toEqual([ATTACH_LINE, ATTACH_LINE, ...CORE_ATTACH, 'init']);
+    expect(guest.typed).toEqual([ATTACH_LINE, ATTACH_LINE, 'init', ...CORE_ATTACH]);
   });
 
   it('gives up at the deadline when the guest never answers', async () => {
@@ -227,5 +270,125 @@ describe("the guest's attach", () => {
 
     await vi.advanceTimersByTimeAsync(TIMING.deadlineMs);
     expect(guest.attachLines()).toBe(TIMING.deadlineMs / TIMING.attemptMs);
+  });
+});
+
+const at = (cols: number, rows: number) => backendCall('set_client_size', { cols, rows });
+const firstFetch = (cols: number, rows: number) => backendCall('get_initial_state', { cols, rows });
+
+describe('the size the guest attaches at', () => {
+  let guest: ScriptedGuest;
+  beforeEach(() => {
+    guest = freshGuest();
+  });
+  afterEach(() => {
+    guest.destroy();
+    vi.useRealTimers();
+  });
+
+  /** The guest's tmux attaching the control client the start typed for. */
+  async function answerTheAttach(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(0);
+    guest.says(ANNOUNCED);
+    await vi.advanceTimersByTimeAsync(0);
+    guest.says(FIRST_LAYOUT);
+  }
+  /** The sizes the core's attach commands asked tmux for, in order. */
+  const attachedAt = () => guest.typed.filter((line) => line.startsWith('refresh-client -C'));
+
+  it("is the app's viewport, reported while the machine boots, and the first fetch at it is the attach's state as it is", async () => {
+    const adapter = new GuestTmuxAdapter(guest, true, SNAPSHOT);
+    const connected = adapter.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    await adapter.send(at(150, 40));
+    // Nothing reaches the guest's shell but the attach line.
+    expect(guest.typed).toEqual([ATTACH_LINE]);
+
+    await answerTheAttach();
+    await connected;
+    expect(attachedAt()).toEqual(['refresh-client -C 150x40']);
+
+    const state = (await adapter.send(firstFetch(150, 40))) as { panes: unknown[] };
+    expect(state.panes).toHaveLength(1);
+    // Neither a resize nor a re-sync and its barrier: only the attach's own sizing.
+    expect(wasm.sized).toEqual([[150, 40]]);
+    expect(wasm.resyncs).toBe(0);
+    expect(wasm.asked).toEqual([]);
+  });
+
+  it('is the viewport reported before the adapter even started', async () => {
+    const adapter = new GuestTmuxAdapter(guest, true, SNAPSHOT);
+    await expect(adapter.send(at(150, 40))).resolves.toBeNull();
+    const connected = adapter.connect();
+    await answerTheAttach();
+    await connected;
+    expect(attachedAt()).toEqual(['refresh-client -C 150x40']);
+  });
+
+  it('is the default when no viewport came in time, and the first fetch resizes and waits for tmux', async () => {
+    const adapter = new GuestTmuxAdapter(guest, true, SNAPSHOT);
+    const connected = adapter.connect();
+    await answerTheAttach();
+    await connected;
+    expect(attachedAt()).toEqual(['refresh-client -C 80x30']);
+
+    await adapter.send(firstFetch(150, 40));
+    expect(wasm.sized).toEqual([
+      [80, 30],
+      [150, 40],
+    ]);
+    expect(wasm.resyncs).toBe(1);
+    expect(wasm.asked).toEqual(['display-message -p synced']);
+  });
+
+  it('is waited for again when the viewport changes after the attach', async () => {
+    const adapter = new GuestTmuxAdapter(guest, true, SNAPSHOT);
+    const connected = adapter.connect();
+    await adapter.send(at(150, 40));
+    await vi.advanceTimersByTimeAsync(0);
+    guest.says(ANNOUNCED);
+    await vi.advanceTimersByTimeAsync(0);
+    await adapter.send(at(120, 40));
+    guest.says(FIRST_LAYOUT);
+    await connected;
+
+    await adapter.send(firstFetch(120, 40));
+    expect(wasm.sized[wasm.sized.length - 1]).toEqual([120, 40]);
+    expect(wasm.asked).toEqual(['display-message -p synced']);
+  });
+
+  it("holds an init's layout, run ahead of the core's attach, with no barrier at the first fetch", async () => {
+    const adapter = new GuestTmuxAdapter(guest, true, SNAPSHOT, { initCommands: ['splitw'] });
+    const connected = adapter.connect();
+    await adapter.send(at(150, 40));
+    await answerTheAttach();
+    await connected;
+    expect(guest.typed).toEqual([
+      ATTACH_LINE,
+      'splitw',
+      'refresh-client -C 150x40',
+      'list-windows',
+    ]);
+
+    await adapter.send(firstFetch(150, 40));
+    expect(wasm.resyncs).toBe(0);
+    expect(wasm.asked).toEqual([]);
+  });
+
+  it("is never the previous story's on a shared engine", async () => {
+    const previous = new GuestTmuxAdapter(guest, false, SNAPSHOT);
+    const next = new GuestTmuxAdapter(guest, false, SNAPSHOT);
+    const first = previous.connect();
+    await previous.send(at(150, 40));
+    await answerTheAttach();
+    await first;
+
+    // The next story starts; the previous app, unmounting, reports its box
+    // shrunk to nothing, and the next app has measured nothing yet.
+    const second = next.connect();
+    await previous.send(at(10, 5));
+    await answerTheAttach();
+    await second;
+    expect(attachedAt()).toEqual(['refresh-client -C 150x40', 'refresh-client -C 80x30']);
   });
 });

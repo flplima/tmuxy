@@ -346,6 +346,9 @@ describe('tmuxActor — the client size report', () => {
   const report = { type: 'SET_CLIENT_SIZE', cols: 120, rows: 30 } as const;
   const unreported = (events: Array<{ type: string }>) =>
     events.filter((e) => e.type === 'CLIENT_SIZE_UNREPORTED');
+  /** The app reports its size once connected (a server is sent nothing before). */
+  const connected = (events: Array<{ type: string }>) =>
+    waitFor(() => events.some((e) => e.type === 'TMUX_CONNECTED'));
 
   // The app reports a size once, so the actor has to say when the one report
   // was lost: nothing else would send it again.
@@ -356,6 +359,7 @@ describe('tmuxActor — the client size report', () => {
       },
     });
     const { actor, events } = spawnTmuxActor(runtime);
+    await connected(events);
     actor.getSnapshot().children.tmux!.send(report);
     await waitFor(() => unreported(events).length > 0);
     expect(unreported(events)).toEqual([{ type: 'CLIENT_SIZE_UNREPORTED', cols: 120, rows: 30 }]);
@@ -365,10 +369,47 @@ describe('tmuxActor — the client size report', () => {
   it('says nothing of a report the backend took', async () => {
     const transport = fakeTransport();
     const { actor, events } = spawnTmuxActor(transport.runtime);
+    await connected(events);
     actor.getSnapshot().children.tmux!.send(report);
     await waitFor(() => transport.invocations.length > 0);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(unreported(events)).toEqual([]);
+    actor.stop();
+  });
+});
+
+describe('tmuxActor — the client size in the connection log', () => {
+  // A failed connect shows the log in its Details: a size a server was never
+  // sent must not read there as one it was.
+  it('logs a size only once the backend is sent it', async () => {
+    let open = () => {};
+    const transport = fakeTransport({
+      connect: () => new Promise<void>((resolve) => (open = resolve)),
+    });
+    const { actor, events } = spawnTmuxActor(transport.runtime);
+    const tmux = actor.getSnapshot().children.tmux!;
+    const report = { type: 'SET_CLIENT_SIZE', cols: 120, rows: 30 } as const;
+    const logged = () =>
+      events.filter(
+        (e) => e.type === 'LOG_APPEND' && String(e.message).startsWith('set_client_size'),
+      );
+
+    tmux.send(report);
+    // A call after it, which the backend is sent: the size was handled by then.
+    tmux.send({ type: 'INVOKE', cmd: 'detach_client', args: {} });
+    await waitFor(() => transport.invocations.length > 0);
+    expect(transport.invocations.map((call) => call.cmd)).toEqual(['detach_client']);
+    expect(logged()).toEqual([]);
+
+    open();
+    await waitFor(() => events.some((e) => e.type === 'TMUX_CONNECTED'));
+    tmux.send(report);
+    await waitFor(() => transport.invocations.length > 1);
+    expect(transport.invocations.map((call) => call.cmd)).toEqual([
+      'detach_client',
+      'set_client_size',
+    ]);
+    expect(logged().map((e) => e.message)).toEqual(['set_client_size cols=120 rows=30']);
     actor.stop();
   });
 });

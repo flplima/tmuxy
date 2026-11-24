@@ -47,6 +47,20 @@ export function syncClientSize(
   }
 }
 
+/**
+ * The grid this client asks tmux for: a phone's, or a fixed `@tmuxy-size`,
+ * which every client asks for whatever its container measures (the grid
+ * keeps its cols/rows and the cell is fitted to it instead,
+ * domain/gridFit.ts); else the `measured` one.
+ */
+function askedSize(
+  context: Pick<Ctx, 'phoneLayout' | 'sizePolicy'>,
+  measured: { cols: number; rows: number },
+): { cols: number; rows: number } {
+  if (context.phoneLayout) return { cols: PHONE_COLS, rows: PHONE_ROWS };
+  return fixedGridSize(context.sizePolicy) ?? { cols: measured.cols, rows: measured.rows };
+}
+
 export const viewportActions = {
   viewport_setCharSize: assignCtx(({ context, event }) => {
     if (event.type !== 'SET_CHAR_SIZE') return {};
@@ -70,12 +84,7 @@ export const viewportActions = {
 
   viewport_setTargetSize: act(({ event, context, enqueue }) => {
     if (event.type !== 'SET_TARGET_SIZE') return;
-    // A fixed `@tmuxy-size` is what every client asks for, whatever its
-    // container measures: the grid keeps its cols/rows and the cell is
-    // fitted to it instead (domain/gridFit.ts).
-    const fixed = context.phoneLayout ? null : fixedGridSize(context.sizePolicy);
-    const cols = context.phoneLayout ? PHONE_COLS : (fixed?.cols ?? event.cols);
-    const rows = context.phoneLayout ? PHONE_ROWS : (fixed?.rows ?? event.rows);
+    const { cols, rows } = askedSize(context, event);
     // Asked for again (a new connection, another size policy): whatever was
     // reported before is not what this backend holds.
     const reportedSize = event.resend ? null : context.reportedSize;
@@ -85,6 +94,17 @@ export const viewportActions = {
       enqueue(sendTo('tmux', { type: 'FETCH_INITIAL_STATE' as const, cols, rows }));
     }
     syncClientSize({ ...context, reportedSize }, enqueue, { cols, rows }, context.lastUpdateQuiet);
+  }),
+
+  /**
+   * While the first connection is made, the size goes out as it is measured:
+   * the in-browser guest attaches its tmux client at it, long after the
+   * page measured itself. The transport hands it only to a driver
+   * that `takesSizeWhileConnecting`; a server hears it with the first fetch.
+   */
+  viewport_reportWhileConnecting: act(({ context, event, enqueue }) => {
+    if (event.type !== 'SET_TARGET_SIZE') return;
+    enqueue(sendTo('tmux', { type: 'SET_CLIENT_SIZE' as const, ...askedSize(context, event) }));
   }),
 
   // The report is forgotten, so the next model update that still differs

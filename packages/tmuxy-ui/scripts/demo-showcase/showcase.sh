@@ -22,10 +22,11 @@ type_line() {
 
 tmux rename-session -t "$from" "$s"
 tmux rename-window -t "$s:" welcome
-# Each window is left as the app's attach leaves it (GUEST_DEFAULT_COLS x
-# _ROWS in GuestEngine.ts, pane titles on), so the attach changes no layout:
-# a changed layout is one more round of screen captures before the first
-# frame. The app's resize to the viewport comes after.
+# Each window is left as an attach at the default size leaves it
+# (GUEST_DEFAULT_COLS x _ROWS in GuestEngine.ts, pane titles on), so that
+# attach changes no layout. A page makes it when the guest is up before the
+# page has measured its viewport; one that has measured attaches at its
+# viewport, and the attach resizes the windows before it captures them.
 as_attached() {
   tmux set-option -w -t "$1" pane-border-status top
   tmux resize-window -t "$1" -x 80 -y 30

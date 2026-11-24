@@ -26,12 +26,18 @@ import {
 } from './controlMode';
 
 /**
- * The size every guest story runs at unless it asks for another, so the first
- * frame is already the size the story expects. `V86AppHarness` sizes its box
- * so the app measures back exactly these numbers.
+ * The size a start attaches at when its app has reported no viewport, and
+ * every guest story runs at unless it asks for another: `V86AppHarness` sizes
+ * its box so the app measures back exactly these numbers.
  */
 export const GUEST_DEFAULT_COLS = 80;
 export const GUEST_DEFAULT_ROWS = 30;
+
+/** A client's viewport, in cells. */
+export interface ClientSize {
+  cols: number;
+  rows: number;
+}
 
 /**
  * What a start restores: a machine state, fetched from `url`, and the tmux
@@ -109,11 +115,14 @@ export abstract class GuestEngine {
   private resolveFirstState: (() => void) | null = null;
   /** The session the control client is on: the snapshot's, until a switch. */
   private session = '';
-  /** The viewport last asked for, which a new window is made at. */
-  private clientSize: { cols: number; rows: number } = {
-    cols: GUEST_DEFAULT_COLS,
-    rows: GUEST_DEFAULT_ROWS,
-  };
+  /** The viewport last asked for: what a start attaches at, and a new
+   *  window is made at. */
+  private clientSize: ClientSize = { cols: GUEST_DEFAULT_COLS, rows: GUEST_DEFAULT_ROWS };
+  /** Whether the core has attached, and sizes tmux's windows itself; until
+   *  then a viewport is kept for the attach (a `resizew` would hit the shell). */
+  private coreSized = false;
+  /** The size the state is a first frame at (`isReadyAt`). */
+  private readyAt: ClientSize | null = null;
 
   protected sink: EngineSink | null = null;
   /** The adapter the machine answers to: the last one to start it. */
@@ -150,17 +159,18 @@ export abstract class GuestEngine {
   }
 
   /**
-   * Hand the machine to `owner`, before its start. On a shared engine the
-   * previous story's app is still unmounting when the next one connects, and
-   * what it sends on its way out (its viewport, shrunk to nothing) would
-   * resize the next story's tmux; from here on its calls are refused and its
-   * sink hears nothing. The start attaches at the size a cold boot does, not
-   * at the last one that app asked for.
+   * Hand the machine to `owner` before its start, which attaches at `size`
+   * (the viewport its app reported) or else at the default. On a shared
+   * engine the previous story's app is still unmounting when the next one
+   * connects, and what it sends on its way out (its viewport, shrunk to
+   * nothing) would resize the next story's tmux; from here on its calls are
+   * refused and its sink hears nothing.
    */
-  claim(owner: object): void {
+  claim(owner: object, size: ClientSize | null): void {
     this.owner = owner;
     this.sink = null;
-    this.clientSize = { cols: GUEST_DEFAULT_COLS, rows: GUEST_DEFAULT_ROWS };
+    this.clientSize = size ?? { cols: GUEST_DEFAULT_COLS, rows: GUEST_DEFAULT_ROWS };
+    this.coreSized = false;
   }
 
   ownedBy(owner: object): boolean {
@@ -295,7 +305,19 @@ export abstract class GuestEngine {
 
   setClientSize(cols: number, rows: number): void {
     this.clientSize = { cols, rows };
-    if (this.core) this.emit(this.core.setClientSize(cols, rows));
+    if (!this.core || !this.coreSized || !this.attached) return;
+    if (cols !== this.readyAt?.cols || rows !== this.readyAt.rows) this.readyAt = null;
+    this.emit(this.core.setClientSize(cols, rows));
+  }
+
+  /**
+   * Whether the state is a first frame at `cols`x`rows` as it is: the start
+   * attached at that size (its first state, which the core emits once the
+   * attach's lists and every pane's first capture are in, holds the init's
+   * work), or a barrier at that size answered since.
+   */
+  isReadyAt(cols: number, rows: number): boolean {
+    return this.readyAt?.cols === cols && this.readyAt.rows === rows;
   }
 
   async resize(cols: number, rows: number): Promise<void> {
@@ -321,8 +343,12 @@ export abstract class GuestEngine {
   /** tmux answers in order, so once the round trip behind the re-sync is
    *  answered, everything tmux has done so far is in the core's state. */
   private async synced(): Promise<void> {
+    const { core, clientSize } = this;
     this.resync();
-    await this.query('display-message -p synced');
+    const reply = await this.ask('display-message -p synced');
+    if (reply.error === null && this.core === core && this.clientSize === clientSize) {
+      this.readyAt = clientSize;
+    }
   }
 
   /**
@@ -355,6 +381,8 @@ export abstract class GuestEngine {
     this.session = session;
     this.core = new this.wasmModule.WasmTmux(this.session);
     this.lastState = EMPTY_STATE;
+    this.coreSized = false;
+    this.readyAt = null;
     // Inline terminal images are served from the current wasm store: there
     // is no backend.
     (
@@ -401,13 +429,14 @@ export abstract class GuestEngine {
   /**
    * Attach a control client and sync the core to it, each step on the
    * guest's answer: `attachLine` is typed into the guest's shell, the core's
-   * attach commands go out once the client it starts announces itself, and
-   * the start is done at the first
-   * state. An attempt that hears nothing is made again, to a deadline: typing
-   * the line again recovers a byte dropped right after a restore. A second line
-   * that reaches the client the first one started is refused before any of
-   * the core's commands, as a block without the core's markers, which the
-   * core ignores.
+   * attach commands go out once the client it starts announces itself, with
+   * the init just ahead of them (once: a resend would duplicate its effects),
+   * so the attach's lists and captures hold what it made, and the start is
+   * done at the first state. An attempt that hears nothing is made again, to
+   * a deadline: typing the line again recovers a byte dropped right after a
+   * restore. A second line that reaches the client the first one started is
+   * refused before any of the core's commands, as a block without the core's
+   * markers, which the core ignores, as it does the init's answers.
    */
   protected async start(
     initCommands: string[],
@@ -417,10 +446,11 @@ export abstract class GuestEngine {
     if (!this.core) return;
     const deadline = Date.now() + timing.deadlineMs;
     const attemptMs = () => Math.min(timing.attemptMs, deadline - Date.now());
+    const init = [...initCommands];
     try {
       while (this.core && this.lastState.panes.length === 0 && attemptMs() > 0) {
         if (!this.attached) await this.typeAttach(attachLine, attemptMs());
-        else await this.syncCore(this.core, attemptMs());
+        else await this.syncCore(this.core, init.splice(0), attemptMs());
       }
     } finally {
       this.announcement = null;
@@ -428,8 +458,7 @@ export abstract class GuestEngine {
     if (!this.attached) {
       throw new Error(`the guest's tmux did not answer the attach in ${timing.deadlineMs} ms`);
     }
-    // Once, after the attach works: a resend would duplicate their effects.
-    for (const cmd of initCommands) this.send(cmd);
+    if (this.lastState.panes.length === 0) this.readyAt = null;
     for (const cb of this.readyListeners) cb();
   }
 
@@ -442,16 +471,23 @@ export abstract class GuestEngine {
     return Promise.race([heard, wait(ms)]);
   }
 
-  /** Send the core's attach commands, and wait up to `ms` for the first state. */
-  private syncCore(core: WasmCore, ms: number): Promise<void> {
+  /** Send `init` and the core's attach commands, and wait up to `ms` for the
+   *  first state. */
+  private syncCore(core: WasmCore, init: string[], ms: number): Promise<void> {
     const firstState = new Promise<void>((r) => (this.resolveFirstState = r));
     const { cols, rows } = this.clientSize;
-    for (const cmd of core.attach(cols, rows)) this.send(cmd);
+    for (const cmd of [...init, ...core.attach(cols, rows)]) this.send(cmd);
     this.emit(core.setClientSize(cols, rows));
+    this.coreSized = true;
+    // The attach's whole picture once the first state lands, unless the
+    // viewport changes first.
+    this.readyAt = { cols, rows };
     return Promise.race([firstState, wait(ms)]);
   }
 
+  /** A full re-list: no first frame until a barrier behind it (`synced`). */
   resync(): void {
+    this.readyAt = null;
     for (const cmd of this.core?.resync() ?? []) this.send(cmd);
   }
 
