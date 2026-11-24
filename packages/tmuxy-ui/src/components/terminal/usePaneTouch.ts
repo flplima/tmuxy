@@ -42,6 +42,7 @@ import {
   type TouchPoint,
 } from '../phone/touchGesture';
 import type { PaneId } from '../../domain/ids';
+import { OWN_TOUCH } from '../../infra/dom/terminalDom';
 
 const nextFrame = Effect.async<number>((resume) => {
   const id = requestAnimationFrame((t) => resume(Effect.succeed(t)));
@@ -217,8 +218,9 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   const handleTouchStart = useCallback(
     (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      // A preventDefault here would suppress the Copy / Cancel bar's click.
-      if (e.target instanceof Element && e.target.closest('.touch-selection-bar')) return;
+      // A preventDefault here would suppress the click of a control drawn
+      // over the pane: a question's answer, an offer, Copy and Cancel.
+      if (e.target instanceof Element && e.target.closest(OWN_TOUCH)) return;
 
       cancelMomentum();
       cancelHold();

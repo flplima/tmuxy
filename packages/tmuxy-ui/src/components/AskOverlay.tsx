@@ -79,7 +79,9 @@ function AskShell({ paneId, label, selected, children }: ShellProps) {
       onMouseDown={(e) => e.preventDefault()}
     >
       <div className="ask-overlay-scrim" />
-      <div className="ask-overlay-text">{children}</div>
+      <div className="ask-overlay-text" data-own-touch>
+        {children}
+      </div>
     </div>
   );
 }
