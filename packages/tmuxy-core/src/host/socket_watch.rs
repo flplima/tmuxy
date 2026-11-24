@@ -58,6 +58,13 @@ impl PaneRow {
     pub fn has_result(&self) -> bool {
         crate::control_mode::program_status::status_is_for(&self.status, Some(&self.state))
     }
+
+    /// What the program or an agent's hook said behind the pane's state: the
+    /// question it waits on, the result it finished with. `None` when the
+    /// text there was left by an earlier state.
+    pub fn message(&self) -> Option<String> {
+        crate::control_mode::status_message(&self.status, &self.state)
+    }
 }
 
 /// A line missing a field is skipped.

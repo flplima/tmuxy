@@ -397,6 +397,7 @@ fn shell_tmux_names(out: &mut String) {
         ("GROUP_ID", o::GROUP_ID),
         ("PANE_RESTORE", o::PANE_RESTORE),
         ("PANE_STATE", o::PANE_STATE),
+        ("PANE_STATUS", o::PANE_STATUS),
         ("PANE_LABEL", o::PANE_LABEL),
         ("PANE_WIDGET", o::PANE_WIDGET),
         ("PANE_PREVIEW", o::PANE_PREVIEW),

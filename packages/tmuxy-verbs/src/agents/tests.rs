@@ -1,5 +1,6 @@
 use serde_json::json;
 
+use super::question::question_status;
 use super::*;
 
 /// Every place an agent's config is read from or written to, under one
@@ -90,6 +91,113 @@ fn each_event_means_a_state() {
     let done = json!({ "terminationReason": "model_stop", "fullyIdle": true });
     assert_eq!(state(Agent::Agy, "Stop", &done), Some("idle"));
     assert_eq!(state(Agent::Codex, "PreCompact", &none), None);
+}
+
+/// What the user is asked, read back as the pane's status says it.
+fn asked(agent: Agent, event: &str, payload: Value) -> Option<String> {
+    let status = question_status(agent, event, &payload)?;
+    tmuxy_core::control_mode::status_message(&status, "needs-input")
+}
+
+/// A `needs-input` event says what for: the question itself, or the tool and
+/// what it would do; the permission notification, seconds later and saying
+/// only that, says nothing over it.
+#[test]
+fn a_needs_input_event_says_what_the_user_is_asked() {
+    let question = json!({
+        "tool_name": "AskUserQuestion",
+        "tool_input": { "questions": [
+            { "question": "Which framework?", "header": "Framework", "options": [] },
+            { "question": "Which test runner?", "header": "Tests", "options": [] }
+        ] }
+    });
+    assert_eq!(
+        state(Agent::Claude, "PreToolUse", &question),
+        Some("needs-input")
+    );
+    assert_eq!(
+        asked(Agent::Claude, "PreToolUse", question.clone()).as_deref(),
+        Some("Which framework? (+1 more)")
+    );
+    assert!(question_status(Agent::Claude, "PreToolUse", &question)
+        .unwrap()
+        .contains(":kind=question:app=claude:"));
+    assert_eq!(
+        asked(Agent::Claude, "PermissionRequest", question).as_deref(),
+        Some("Which framework? (+1 more)")
+    );
+
+    let bash = json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "npm test\n  -- --watch", "description": "Run tests" }
+    });
+    assert_eq!(
+        asked(Agent::Claude, "PermissionRequest", bash).as_deref(),
+        Some("Allow Bash: npm test -- --watch")
+    );
+    let edit = json!({ "tool_name": "Edit", "tool_input": { "file_path": "src/app.ts" } });
+    assert_eq!(
+        asked(Agent::Claude, "PermissionRequest", edit).as_deref(),
+        Some("Allow Edit: src/app.ts")
+    );
+    let argv = json!({ "tool_name": "shell", "tool_input": { "command": ["git", "push"] } });
+    assert_eq!(
+        asked(Agent::Codex, "PermissionRequest", argv).as_deref(),
+        Some("Allow shell: git push")
+    );
+    let plan = json!({
+        "tool_name": "ExitPlanMode",
+        "tool_input": { "plan": "\n# Move auth to magic links\n\n1. …" }
+    });
+    assert_eq!(
+        asked(Agent::Claude, "PreToolUse", plan).as_deref(),
+        Some("Approve the plan: Move auth to magic links")
+    );
+
+    let elicited = json!({
+        "notification_type": "elicitation_dialog",
+        "message": "Which repository should I open?"
+    });
+    assert_eq!(
+        asked(Agent::Claude, "Notification", elicited).as_deref(),
+        Some("Which repository should I open?")
+    );
+    let permission = json!({
+        "notification_type": "permission_prompt",
+        "message": "Claude needs your permission"
+    });
+    assert_eq!(
+        question_status(Agent::Claude, "Notification", &permission),
+        None
+    );
+    assert_eq!(question_status(Agent::Claude, "Stop", &Value::Null), None);
+    assert_eq!(
+        question_status(Agent::Claude, "PermissionRequest", &Value::Null),
+        None
+    );
+}
+
+/// The hook script's second line: the question on `needs-input`, nothing
+/// when that event says nothing more, and `-` (off) on every other state.
+#[test]
+fn the_status_line_puts_the_question_up_and_takes_it_off() {
+    let question = json!({
+        "tool_name": "AskUserQuestion",
+        "tool_input": { "questions": [{ "question": "Ship it?" }] }
+    });
+    let up = status_line(Agent::Claude, "PreToolUse", &question, "needs-input").unwrap();
+    assert!(up.starts_with("state=blocked:kind=question:"), "{up}");
+    let later = json!({ "notification_type": "permission_prompt" });
+    assert_eq!(
+        status_line(Agent::Claude, "Notification", &later, "needs-input"),
+        None
+    );
+    for state in ["working", "idle", "error", "clear"] {
+        assert_eq!(
+            status_line(Agent::Claude, "PostToolUse", &Value::Null, state).as_deref(),
+            Some("-")
+        );
+    }
 }
 
 #[test]
@@ -297,7 +405,10 @@ fn a_settings_file_that_is_a_symlink_stays_one() {
         .unwrap()
         .file_type()
         .is_symlink());
-    assert_eq!(hooked_events(&read_doc(&real).unwrap(), Agent::Claude), 8);
+    assert_eq!(
+        hooked_events(&read_doc(&real).unwrap(), Agent::Claude),
+        Agent::Claude.hooks().len()
+    );
 }
 
 #[test]

@@ -11,6 +11,10 @@ mod parser;
 pub(crate) mod program_status;
 mod state;
 
+/// A blocked pane's text in `@tmuxy-pane-status`, written by an agent's hook
+/// and read by whatever tells the user (a push notification).
+pub use program_status::{blocked_status, status_message};
+
 pub mod monitor_core;
 
 #[cfg(feature = "native")]
