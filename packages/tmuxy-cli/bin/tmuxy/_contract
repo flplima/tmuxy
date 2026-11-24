@@ -279,6 +279,11 @@ resolve_caller_and_target() {
   _exit_if_no_server "$rc"
   [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $TARGET"
   [ -z "$resolved" ] || TARGET="$resolved"
+  # `ps` may name the parent by its path, and macOS names a login shell
+  # `-zsh`: the caller is `zsh` either way.
+  local comm
+  comm="$(ps -o comm= -p "$PPID" 2>/dev/null || true)"
+  comm="${comm##*/}"
   # shellcheck disable=SC2034 # read by the script that called this (send, ask)
-  CALLER_PROCESS="$(basename "$(ps -o comm= -p "$PPID" 2>/dev/null || true)")"
+  CALLER_PROCESS="${comm#-}"
 }
