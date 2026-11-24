@@ -16,10 +16,21 @@
  * suggestions, pasted into the active pane at once.
  *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
- * stays up while the row is used.
+ * stays up while the row is used. WebKit moves the focus on a touch whatever
+ * pointerdown and mousedown prevent, so a touch is stopped at `touchstart`
+ * too (which also drops the click after it: a touch presses on pointerup) and
+ * the focus is put back after every press.
  */
 
-import { memo, useEffect, useMemo, useState, useSyncExternalStore, type PointerEvent } from 'react';
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type PointerEvent,
+} from 'react';
 import {
   getLatches,
   pressChord,
@@ -31,7 +42,7 @@ import {
 import { createKeyRepeat } from './keyRepeat';
 import { ComposeSheet } from './ComposeSheet';
 import { useComposeHold } from './useComposeHold';
-import { toggleMobileKeyboard, typeText } from '../../infra/dom/mobileKeyboard';
+import { holdMobileKeyboard, toggleMobileKeyboard, typeText } from '../../infra/dom/mobileKeyboard';
 import { createDictation } from '../../infra/dictation';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
 import { selectKeyBindings, selectPrefixActive } from '../../machines/selectors/ui';
@@ -90,6 +101,10 @@ function arrowAt(x: number, y: number): string | null {
 }
 
 export const KeyRow = memo(function KeyRow() {
+  const rowRef = useRef<HTMLDivElement>(null);
+  // A touch presses on pointerup; the click it may still raise is that press's.
+  const touched = useRef(false);
+  const restoreFocus = useRef<() => void>(() => {});
   const latches = useSyncExternalStore(subscribeLatches, getLatches);
   const send = useAppSend();
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
@@ -136,6 +151,23 @@ export const KeyRow = memo(function KeyRow() {
     }
   };
 
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const stop = (e: TouchEvent) => {
+      if (e.cancelable && (e.target as Element).closest('button')) e.preventDefault();
+    };
+    row.addEventListener('touchstart', stop, { passive: false });
+    return () => row.removeEventListener('touchstart', stop);
+  }, []);
+
+  const tap = (k: RowKey) => {
+    press(k);
+    if (k.kind === 'keyboard') return;
+    restoreFocus.current();
+    requestAnimationFrame(restoreFocus.current);
+  };
+
   // The arrows press on touch, not on the click after it: the repeat and the
   // slide both start the moment the finger lands.
   const arrowDown = (k: RowKey, e: PointerEvent<HTMLButtonElement>) => {
@@ -152,11 +184,19 @@ export const KeyRow = memo(function KeyRow() {
   const release = (k: RowKey, e: PointerEvent<HTMLButtonElement>) => {
     delete e.currentTarget.dataset.down;
     if (k.kind === 'keyboard') compose.up();
-    else if (k.kind === 'key' && k.arrow) arrowUp();
+    else if (k.kind === 'key' && k.arrow) {
+      arrowUp();
+      restoreFocus.current();
+    }
+  };
+  const releaseUp = (k: RowKey, e: PointerEvent<HTMLButtonElement>) => {
+    const over = e.currentTarget.contains(document.elementFromPoint(e.clientX, e.clientY));
+    release(k, e);
+    if (touched.current && over && !(k.kind === 'key' && k.arrow)) tap(k);
   };
 
   return (
-    <div className="key-row" role="toolbar" aria-label="Keys">
+    <div ref={rowRef} className="key-row" role="toolbar" aria-label="Keys">
       {compose.composing && (
         <ComposeSheet
           title={
@@ -199,17 +239,26 @@ export const KeyRow = memo(function KeyRow() {
             tabIndex={-1}
             onPointerDown={(e) => {
               e.preventDefault();
+              touched.current = e.pointerType === 'touch';
+              restoreFocus.current = holdMobileKeyboard();
               e.currentTarget.dataset.down = '';
               if (keyboard) compose.down(e);
               arrowDown(k, e);
             }}
             onPointerMove={arrow ? arrowMove : undefined}
-            onPointerUp={(e) => release(k, e)}
+            onPointerUp={(e) => releaseUp(k, e)}
             onPointerCancel={(e) => release(k, e)}
             onPointerLeave={(e) => delete e.currentTarget.dataset.down}
             onContextMenu={keyboard ? (e) => e.preventDefault() : undefined}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={arrow ? undefined : () => press(k)}
+            onClick={
+              arrow
+                ? undefined
+                : () => {
+                    if (touched.current) touched.current = false;
+                    else tap(k);
+                  }
+            }
           >
             {k.kind === 'mic' ? <Mic /> : k.label}
           </button>
