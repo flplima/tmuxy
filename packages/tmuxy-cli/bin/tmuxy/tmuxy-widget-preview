@@ -18,7 +18,8 @@
 #
 # The file is watched — inotify where there is one, a poll every second
 # otherwise — and each change rewrites one line under the marker, which is
-# what tells the UI to read it again.
+# what tells the UI to read it again. A poll reads the file only when its
+# time says it may have changed, so a preview nobody edits costs no process.
 #
 # A JSON line typed into the pane — a markdown form control's change, a
 # page's `tmuxy.emit` — is printed under that line, and appended to a log of
@@ -90,13 +91,15 @@ LOG_CAP=$((8 * 1024 * 1024))
 (umask 077 && mkdir -p "${LOG%/*}") && chmod 700 "${LOG%/*}" 2>/dev/null || true
 rm -f -- "$LOG"
 (umask 077 && : >"$LOG") 2>/dev/null || true
+# Written each time the file is found changed: see `may_have_changed`.
+STAMP="${LOG%.log}.stamp"
 
 # The path goes with this script. Ctrl+C ends the widget first — its own exit
 # takes `@tmuxy-pane-widget` with it, which alone stops the preview being
 # read — and this script ends once the pane's shell does.
 cleanup() {
   stty echo icanon </dev/tty 2>/dev/null || true
-  rm -f -- "$LOG"
+  rm -f -- "$LOG" "$STAMP"
   _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW" || true
   _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW_NET" || true
 }
@@ -120,6 +123,39 @@ fingerprint() {
   local sum
   sum="$(cksum <"$ABS" 2>/dev/null)" || sum="missing"
   printf '%s' "${sum// /-}"
+}
+
+# Whether the file has to be read again, asked of the shell alone: reading
+# it is two processes, every second, for as long as the preview is open.
+#
+# The file is as it was last read while it and its folder are older than the
+# stamp, an empty file of this script's written just before a read that found
+# a change. A write after that read is newer than the stamp, or as old; a
+# file renamed into place keeps its own time, and the folder takes the
+# rename's.
+#
+# A filesystem that keeps times to the second or two dates a write earlier
+# than it happened, before a stamp it came after: the stamp is believed only
+# once the file has been read STILL seconds after it and found the same. And
+# a time is a hint (a folder on another machine keeps its own clock, a tool
+# may put a file's time back), so a still file is read every REREAD seconds
+# all the same.
+STILL=3
+REREAD=30
+stamped=0
+still=""
+reread=0
+may_have_changed() {
+  if ! [ "$STAMP" -nt "$ABS" ] || ! [ "$STAMP" -nt "$DIR" ]; then
+    { : >"$STAMP"; } 2>/dev/null || true
+    stamped=$SECONDS
+    still=""
+  elif [ -n "$still" ] && [ "$SECONDS" -lt "$reread" ]; then
+    return 1
+  elif [ $((SECONDS - stamped)) -ge "$STILL" ]; then
+    still=1
+  fi
+  reread=$((SECONDS + REREAD))
 }
 
 # Block until the file may have changed: an inotify event in its folder (an
@@ -149,7 +185,7 @@ watch_file() {
   local -a inputs=()
   # The log goes as soon as the widget does; the rest of the clean-up waits
   # for this script, which outlives the shell the widget hands the pane to.
-  trap 'rm -f -- "$LOG"' EXIT
+  trap 'rm -f -- "$LOG" "$STAMP"' EXIT
   redraw() {
     # Each line cut to one row, so a long one cannot scroll the marker off
     # the screen; the log has it whole.
@@ -165,10 +201,12 @@ watch_file() {
     done
   }
   while :; do
-    now="$(fingerprint)"
-    if [ "$now" != "$last" ]; then
-      last="$now"
-      redraw
+    if may_have_changed; then
+      now="$(fingerprint)"
+      if [ "$now" != "$last" ]; then
+        last="$now"
+        redraw
+      fi
     fi
     if [ -t 0 ]; then
       line=""

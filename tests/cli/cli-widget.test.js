@@ -3,6 +3,8 @@ const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { runWidgetWithPaneGone } = require('./helpers/run-widget');
+const { startPreview } = require('./helpers/run-preview');
+const { withScratchDir } = require('./helpers/env');
 
 describe('CLI widget subcommands', () => {
   describe('widget unknown', () => {
@@ -85,6 +87,45 @@ describe('CLI widget subcommands', () => {
         fs.rmSync(dir, { recursive: true, force: true });
       }
     });
+
+    /**
+     * A preview polls its file every second. It reads the file (a `cksum`,
+     * two processes) only while the file's time, or its folder's, says it
+     * may have changed: an open preview nobody edits starts no process. Two
+     * previews here, so both kinds of change are waited for at once: a write
+     * in place, and a file renamed over the document with a time from the
+     * past, which only the folder's time gives away.
+     */
+    test(
+      'a still document is no longer read, and a change to it is still shown',
+      () =>
+        withScratchDir('tmuxy-preview-still-', async (home) => {
+          const written = path.join(home, 'written', 'notes.md');
+          const replaced = path.join(home, 'replaced', 'notes.md');
+          for (const doc of [written, replaced]) {
+            fs.mkdirSync(path.dirname(doc));
+            fs.writeFileSync(doc, '# one\n');
+          }
+          const previews = [startPreview(home, written, '%5'), startPreview(home, replaced, '%6')];
+          try {
+            const first = await Promise.all(previews.map((p) => p.waitForRevisions(1)));
+            await Promise.all(previews.map((p) => p.waitUntilNotRead(2500)));
+
+            fs.writeFileSync(written, '# two\n');
+            const older = path.join(home, 'replaced', 'older.md');
+            fs.writeFileSync(older, '# three\n');
+            fs.utimesSync(older, new Date(0), new Date(0));
+            fs.renameSync(older, replaced);
+
+            const second = await Promise.all(previews.map((p) => p.waitForRevisions(2)));
+            expect(second[0][1]).not.toBe(first[0][0]);
+            expect(second[1][1]).not.toBe(first[1][0]);
+          } finally {
+            for (const preview of previews) preview.stop();
+          }
+        }),
+      60000,
+    );
 
     test('refuses a spoofed TMUX_PANE whose process is not an ancestor of the caller', () => {
       const doc = path.resolve(__dirname, '../../README.md');
