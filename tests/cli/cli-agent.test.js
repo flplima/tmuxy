@@ -4,6 +4,7 @@ const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { SOCKET, sealedEnv } = require('./helpers/env');
 const { playedTmux } = require('./helpers/seal');
+const { waitFor } = require('./helpers/wait');
 
 /**
  * `tmuxy agent hook` sets the pane state in a background job (so the agent
@@ -11,22 +12,25 @@ const { playedTmux } = require('./helpers/seal');
  * read the mock's log until the expected number of calls is there.
  */
 async function callsAfterHook(logFile, count) {
-  const deadline = Date.now() + 10000;
   const read = () =>
     fs.existsSync(logFile)
       ? fs.readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean)
       : [];
-  let lines = read();
-  while (lines.length < count && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    lines = read();
-  }
+  let lines = [];
+  await waitFor(
+    `${count} tmux calls after the hook`,
+    () => {
+      lines = read();
+      return lines.length >= count;
+    },
+    { saw: () => `${lines.length}: ${lines.join('\n')}` },
+  );
   return lines.map((line) => JSON.parse(line).args);
 }
 
 /**
- * Whether the hook's background job let go of its lock: it runs to its end,
- * past the tmux write, and every later hook takes the lock at once.
+ * Wait for the hook's background job to let go of its lock: it runs to its
+ * end, past the tmux write, and every later hook takes the lock at once.
  */
 async function lockReleased(where) {
   const locks = () =>
@@ -38,22 +42,23 @@ async function lockReleased(where) {
           .readdirSync(path.join(where.dir, base))
           .filter((pane) => fs.existsSync(path.join(where.dir, base, pane, '.lock'))),
       );
-  const deadline = Date.now() + 10000;
-  while (locks().length > 0 && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return locks().length === 0;
+  await waitFor("the hook's job to release its lock", () => locks().length === 0, {
+    saw: () => `locks held in ${locks().join(', ')}`,
+  });
 }
 
 /** The commands the hook's job handed to `run-shell`, once `count` of them are there. */
 async function writesAfterHook(logFile, count) {
   const writes = (calls) => calls.filter((c) => c[2] === 'run-shell').map((c) => c[5]);
-  const deadline = Date.now() + 10000;
-  let seen = writes(await callsAfterHook(logFile, 0));
-  while (seen.length < count && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    seen = writes(await callsAfterHook(logFile, 0));
-  }
+  let seen = [];
+  await waitFor(
+    `${count} writes from the hook's job`,
+    async () => {
+      seen = writes(await callsAfterHook(logFile, 0));
+      return seen.length >= count;
+    },
+    { saw: () => JSON.stringify(seen) },
+  );
   return seen;
 }
 
@@ -101,7 +106,7 @@ describe('tmuxy agent', () => {
     ]);
     // macOS's bash 3.2 ran the job's tmux call in the job's own process, so
     // the job ended with it and never let go of its lock.
-    expect(await lockReleased(where)).toBe(true);
+    await lockReleased(where);
 
     // The same state again: tmux already says it, so nothing is written.
     expect(hook('claude', 'PostToolUse', 'working', where).exitCode).toBe(0);
@@ -162,10 +167,9 @@ describe('tmuxy agent', () => {
       );
     const before = await reads();
     expect(hook('claude', 'Notification', 'needs-input', where).exitCode).toBe(0);
-    const deadline = Date.now() + 10000;
-    while ((await reads()) === before && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    await waitFor("the hook's job to read the pane state", async () => (await reads()) > before, {
+      saw: () => `${before} reads, as before the hook`,
+    });
     expect(await reads()).toBe(before + 1);
     expect(await writesAfterHook(where.log, 3)).toHaveLength(3);
   });
@@ -232,11 +236,9 @@ describe('tmuxy agent', () => {
     const noClaude = { ...switchOn, PATH: `${shells}:${sealedEnv().PATH}` };
     expect(hook('claude', 'SessionStart', 'idle', orphan, noClaude).exitCode).toBe(0);
     // Once the job has asked ps and heard of no Claude Code, it writes no more.
-    const deadline = Date.now() + 10000;
-    while (!fs.existsSync(asked) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    expect(fs.existsSync(asked)).toBe(true);
+    await waitFor("the hook's job to ask ps", () => fs.existsSync(asked), {
+      saw: () => `no ${asked}`,
+    });
     calls = await callsAfterHook(orphan.log, 3);
     expect(inboxWrites(calls)).toEqual([]);
 
