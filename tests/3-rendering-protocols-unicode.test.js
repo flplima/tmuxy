@@ -262,47 +262,33 @@ describeE2E('Scenario 16: Unicode Rendering', {}, (ctx) => {
 // ==================== Scenario 16b: SGR 2 (faint/dim) ====================
 
 describeE2E('Scenario 16b: SGR 2 faint/dim attribute', {}, (ctx) => {
-  // Claude Code's TUI uses SGR 2 (faint) for its autosuggestion text. The
-  // vt100 0.15 crate dropped SGR 2 on the floor, so dim text rendered as
-  // normal-intensity white. After bumping to vt100 0.16 + threading
-  // `cell.dim()` through CellStyle, the frontend renders dim cells at
-  // reduced opacity.
-  test('Faint text (SGR 2) is rendered at reduced opacity', async () => {
+  test('Faint text (SGR 2) keeps the same background as adjacent normal text', async () => {
     await ctx.setupPage();
 
-    // Emit DIM_TEXT in faint, BRIGHT_TEXT in normal intensity.
-    await runCommand(ctx.page, 'printf "\\e[2mDIM_TEXT\\e[22m BRIGHT_TEXT\\n"', 'DIM_TEXT');
+    // SGR 22 restores normal intensity; both markers keep the blue background.
+    await runCommand(
+      ctx.page,
+      'printf "\\e[44;2mDIM_TEXT\\e[22m BRIGHT_TEXT\\e[0m\\n"',
+      'DIM_TEXT',
+    );
     await waitForTerminalText(ctx.page, 'BRIGHT_TEXT');
 
-    // Locate the spans whose text *exactly* equals each marker — the
-    // shell echoes the printf command back as one continuous prompt-line
-    // span containing the literal "DIM_TEXT" / "BRIGHT_TEXT" substrings,
-    // so a substring search would find that span first and miss the
-    // actual rendered output below.
-    const opacities = await ctx.page.evaluate(() => {
-      const findExactSpan = (text) => {
-        const spans = document.querySelectorAll('[role="log"] span');
-        for (const s of spans) {
-          if ((s.textContent || '').trim() === text) return s;
-        }
-        return null;
-      };
-      const readOpacity = (el) => {
+    const paint = await ctx.page.evaluate(() => {
+      // An exact match skips the shell's echo of the printf command.
+      const spans = [...document.querySelectorAll('[role="log"] span')];
+      const read = (text) => {
+        const el = spans.find((span) => span.textContent.trim() === text);
         if (!el) return null;
-        const inline = el.style.opacity;
-        if (inline) return parseFloat(inline);
-        const computed = getComputedStyle(el).opacity;
-        return computed ? parseFloat(computed) : 1;
+        const { color, backgroundColor, opacity } = getComputedStyle(el);
+        return { color, backgroundColor, opacity };
       };
-      return {
-        dim: readOpacity(findExactSpan('DIM_TEXT')),
-        bright: readOpacity(findExactSpan('BRIGHT_TEXT')),
-      };
+      return { dim: read('DIM_TEXT'), bright: read('BRIGHT_TEXT') };
     });
 
-    expect(opacities.dim).not.toBeNull();
-    expect(opacities.bright).not.toBeNull();
-    expect(opacities.dim).toBeLessThan(1);
-    expect(opacities.bright).toBe(1);
+    expect(paint.dim).not.toBeNull();
+    expect(paint.bright).not.toBeNull();
+    expect(paint.dim.opacity).toBe('1');
+    expect(paint.dim.backgroundColor).toBe(paint.bright.backgroundColor);
+    expect(paint.dim.color).not.toBe(paint.bright.color);
   }, 60000);
 });

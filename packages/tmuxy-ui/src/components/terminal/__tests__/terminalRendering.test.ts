@@ -18,6 +18,24 @@ describe('inverse video with default colours', () => {
   });
 });
 
+it('dims only the foreground on a painted background, including reverse video', () => {
+  const row = document.createElement('div');
+  renderLineToDOM(
+    row,
+    [
+      { c: 'a', s: { bg: 4, dim: true } },
+      { c: 'b', s: { fg: 1, bg: 4, dim: true, inverse: true } },
+    ],
+    null,
+  );
+  const [plain, reversed] = row.querySelectorAll('span');
+  expect(plain.style.opacity).toBe('');
+  expect(plain.style.backgroundColor).toBe('var(--term-blue)');
+  expect(plain.style.color).toBe('color-mix(in srgb, var(--term-foreground) 50%, transparent)');
+  expect(reversed.style.backgroundColor).toBe('var(--term-red)');
+  expect(reversed.style.color).toBe('color-mix(in srgb, var(--term-blue) 50%, transparent)');
+});
+
 describe('terminal BiDi neutralization and hyperlink destination preview', () => {
   it('strips BiDi override code points from combined cells and replaces standalone BiDi cells', () => {
     expect(sanitizeTerminalCell('a\u202E')).toBe('a');
