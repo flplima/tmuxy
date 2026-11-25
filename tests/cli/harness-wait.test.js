@@ -22,4 +22,12 @@ describe('waitFor', () => {
       'waited for another line: it can no longer come',
     );
   });
+
+  test('what its writer left on the way out is still found', async () => {
+    let exited = false;
+    const lastLine = () => exited && 'last line';
+    await expect(waitFor('its last line', lastLine, { over: () => (exited = true) })).resolves.toBe(
+      'last line',
+    );
+  });
 });

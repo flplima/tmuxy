@@ -30,6 +30,9 @@ async function waitFor(what, look, { saw, over = () => false, timeoutMs = WAIT_M
   let found = await look();
   while (!found) {
     const ended = over();
+    // What its writer left on the way out counts.
+    if (ended) found = await look();
+    if (found) break;
     if (ended || Date.now() > deadline) {
       const gaveUp = ended ? 'it can no longer come' : `not after ${timeoutMs}ms`;
       throw new Error(`waited for ${what}: ${gaveUp}${saw ? `; saw ${saw()}` : ''}`);
