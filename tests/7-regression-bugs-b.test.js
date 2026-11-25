@@ -19,7 +19,7 @@ const {
   waitForSettled,
   runCommand,
 } = require('./helpers');
-const { tmuxExec } = require('./helpers/tmux-socket');
+const { tmuxExec, tmuxOlderThan } = require('./helpers/tmux-socket');
 const { tmuxPane } = require('./helpers/tmux-read');
 
 /** Every pane tmux holds, the stash's parked group members included. */
@@ -70,8 +70,16 @@ describeE2E('Scenario: keystrokes route to the clicked pane-group tab', {}, (ctx
     expect(box.top).toBeGreaterThanOrEqual(0);
   }, 120000);
 
+  // Not on tmux 3.2: there a pane kept open by remain-on-exit that exits while
+  // its last output is still queued for a control-mode client crashes the
+  // tmux server itself, and a group member that exits is such a pane. The bug
+  // is tmux's (fixed in 3.3, upstream commit 5fdea440ce), nothing tmuxy sends
+  // avoids it, and a dead server fails every test after this one
+  // (docs/TMUX-VERSION-BUGS.md).
   test('typing exit in a pane group closes only that member and promotes the next one', async () => {
+    // Opened either way: the suite compares the page with tmux after each test.
     await ctx.setupPage();
+    if (tmuxOlderThan(3, 3)) return;
 
     // ALPHA is the anchor, visible to start with.
     const alphaId = await ctx.page.evaluate(() => window.app?.view().activePaneId || null);

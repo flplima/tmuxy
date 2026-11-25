@@ -216,11 +216,22 @@ function tmuxExec(args, { timeout = 10000, trim = true } = {}) {
   return trim ? out.trim() : out;
 }
 
+/**
+ * Whether the tmux under test is older than `major.minor`: for the few tests
+ * that cannot hold on a tmux with a bug of its own
+ * (docs/TMUX-VERSION-BUGS.md). The test says why where it asks.
+ */
+function tmuxOlderThan(major, minor) {
+  const [is, isMinor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);
+  return is < major || (is === major && isMinor < minor);
+}
+
 module.exports = {
   tmuxSocket,
   tmuxCmd,
   tmuxEnv,
   scrubbedEnv,
   tmuxExec,
+  tmuxOlderThan,
   stateDir,
 };
