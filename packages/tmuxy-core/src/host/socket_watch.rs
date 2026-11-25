@@ -65,6 +65,12 @@ impl PaneRow {
     pub fn message(&self) -> Option<String> {
         crate::control_mode::status_message(&self.status, &self.state)
     }
+
+    /// The program that said it ([`Self::message`]), by the name it gave:
+    /// an agent whose hook ran in a shell is not the shell.
+    pub fn app(&self) -> Option<String> {
+        crate::control_mode::status_app(&self.status, &self.state)
+    }
 }
 
 /// A line missing a field is skipped.
