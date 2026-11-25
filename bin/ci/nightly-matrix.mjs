@@ -62,7 +62,7 @@ const couldNotRun = (suite) =>
 
 /**
  * The entries of one jest `--json` result: one per test that passed or
- * failed, with the id `<file> › <full name>`, the same on every tmux version,
+ * failed, with the id `<file> › <describe> › <test>`, the same on every tmux version,
  * and one with the file as its id for a file that could not run. With
  * `files`, a file that did run gets that entry too, passing: the second run
  * has to be able to say so.
@@ -75,7 +75,7 @@ export function stories(data, { root = ROOT, files = false } = {}) {
     else if (files) out.push({ id: file, ok: true });
     for (const a of suite.assertionResults ?? []) {
       if (a.status !== 'passed' && !failed(a)) continue;
-      const entry = { id: `${file} › ${a.fullName}`, ok: !failed(a) };
+      const entry = { id: [file, ...a.ancestorTitles, a.title].join(' › '), ok: !failed(a) };
       if (failed(a)) entry.message = failureText(a.failureMessages?.[0]);
       out.push(entry);
     }

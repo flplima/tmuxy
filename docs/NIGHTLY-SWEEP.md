@@ -43,7 +43,7 @@ Nothing told the first two apart, and the issue named no test. The verdicts and 
 
 | | Story sweep | tmux matrix |
 | --- | --- | --- |
-| Unit | A story | A test (its file and full name), the same on every version; a file that could not run is one |
+| Unit | A story | A test (its file, describe titles and name), the same on every version; a file that could not run is one |
 | Second run | The failing stories, on a fresh runner | The failing test files, in the same job, which has that version's tmux built; the server, tmux and the suite's config, data, state and home dirs are started over |
 | Reported at once | A failure in both runs | A failure in both runs, or a flake of one test on two versions the same night: it depends on what ran before it, or it races everywhere |
 | Not blocking | Nothing | tmux `HEAD`: a failure in both runs is reported without failing the run; a flake there is ignored |

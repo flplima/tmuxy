@@ -18,12 +18,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, 'nightly-matrix.mjs');
 const ROOT = resolve(HERE, '../..');
 const FILE = 'tests/a.test.js';
-const ID = `${FILE} › Group a pane splits`;
+const ID = `${FILE} › Group › a pane splits`;
 
 /** A jest `--json` result for one file, its tests given as name → status. */
 function jest(tests, { file = FILE, message = '' } = {}) {
   const assertionResults = Object.entries(tests).map(([name, status]) => ({
-    fullName: `Group ${name}`,
+    ancestorTitles: ['Group'],
+    title: name,
     status,
     failureMessages: status === 'failed' ? ['\u001b[31mError: no pane\u001b[39m\n    at x'] : [],
   }));
@@ -56,8 +57,8 @@ describe('one version of the matrix', () => {
   it('names each test by file and full name, and leaves skipped and todo tests out', () => {
     const data = jest({ one: 'passed', two: 'failed', three: 'pending', four: 'todo' });
     expect(stories(data)).toEqual([
-      { id: `${FILE} › Group one`, ok: true },
-      { id: `${FILE} › Group two`, ok: false, message: 'Error: no pane' },
+      { id: `${FILE} › Group › one`, ok: true },
+      { id: `${FILE} › Group › two`, ok: false, message: 'Error: no pane' },
     ]);
   });
 
