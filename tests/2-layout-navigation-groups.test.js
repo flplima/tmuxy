@@ -33,11 +33,6 @@ const { tmuxPane } = require('./helpers/tmux-read');
 describeE2E('Scenario 5: Pane Groups', {}, (ctx) => {
   test('Header → add button → create group → switch tabs → identity verify → add 3rd → close tab → ungroup', async () => {
     const activePane = () => ctx.page.evaluate(() => window.app?.view().activePaneId || null);
-    // A group switch is settled by a fixed wait here, deliberately: the
-    // client's active pane is optimistic, tmux's own answer names the pane
-    // of whatever window it considers current while a group swap is under
-    // way, and a wait on either let the next group operation go out
-    // mid-swap on CI (the third member then never took the keyboard).
     await ctx.setupPage();
 
     // Layout invariants on initial single pane

@@ -109,7 +109,16 @@ impl StateAggregator {
                 }
             }
 
+            // An active pane the list does not hold in this window came in
+            // from elsewhere unannounced, so the panes are listed again: tmux
+            // 3.2 tells of a swap-pane across windows (a pane-group switch)
+            // by this notification alone, and until a re-list the state named
+            // no active pane and still drew the member swapped out.
             ControlModeEvent::WindowPaneChanged { window_id, pane_id } => {
+                let unlisted = !self
+                    .panes
+                    .get(&pane_id)
+                    .is_some_and(|pane| pane.in_window(&window_id));
                 if let Some(window) = self.windows.get_mut(&window_id) {
                     window.active_pane_id = Some(pane_id.clone());
                 }
@@ -122,6 +131,7 @@ impl StateAggregator {
                     state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Focus,
                     commands: self.collapsible_layout_commands(Some(&window_id)),
+                    relist_panes: unlisted,
                     ..Default::default()
                 }
             }

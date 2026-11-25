@@ -1,6 +1,6 @@
 use super::tests::*;
 use super::*;
-use crate::constants::tmux_formats::{PaneColumn, WindowColumn};
+use crate::constants::tmux_formats::{PaneColumn, TmuxList, WindowColumn};
 use crate::ids::test_ids::{pid, wid};
 use crate::WindowType;
 
@@ -450,4 +450,53 @@ fn a_pane_running_tmuxy_itself_keeps_its_shells_name() {
     assert_eq!(agg.panes.get("%3").expect("pane parsed").command, "bash");
     agg.parse_list_panes_line(&row("vim"));
     assert_eq!(agg.panes.get("%3").expect("pane parsed").command, "vim");
+}
+
+/// A pane-group switch swaps the clicked member in from the stash, and tmux
+/// 3.2 announces that swap only by naming it the window's active pane: no
+/// `%layout-change`. The list still had the member swapped out in the
+/// window, so the state named no active pane and drew the old member, until
+/// some unrelated re-list (seconds; the 15s heartbeat at worst). The
+/// notification is the news that the list is stale, and it re-lists.
+#[test]
+fn an_active_pane_the_window_does_not_list_relists_the_panes() {
+    let mut agg = StateAggregator::new();
+    seed_active_pane(&mut agg, "%1", "@0");
+    mark_initial_sync_done(&mut agg);
+    let relists = |result: &StepResult| {
+        result.effects.iter().any(|e| {
+            matches!(e, SideEffect::Send { batch: Batch::PaneRefresh, commands }
+                if commands.iter().any(|c| c.contains("list-panes")))
+        })
+    };
+
+    let swapped_in = agg.step(ControlModeEvent::WindowPaneChanged {
+        window_id: wid("@0"),
+        pane_id: pid("%2"),
+    });
+    assert_eq!(
+        agg.to_tmux_state().active_pane_id,
+        None,
+        "until the list answers, the window's active pane is none it holds"
+    );
+    assert!(
+        relists(&swapped_in),
+        "the panes are listed again ({:?})",
+        swapped_in.effects
+    );
+
+    listed(&mut agg, TmuxList::Panes, &pane_row("%2", "@0", false));
+    let state = agg.to_tmux_state();
+    assert_eq!(state.active_pane_id, Some(pid("%2")));
+    assert!(
+        !state.panes.iter().any(|p| p.tmux_id == pid("%1")),
+        "the member swapped out is gone from the window"
+    );
+
+    // Focus moving between panes the list holds costs no list.
+    let reselected = agg.step(ControlModeEvent::WindowPaneChanged {
+        window_id: wid("@0"),
+        pane_id: pid("%2"),
+    });
+    assert!(!relists(&reselected), "{:?}", reselected.effects);
 }
