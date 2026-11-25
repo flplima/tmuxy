@@ -179,6 +179,10 @@ function terminalText(page) {
  * (a new tab's, sized before its window was) reaches under the status line
  * for a moment; a spot measured then lies below the terminal once it
  * shrinks, and every retry of the click lands on the status line.
+ *
+ * A free spot is no promise either: the terminal can shrink between the
+ * measure and the click. So a click that does not land is given up after a
+ * second and aimed again, until the deadline; the last one reports why.
  */
 async function clickTerminal(terminal) {
   const aim = () =>
@@ -213,12 +217,23 @@ async function clickTerminal(terminal) {
       { timeout: 5000 },
     );
   const deadline = Date.now() + waitBudget(5000);
-  let spot = await aim();
-  while (!spot.free && Date.now() < deadline) {
-    await delay(50);
-    spot = await aim();
+  for (;;) {
+    let spot = await aim();
+    while (!spot.free && Date.now() < deadline) {
+      await delay(50);
+      spot = await aim();
+    }
+    const position = { x: spot.x, y: spot.y };
+    if (Date.now() >= deadline) {
+      await terminal.click({ position, timeout: 5000 });
+      return;
+    }
+    const landed = await terminal.click({ position, timeout: waitBudget(1000) }).then(
+      () => true,
+      () => false,
+    );
+    if (landed) return;
   }
-  await terminal.click({ position: { x: spot.x, y: spot.y }, timeout: 5000 });
 }
 
 /**
