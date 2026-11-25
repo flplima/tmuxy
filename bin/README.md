@@ -44,14 +44,15 @@ past `ratchets.json`.
 
 ### What the workflows run
 
-| Script             | Purpose                                                                                                              | Workflow                                     |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `apt-get`          | `sudo apt-get` with a 10-minute deadline and retries, since apt can hang with no output until the job times out.     | Every job that installs packages             |
-| `ci-changes.mjs`   | From the files a push changed, says which long jobs (desktop, v86 probe, audit) it can skip.                         | `lint-and-tests.yml`                         |
-| `e2e-plan.mjs`     | Turns `tests/e2e-suites.json` into the E2E job matrix for a tier (`commit`, `full`).                                 | `lint-and-tests.yml`                         |
-| `nightly-issue`    | Keeps one tracking issue per nightly workflow: `report` comments or opens it, `resolve` closes it after a green run. | `nightly-v86.yml`, `nightly-tmux-matrix.yml` |
-| `plugin-index.mjs` | Builds the plugin index: every public repository tagged `tmuxy-plugin` whose manifests pass `tmuxy plugin check`.    | `plugin-index.yml`, every six hours          |
-| `wait-for-server`  | Waits until an http URL answers 2xx, or a `tcp://host:port` accepts a connection.                                    | Every job that starts a server first         |
+| Script               | Purpose                                                                                                                | Workflow                                     |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `apt-get`            | `sudo apt-get` with a 10-minute deadline and retries, since apt can hang with no output until the job times out.       | Every job that installs packages             |
+| `ci-changes.mjs`     | From the files a push changed, says which long jobs (desktop, v86 probe, audit) it can skip.                           | `lint-and-tests.yml`                         |
+| `e2e-plan.mjs`       | Turns `tests/e2e-suites.json` into the E2E job matrix for a tier (`commit`, `full`).                                   | `lint-and-tests.yml`                         |
+| `nightly-matrix.mjs` | The tmux matrix's verdict: the files to run again, each version's results, and what the night reports.                 | `nightly-tmux-matrix.yml`                    |
+| `nightly-issue`      | Keeps one tracking issue per nightly workflow: `report` comments or opens it, `resolve` closes it after a clean night. | `nightly-v86.yml`, `nightly-tmux-matrix.yml` |
+| `plugin-index.mjs`   | Builds the plugin index: every public repository tagged `tmuxy-plugin` whose manifests pass `tmuxy plugin check`.      | `plugin-index.yml`, every six hours          |
+| `wait-for-server`    | Waits until an http URL answers 2xx, or a `tcp://host:port` accepts a connection.                                      | Every job that starts a server first         |
 
 ### Tests
 

@@ -1,6 +1,6 @@
-# The nightly story sweep: why it kept failing, and what fixed it
+# The nightlies: telling a flake from a defect
 
-The nightly workflow (`.github/workflows/nightly-v86.yml`) runs every Storybook story: the `v86` tier, which boots real tmux in an x86 emulator in the page, and the deterministic tier, which replays recorded fixtures. Any failing story used to open the tracking issue and the next green night closed it. This page records why that issue reopened almost every week, why moving the guest to CheerpX would not have fixed it, and what did. How to read tonight's verdict is in [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md#when-the-nightly-reports).
+The nightly workflow (`.github/workflows/nightly-v86.yml`) runs every Storybook story: the `v86` tier, which boots real tmux in an x86 emulator in the page, and the deterministic tier, which replays recorded fixtures. Any failing story used to open the tracking issue and the next green night closed it. This page records why that issue reopened almost every week, why moving the guest to CheerpX would not have fixed it, and what did. How to read tonight's verdict is in [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md#when-the-nightly-reports). The nightly tmux matrix now [follows the same rule](#the-tmux-matrix-follows-the-same-rule).
 
 ## What failed
 
@@ -28,3 +28,40 @@ Speed was never the cause: the failures above came from waiting on wall-clock ti
 2. **Animations are stepped, not sampled.** The focus-cue story reads the fade's two CSS transitions, pauses them, and checks them at eleven points of their own timeline. It failed about one run in ten before and passed 30 of 30 after, unthrottled and at 6x CPU throttle; the one failure at 6x was the probe's page load timing out, not the story.
 3. **The nightly tells a flake from a defect.** A failing story runs again that night, alone, on a fresh runner. Failing twice is a defect and is reported. Passing the second time is a flake: logged and kept in a ledger, and reported once it flakes on 2 of the last 7 nights. The rules are `packages/tmuxy-ui/scripts/lib/nightly-ledger.mjs`, with unit tests beside it.
 4. **Every story starts at the snapshot's time.** The sweep rewinds one emulator between stories, and v86 sets a restored TSC right only on a machine whose TSC was never set. Every second restore left the guest's clock 99s behind its kernel, so the guest's time stood still for a minute and a half; the others leapt it forward by the previous story's length. A story that waited on the guest's time (`ShowsOnlyTheFinishedStart`'s `sleep 1`) failed whenever it followed another story, and passed on the fresh retry. The engine now zeroes the TSC offset before each restore (`restoreSnapshot`, `src/infra/transport/drivers/v86/v86Guest.ts`).
+
+## The tmux matrix follows the same rule
+
+The nightly tmux matrix (`.github/workflows/nightly-tmux-matrix.yml`) runs the E2E suite (181 tests) on four released tmux versions, and the snapshot and alternate-screen suites on tmux `HEAD`. Any single failing test used to open the issue "Nightly tmux version matrix is failing", which the next green night closed. Over 25 nights its failures were of three kinds:
+
+| Kind | What it looked like |
+| --- | --- |
+| A defect | The same test red on every version, or red on one version every time it ran there (a plugin key on tmux 3.4, a notice on 3.2a) |
+| A flake | One test on one version, a different one nearly every night, green on a re-dispatch. About 0.08% of test runs, which over some 720 a night is a red night more than one night in three, and it grows with the suite (114 tests on Nov 1, 181 on Nov 25) |
+| A dead job | A job that ended before its suites ran: the apt mirror down, a cached tmux built against another ncurses |
+
+Nothing told the first two apart, and the issue named no test. The verdicts and the ledger are now the story sweep's, imported from the same file, with these differences (`bin/ci/nightly-matrix.mjs`, with its tests beside it):
+
+| | Story sweep | tmux matrix |
+| --- | --- | --- |
+| Unit | A story | A test (its file and full name), the same on every version; a file that could not run is one |
+| Second run | The failing stories, on a fresh runner | The failing test files, in the same job, which has that version's tmux built; the server, tmux and the suite's config, data, state and home dirs are started over |
+| Reported at once | A failure in both runs | A failure in both runs, or a flake of one test on two versions the same night: it depends on what ran before it, or it races everywhere |
+| Not blocking | Nothing | tmux `HEAD`: a failure in both runs is reported without failing the run; a flake there is ignored |
+| No verdict | A sweep that wrote no results | A version whose job left no results, and a step that failed without naming a test, count as failing twice |
+
+The `core` step (the Rust integration tests) and the server start are not run twice: a failure there is reported that night.
+
+## When the nightly matrix reports
+
+One comment a night, naming each test, the tmux versions it failed on and what its error says before the stack. A flake on a single night is only in that run's job summary and log.
+
+| Heading in the comment | What it means | What to do |
+| --- | --- | --- |
+| Failed twice | A defect in the product or the test. A version marked flaky passed its second run | Reproduce it against that tmux (`TMUX_BIN`) and fix it |
+| Flaky on several nights | It flaked on 2 of the last 7 nights | Find what it waits on, or what an earlier test leaves behind |
+| Flaky on several versions tonight | Two flakes of one test in one night are not chance | The same, starting with the tests that ran before it |
+| tmux HEAD, non-blocking | Upstream master changed, or broke | Decide whether tmuxy has to follow; nothing is red because of it |
+
+A reported test is fixed, not retried: the second run already was the retry. The run's job summaries list every version's failures and flakes. Its artifacts, per version, are the server log (the first server's is the file ending `-sweep.log` when a second one ran), and the jest results with the action trace ([TRACING.md](TRACING.md)).
+
+To check a fix, run the version that failed: `gh workflow run nightly-tmux-matrix.yml -f version=3.4`, with `--ref` for a branch. Only a run of the whole matrix closes the issue, and only a scheduled night opens it or enters the ledger.

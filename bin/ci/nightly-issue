@@ -8,9 +8,8 @@
 #                                         run ($RUN_URL) reported into it
 #
 # Every report carries its run's URL, so an issue with no comment from this
-# run means nothing in it failed: `resolve` runs only when the run's jobs
-# passed, and still checks, because a soft failure (tmux HEAD in the matrix)
-# reports without failing its job.
+# run means nothing in it was reported: `resolve` runs only when the night's
+# verdict reports nothing, and still checks that the run has no comment there.
 #
 # Needs GH_TOKEN and GH_REPO, as every gh call in a workflow does.
 set -euo pipefail
