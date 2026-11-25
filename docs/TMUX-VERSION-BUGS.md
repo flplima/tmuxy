@@ -17,6 +17,7 @@ What differs between the supported versions, and how tmuxy copes (the commands t
 | 3.2 | No `allow-passthrough` option (passthrough is always on) | The monitor sets it with `set -q`, which an older tmux skips silently |
 | 3.2 | No `%message` notification in control mode (`display-message` without `-p` arrived in 3.4) | Client commands that tell the person something inside a command list use `display-message -p`, whose line arrives inside the command's reply block and is shown by `ReportFailure` (`tmuxy-core/src/control_mode/monitor_core/replies.rs`) on every supported version |
 | 3.2 | No `%layout-change` after `swap-pane` | The monitor re-lists the panes behind every swap a client sends, unless the server said it is 3.3 or later (`TmuxCaps::announces_pane_swaps`); one a script makes (a pane-group switch) shows only as a `%window-pane-changed` naming a pane the window does not list, which re-lists them on any version (A19) |
+| 3.2 | A pane kept open by `remain-on-exit` that exits while its last output is still queued for a control-mode client crashes the server (`control_write_pending` reads the pane's closed buffer). Fixed in 3.3 by upstream commit `5fdea440ce`, which Ubuntu 22.04's and RHEL 9's 3.2a do not carry | **Known limitation.** Pane groups and `tmuxy pane wait` set `remain-on-exit`, so an `exit` there can take the server down on 3.2; nothing tmuxy sends avoids it, and the fix is tmux 3.3 or later. The E2E test of an `exit` in a group is not run on 3.2 (`tests/7-regression-bugs-b.test.js`) |
 | 3.2 | Emoji sequences get different widths: a ZWJ sequence (`👩‍💻`) and an emoji with a skin tone (`👍🏽`) take 4 columns instead of 2, a text symbol with VS16 (`❤️`) takes 1 instead of 2 | **Known limitation.** tmuxy's emulator follows the 3.4+ rules, so on a line holding such a sequence everything after it renders a column or two off tmux's own grid. CJK, single emoji, flags and combining marks agree. See [RICH-RENDERING.md](RICH-RENDERING-CELL-GRID.md#cell-widths-must-agree-with-tmux) |
 | 3.6 | An emoji followed by its skin-tone modifier (`👍🏽`) takes 4 columns: the modifier stays its own 2-column character (measured on 3.6a; the modifier before the emoji, ZWJ sequences, flags and VS16 combine as on 3.4 and 3.7) | **Known limitation**, as for 3.2: tmuxy's emulator follows 3.4 and 3.7, so on such a line everything after the sequence renders two columns off tmux's grid |
 | 3.4 | `run-shell` output — and a "returned 1" for a command that failed — is shown in `view-mode` on the target pane rather than handed to the calling client; every key typed afterwards goes to the mode, not the shell | The CLI runs every command it sends through `run-shell` with its output and exit status redirected to files, and prints them itself (`_run_shell` in `packages/tmuxy-cli/bin/tmuxy/_lib`), so `run-shell` has nothing to show. A session restore, which reads what its pane-group park step prints, has it write the answer into a `@tmuxy-restore-answer-<session>` server option instead (`ask_run_shell` in `tmuxy-core/src/session_snapshot/restore.rs`). A `run-shell` the UI sends without waiting for its output (a binding, a pane-group or navigation script, the command prompt) runs inside a wrapper that keeps the output and exit status in a per-command `@tmuxy-run-<id>` option, which the same command list reads back; the client shows the output as a notice and a failure as an error (`tmuxy-core/src/control_mode/monitor_core/run_shell.rs`). That relay runs on every version, so later ones show the output too |
@@ -132,29 +133,3 @@ Rule: split the literal into separate `send-keys -l` chunks at every `#`/`{` bou
 ### Mouse-tracking panes eat pasted SGR sequences — inject with `send-keys -H`
 
 On 3.7a, an SGR mouse sequence (`ESC [< b;x;y M`) delivered by `paste-buffer` to a pane whose application has enabled mouse reporting (`mouse_any_flag`) is consumed by tmux and never reaches the application, with no error. Rule: a synthetic mouse event goes as `send-keys -t <pane> -H <hex bytes>` — raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` expansion. The frontend builds these in `tmuxy-ui/src/domain/commandHelpers.ts` (`mouseReport`, for the `SendMouse` op). The keystroke batcher (`tmuxy-ui/src/infra/transport/keyBatching.ts`) joins only `SendKeys` and `SendText` ops, so a `SendMouse` is never merged into another send-keys: a `-H` token mid-keys is a key tmux does not know, and the whole command would fail.
-
-## `list-keys` Reports Aliases Already Expanded
-
-A `command-alias` is a config-time convenience, not something the client ever
-sees. `bind -n C-l tmuxy-nav-right` reads back through `list-keys` — the source
-the frontend builds its binding table from — as the alias's **expansion**:
-`run-shell "bash …/bin/tmuxy/nav right #{pane_id}"`, the data dir in place of
-the `$TMUXY_DATA_DIR` the alias names.
-
-This matters because the client classifies each binding's command to decide
-whether it can predict the result optimistically
-(`tmuxy-ui/src/domain/store/parseCommand.ts`). Anything it fails to recognise
-becomes a `RawCommand` — correct, but unpredicted, so the user waits out the
-full round trip instead of seeing the result on the next frame. Matching only
-the alias spelling is therefore a silent latency bug, not a parse error: the
-key still works, it is just several hundred milliseconds slower. Any classifier
-that keys off a bound command must match the **expanded** form (and may accept
-the alias too, for commands built in-code).
-
-## Client-Side Placeholder Substitution
-
-Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{pane_width}`, and `#{pane_height}` in every command that arrives as a string (`SEND_TMUX_COMMAND`: a binding, a command typed at the prompt) with the active pane's values (`expandPaneFormats` in `machines/app/dispatch.ts`). This is deliberate — prefix-binding commands are written against these placeholders. Typed text and pastes are ops (`SendText`, `PasteText`), never strings, so a placeholder in them reaches tmux as typed.
-
-## Bash Variable Conflicts
-
-`GROUPS` is a bash built-in variable (array of user group IDs). Never use it as a custom variable name in shell scripts executed via `run-shell` — it silently contains the wrong value. Use `GRP_JSON` or similar instead.
