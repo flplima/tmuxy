@@ -57,7 +57,7 @@ One comment a night, naming each test, the tmux versions it failed on and what i
 
 | Heading in the comment | What it means | What to do |
 | --- | --- | --- |
-| Failed twice | A defect in the product or the test. A version marked flaky passed its second run | Reproduce it against that tmux (`TMUX_BIN`) and fix it |
+| Failed twice | A defect in the product or the test. A version marked flaky passed its second run | Reproduce it against that tmux ([`TMUXY_E2E_TMUX_BIN`](TESTS-E2E.md#environment)) and fix it |
 | Flaky on several nights | It flaked on 2 of the last 7 nights | Find what it waits on, or what an earlier test leaves behind |
 | Flaky on several versions tonight | Two flakes of one test in one night are not chance | The same, starting with the tests that ran before it |
 | tmux HEAD, non-blocking | Upstream master changed, or broke | Decide whether tmuxy has to follow; nothing is red because of it |

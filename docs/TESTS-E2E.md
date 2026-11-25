@@ -70,7 +70,7 @@ TMUX_SOCKET=tmuxy-test ./target/ci/tmuxy-server   # or just let the suite start 
 
 The setup step warns when it reuses a server it did not start, because a running server reports no socket and the mismatch cannot be detected — only flagged.
 
-**Another tmux.** `TMUX_BIN` names the tmux binary for the server, the CLI and the harness (`tmuxBin()`): `TMUX_BIN=/opt/tmux-3.2a/bin/tmux npm run test:e2e -- <suite>` runs against the floor without touching the one on `PATH`.
+**Another tmux.** `TMUXY_E2E_TMUX_BIN=/opt/tmux-3.2a/bin/tmux npm run test:e2e -- <suite>` runs against the floor without touching the one on `PATH`. `bin/e2e` makes it the `TMUX_BIN` of the server, the CLI and the harness (`tmuxBin()`) and prints its `tmux -V` first. An inherited `TMUX_BIN` is ignored: every tmuxy pane exports one. A server already up keeps its own tmux.
 
 The Tauri suite (`tests/tauri/`) pins the same socket, in its `jest.global-setup.js` and before `tauri-driver` starts, because the driver hands its environment to the app binary it launches. There the app and the assertions about it are the two halves that have to agree — unset, the app falls back to its own `tmuxy` default while the shared helpers resolve `tmuxy-test`, and the suite reports panes and windows missing from a server the app never touched.
 
