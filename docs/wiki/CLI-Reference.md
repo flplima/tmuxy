@@ -180,7 +180,7 @@ Run the web server, and install it as a service. See [[CLI Reference agent plugi
 | `--mark <LABEL>`      | Append a marker line with this label, then exit                                                 |
 | `--health`            | A field health check: reconnects, rejected commands, anomalies                                  |
 | `--github`            | With the health check: print findings as GitHub Actions annotations                             |
-| `--window <MARK>`     | Read only the events between this marker and the next                                           |
+| `--window <MARK>`     | Read only the events from the latest such marker to the next                                    |
 | `--last <N>`          | Read only the last N actions, printed as NDJSON                                                 |
 | `--redact` **(main)** | Replace session names, paths, error text, command arguments and marker labels with placeholders |
 | `--json`              | `{"ok":true,"output":…}`                                                                        |

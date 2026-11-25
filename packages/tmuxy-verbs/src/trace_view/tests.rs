@@ -315,3 +315,114 @@ fn the_last_actions_are_kept_with_everything_between_them() {
     assert_eq!(ts(last_actions(&events, 10)), vec![1, 2, 3, 4, 5, 6]);
     assert!(last_actions(&[plain(1), plain(2)], 3).is_empty());
 }
+
+/// A test's name as the E2E environment labels it, longer than a stored
+/// label may be.
+fn long_label(middle: &str, end: &str) -> String {
+    let shared = "a very long describe block name ".repeat(5);
+    format!("suite.test.js › {shared}{middle} {shared}› {end}")
+}
+
+/// An empty directory of one test's own, and the trace path in it.
+fn trace_in(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("tmuxy-trace-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join("trace.ndjson")
+}
+
+fn append_event(path: &Path, name: &str) {
+    use std::io::Write;
+    let mut file = tmuxy_core::private_files::open_append(path).unwrap();
+    writeln!(file, r#"{{"layer":"monitor","name":"{name}"}}"#).unwrap();
+}
+
+fn window_names(path: &Path, label: &str) -> Vec<String> {
+    load_window(path, label)
+        .unwrap()
+        .iter()
+        .filter(|e| e["layer"] == "monitor")
+        .map(|e| e["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn a_label_over_the_cap_finds_its_own_window() {
+    let path = trace_in("bounded");
+    // Alike in the first 120 characters and in the last, apart in between.
+    let one = long_label("one", "it works");
+    let two = long_label("two", "it works");
+    for (label, name) in [(&one, "first"), (&two, "second")] {
+        append_marker(&path, &format!("{label} › start")).unwrap();
+        append_event(&path, name);
+        append_marker(&path, &format!("{label} › fail")).unwrap();
+        append_event(&path, "after the end");
+    }
+    assert_eq!(window_names(&path, &format!("{one} › start")), ["first"]);
+    assert_eq!(window_names(&path, &format!("{two} › start")), ["second"]);
+    assert_eq!(
+        window_names(&path, &format!("{one} › fail")),
+        ["after the end"]
+    );
+}
+
+#[test]
+fn a_stored_label_is_bounded_keeps_both_ends_and_can_be_asked_for_as_read() {
+    let path = trace_in("ends");
+    let label = format!("{} › start", long_label(&"é".repeat(10_000), "it works"));
+    append_marker(&path, &label).unwrap();
+    append_event(&path, "inside");
+    let events = load(&path).unwrap();
+    let stored = events[0]["label"].as_str().unwrap();
+    assert_eq!(stored.chars().count(), MARKER_LABEL_MAX);
+    assert!(stored.starts_with("suite.test.js › "), "{stored}");
+    assert!(stored.ends_with("› it works › start"), "{stored}");
+    assert_eq!(window_names(&path, stored), ["inside"]);
+}
+
+#[test]
+fn a_window_whose_start_was_rotated_away_is_read_from_the_backup() {
+    let path = trace_in("rotated");
+    append_marker(&path, "a › start").unwrap();
+    append_event(&path, "before rotation");
+    std::fs::rename(&path, path.with_extension("ndjson.1")).unwrap();
+    append_event(&path, "after rotation");
+    append_marker(&path, "a › fail").unwrap();
+    append_event(&path, "next");
+    assert_eq!(
+        window_names(&path, "a › start"),
+        ["before rotation", "after rotation"]
+    );
+}
+
+#[test]
+fn a_label_marked_twice_reads_the_latest_window() {
+    let path = trace_in("latest");
+    for name in ["first run", "second run"] {
+        append_marker(&path, "a › start").unwrap();
+        append_event(&path, name);
+    }
+    assert_eq!(window_names(&path, "a › start"), ["second run"]);
+}
+
+#[test]
+fn a_missing_marker_is_said_by_name() {
+    let path = trace_in("missing");
+    append_event(&path, "unmarked");
+    let said = read(TraceViewArgs {
+        file: Some(path.display().to_string()),
+        export: None,
+        mark: None,
+        health: true,
+        github: false,
+        window: Some("suite › missing › start".to_string()),
+        last: None,
+        redact: false,
+        json: false,
+    })
+    .unwrap();
+    assert!(
+        said.contains("no marker labelled \"suite › missing › start\""),
+        "{said}"
+    );
+}

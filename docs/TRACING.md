@@ -247,8 +247,12 @@ production pays nothing.
   non-empty capture — a shell that never started talking, or output that never
   reached the aggregator. Each names the marker it appeared under (in an E2E
   run, the test). `--github` prints the findings as GitHub Actions annotations;
-  `--window "<marker label>"` reads only the events from that marker to the
-  next, which is one test's slice of a run.
+  `--window "<marker label>"` reads only the events from the latest such marker
+  to the next, which is one test's slice of a run. It looks in the `.1` backup
+  when rotation moved the marker there, and says so when no marker matches. A
+  marker holds at most 200 characters of label; a longer one keeps its start and
+  end around a digest, and `--window` takes it as written or as stored
+  (`packages/tmuxy-verbs/src/trace_view/marker.rs`).
 - **A slice for a bug report:** `tmuxy trace --last <N>` prints, as NDJSON,
   the last N actions and every event traced from the first of them to the
   last, uncorrelated ones included. The state the server pushed afterwards
