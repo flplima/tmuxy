@@ -368,7 +368,7 @@ Options:
       --mark <LABEL>   Append a marker line with this label to the trace, then exit. Use it to stamp "the bug happened here" so you can find the moment in a long trace
       --health         Run a field health check summarizing reconnects, rejected commands, and anomalies
       --github         With the health check: print each finding as a GitHub Actions annotation (`::warning …`) instead of the report, for a CI step to run on every job, passing or not
-      --window <MARK>  Read only the events between the marker with this label and the next marker after it — one test's slice of a whole run's trace
+      --window <MARK>  Read only the events between the latest marker with this label and the next marker after it — one test's slice of a whole run's trace. A marker rotated into the `.1` backup is found there
       --last <N>       Read only the last N actions (an `action_id` each, one per thing the user did): every event traced from the first of them to the last, the uncorrelated ones in between included. With no `--health` or `--export`, print those lines as NDJSON, a short slice to paste into a bug report
       --redact         Redact what is printed or exported for sharing: session names, paths, error text, command arguments and marker labels become placeholders (`session-1`, `path-2`), ids, operations and timing stay. Use it on a slice before attaching it to a bug report
       --json           Answer in JSON: `{"ok":true,"output":…}`

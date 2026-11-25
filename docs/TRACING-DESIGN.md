@@ -100,7 +100,7 @@ Each seam already exists in the code; the tracer emits at it.
 | emitter | `emit_state`: the `StateEmitter` trait in `tmuxy-core/src/control_mode/monitor.rs`, the host's impl in `tmuxy-core/src/host/runtime/emitter.rs` | each state emit by delta `seq` + kind, joinable to the client `apply` |
 | tmux | the routed commands and reads (`tmuxy-core/src/command_router.rs`) | read op name + argc |
 | tauri | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under its own `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
-| marker | `tmuxy trace --mark`, `tmuxy-verbs/src/trace_view.rs` | a user-stamped "bug happened here" label |
+| marker | `tmuxy trace --mark`, `packages/tmuxy-verbs/src/trace_view/marker.rs` | a user-stamped "bug happened here" label |
 | pane | aggregator, `control_mode/state.rs` | each pane's life, content-free: `pane appeared` (window, size, `shell`, `bytes` replayed from before it was listed), `pane first output` (`bytes`), `capture requested`, `pane captured` (non-blank `lines`), `pane resized`, `pane gone`. The session comes from the monitor's `run{session}` span |
 | server | session creation, `sse.rs` | `session creation path`: `via` `courier` (through another session's control client, with its `viewers`) or `direct` |
 | test | `tests/helpers/trace-environment.js` | an E2E run's markers: `<file> › <test> › start` and `› pass`/`› fail`, so one test's slice can be read with `--window` |

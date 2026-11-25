@@ -7,10 +7,13 @@ use serde_json::{Map, Value};
 use crate::cli_json::{self, Answer, EXIT_FAILED};
 
 mod health;
-pub use health::window;
+mod marker;
 use health::{github_annotations, health_check};
 #[cfg(test)]
 use health::{silent_panes, SilentPane, SILENT_PANE_MIN_MS};
+use marker::{append_marker, load_window};
+#[cfg(test)]
+use marker::{window, MARKER_LABEL_MAX};
 
 #[cfg(test)]
 mod tests;
@@ -40,8 +43,9 @@ pub struct TraceViewArgs {
     #[arg(long, requires = "health")]
     pub github: bool,
 
-    /// Read only the events between the marker with this label and the next
-    /// marker after it — one test's slice of a whole run's trace.
+    /// Read only the events between the latest marker with this label and the
+    /// next marker after it — one test's slice of a whole run's trace. A
+    /// marker rotated into the `.1` backup is found there.
     #[arg(long, value_name = "MARK")]
     pub window: Option<String>,
 
@@ -89,10 +93,18 @@ fn read(args: TraceViewArgs) -> Result<String, String> {
 
     let path = resolve_path(args.file)
         .ok_or("no trace file found (pass a path, or run with --trace first)")?;
-    let events = load(&path).map_err(|e| e.to_string())?;
     let events = match &args.window {
-        Some(label) => window(&events, label),
-        None => events,
+        Some(label) => {
+            let slice = load_window(&path, label)?;
+            if slice.is_empty() {
+                let file = path.display();
+                return Ok(format!(
+                    "tmuxy trace: no marker labelled \"{label}\" in {file} or its .1 backup\n"
+                ));
+            }
+            slice
+        }
+        None => load(&path)?,
     };
     let events = match args.last {
         Some(n) => last_actions(&events, n as usize),
@@ -149,26 +161,6 @@ fn default_trace_path() -> PathBuf {
         let _ = tmuxy_core::private_files::create_dir_all(dir);
     }
     path
-}
-
-/// O_APPEND makes this safe alongside a running server's writer; serde
-/// escaping keeps the label from breaking the NDJSON framing.
-fn append_marker(path: &Path, label: &str) -> Result<(), String> {
-    use std::io::Write;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    let safe: String = label.chars().take(120).collect();
-    use tmuxy_core::trace::schema::{field, Layer};
-    let line = serde_json::json!({
-        field::LAYER: Layer::Marker.as_str(), field::NAME: "mark", "phase": "event",
-        field::LABEL: safe, field::TS_WALL: now
-    })
-    .to_string();
-    let mut file = tmuxy_core::private_files::open_append(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    writeln!(file, "{line}").map_err(|e| e.to_string())
 }
 
 fn load(path: &Path) -> Result<Vec<Map<String, Value>>, String> {

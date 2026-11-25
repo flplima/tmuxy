@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 use tmuxy_core::trace::schema::{event, field, Layer};
 
+use super::marker::is_marker;
+
 /// A shell pane younger than this has not had a fair chance to print.
 pub(super) const SILENT_PANE_MIN_MS: u64 = 10_000;
 
@@ -111,26 +113,6 @@ pub(super) fn health_check(events: &[Map<String, Value>]) -> String {
     out
 }
 
-/// The events between the marker labelled `label` and the marker after it.
-/// Empty when no marker has that label.
-pub fn window(events: &[Map<String, Value>], label: &str) -> Vec<Map<String, Value>> {
-    let is_mark = |ev: &Map<String, Value>| {
-        ev.get(field::LAYER).and_then(Value::as_str) == Some(Layer::Marker.as_str())
-    };
-    let Some(start) = events
-        .iter()
-        .position(|ev| is_mark(ev) && ev.get(field::LABEL).and_then(Value::as_str) == Some(label))
-    else {
-        return Vec::new();
-    };
-    events[start..]
-        .iter()
-        .enumerate()
-        .take_while(|(i, ev)| *i == 0 || !is_mark(ev))
-        .map(|(_, ev)| ev.clone())
-        .collect()
-}
-
 /// A shell pane that never showed anything: no `%output`, nothing replayed
 /// when it was first listed, and every capture of it empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,7 +193,7 @@ pub(super) fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> 
 
     for ev in events {
         end = end.max(ts(ev));
-        if ev.get(field::LAYER).and_then(Value::as_str) == Some(Layer::Marker.as_str()) {
+        if is_marker(ev) {
             last_mark = ev
                 .get(field::LABEL)
                 .and_then(Value::as_str)
@@ -279,10 +261,7 @@ pub(super) fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> 
 pub(super) fn github_annotations(events: &[Map<String, Value>]) -> String {
     let mut out = String::new();
     let silent = silent_panes(events, SILENT_PANE_MIN_MS);
-    let marks = events
-        .iter()
-        .filter(|ev| ev.get(field::LAYER).and_then(Value::as_str) == Some(Layer::Marker.as_str()))
-        .count();
+    let marks = events.iter().filter(|ev| is_marker(ev)).count();
     for pane in &silent {
         // Annotation text is one line; `%`, `\r`, and `\n` must be percent-escaped
         // so marker/pane labels cannot inject GitHub Actions workflow commands.

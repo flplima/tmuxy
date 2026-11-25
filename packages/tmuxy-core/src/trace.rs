@@ -16,7 +16,7 @@
 //! **lossy under pressure** (drops events rather than block the hot path), so
 //! the instrument cannot stall the interactive path it is measuring.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::TrySendError;
 use std::sync::OnceLock;
@@ -45,6 +45,11 @@ const MAX_SCRUB: usize = 200;
 
 /// Truncation bound for free-text fields kept at `Full`.
 const MAX_FULL: usize = 500;
+
+/// Where the writer moves a trace file that has reached its size cap.
+pub fn backup_path(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.1", path.display()))
+}
 
 /// The writer thread + its file. Created at most once per process: turning
 /// tracing off parks it rather than tearing it down, so a user flipping the

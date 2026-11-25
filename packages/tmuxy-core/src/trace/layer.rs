@@ -96,8 +96,7 @@ fn write_line(file: &mut File, size: &mut u64, path: &Path, line: &str) {
 }
 
 fn rotate(path: &Path) -> Option<(File, u64)> {
-    let backup = PathBuf::from(format!("{}.1", path.display()));
-    std::fs::rename(path, &backup).ok()?;
+    std::fs::rename(path, super::backup_path(path)).ok()?;
     let file = open_append(path).ok()?;
     Some((file, 0))
 }
