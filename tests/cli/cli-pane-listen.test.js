@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { withScratchDir } = require('./helpers/env');
-const { fakePreview, startListener, vanishingLog } = require('./helpers/run-listen');
+const { fakePreview, vanishingLog, withListeners } = require('./helpers/run-listen');
 
 const EMIT = (n) => JSON.stringify({ emit: { n } });
 
@@ -51,9 +51,9 @@ describe('tmuxy pane listen', () => {
    * after the last line the widget read before its tag went.
    */
   test('a listener started first waits for the preview, prints every line, and ends with it', () =>
-    withScratchDir('tmuxy-listen-', async (home) => {
+    withListeners(async (home, listen) => {
       const preview = fakePreview(home, '%5');
-      const listener = startListener(home, ['%5'], preview.env);
+      const listener = listen(['%5'], preview.env);
       // Asked twice, so its first question had its answer: no preview yet.
       while (preview.asked() < 2) await new Promise((resolve) => setTimeout(resolve, 50));
       preview.start([EMIT(1)]);
@@ -85,11 +85,11 @@ describe('tmuxy pane listen', () => {
    * listened to had ended.
    */
   test('a log gone in the moment it is looked at ends nothing early: the listener ends with the preview, 0', () =>
-    withScratchDir('tmuxy-listen-', async (home) => {
+    withListeners(async (home, listen) => {
       const preview = fakePreview(home, '%5');
       const vanish = vanishingLog(home, preview.log);
       preview.start([EMIT(1)]);
-      const listener = startListener(home, ['%5', '--from-start'], {
+      const listener = listen(['%5', '--from-start'], {
         ...preview.env,
         ...vanish.env,
       });
@@ -109,14 +109,14 @@ describe('tmuxy pane listen', () => {
     }));
 
   test('joining a preview under way prints from the next line, or with --from-start from its first', () =>
-    withScratchDir('tmuxy-listen-', async (home) => {
+    withListeners(async (home, listen) => {
       const preview = fakePreview(home, '%5');
       preview.start([EMIT(1), EMIT(2)]);
       // A line the widget is still writing: the next one, printed whole.
       fs.appendFileSync(preview.log, '{"emit":');
       const ownLog = path.join(home, 'from-now.log');
-      const fromNow = startListener(home, ['%5'], { ...preview.env, MOCK_TMUX_LOG: ownLog });
-      const fromStart = startListener(home, ['%5', '--from-start'], preview.env);
+      const fromNow = listen(['%5'], { ...preview.env, MOCK_TMUX_LOG: ownLog });
+      const fromStart = listen(['%5', '--from-start'], preview.env);
       expect(await fromStart.waitForLines(2)).toEqual([EMIT(1), EMIT(2)]);
       // Its second question comes from its loop: it is reading the log.
       while (preview.asked(ownLog) < 2) await new Promise((resolve) => setTimeout(resolve, 50));
