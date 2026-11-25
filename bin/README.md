@@ -9,15 +9,15 @@ workflows and the lint gate run for you.
 
 ## Top level
 
-| Script              | Purpose                                                                                                                                                                                       | Run by                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `bootstrap`         | First run in a fresh checkout: `npm ci`, the extra rustup targets, a placeholder UI `dist`, and a `~/.local/bin/tmuxy` link to this checkout's CLI when no `tmuxy` is there yet.              | You, once; the devcontainer; the cloud agent's setup workflow            |
-| `dev-server`        | The dev server (`cargo watch` + Vite HMR on port 9000, tmux socket `tmuxy-dev`) with `run`, `start`, `stop`, `restart`, `status` and `logs`. Stops every process it spawned, not only itself. | `npm start`, `npm stop`, `npm restart`, `npm logs`                       |
-| `e2e`               | The E2E suite on a port and tmux socket derived from this checkout's path, with the shell's own tmux and login unset, so two worktrees run it at once. `--print` shows the values.            | `npm run test:e2e`, you                                                  |
-| `install-dev-tools` | The tooling on top of `npm ci` and Rust that an agent's environment needs: apt extras, `cargo-watch`, `agent-browser`, and with `--full` the Tauri driver and `wasm-bindgen`.                 | The devcontainer image; the cloud agent's setup workflow                 |
-| `lint-gate`         | The one list of what is formatted, linted, type-checked and clippy'd. `format` rewrites; `check [<step>...]` is read-only; `steps` lists the step names.                                      | The pre-commit hook (`format`), the pre-push hook, CI's `lint` job       |
-| `sandbox`           | One permission-skipping agent per isolated container behind one loopback port: `build`, `up`, `preview`, `claude`, `collect`, `down` ([docs/SANDBOX.md](../docs/SANDBOX.md)).                 | You                                                                      |
-| `toolchain`         | The versions and package names every environment is built with, written once: Node, tmux, rust targets, the Tauri driver, `wasm-bindgen`, apt package sets. Also builds tmux from source.     | CI's composite actions, the Dockerfile, `bootstrap`, `install-dev-tools` |
+| Script              | Purpose                                                                                                                                                                                             | Run by                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `bootstrap`         | First run in a fresh checkout: `npm ci`, the extra rustup targets, a placeholder UI `dist`, and a `~/.local/bin/tmuxy` link to this checkout's CLI when no `tmuxy` is there yet.                    | You, once; the devcontainer; the cloud agent's setup workflow            |
+| `dev-server`        | The dev server (`cargo watch` + Vite HMR on port 9000, tmux socket `tmuxy-dev`) with `run`, `start`, `stop`, `restart`, `status` and `logs`. Stops every process it spawned, not only itself.       | `npm start`, `npm stop`, `npm restart`, `npm logs`                       |
+| `e2e`               | The E2E suite on this checkout's own port and tmux socket, without the shell's tmux or login, so two worktrees run it at once. `TMUXY_E2E_TMUX_BIN` names another tmux; `--print` shows the values. | `npm run test:e2e`, you                                                  |
+| `install-dev-tools` | The tooling on top of `npm ci` and Rust that an agent's environment needs: apt extras, `cargo-watch`, `agent-browser`, and with `--full` the Tauri driver and `wasm-bindgen`.                       | The devcontainer image; the cloud agent's setup workflow                 |
+| `lint-gate`         | The one list of what is formatted, linted, type-checked and clippy'd. `format` rewrites; `check [<step>...]` is read-only; `steps` lists the step names.                                            | The pre-commit hook (`format`), the pre-push hook, CI's `lint` job       |
+| `sandbox`           | One permission-skipping agent per isolated container behind one loopback port: `build`, `up`, `preview`, `claude`, `collect`, `down` ([docs/SANDBOX.md](../docs/SANDBOX.md)).                       | You                                                                      |
+| `toolchain`         | The versions and package names every environment is built with, written once: Node, tmux, rust targets, the Tauri driver, `wasm-bindgen`, apt package sets. Also builds tmux from source.           | CI's composite actions, the Dockerfile, `bootstrap`, `install-dev-tools` |
 
 ## bin/ci/
 
@@ -36,6 +36,7 @@ for the rest:
 | `homes.mjs`, `homes.json` | Each shared fact and each dangerous call (a spawned process, a tmux command) is written only in the files allowed to. |
 | `import-cycles.mjs`       | The UI has no import cycles.                                                                                          |
 | `invariant-enforcers.mjs` | Every test an `Enforced by` cell of `docs/INVARIANTS.md` names exists.                                                |
+| `lockfile-version.mjs`    | `package-lock.json` gives the root and each workspace the version its `package.json` does.                            |
 | `workflow-pins.mjs`       | Every remote action is pinned to a commit sha, and every `cargo install` in CI to a locked version.                   |
 
 `complexity.mjs` is a lint-gate step of its own (`complexity`), since it lints

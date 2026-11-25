@@ -15,7 +15,7 @@ shard fails `npm test`; add it to an entry, or add an entry, in that file.
 
 ## The CLI suite runs no real tmux
 
-`cli/` runs the CLI's real scripts against a mock tmux, on a socket and a tmux socket directory made for the run. A helper there that starts a child process builds its environment with `scriptEnv()` or `sealedEnv()` (`tests/cli/helpers/env.js`): a child with any other environment is refused before it starts (`tests/cli/helpers/seal.js`), because one that inherits the shell's `$TMUX` or `TMUX_BIN` runs its kills on the session the suite was started from. Name the run's socket as `SOCKET` in an assertion, never `tmuxy`.
+`cli/` runs the CLI's real scripts against a mock tmux, on a socket and a tmux socket directory made for the run. A helper there that starts a child process builds its environment with `scriptEnv()` or `sealedEnv()` (`tests/cli/helpers/env.js`): a child with any other environment is refused before it starts (`tests/cli/helpers/seal.js`), because one that inherits the shell's `$TMUX` or `TMUX_BIN` runs its kills on the session the suite was started from. Name the run's socket as `SOCKET` in an assertion, never `tmuxy`. A wait for what a child does goes through `waitFor` (`tests/cli/helpers/wait.js`), which fails naming what it waited for and what it saw.
 
 ## Scrollback and copy mode
 

@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { scriptEnv, withScratchDir } = require('./env');
 const { startTree } = require('./process-tree');
+const { waitFor } = require('./wait');
 
 const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-cli');
 
@@ -73,7 +74,7 @@ function fakePreview(home, pane) {
  * @param {string} home - The scratch directory the CLI takes as `HOME`
  * @param {string[]} args - What follows `pane listen`
  * @param {Record<string, string>} env - The preview's environment, and more
- * @returns {{ lines: () => string[], waitForLines: (n: number) => Promise<string[]>, exited: Promise<{ code: number | null, stdout: string, stderr: string }>, running: () => boolean, stop: () => Promise<void> }}
+ * @returns {{ lines: () => string[], waitForLines: (n: number) => Promise<string[]>, exited: Promise<{ code: number | null, stdout: string, stderr: string }>, running: () => boolean, said: () => string, stop: () => Promise<void> }}
  */
 function startListener(home, args, env) {
   const { child, stop } = startTree(CLI_PATH, ['pane', 'listen', ...args], scriptEnv(home, env));
@@ -81,22 +82,29 @@ function startListener(home, args, env) {
   let stderr = '';
   child.stdout.on('data', (chunk) => (stdout += chunk));
   child.stderr.on('data', (chunk) => (stderr += chunk));
+  // `close`, not `exit`: by then everything it printed has arrived.
+  let closed = false;
   const exited = new Promise((resolve) =>
-    child.once('close', (code) => resolve({ code, stdout, stderr })),
+    child.once('close', (code) => {
+      closed = true;
+      resolve({ code, stdout, stderr });
+    }),
   );
   const lines = () => stdout.split('\n').filter(Boolean);
+  /** What the listener has done, for a wait that gave up. */
+  const said = () =>
+    `the listener ${child.exitCode === null ? 'running' : `exited ${child.exitCode}`}, ` +
+    `printed ${JSON.stringify(lines())}, and on stderr ${JSON.stringify(stderr.slice(-400))}`;
   const waitForLines = async (n) => {
-    const until = Date.now() + 10000;
-    while (lines().length < n) {
-      if (child.exitCode !== null || Date.now() > until) {
-        throw new Error(`expected ${n} lines, got ${JSON.stringify(lines())}; stderr: ${stderr}`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    await waitFor(`${n} lines from the listener`, () => lines().length >= n, {
+      saw: said,
+      over: () => closed,
+    });
     return lines();
   };
   return {
     lines,
+    said,
     waitForLines,
     exited,
     running: () => child.exitCode === null,

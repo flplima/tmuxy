@@ -186,6 +186,7 @@ function dataDir() {
  * The tmux the suite runs: `TMUX_BIN` when set, as the server under test reads
  * it (tmuxy-core `tmux_path()`) and the CLI does, so a run can target a
  * side-installed tmux (the 3.2a floor, say) without touching the one on PATH.
+ * `bin/e2e` sets it from `TMUXY_E2E_TMUX_BIN` and drops an inherited one.
  */
 function tmuxBin() {
   return process.env.TMUX_BIN || 'tmux';

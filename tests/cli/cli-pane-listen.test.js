@@ -10,6 +10,7 @@ const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { withScratchDir } = require('./helpers/env');
 const { fakePreview, vanishingLog, withListeners } = require('./helpers/run-listen');
+const { waitFor } = require('./helpers/wait');
 
 const EMIT = (n) => JSON.stringify({ emit: { n } });
 
@@ -55,7 +56,9 @@ describe('tmuxy pane listen', () => {
       const preview = fakePreview(home, '%5');
       const listener = listen(['%5'], preview.env);
       // Asked twice, so its first question had its answer: no preview yet.
-      while (preview.asked() < 2) await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitFor('the listener to ask twice for the preview', () => preview.asked() >= 2, {
+        saw: () => `${preview.asked()} questions; ${listener.said()}`,
+      });
       preview.start([EMIT(1)]);
       preview.receive('{"input":"name","type":"text","value":"a b"}');
       expect(await listener.waitForLines(2)).toEqual([
@@ -95,12 +98,16 @@ describe('tmuxy pane listen', () => {
       });
       expect(await listener.waitForLines(1)).toEqual([EMIT(1)]);
       vanish.arm();
-      while (!vanish.done()) await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitFor('the listener to look at the log, taking it away', vanish.done, {
+        saw: listener.said,
+      });
       // Two more looks at the pane's tag with its log gone: still listening.
       const asked = preview.asked();
-      while (listener.running() && preview.asked() < asked + 2) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+      await waitFor(
+        'two more questions about the preview, or the listener to end',
+        () => !listener.running() || preview.asked() >= asked + 2,
+        { saw: () => `${preview.asked() - asked} more questions; ${listener.said()}` },
+      );
       expect(listener.running()).toBe(true);
       preview.end();
       const { code, stdout, stderr } = await listener.exited;
@@ -119,7 +126,9 @@ describe('tmuxy pane listen', () => {
       const fromStart = listen(['%5', '--from-start'], preview.env);
       expect(await fromStart.waitForLines(2)).toEqual([EMIT(1), EMIT(2)]);
       // Its second question comes from its loop: it is reading the log.
-      while (preview.asked(ownLog) < 2) await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitFor('the second listener to ask twice', () => preview.asked(ownLog) >= 2, {
+        saw: () => `${preview.asked(ownLog)} questions; ${fromNow.said()}`,
+      });
       fs.appendFileSync(preview.log, '"late"}\n');
       expect(await fromNow.waitForLines(1)).toEqual(['{"emit":"late"}']);
       expect(await fromStart.waitForLines(3)).toEqual([EMIT(1), EMIT(2), '{"emit":"late"}']);

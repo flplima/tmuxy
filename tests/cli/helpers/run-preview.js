@@ -9,11 +9,10 @@ const fs = require('fs');
 const path = require('path');
 const { MOCKS_DIR, scriptEnv } = require('./env');
 const { startTree } = require('./process-tree');
+const { waitFor } = require('./wait');
 
 const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-cli');
 const REV = '__REV__:';
-/** How long a wait lasts before it fails. */
-const WAIT_MS = 15000;
 
 /** The first `name` on the test's own PATH, by its full path: what a shim of that name runs. */
 function theReal(name) {
@@ -80,38 +79,31 @@ function startPreview(home, file, pane) {
       .filter((line) => line.startsWith(REV))
       .map((line) => line.slice(REV.length));
   const readCount = () => (fs.existsSync(reads) ? fs.readFileSync(reads, 'utf8').length : 0);
-  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   return {
     /** How many times the file has been read. */
     reads: readCount,
     /** Resolves with the revisions once `count` were printed, one per change the preview saw. */
     async waitForRevisions(count) {
-      const deadline = Date.now() + WAIT_MS;
-      while (revisions().length < count) {
-        if (Date.now() > deadline) {
-          throw new Error(
-            `the preview printed ${revisions().length} revisions, not ${count}: ${said()}`,
-          );
-        }
-        await pause(50);
-      }
+      await waitFor(`${count} revisions from the preview`, () => revisions().length >= count, {
+        saw: () => `${revisions().length}: ${said()}`,
+      });
       return revisions();
     },
     /** Resolves once the file has not been read for `ms`: the preview found it still. */
     async waitUntilNotRead(ms) {
-      const deadline = Date.now() + WAIT_MS;
       let seen = readCount();
       let since = Date.now();
-      while (Date.now() - since < ms) {
-        if (Date.now() > deadline) {
-          throw new Error(`the file is still being read, ${seen} times so far: ${said()}`);
-        }
-        await pause(50);
-        if (readCount() !== seen) {
-          seen = readCount();
-          since = Date.now();
-        }
-      }
+      await waitFor(
+        `${ms}ms without the file being read`,
+        () => {
+          if (readCount() !== seen) {
+            seen = readCount();
+            since = Date.now();
+          }
+          return Date.now() - since >= ms;
+        },
+        { saw: () => `${seen} reads so far: ${said()}` },
+      );
     },
     /**
      * Take the preview's terminal away, and resolve once it and everything it

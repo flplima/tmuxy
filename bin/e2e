@@ -17,9 +17,14 @@
 # TMUXY_PORT or TMUX_SOCKET already set wins, as CI sets them.
 #
 # The shell's own tmux and tmuxy login never reach the run: a suite started
-# from a pane must not be able to aim at the session it runs in.
+# from a pane must not be able to aim at the session it runs in. That includes
+# TMUX_BIN, which every tmuxy pane exports: it is never the caller's choice.
+#
+# The run uses the tmux on PATH, or the one TMUXY_E2E_TMUX_BIN names (a path or
+# a command), which becomes the run's TMUX_BIN. Its `tmux -V` is printed first.
 set -euo pipefail
 
+CALLER="$PWD"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -37,6 +42,23 @@ if [ "${1:-}" = "--print" ]; then
   exit 0
 fi
 
+unset TMUX TMUX_PANE TMUX_BIN TMUXY_PASSWORD
+
+chosen="${TMUXY_E2E_TMUX_BIN:-}"
+# From the caller's directory, so a relative path means what they typed.
+if ! tmux_bin="$(cd "$CALLER" && command -v -- "${chosen:-tmux}")"; then
+  echo "bin/e2e: no executable tmux at '${chosen:-tmux}'${chosen:+ (TMUXY_E2E_TMUX_BIN)}" >&2
+  exit 1
+fi
+[[ "$tmux_bin" == /* ]] || tmux_bin="$CALLER/$tmux_bin"
+if ! version="$("$tmux_bin" -V)"; then
+  echo "bin/e2e: '$tmux_bin -V' failed" >&2
+  exit 1
+fi
+if [ -n "$chosen" ]; then
+  export TMUX_BIN="$tmux_bin"
+fi
+
 echo "bin/e2e: port $TMUXY_PORT, socket $TMUX_SOCKET" >&2
-exec env -u TMUX -u TMUX_PANE -u TMUX_BIN -u TMUXY_PASSWORD \
-  npx jest --runInBand "$@"
+echo "bin/e2e: $version at $tmux_bin" >&2
+exec npx jest --runInBand "$@"

@@ -7,6 +7,7 @@ import { checkFileTokenLimit } from './file-token-limit.mjs';
 import { checkInvariantEnforcers } from './invariant-enforcers.mjs';
 import { checkHomes } from './homes.mjs';
 import { checkImportCycles } from './import-cycles.mjs';
+import { checkLockfileVersion } from './lockfile-version.mjs';
 import { checkDuplication } from './duplication.mjs';
 import { checkWorkflowPins } from './workflow-pins.mjs';
 
@@ -399,6 +400,7 @@ checkHomes(root, addError);
 checkImportCycles(root, addError);
 checkDuplication(root, addError);
 checkWorkflowPins(root, addError);
+checkLockfileVersion(root, addError);
 // Paths and job names the docs quote; --worktree counts untracked files as present.
 checkDocPaths(root, addError, { worktree: process.argv.includes('--worktree') });
 
