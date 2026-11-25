@@ -36,6 +36,7 @@ for the rest:
 | `homes.mjs`, `homes.json` | Each shared fact and each dangerous call (a spawned process, a tmux command) is written only in the files allowed to. |
 | `import-cycles.mjs`       | The UI has no import cycles.                                                                                          |
 | `invariant-enforcers.mjs` | Every test an `Enforced by` cell of `docs/INVARIANTS.md` names exists.                                                |
+| `lockfile-version.mjs`    | `package-lock.json` gives the root and each workspace the version its `package.json` does.                            |
 | `workflow-pins.mjs`       | Every remote action is pinned to a commit sha, and every `cargo install` in CI to a locked version.                   |
 
 `complexity.mjs` is a lint-gate step of its own (`complexity`), since it lints
