@@ -5,10 +5,10 @@
  * call and then runs the real one). tmux is the mock.
  */
 
-const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { MOCKS_DIR, scriptEnv } = require('./env');
+const { startTree } = require('./process-tree');
 
 const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-cli');
 const REV = '__REV__:';
@@ -33,7 +33,7 @@ function theReal(name) {
  * @param {string} home - The scratch directory the CLI takes as `HOME`
  * @param {string} file - The document to preview
  * @param {string} pane - The preview's own pane (`TMUX_PANE`)
- * @returns {{ reads: () => number, waitForRevisions: (count: number) => Promise<string[]>, waitUntilNotRead: (ms: number) => Promise<void>, stop: () => void }}
+ * @returns {{ reads: () => number, waitForRevisions: (count: number) => Promise<string[]>, waitUntilNotRead: (ms: number) => Promise<void>, stop: () => Promise<void> }}
  */
 function startPreview(home, file, pane) {
   const shims = path.join(home, `shims-${pane.slice(1)}`);
@@ -49,18 +49,20 @@ function startPreview(home, file, pane) {
   // on Linux and macOS, whatever this process has for a stdin (`script`
   // would, but the BSD one refuses a stdin that is a socket).
   const inTerminal = ['-c', 'import pty, sys; pty.spawn(sys.argv[1:])', CLI_PATH, 'open', file];
-  const child = spawn('python3', inTerminal, {
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: scriptEnv(home, {
+  const { child, stop } = startTree(
+    'python3',
+    inTerminal,
+    scriptEnv(home, {
       PATH: `${shims}:${MOCKS_DIR}:${process.env.PATH}`,
       PREVIEW_READS: reads,
       TMUXY_STATE_DIR: path.join(home, 'state'),
       MOCK_TMUX_PANE_PID: String(process.pid),
       MOCK_TMUX_SOCKET_PATH: '/tmp/tmux-1000/tmuxy%dev',
       TMUX_PANE: pane,
+      // What the widget hands the pane to on its way out.
+      SHELL: theReal('true'),
     }),
-  });
+  );
   let printed = '';
   let complained = '';
   child.stdout.on('data', (chunk) => {
@@ -111,14 +113,12 @@ function startPreview(home, file, pane) {
         }
       }
     },
-    /** The preview and everything it started, gone. */
-    stop() {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        // already gone
-      }
-    },
+    /**
+     * Take the preview's terminal away, and resolve once it and everything it
+     * started has exited. The CLI runs in a session of its own on that
+     * terminal, and ends on the hang-up, clean-up and all.
+     */
+    stop,
   };
 }
 

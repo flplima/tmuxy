@@ -6,10 +6,10 @@
  * (`preview_message_log` in packages/tmuxy-cli/bin/tmuxy/_lib).
  */
 
-const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { scriptEnv } = require('./env');
+const { scriptEnv, withScratchDir } = require('./env');
+const { startTree } = require('./process-tree');
 
 const CLI_PATH = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy-cli');
 
@@ -73,19 +73,16 @@ function fakePreview(home, pane) {
  * @param {string} home - The scratch directory the CLI takes as `HOME`
  * @param {string[]} args - What follows `pane listen`
  * @param {Record<string, string>} env - The preview's environment, and more
- * @returns {{ lines: () => string[], waitForLines: (n: number) => Promise<string[]>, exited: Promise<{ code: number | null, stdout: string, stderr: string }>, running: () => boolean }}
+ * @returns {{ lines: () => string[], waitForLines: (n: number) => Promise<string[]>, exited: Promise<{ code: number | null, stdout: string, stderr: string }>, running: () => boolean, stop: () => Promise<void> }}
  */
 function startListener(home, args, env) {
-  const child = spawn(CLI_PATH, ['pane', 'listen', ...args], {
-    env: scriptEnv(home, env),
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const { child, stop } = startTree(CLI_PATH, ['pane', 'listen', ...args], scriptEnv(home, env));
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk) => (stdout += chunk));
   child.stderr.on('data', (chunk) => (stderr += chunk));
   const exited = new Promise((resolve) =>
-    child.once('exit', (code) => resolve({ code, stdout, stderr })),
+    child.once('close', (code) => resolve({ code, stdout, stderr })),
   );
   const lines = () => stdout.split('\n').filter(Boolean);
   const waitForLines = async (n) => {
@@ -103,8 +100,32 @@ function startListener(home, args, env) {
     waitForLines,
     exited,
     running: () => child.exitCode === null,
-    kill: () => child.kill(),
+    stop,
   };
+}
+
+/**
+ * Run `fn` with a fresh scratch directory and a way to start listeners in it.
+ * Every listener, and all it started, has exited before the directory goes,
+ * whether `fn` saw it end or gave up on it.
+ *
+ * @param {(home: string, listen: (args: string[], env: Record<string, string>) => ReturnType<typeof startListener>) => Promise<void>} fn
+ * @returns {Promise<void>}
+ */
+function withListeners(fn) {
+  return withScratchDir('tmuxy-listen-', async (home) => {
+    const started = [];
+    const listen = (args, env) => {
+      const listener = startListener(home, args, env);
+      started.push(listener);
+      return listener;
+    };
+    try {
+      await fn(home, listen);
+    } finally {
+      await Promise.all(started.map((listener) => listener.stop()));
+    }
+  });
 }
 
 /**
@@ -144,4 +165,4 @@ function vanishingLog(home, log) {
   };
 }
 
-module.exports = { fakePreview, startListener, vanishingLog };
+module.exports = { fakePreview, vanishingLog, withListeners };

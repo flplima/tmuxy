@@ -121,7 +121,7 @@ describe('CLI widget subcommands', () => {
             expect(second[0][1]).not.toBe(first[0][0]);
             expect(second[1][1]).not.toBe(first[1][0]);
           } finally {
-            for (const preview of previews) preview.stop();
+            await Promise.all(previews.map((p) => p.stop()));
           }
         }),
       60000,
