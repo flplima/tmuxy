@@ -444,6 +444,11 @@ fn a_hooks_question_is_a_report_read_back_while_the_pane_waits() {
         None,
         "an answered question"
     );
+    assert_eq!(
+        status_app(&status, "needs-input").as_deref(),
+        Some("claude")
+    );
+    assert_eq!(status_app(&status, "working"), None, "an answered question");
 
     // An unknown kind or an app name outside the grammar is left out; text
     // past the protocol's limit is cut on a character, and none is nothing.
@@ -458,6 +463,7 @@ fn a_hooks_question_is_a_report_read_back_while_the_pane_waits() {
         status_message(&status, "needs-input").map(|m| m.len()),
         Some(MAX_MSG_DECODED_BYTES)
     );
+    assert_eq!(status_app(&status, "needs-input"), None);
     assert_eq!(blocked_status("question", "claude", " \n\u{7} "), None);
 
     // What a program sent with a control character, or only characters that

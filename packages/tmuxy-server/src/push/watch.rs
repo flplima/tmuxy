@@ -7,6 +7,9 @@ use tmuxy_core::host::socket_watch::PaneRow;
 
 use tmuxy_core::PaneStateName;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Notice {
@@ -20,8 +23,12 @@ pub(crate) struct Notice {
 
 impl Notice {
     fn for_row(row: &PaneRow, host: &str) -> Self {
+        // A label the user gave first, then the name the program reported
+        // itself by, then the program tmux sees running.
         let name = if !row.label.is_empty() {
             row.label.clone()
+        } else if let Some(app) = row.app() {
+            app
         } else {
             tmuxy_core::program::program_name(&row.command).to_string()
         };

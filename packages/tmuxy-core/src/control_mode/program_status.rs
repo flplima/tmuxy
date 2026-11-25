@@ -410,6 +410,19 @@ pub fn status_message(status: &str, pane_state: &str) -> Option<String> {
     (!shown.is_empty()).then(|| shown.to_string())
 }
 
+/// The program `status` names as behind `pane_state` (`app=`), when the
+/// status is that state's ([`status_is_for`]): `claude` for a hook that ran
+/// in a shell, where the pane's own command is the shell. `None` without one,
+/// or with a name outside the grammar.
+pub fn status_app(status: &str, pane_state: &str) -> Option<String> {
+    if !status_is_for(status, Some(pane_state)) {
+        return None;
+    }
+    let app = Pairs::read(status)?.app?;
+    (!app.is_empty() && app.len() <= MAX_APP_BYTES && app.bytes().all(is_name_byte))
+        .then(|| app.to_string())
+}
+
 /// A change in what a pane shows of its records, and which of the two
 /// options tmux holds it in is to be written.
 #[derive(Debug, PartialEq, Eq)]
