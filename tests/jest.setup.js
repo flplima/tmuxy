@@ -12,6 +12,16 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const { waitForServer, disconnectBrowser } = require('./helpers/browser');
 const { TMUXY_PORT, TMUXY_URL, WORKSPACE_ROOT, serverBinary } = require('./helpers/config');
+const { recordServer } = require('./helpers/run-ownership');
+
+/** Have the server make its default session, if it is not there yet. */
+function ensureSession() {
+  return fetch(`${TMUXY_URL}/commands`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: 'ensure_session', args: {} }),
+  });
+}
 
 /**
  * The tmux socket the server on `TMUXY_URL` is attached to, or null when it
@@ -30,11 +40,7 @@ async function serverSocketPath() {
   try {
     // Explicitly ensure the default session exists before opening `/events`
     // (`GET /events` attaches only to an existing session).
-    await fetch(`${TMUXY_URL}/commands`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cmd: 'ensure_session', args: {} }),
-    }).catch(() => {});
+    await ensureSession().catch(() => {});
     // Deliberately not awaited to completion: an SSE stream never ends. The
     // response resolving is the connection being accepted; the monitor comes up
     // a moment later, which is what the retry below waits for.
@@ -142,9 +148,14 @@ beforeAll(async () => {
         },
       );
       server.unref();
+      recordServer(server.pid, serverBinary());
       _weStartedServer = true;
       _serverPid = server.pid;
       await waitForServer(TMUXY_URL, 120000);
+      // A suite may set tmux options before it opens a page, so there is a
+      // tmux server from the start, as there is beside a reused server.
+      const made = await ensureSession();
+      if (!made.ok) throw new Error(`ensure_session answered ${made.status}: ${await made.text()}`);
     } catch (error) {
       console.error('[setup] Failed to start server:', error.message);
       throw error;

@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { startExtraServer } = require('./extra-server');
+const { recordTmuxSocket } = require('./run-ownership');
 const { tmuxEnv } = require('./tmux-socket');
 
 /**
@@ -116,6 +117,9 @@ function ownTmuxWorld({ root, port = null }) {
      * can hang on its terminal.
      */
     startUsersTmux(sessions) {
+      // Both of this world's servers, for an interrupted run to stop: by path,
+      // so never the live sockets that share their names.
+      for (const name of ['tmuxy', 'default']) recordTmuxSocket(path.join(socketDir, name));
       fs.mkdirSync(socketDir, { recursive: true, mode: 0o700 });
       fs.chmodSync(socketDir, 0o700);
       proveNamesStayInside();

@@ -1,5 +1,6 @@
 /**
- * Builds what the E2E suites run against, once per jest run.
+ * Once per jest run: decides what the run owns (helpers/run-ownership.js), and
+ * builds what the E2E suites run against.
  *
  * The server embeds the UI's `dist` at compile time, so the UI is built first,
  * then the server on the `ci` cargo profile (Cargo.toml): release optimisation
@@ -19,6 +20,8 @@ const { execSync } = require('child_process');
 const path = require('path');
 
 const { TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
+const { claimRun, releaseOnSignal } = require('./helpers/run-ownership');
+const { tmuxSocket } = require('./helpers/tmux-socket');
 
 async function serverAnswers() {
   try {
@@ -29,8 +32,13 @@ async function serverAnswers() {
 }
 
 module.exports = async function globalSetup() {
-  if (process.env.TMUXY_E2E_SERVER_BIN) return;
-  if (await serverAnswers()) return;
+  const reused = await serverAnswers();
+  const run = claimRun({ serverAnswers: reused, socket: tmuxSocket(), url: TMUXY_URL });
+  // For jest.global-teardown.js, which shares this process and its globals.
+  globalThis.tmuxyE2ERun = run;
+  releaseOnSignal(run);
+
+  if (reused || process.env.TMUXY_E2E_SERVER_BIN) return;
 
   console.warn('[setup] Building the frontend and the server (ci profile), once for this run...');
   execSync('npm run build -w tmuxy-ui', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });

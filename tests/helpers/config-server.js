@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { TMUXY_PORT } = require('./config');
+const { TMUXY_PORT, serverBinary } = require('./config');
 const { startExtraServer } = require('./extra-server');
 const { TMUXY_CLI, tmuxRunAsOperator } = require('./cli');
 const { tmuxEnv } = require('./tmux-socket');
@@ -47,12 +47,13 @@ async function startConfigServer() {
 
 /**
  * The tmuxy CLI against the scratch dirs; returns what it printed. Through
- * the suite's environment (`tmuxEnv`), so a run from inside tmuxy calls the
- * server verbs of the build under test, not of the tmuxy it runs in.
+ * the suite's environment (`tmuxEnv`) with the server binary named, so it
+ * calls the server verbs of the build under test: not of the tmuxy the run
+ * was started in, nor whatever it would find in `target/`.
  */
 const configCli = (...args) =>
   execFileSync(TMUXY_CLI, ['config', ...args], {
-    env: env(),
+    env: { ...env(), TMUXY_SERVER_BIN: serverBinary() },
     encoding: 'utf8',
   });
 
@@ -64,8 +65,8 @@ const useTmuxConf = (value) => configCli('use-tmux-conf', value);
 
 /**
  * Unset the options the suite sets from its config: a `@tmuxy-css-*` one and
- * the theme it pins. They are GLOBAL tmux options, and the suite's tmux server
- * outlives a run: left set, they would win over the next run's theme before
+ * the theme it pins. They are GLOBAL tmux options, and a tmux server a run
+ * reused outlives it: left set, they would win over the next run's theme before
  * that run has set anything. An option is the user's to set (`tmuxy run` sets
  * none), so as the operator.
  */

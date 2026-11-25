@@ -18,10 +18,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { TMUXY_CLI } = require('./config');
+const { TMUXY_CLI, serverBinary } = require('./config');
 const { startExtraServer } = require('./extra-server');
 const { tmuxRunAsOperator } = require('./cli');
 const { tmuxEnv } = require('./tmux-socket');
+const { recordTmuxSocket } = require('./run-ownership');
 
 /**
  * The environment every process on the isolated socket runs with: its own
@@ -57,7 +58,8 @@ function isolatedServer({ port, socket, stateDir }) {
   const cli = (args, opts = {}) => {
     try {
       return execFileSync(TMUXY_CLI, args, {
-        env,
+        // The build under test's verbs, not whatever the CLI would find.
+        env: { ...env, TMUXY_SERVER_BIN: serverBinary() },
         encoding: 'utf8',
         timeout: 20000,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -75,6 +77,8 @@ function isolatedServer({ port, socket, stateDir }) {
     env,
     cli,
     async start(extraArgs = []) {
+      // For an interrupted run, whose `afterAll` never reaches `killTmux`.
+      recordTmuxSocket(socket);
       fs.mkdirSync(stateDir, { recursive: true });
       stopServer = await startExtraServer(
         port,

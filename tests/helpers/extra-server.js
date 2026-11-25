@@ -12,6 +12,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { WORKSPACE_ROOT, serverBinary, waitBudget } = require('./config');
 const { tmuxEnv } = require('./tmux-socket');
+const { recordServer } = require('./run-ownership');
 const { waitForServer } = require('./browser');
 
 /**
@@ -34,6 +35,7 @@ async function startExtraServer(
   // The child holds its own copy; keeping ours open is an open handle that
   // stops jest from exiting.
   fs.closeSync(stderr);
+  recordServer(server.pid, serverBinary());
   const exited = new Promise((resolve) => server.once('exit', () => resolve(true)));
   await waitForServer(`http://localhost:${port}`, 60000);
   return async () => {

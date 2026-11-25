@@ -68,7 +68,7 @@ The suite pins `TMUX_SOCKET` to **`tmuxy-test`** and clears `$TMUX` in `tests/je
 TMUX_SOCKET=tmuxy-test ./target/ci/tmuxy-server   # or just let the suite start its own
 ```
 
-The setup step warns when it reuses a server it did not start, because a running server reports no socket and the mismatch cannot be detected — only flagged.
+**What a run stops** is decided once, as it starts, and printed (`tests/helpers/run-ownership.js`). With no server answering, the run owns its socket: it stops a tmux server an earlier run left there, and when it ends, passed, failed or interrupted, its tmuxy servers and then its tmux. A server that answered is left up, tmux and all. SIGKILL skips this.
 
 **Another tmux.** `TMUXY_E2E_TMUX_BIN=/opt/tmux-3.2a/bin/tmux npm run test:e2e -- <suite>` runs against the floor without touching the one on `PATH`. `bin/e2e` makes it the `TMUX_BIN` of the server, the CLI and the harness (`tmuxBin()`) and prints its `tmux -V` first. An inherited `TMUX_BIN` is ignored: every tmuxy pane exports one. A server already up keeps its own tmux.
 
