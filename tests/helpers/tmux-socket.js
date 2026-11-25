@@ -228,6 +228,7 @@ function tmuxOlderThan(major, minor) {
 
 module.exports = {
   tmuxSocket,
+  tmuxBin,
   tmuxCmd,
   tmuxEnv,
   scrubbedEnv,
