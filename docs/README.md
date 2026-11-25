@@ -127,7 +127,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [REPORTING-ISSUES.md](REPORTING-ISSUES.md) | For users: what a bug report needs, how to take a trace slice, what a trace holds and how to check it before sharing | Filing or triaging an issue; answering "is it safe to share my trace?" |
 | [TRACING-DESIGN.md](TRACING-DESIGN.md) | The trace file's schema, its instrumentation seams and correlation | Adding instrumentation |
 | [CI-TRIAGE.md](CI-TRIAGE.md) | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points | Investigating red GitHub Actions runs |
-| [NIGHTLY-SWEEP.md](NIGHTLY-SWEEP.md) | Why the nightly story sweep kept failing, why a faster in-browser JIT would not have fixed it, and how it tells a flake from a defect | A red nightly sweep |
+| [NIGHTLY-SWEEP.md](NIGHTLY-SWEEP.md) | Why the nightly story sweep kept failing, why a faster in-browser JIT would not have fixed it, and how it and the nightly tmux matrix tell a flake from a defect | A red nightly sweep or tmux matrix |
 
 ### Protocols & Rendering
 

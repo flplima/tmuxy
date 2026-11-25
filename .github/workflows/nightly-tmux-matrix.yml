@@ -11,6 +11,14 @@ name: nightly tmux matrix
 # (tmux master) does not — upstream can break, or change behaviour, on any
 # commit, and a red nightly nobody can fix is a nightly nobody reads. A HEAD
 # failure is reported into the tracking issue and the job still passes.
+#
+# There is no quarantine list. A test file that fails is run again, alone, in
+# the same job, and `report` decides from both runs of every version and the
+# nights before (bin/ci/nightly-matrix.mjs): a test that fails twice is
+# reported that night; one that passes the second time is a flake, kept in the
+# ledger, and reported once it flakes on 2 of the last 7 nights, or on 2
+# versions the same night. A version whose job ended before its suites ran is
+# reported too. docs/NIGHTLY-SWEEP.md § "When the nightly matrix reports".
 
 on:
   schedule:
@@ -94,12 +102,6 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 120
     name: tmux ${{ matrix.tmux.name }}
-    permissions:
-      contents: read
-      # The failure report is written from inside this job so that a soft
-      # (HEAD) failure can be reported without failing the workflow.
-      issues: write
-
     # The server's action trace, as lint-and-tests.yml keeps it: the suites
     # mark each test's start and end in it, and the trace-share suite shows
     # what the server wrote there.
@@ -147,7 +149,9 @@ jobs:
       # Every test step below is `continue-on-error` so that ALL the suites
       # report on every version — a 3.4 crash in the core tests should not hide
       # whether the snapshot suite also breaks there. The gate step at the end
-      # turns the collected outcomes back into a job result.
+      # turns the collected results back into a job result. Each jest run also
+      # writes its results to $RUNNER_TEMP/jest-<step id>.json, which the
+      # steps after them read.
       # Every integration test, not a list of the ones that start a tmux: a
       # list missed the next one written.
       - name: tmuxy-core integration tests (real tmux)
@@ -174,13 +178,17 @@ jobs:
         id: snapshots
         if: matrix.tmux.version == 'HEAD'
         continue-on-error: true
-        run: npx jest tests/snapshots/
+        run: >-
+          npx jest tests/snapshots/
+          --json --outputFile="$RUNNER_TEMP/jest-snapshots.json"
 
       - name: TUI alternate-screen suite
         id: tui
         if: matrix.tmux.version == 'HEAD'
         continue-on-error: true
-        run: npx jest tests/8-tui-alternate-screen.test.js
+        run: >-
+          npx jest tests/8-tui-alternate-screen.test.js
+          --json --outputFile="$RUNNER_TEMP/jest-tui.json"
 
       # The [nightly] E2E tier (docs/TESTS-LAYERS.md § Tiers): tests a push skips
       # because a cheaper layer already holds their logic, run once a day on
@@ -191,7 +199,9 @@ jobs:
         id: nightly-tier
         if: matrix.tmux.pinned
         continue-on-error: true
-        run: npx jest tests/ --testNamePattern '\[nightly\]'
+        run: >-
+          npx jest tests/ --testNamePattern '\[nightly\]'
+          --json --outputFile="$RUNNER_TEMP/jest-nightly-tier.json"
 
       # The whole E2E suite, on every released version the per-commit jobs do
       # not pin. The two suites above never source a config or run a CLI
@@ -202,116 +212,269 @@ jobs:
         id: full-e2e
         if: ${{ !matrix.tmux.pinned && matrix.tmux.version != 'HEAD' }}
         continue-on-error: true
-        run: npx jest --runInBand tests/
+        run: >-
+          npx jest --runInBand tests/
+          --json --outputFile="$RUNNER_TEMP/jest-full-e2e.json"
+
+      # The second opinion: tonight's failing test files again, alone. It runs
+      # in this job rather than on a fresh runner (as nightly-v86.yml does)
+      # because it needs this version's tmux, which this job has already built
+      # or restored; the server, tmux and the suite's dirs are started over
+      # instead, so the second run starts from what the first one started from.
+      # A failure no second run answers for counts as failing twice.
+      - name: Tonight's failing test files
+        id: failed
+        if: steps.snapshots.outcome == 'failure' || steps.tui.outcome == 'failure' || steps.nightly-tier.outcome == 'failure' || steps.full-e2e.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          files=$(node bin/ci/nightly-matrix.mjs failed-files \
+            "$RUNNER_TEMP"/jest-{snapshots,tui,nightly-tier,full-e2e}.json)
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+      - name: Stop the server and tmux, and empty the suite's dirs
+        id: stop
+        if: steps.failed.outputs.files != ''
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # The next server writes the same log file.
+          cp /tmp/tmuxy-server.log /tmp/tmuxy-server-sweep.log || true
+          # Every server, the one under test and any a suite left behind: the
+          # next one must not find the port taken and be answered by the old.
+          pkill -x tmuxy-server || true
+          for _ in $(seq 60); do
+            pgrep -x tmuxy-server >/dev/null || break
+            sleep 0.5
+          done
+          pkill -KILL -x tmuxy-server || true
+          for _ in $(seq 20); do
+            pgrep -x tmuxy-server >/dev/null || break
+            sleep 0.5
+          done
+          if pgrep -x tmuxy-server >/dev/null; then
+            echo "::error::the server under test did not stop"
+            exit 1
+          fi
+          # The server is gone, so nothing is attached in control mode.
+          tmux -L "$TMUX_SOCKET" kill-server || true
+          # The dirs tests/helpers/tmux-socket.js gives the suite, and only
+          # those: each is a scratch dir named tmuxy-e2e-*.
+          dirs=$(node -e '
+            const env = require("./tests/helpers/tmux-socket").tmuxEnv();
+            for (const name of ["XDG_CONFIG_HOME", "TMUXY_DATA_DIR", "TMUXY_STATE_DIR", "HOME"])
+              console.log(env[name]);
+          ')
+          while IFS= read -r dir; do
+            case "$dir" in
+              */tmuxy-e2e-*) rm -rf -- "$dir" ;;
+              *) echo "::error::not a scratch dir of the suite: $dir"; exit 1 ;;
+            esac
+          done <<<"$dirs"
+
+      - name: Start the server again
+        id: restart
+        if: steps.stop.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/start-test-server
+        with:
+          e2e: 'true'
+          trace: ${{ env.TMUXY_E2E_TRACE }}
+
+      # The pinned tmux ran only the [nightly] tests of its files, so its
+      # second run takes the same name pattern.
+      - name: Run the failing test files again, alone
+        id: reconfirm
+        if: steps.restart.outcome == 'success'
+        continue-on-error: true
+        env:
+          FILES: ${{ steps.failed.outputs.files }}
+          NIGHTLY_TIER: ${{ steps.nightly-tier.outcome == 'failure' }}
+        run: |
+          pattern=()
+          if [ "$NIGHTLY_TIER" = true ]; then pattern=(--testNamePattern '\[nightly\]'); fi
+          # shellcheck disable=SC2086 # one file per word
+          npx jest --runInBand $FILES "${pattern[@]}" \
+            --json --outputFile="$RUNNER_TEMP/jest-reconfirm.json"
+
+      # This version's results for `report`, and its summary. It writes no
+      # file when no suite step ran (setup failed), which `report` reads as a
+      # job that ended before its suites ran.
+      - name: Collect this version's results
+        id: collect
+        if: always()
+        env:
+          VERSION: ${{ matrix.tmux.name }}
+          SOFT: ${{ matrix.tmux.soft == true }}
+          CORE: ${{ steps.core.outcome }}
+          SERVER: ${{ steps.server.outcome }}
+          SNAPSHOTS: ${{ steps.snapshots.outcome }}
+          TUI: ${{ steps.tui.outcome }}
+          NIGHTLY_TIER: ${{ steps.nightly-tier.outcome }}
+          FULL_E2E: ${{ steps.full-e2e.outcome }}
+        run: |
+          soft=()
+          if [ "$SOFT" = true ]; then soft=(--soft); fi
+          node bin/ci/nightly-matrix.mjs collect --version "$VERSION" "${soft[@]}" \
+            --sweep \
+              snapshots="$RUNNER_TEMP/jest-snapshots.json" \
+              tui="$RUNNER_TEMP/jest-tui.json" \
+              nightly-tier="$RUNNER_TEMP/jest-nightly-tier.json" \
+              full-e2e="$RUNNER_TEMP/jest-full-e2e.json" \
+            --reconfirm "$RUNNER_TEMP/jest-reconfirm.json" \
+            --step core="$CORE" server="$SERVER" snapshots="$SNAPSHOTS" tui="$TUI" \
+              nightly-tier="$NIGHTLY_TIER" full-e2e="$FULL_E2E" \
+            --out "$RUNNER_TEMP/matrix-$VERSION.json" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload this version's results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: nightly-matrix-results-${{ matrix.tmux.name }}
+          path: ${{ runner.temp }}/matrix-${{ matrix.tmux.name }}.json
+          if-no-files-found: warn
+          # A re-run of the job replaces its first attempt's file.
+          overwrite: true
 
       - name: Server logs (debug)
         if: always()
         run: tail -2000 /tmp/tmuxy-server.log || true
 
+      # `-sweep` is the first server's log, kept when a second one ran.
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tmux-${{ matrix.tmux.name }}-server-log-${{ github.run_id }}
-          path: /tmp/tmuxy-server.log
+          path: |
+            /tmp/tmuxy-server.log
+            /tmp/tmuxy-server-sweep.log
           if-no-files-found: warn
+          overwrite: true
 
-      - name: Summarise this version
+      - name: Upload the jest results and the action trace
         if: always()
-        run: |
-          {
-            echo "### tmux ${{ matrix.tmux.name }}"
-            echo ""
-            echo "| suite | result |"
-            echo "| --- | --- |"
-            echo "| core integration | ${{ steps.core.outcome }} |"
-            echo "| server start | ${{ steps.server.outcome }} |"
-            echo "| snapshots | ${{ steps.snapshots.outcome }} |"
-            echo "| 8-tui-alternate-screen | ${{ steps.tui.outcome }} |"
-            echo "| nightly E2E tier | ${{ steps.nightly-tier.outcome }} |"
-            echo "| full E2E suite | ${{ steps.full-e2e.outcome }} |"
-          } >> "$GITHUB_STEP_SUMMARY"
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tmux-${{ matrix.tmux.name }}-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/jest-*.json
+            ${{ env.TMUXY_E2E_TRACE }}
+            ${{ env.TMUXY_E2E_TRACE }}.1
+          if-no-files-found: ignore
+          overwrite: true
 
-      # One issue is kept open and commented on, the same pattern as
-      # nightly-v86.yml. Reported from inside the job because a HEAD failure
-      # must reach someone WITHOUT the job (or the workflow) going red.
-      - name: Open or update the tracking issue
-        if: always() && github.event_name == 'schedule' && (steps.core.outcome == 'failure' || steps.server.outcome == 'failure' || steps.snapshots.outcome == 'failure' || steps.tui.outcome == 'failure' || steps.nightly-tier.outcome == 'failure' || steps.full-e2e.outcome == 'failure')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          SOFT: ${{ matrix.tmux.soft == true }}
-        run: |
-          set -euo pipefail
-          TITLE="Nightly tmux version matrix is failing"
-          if [ "$SOFT" = "true" ]; then
-            NOTE="tmux \`${{ matrix.tmux.name }}\` is NON-BLOCKING: upstream master can break at any time, so this did not fail the workflow."
-          else
-            NOTE="tmux \`${{ matrix.tmux.name }}\` is a released, supported version — this failure blocks the nightly."
-          fi
-
-          BODY="Nightly tmux matrix failure on **tmux ${{ matrix.tmux.name }}**.
-
-          $NOTE
-
-          | suite | result |
-          | --- | --- |
-          | core integration | ${{ steps.core.outcome }} |
-          | server start | ${{ steps.server.outcome }} |
-          | snapshots | ${{ steps.snapshots.outcome }} |
-          | 8-tui-alternate-screen | ${{ steps.tui.outcome }} |
-          | nightly E2E tier (the pinned tmux only) | ${{ steps.nightly-tier.outcome }} |
-          | full E2E suite (not the pinned tmux) | ${{ steps.full-e2e.outcome }} |
-
-          Run: $RUN_URL
-          Commit: ${{ github.sha }}
-
-          The server log for this version is attached to that run as an artifact."
-
-          BODY="$BODY" bin/ci/nightly-issue report "$TITLE"
-
+      # A defect fails a released version's job; a flake alone does not.
       - name: Gate on the result
         if: always()
+        env:
+          VERSION: ${{ matrix.tmux.name }}
+          SOFT: ${{ matrix.tmux.soft == true }}
+          CONFIRMED: ${{ steps.collect.outputs.confirmed }}
+          FLAKY: ${{ steps.collect.outputs.flaky }}
         run: |
-          failed=""
-          if [ "${{ steps.core.outcome }}" = "failure" ]; then failed="$failed core"; fi
-          if [ "${{ steps.server.outcome }}" = "failure" ]; then failed="$failed server"; fi
-          if [ "${{ steps.snapshots.outcome }}" = "failure" ]; then failed="$failed snapshots"; fi
-          if [ "${{ steps.tui.outcome }}" = "failure" ]; then failed="$failed 8-tui"; fi
-          if [ "${{ steps.nightly-tier.outcome }}" = "failure" ]; then failed="$failed nightly-tier"; fi
-          if [ "${{ steps.full-e2e.outcome }}" = "failure" ]; then failed="$failed full-e2e"; fi
-
-          if [ -z "$failed" ]; then
-            echo "all suites passed on tmux ${{ matrix.tmux.name }}"
+          if [ "$CONFIRMED" = false ]; then
+            if [ "$FLAKY" = true ]; then
+              echo "::warning title=tmux $VERSION::flaky tests passed when run again (see the job summary)"
+            else
+              echo "all suites passed on tmux $VERSION"
+            fi
             exit 0
           fi
 
-          if [ "${{ matrix.tmux.soft == true }}" = "true" ]; then
-            echo "::warning title=tmux ${{ matrix.tmux.name }}::failed:$failed (non-blocking — upstream master)"
+          if [ "$SOFT" = true ]; then
+            echo "::warning title=tmux $VERSION::failed (non-blocking — upstream master; see the job summary)"
             exit 0
           fi
 
-          echo "::error title=tmux ${{ matrix.tmux.name }}::failed:$failed"
+          echo "::error title=tmux $VERSION::failed twice, or a step ended without results (see the job summary)"
           exit 1
 
-  # Every released version passed, so the tracking issue is closed, unless a
-  # HEAD failure reported into it on this run (bin/ci/nightly-issue). A manual
-  # run of the whole matrix counts: re-running it after a fix is how one is
-  # confirmed. A run of one version does not: the others did not run.
-  resolve-issue:
-    needs: suites
-    if: (inputs.version || 'all') == 'all'
+  # The night's verdict over every version, and the one comment about it. One
+  # issue is kept open and commented on, rather than a new one every night, and
+  # only for what the ledger says is a defect. A night of the whole matrix with
+  # nothing to report closes it (bin/ci/nightly-issue); a manual run counts,
+  # since re-running after a fix is how one is confirmed. A run of one version
+  # does not: the others did not run. Only a scheduled night opens the issue or
+  # enters the ledger's history.
+  report:
+    needs: [plan, suites]
+    if: always()
     runs-on: ubuntu-26.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          rust: none
+          install-npm: 'false'
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: nightly-matrix-results-*
+          path: results
+
+      # The ledger's memory: one verdict file per scheduled night, carried
+      # from cache to cache (a cache key cannot be overwritten, so each night
+      # saves under its own and restores the newest).
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ledger
+          key: ${{ runner.os }}-nightly-matrix-ledger-${{ github.run_id }}
+          restore-keys: ${{ runner.os }}-nightly-matrix-ledger-
+
+      # A `plan` that failed names no version, and the script refuses to call
+      # that a clean night.
+      - name: Decide tonight's verdict
+        id: verdict
+        env:
+          MATRIX: ${{ needs.plan.outputs.tmux }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p ledger
+          expect=$(jq -r 'map(.name) | join(",")' <<<"$MATRIX")
+          soft=$(jq -r 'map(select(.soft) | .name) | join(",")' <<<"$MATRIX")
+          node bin/ci/nightly-matrix.mjs report \
+            --results results --expect "$expect" --soft "$soft" \
+            --history ledger \
+            --verdicts-out "$RUNNER_TEMP/tonight.json" \
+            --body-out "$RUNNER_TEMP/report.md"
+
+      - name: Keep tonight in the ledger
+        if: github.event_name == 'schedule'
+        run: |
+          cp "$RUNNER_TEMP/tonight.json" "ledger/$GITHUB_RUN_ID.json"
+          # Fourteen nights is twice the window; older ones only add bytes.
+          ls -1t ledger/*.json | tail -n +15 | xargs -r rm --
+
+      - if: github.event_name == 'schedule'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ledger
+          key: ${{ runner.os }}-nightly-matrix-ledger-${{ github.run_id }}
+
+      - name: Open or update the tracking issue
+        if: steps.verdict.outputs.report == 'true' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: BODY="$(cat "$RUNNER_TEMP/report.md")" bin/ci/nightly-issue report "Nightly tmux version matrix is failing"
+
       - name: Close the tracking issue
+        if: steps.verdict.outputs.report == 'false' && (inputs.version || 'all') == 'all'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bin/ci/nightly-issue resolve "Nightly tmux version matrix is failing"
+
+      - name: Fail on a reported defect
+        if: steps.verdict.outputs.fail == 'true'
+        run: |
+          cat "$RUNNER_TEMP/report.md"
+          exit 1
