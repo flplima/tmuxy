@@ -160,12 +160,15 @@ function cellCss(style: CellStyle, selected: boolean): CSSProperties {
   if (selected) return css;
   if (style.fg !== undefined) css.color = cellColorToCss(style.fg);
   if (style.bg !== undefined) css.backgroundColor = cellColorToCss(style.bg);
-  if (style.dim) css.opacity = 0.5;
   if (style.inverse) {
     const fg = css.color;
     const bg = css.backgroundColor;
     css.color = bg || 'var(--term-background)';
     css.backgroundColor = fg || 'var(--term-foreground)';
+  }
+  if (style.dim) {
+    // SGR 2 fades the displayed foreground, including after reverse video.
+    css.color = `color-mix(in srgb, ${css.color ?? 'var(--term-foreground)'} 50%, transparent)`;
   }
   return css;
 }
