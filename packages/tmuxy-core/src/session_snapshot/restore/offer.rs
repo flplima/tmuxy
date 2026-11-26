@@ -9,7 +9,7 @@ use super::*;
 pub(super) fn offer_steps(pane: &str, command: &str, run: bool, token: &str) -> Vec<Step> {
     if run {
         return vec![
-            Step::Run(argv(&["send-keys", "-t", pane, "-l", command])),
+            Step::Run(argv(&["send-keys", "-t", pane, "-l", "--", command])),
             Step::Run(argv(&["send-keys", "-t", pane, "Enter"])),
         ];
     }

@@ -184,7 +184,7 @@ describe('keyboardActor — desktop IME', () => {
 
     pasteText('for the pane');
     expect(sendCommands(handle.events)).toEqual([
-      `set-buffer -b tmuxy-paste "for the pane"\n${pasteBufferInto('%3')}`,
+      `set-buffer -b tmuxy-paste -- "for the pane"\n${pasteBufferInto('%3')}`,
     ]);
   });
 
@@ -476,7 +476,7 @@ describe('keyboardActor — desktop IME', () => {
       "send-keys -t '=tmuxy:' -l -- 'x'",
       "send-keys -t '=tmuxy:' Tab",
       "send-keys -t '=tmuxy:' -l -- '한'",
-      'set-buffer -b tmuxy-paste "\\353\\266\\231\\354\\227\\254\\353\\204\\243\\352\\270\\260"\n' +
+      'set-buffer -b tmuxy-paste -- "\\353\\266\\231\\354\\227\\254\\353\\204\\243\\352\\270\\260"\n' +
         pasteBufferInto('tmuxy'),
     ]);
     expect(sendCommands(handle.events).join('\n')).not.toContain(placeholder);

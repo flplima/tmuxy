@@ -70,8 +70,15 @@ case "$(printf '%s' "$FILE" | tr '[:upper:]' '[:lower:]')" in
 esac
 take_own_pane "a preview"
 
-DIR="$(cd "$(dirname "$FILE")" && pwd -P)"
-ABS="$DIR/$(basename "$FILE")"
+# A relative name goes as `./name`, so one that starts with a dash
+# (`tmuxy open -- -notes.md`) is a path to dirname, basename and cd, not an
+# option they refuse.
+case "$FILE" in
+  /*) given="$FILE" ;;
+  *) given="./$FILE" ;;
+esac
+DIR="$(cd "$(dirname "$given")" && pwd -P)"
+ABS="$DIR/$(basename "$given")"
 if [ -L "$ABS" ]; then
   _fail "$EXIT_FAILED" "a symlink cannot be previewed: $FILE"
 fi

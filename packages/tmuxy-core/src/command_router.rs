@@ -274,7 +274,7 @@ mod tests {
                 None
             ),
             Route::ControlMode(
-                "splitw -t 'tmuxy' -c '#{pane_current_path}' 'htop -d 2' ; breakp -d -n 'build' ; select-pane -t 'tmuxy'"
+                "splitw -t 'tmuxy' -c '#{pane_current_path}' -- 'htop -d 2' ; breakp -d -n 'build' ; select-pane -t 'tmuxy'"
                     .to_string()
             )
         );
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn a_preview_line_reaches_tmux_inside_its_check() {
         let line = format!(
-            "set-buffer -b tmuxy-preview-7 \"\\173\\042emit\\042:\\173\\042x\\042:\\042\\044(rm -rf \\176)\\042\\175\\175\\012\"\n\
+            "set-buffer -b tmuxy-preview-7 -- \"\\173\\042emit\\042:\\173\\042x\\042:\\042\\044(rm -rf \\176)\\042\\175\\175\\012\"\n\
              if-shell -F -t %7 '{}' \
              {{ paste-buffer -d -b tmuxy-preview-7 -t %7 }} {{ delete-buffer -b tmuxy-preview-7 }}",
             crate::preview::pane_previews_format()

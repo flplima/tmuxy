@@ -51,8 +51,10 @@ impl NewTab<'_> {
         if let Some(cwd) = self.cwd {
             split.extend([own("-c"), value(cwd)]);
         }
+        // An operand, after `--` (`argv::operands`): a program that starts
+        // with a dash is not read as splitw's flags.
         if let Some(program) = self.program {
-            split.push(value(program));
+            split.extend([own("--"), value(program)]);
         }
         let mut breakp = vec![own("breakp")];
         if self.background {

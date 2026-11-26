@@ -27,6 +27,7 @@ control_mode -> session
 control_mode -> tmux_command
 control_mode -> tmux_compat
 control_mode -> trace
+float -> argv
 float -> constants
 groups -> argv
 groups -> constants

@@ -249,7 +249,9 @@ fn a_split_or_a_tab_leaves_the_users_focus_where_it_is() {
     let pane = PaneId::parse("%4").unwrap();
     let split = split_command(&pane, SplitDirection::Down, Some("htop; rm -rf x"));
     assert!(split.starts_with("splitw -v -d -t %4 "), "{split}");
-    assert!(split.ends_with(" 'htop; rm -rf x'"), "{split}");
+    // The command is the operand, after `--`: one that starts with a dash
+    // is not read as splitw's flags.
+    assert!(split.ends_with(" -- 'htop; rm -rf x'"), "{split}");
 
     let tab = tab_command(
         "work",
@@ -296,7 +298,7 @@ fn a_float_is_the_cores_one_list_with_the_command_as_one_word() {
     );
     assert!(
         line.starts_with(
-            r##"split-window -t %2 -P -F "#{pane_id}" "bash -c 'echo '\\''#{pane_id}'\\'' # it'\\''s'" ; break-pane -d -n float -t "\$1:7""##
+            r##"split-window -t %2 -P -F "#{pane_id}" -- "bash -c 'echo '\\''#{pane_id}'\\'' # it'\\''s'" ; break-pane -d -n float -t "\$1:7""##
         ),
         "{line}"
     );

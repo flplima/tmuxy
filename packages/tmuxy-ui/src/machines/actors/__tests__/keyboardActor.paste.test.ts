@@ -19,7 +19,7 @@ describe('keyboardActor — paste', () => {
   it('pastes the text a clipboard keeps once its controls are gone', () => {
     pasteText('\x1bok');
     expect(sendCommands(handle.events)).toEqual([
-      `set-buffer -b tmuxy-paste "ok"\n${pasteBufferInto('%3')}`,
+      `set-buffer -b tmuxy-paste -- "ok"\n${pasteBufferInto('%3')}`,
     ]);
   });
 });

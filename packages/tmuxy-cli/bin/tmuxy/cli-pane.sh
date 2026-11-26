@@ -300,9 +300,11 @@ cmd_pane() {
     paste)
       local target=()
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane paste [-t <target>] <text>"; return ;;
+        --help|-h) echo "Usage: tmuxy pane paste [-t <target>] [--] <text>"; return ;;
         -t) target=(-t "${2:?-t needs a pane}"); shift 2 ;;
       esac
+      # `--` ends the options, as for `pane send`: it is not part of the text.
+      [ "${1:-}" != -- ] || shift
       [ -n "${1:-}" ] || _die_usage "text required"
       # Through `send`, so a paste follows its rules: without the controls
       # that could end a bracketed paste early, into the caller's own pane at

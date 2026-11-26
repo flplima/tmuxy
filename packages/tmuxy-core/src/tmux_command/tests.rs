@@ -293,3 +293,23 @@ fn a_word_is_unquoted_as_tmux_joins_it() {
         assert_eq!(unquote(unknown), None, "{unknown}");
     }
 }
+
+/// The program is splitw's operand, after `--`, and the name breakp's `-n`
+/// argument: tmux reads both whole, whatever they start with.
+#[test]
+fn a_program_or_name_that_starts_with_a_dash_is_the_new_tabs_own() {
+    let argv = NewTab {
+        from: Some("tmuxy"),
+        program: Some("-x --help"),
+        name: Some("-1"),
+        ..NewTab::default()
+    }
+    .argv();
+    let reads = crate::argv::as_tmux_reads(&argv).unwrap();
+    assert_eq!(
+        reads[0],
+        ("splitw".to_string(), vec!["-x --help".to_string()])
+    );
+    let breakp = argv.split(|w| w == ";").nth(1).unwrap();
+    assert_eq!(breakp.iter().position(|w| w == "-1"), Some(2), "{breakp:?}");
+}

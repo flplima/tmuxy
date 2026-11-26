@@ -266,7 +266,7 @@ Usage: tmuxy pane restore-cmd '<command>' [%id]
 ### `tmuxy pane paste`
 
 ```text
-Usage: tmuxy pane paste [-t <target>] <text>
+Usage: tmuxy pane paste [-t <target>] [--] <text>
 ```
 
 ### `tmuxy pane float`

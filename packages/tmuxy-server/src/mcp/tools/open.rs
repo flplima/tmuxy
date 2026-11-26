@@ -45,7 +45,7 @@ pub(in crate::mcp) fn split_command(
     };
     let program = command
         .filter(|c| !c.trim().is_empty())
-        .map(|c| format!(" {}", tmux_quote(c)))
+        .map(|c| format!(" -- {}", tmux_quote(c)))
         .unwrap_or_default();
     format!("splitw {flag} -d -t {pane} -c '#{{pane_current_path}}' -P -F '#{{pane_id}}'{program}")
 }

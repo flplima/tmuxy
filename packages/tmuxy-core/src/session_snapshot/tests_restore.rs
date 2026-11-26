@@ -100,7 +100,7 @@ fn commands_are_offered_not_typed_unless_asked() {
             ..Default::default()
         },
     ));
-    assert!(run.contains(&"run: send-keys -t work:0.1 -l vim a".to_string()));
+    assert!(run.contains(&"run: send-keys -t work:0.1 -l -- vim a".to_string()));
     assert!(run.contains(&"run: send-keys -t work:0.1 Enter".to_string()));
     assert!(!run.iter().any(|l| l.contains("@tmuxy-ask")));
 }
@@ -200,7 +200,7 @@ fn a_restore_keeps_the_programs_word_and_runs_the_chrome() {
     // The sidebar's widget runs, and is not tagged.
     let i_widget = lines
         .iter()
-        .position(|l| l == &format!("run: send-keys -t work:3.0 -l {LEFT_SIDEBAR_WIDGET}"))
+        .position(|l| l == &format!("run: send-keys -t work:3.0 -l -- {LEFT_SIDEBAR_WIDGET}"))
         .unwrap();
     assert_eq!(lines[i_widget + 1], "run: send-keys -t work:3.0 Enter");
     assert!(!lines

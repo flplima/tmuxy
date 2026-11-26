@@ -174,7 +174,7 @@ Usage: tmuxy tab prev
 ### `tmuxy tab rename`
 
 ```text
-Usage: tmuxy tab rename <name>
+Usage: tmuxy tab rename [--] <name>
 ```
 
 ### `tmuxy tab layout`
