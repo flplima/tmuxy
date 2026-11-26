@@ -414,14 +414,21 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'CommandPrompt':
       return [
         'command-prompt',
-        ...(op.prompt === null ? [] : [`-p "${op.prompt}"`]),
-        ...(op.initial ? [`-I "${op.initial}"`] : []),
-        ...(op.template === null ? [] : [`"${op.template.replace(/[\\"]/g, '\\$&')}"`]),
+        ...(op.prompt === null ? [] : [`-p ${promptWord(op.prompt)}`]),
+        ...(op.initial ? [`-I ${promptWord(op.initial)}`] : []),
+        ...(op.template === null ? [] : [promptWord(op.template)]),
       ].join(' ');
     case 'RawCommand':
       return op.command;
   }
 }
+
+/**
+ * One word of a `command-prompt`, double-quoted as the default bindings
+ * write it, its own quotes and backslashes escaped: a prompt that holds a
+ * quote (`say "hi"`) stays one word.
+ */
+const promptWord = (text: string): string => `"${text.replace(/[\\"]/g, '\\$&')}"`;
 
 /**
  * What the user types into a prompt, as one double-quoted argument: tmux

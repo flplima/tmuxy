@@ -247,6 +247,11 @@ const cases: Array<[TmuxOp, string]> = [
 
   [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \\"%%%\\""'],
   [renameSessionPrompt(), 'command-prompt -I "#S" "rename-session -- \\"%%%\\""'],
+  // A quote or a backslash in a prompt's own words stays inside its word.
+  [
+    TmuxOp.CommandPrompt({ prompt: 'say "hi"', initial: 'a\\b "c"', template: null }),
+    'command-prompt -p "say \\"hi\\"" -I "a\\\\b \\"c\\""',
+  ],
   [TmuxOp.RawCommand({ command: 'choose-tree' }), 'choose-tree'],
 ];
 

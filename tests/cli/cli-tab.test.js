@@ -73,6 +73,9 @@ describe('CLI tab subcommands', () => {
       [['tab', 'create'], 'new-tab --'],
       [['tab', 'create', 'my-tab'], 'new-tab -- my-tab'],
       [['tab', 'create', 'my-tab', '--json'], 'new-tab --json -- my-tab'],
+      // After `--` the word is the name, a leading dash and all.
+      [['tab', 'create', '--', '-1'], 'new-tab -- -1'],
+      [['tab', 'create', '--json', '--', '--help'], 'new-tab --json -- --help'],
     ])('%j hands the name to the new-tab verb', (args, verb) => {
       const { stdout, exitCode, tmuxCalls } = runCLI(args);
       expect(exitCode).toBe(0);
