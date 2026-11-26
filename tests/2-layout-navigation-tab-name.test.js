@@ -78,4 +78,31 @@ describeE2E('Scenario: a tab renamed from its shell', {}, (ctx) => {
       },
     );
   }, 60000);
+
+  test('`tmuxy tab create -- -2` opens a tab named -2 in the strip', async () => {
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    // Without `--` a word that starts with a dash is a bad option; after it
+    // the word is the new tab's name.
+    await typeInTerminal(page, `${TMUXY_CLI} tab create -- -2`);
+    await pressEnter(page);
+    const names = () =>
+      page.$$eval('.tab-name[data-window-id] .tab-name-label', (els) =>
+        els
+          .filter((el) => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          })
+          .map((el) => el.textContent.trim()),
+      );
+    await waitForCondition(
+      page,
+      async () => (await names()).includes('-2'),
+      15000,
+      async () => {
+        return `a tab named "-2" in the strip (shows ${JSON.stringify(await names())})`;
+      },
+    );
+  }, 60000);
 });
