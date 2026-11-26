@@ -2,6 +2,7 @@
 mod appimage_env;
 mod line_count;
 mod open_block;
+mod pty;
 mod spawn;
 
 use super::log::{LogKind, LogSink};

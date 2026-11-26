@@ -51,8 +51,9 @@ regex = { version = "1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-# `native`: the machine's host name, for a client's greeting (`host::host_name`).
-nix = { workspace = true, features = ["hostname"], optional = true }
+# `native`: the machine's host name, for a client's greeting (`host::host_name`),
+# and the control-mode PTY's raw mode (`control_mode/connection/pty.rs`).
+nix = { workspace = true, features = ["hostname", "term"], optional = true }
 
 # wasm-compatible Instant (performance.now()) for the settling debounce timer.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
