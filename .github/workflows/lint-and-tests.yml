@@ -522,7 +522,24 @@ jobs:
           # The ssh windows' suite signs in to an sshd container: on a runner,
           # which has Docker, a Docker that does not answer is a failure.
           TMUXY_E2E_REQUIRE_DOCKER: '1'
-        run: npm run test:tauri
+        run: |
+          set -o pipefail
+          npm run test:tauri 2>&1 | tee /tmp/tauri-e2e-output.log
+
+      # The suite's state dir (tests/helpers/tmux-socket.js `stateDir`) holds
+      # the app's log and action trace, which outlive the run.
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-attempt-${{ github.run_attempt }}
+          path: |
+            /tmp/tmuxy-e2e-state-*/trace.ndjson
+            /tmp/tmuxy-e2e-state-*/trace.ndjson.1
+            /tmp/tmuxy-e2e-state-*/tmuxy.log
+            /tmp/tauri-e2e-output.log
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Stop Xvfb
         if: always()

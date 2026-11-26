@@ -51,6 +51,17 @@ pub const METADATA_SYNC_DELAY: Duration = Duration::from_millis(500);
 pub const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 const FIRST_SYNC_DELAY: Duration = Duration::from_millis(1500);
 
+/// What the host's link has read from tmux: every line, an event or not,
+/// and when the last one came. A timed-out reply's warning says how much
+/// came after its command went out, which tells a link that went quiet from
+/// one whose lines were read and matched nothing. A host that cannot count
+/// never sets it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LinkReads {
+    pub lines: u64,
+    pub last_at: Option<Instant>,
+}
+
 #[derive(Debug, Clone)]
 pub struct CommandReply {
     pub output: String,
@@ -111,7 +122,10 @@ pub struct MonitorCore<W> {
     aggregator: StateAggregator,
     session: String,
     shell_line: String,
-    replies: HashMap<u64, (Waiter<W>, Instant)>,
+    /// Each waiting reply: who waits, when its command went out, and how
+    /// many lines the link had read then (`LinkReads`).
+    replies: HashMap<u64, (Waiter<W>, Instant, u64)>,
+    link: Option<LinkReads>,
     /// Monotonic for the life of the core, so a late block from an expired
     /// reply can never be matched to a newer one (M8).
     next_reply_id: u64,
@@ -144,6 +158,7 @@ impl<W> MonitorCore<W> {
             session: session.to_string(),
             shell_line: shell_line.into(),
             replies: HashMap::new(),
+            link: None,
             next_reply_id: 0,
             client_size: None,
             resize_attempts: HashMap::new(),
@@ -264,7 +279,7 @@ impl<W> MonitorCore<W> {
         let reply_deadline = self
             .replies
             .values()
-            .map(|(_, sent_at)| *sent_at + REPLY_TIMEOUT)
+            .map(|(_, sent_at, _)| *sent_at + REPLY_TIMEOUT)
             .min();
         [
             Some(self.next_sync_at),
@@ -297,6 +312,17 @@ impl<W> MonitorCore<W> {
         self.size_windows().into_iter().collect()
     }
 
+    /// What the host's link has read so far (`LinkReads`).
+    pub fn link_read(&mut self, reads: LinkReads) {
+        self.link = Some(reads);
+    }
+
+    /// A reply registered now: who waits, and the link's lines at send.
+    fn wait_for_reply(&mut self, id: u64, waiter: Waiter<W>, now: Instant) {
+        let lines = self.link.map_or(0, |link| link.lines);
+        self.replies.insert(id, (waiter, now, lines));
+    }
+
     fn fresh_reply_id(&mut self) -> u64 {
         self.next_reply_id += 1;
         self.next_reply_id
@@ -309,3 +335,5 @@ mod tests;
 mod tests_reads;
 #[cfg(test)]
 mod tests_rounds;
+#[cfg(test)]
+mod tests_timeouts;

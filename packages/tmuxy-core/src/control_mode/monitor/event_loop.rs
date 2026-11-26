@@ -120,6 +120,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         let mut rs = RunState::new(&self.config, Instant::now());
 
         loop {
+            self.note_link_reads();
             let throttle_sleep = rs.compute_throttle_sleep(&self.config, Instant::now());
             let layout_deadline = rs
                 .layout_emit_at
@@ -168,6 +169,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 }
 
                 _ = tokio::time::sleep(core_sleep) => {
+                    self.note_link_reads();
                     let actions = self.core.tick(Instant::now());
                     self.dispatch(emitter, &mut rs, actions).await
                 }
@@ -179,6 +181,14 @@ impl<C: ControlLink> TmuxMonitor<C> {
             }
         }
         info!("run() exiting");
+    }
+
+    /// Hand the core what the link has read, before it marks a reply sent
+    /// or times one out (`LinkReads`).
+    fn note_link_reads(&mut self) {
+        if let Some(reads) = self.connection.reads() {
+            self.core.link_read(reads);
+        }
     }
 
     /// Run what the core asked for, in its order, each before the next (M1).

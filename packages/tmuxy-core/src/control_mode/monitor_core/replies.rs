@@ -74,7 +74,7 @@ impl<W> MonitorCore<W> {
                 settles,
             };
         };
-        self.replies.insert(id, (waiter, now));
+        self.wait_for_reply(id, waiter, now);
         Outgoing {
             lines: self.aggregator.markers().reply_wrapped_lines(id, &outgoing),
             relists,
@@ -91,7 +91,7 @@ impl<W> MonitorCore<W> {
         }
         let waiter = outgoing.reply_id.and_then(|id| self.replies.remove(&id));
         let mut actions = Vec::new();
-        if let Some((Waiter::Caller(w) | Waiter::CallerRunShell(w, _), _)) = waiter {
+        if let Some((Waiter::Caller(w) | Waiter::CallerRunShell(w, _), _, _)) = waiter {
             actions.push(Action::Answer(w, CommandReply::failed(error)));
         }
         actions.push(Action::Notify(Notice::Error(format!(
@@ -109,17 +109,17 @@ impl<W> MonitorCore<W> {
         let mut actions = Vec::new();
         match self.replies.remove(&id) {
             // A caller that stopped waiting is the host's to ignore.
-            Some((Waiter::Caller(w), _)) => {
+            Some((Waiter::Caller(w), _, _)) => {
                 actions.push(Action::Answer(w, CommandReply { output, error }))
             }
-            Some((Waiter::CallerRunShell(w, key), _)) => {
+            Some((Waiter::CallerRunShell(w, key), _, _)) => {
                 actions.push(Action::Answer(
                     w,
                     run_shell::caller_reply(&output, &key, error),
                 ));
             }
-            Some((Waiter::Reads, _)) => self.reads.answered(),
-            Some((Waiter::ReportFailure, _)) => {
+            Some((Waiter::Reads, _, _)) => self.reads.answered(),
+            Some((Waiter::ReportFailure, _, _)) => {
                 messages(&mut actions, output.lines());
                 // tmux answers a control client's `show-messages` or
                 // `list-keys` inside the command's reply, never in a pane.
@@ -136,7 +136,7 @@ impl<W> MonitorCore<W> {
                     actions.push(Action::Notify(Notice::Error(error)));
                 }
             }
-            Some((Waiter::RunShell(key), _)) => {
+            Some((Waiter::RunShell(key), _, _)) => {
                 let relayed = run_shell::read_relayed(&output, &key);
                 messages(&mut actions, relayed.before.into_iter());
                 if let Some(error) = error {
@@ -161,35 +161,72 @@ impl<W> MonitorCore<W> {
         actions
     }
 
-    /// M7.
+    /// M7. A timed-out reply's warning says what the link read after its
+    /// command went out (`heard_since`).
     pub(super) fn expire_replies(&mut self, now: Instant) -> Vec<Action<W>> {
         let expired: Vec<u64> = self
             .replies
             .iter()
-            .filter(|(_, (_, sent_at))| now.saturating_duration_since(*sent_at) >= REPLY_TIMEOUT)
+            .filter(|(_, (_, sent_at, _))| now.saturating_duration_since(*sent_at) >= REPLY_TIMEOUT)
             .map(|(id, _)| *id)
             .collect();
         let mut actions = Vec::new();
         for id in expired {
-            match self.replies.remove(&id) {
-                Some((Waiter::Caller(w) | Waiter::CallerRunShell(w, _), _)) => {
-                    tracing::warn!(id, "command reply timed out");
+            let Some((waiter, _, lines_at)) = self.replies.remove(&id) else {
+                continue;
+            };
+            let heard = self.heard_since(lines_at, now);
+            match waiter {
+                Waiter::Caller(w) | Waiter::CallerRunShell(w, _) => {
+                    warn_unanswered(id, heard, "command reply timed out");
                     actions.push(Action::Answer(
                         w,
                         CommandReply::failed("tmux did not answer in time"),
                     ));
                 }
                 // M12: the reads asked for since still go out.
-                Some((Waiter::Reads, _)) => {
-                    tracing::warn!(id, "reads not answered in time");
+                Waiter::Reads => {
+                    warn_unanswered(id, heard, "reads not answered in time");
                     self.reads.answered();
                 }
                 // A long `run-shell` is a legitimate reason for a late END
                 // marker; with nobody waiting there is nothing to report.
-                Some((Waiter::ReportFailure | Waiter::RunShell(_), _)) | None => {}
+                Waiter::ReportFailure | Waiter::RunShell(_) => {}
             }
         }
         actions
+    }
+
+    /// What the link read after a command went out, the link holding
+    /// `lines_at` lines then: how many lines came since, and how long ago
+    /// the last one did. `None` on a host that does not count.
+    pub(super) fn heard_since(&self, lines_at: u64, now: Instant) -> Option<Heard> {
+        let link = self.link?;
+        Some(Heard {
+            lines: link.lines.saturating_sub(lines_at),
+            last_line_ago: link.last_at.map(|at| now.saturating_duration_since(at)),
+        })
+    }
+}
+
+/// What came from tmux after a command went out (`heard_since`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Heard {
+    pub(super) lines: u64,
+    pub(super) last_line_ago: Option<Duration>,
+}
+
+/// No lines since means the link went quiet; lines that kept coming were
+/// read and matched no reply.
+fn warn_unanswered(id: u64, heard: Option<Heard>, what: &str) {
+    match heard {
+        Some(heard) => tracing::warn!(
+            id,
+            lines_since = heard.lines,
+            last_line_ago = ?heard.last_line_ago,
+            "{what}"
+        ),
+        None => tracing::warn!(id, "{what}"),
     }
 }
 

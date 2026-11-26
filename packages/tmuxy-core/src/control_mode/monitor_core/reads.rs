@@ -158,7 +158,7 @@ impl<W> MonitorCore<W> {
         self.count_lists(&lines);
         let id = self.fresh_reply_id();
         lines.extend(self.aggregator.markers().reply_wrapped_lines(id, ""));
-        self.replies.insert(id, (Waiter::Reads, now));
+        self.wait_for_reply(id, Waiter::Reads, now);
         Some(lines)
     }
 }
