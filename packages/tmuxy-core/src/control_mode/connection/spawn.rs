@@ -1,3 +1,4 @@
+use super::open_block::OpenBlockWatch;
 use super::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -115,6 +116,7 @@ pub(super) fn spawn_parser_task(
         let mut parser = Parser::new();
         let mut buf = Vec::with_capacity(4096);
         let mut opening = Some(opening);
+        let mut watch = OpenBlockWatch::default();
 
         loop {
             buf.clear();
@@ -160,7 +162,9 @@ pub(super) fn spawn_parser_task(
                         Some(_) => buf.strip_prefix(CONTROL_MODE_DCS).unwrap_or(&buf),
                         None => &buf[..],
                     };
-                    let Some(mut event) = parser.parse_line(bytes) else {
+                    let parsed = parser.parse_line(bytes);
+                    watch.after_line(parser.open_guard_fields(), std::time::Instant::now());
+                    let Some(mut event) = parsed else {
                         continue;
                     };
                     if let Some(settle) = opening.take() {

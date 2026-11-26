@@ -1,5 +1,6 @@
 #[cfg(target_os = "linux")]
 mod appimage_env;
+mod open_block;
 mod spawn;
 
 use super::log::{LogKind, LogSink};

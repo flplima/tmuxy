@@ -76,6 +76,7 @@ A phase more than one job runs is a composite action under `.github/actions/`, s
 - tmux version drift: CI pins one tmux (`bin/toolchain tmux-version`); the nightly matrix runs the others.
 - Environment mismatch for browser/driver/Xvfb jobs.
 - Tests asserting internals instead of user-visible behavior (see `docs/TESTS.md`).
+- A control-mode connection that connected, then timed out every reply and never closed. The app's log tells two causes apart. A `parser task: a control-mode block is still open` warning means tmux's lines kept coming into a block that never closed; a `guard_fields` above 3 means other text ran into its `%begin` line. Without it, tmux's lines either stopped or were read and matched no reply.
 
 ## Related
 
