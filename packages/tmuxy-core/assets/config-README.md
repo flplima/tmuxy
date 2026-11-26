@@ -212,6 +212,16 @@ That sources `~/.tmux.conf` after tmuxy's defaults and before your
 except where they would stop tmuxy working. It takes effect the next time
 tmuxy connects to its tmux server.
 
+## Extended keys
+
+A program that asks for them (an editor, a coding agent) can tell Shift+Enter
+and Ctrl+Enter from Enter; a shell, which asks nothing, gets the usual bytes.
+To turn them off (tmux 3.5 and later), in `tmuxy.conf`:
+
+    set -s extended-keys off
+
+A program already running keeps what it had until it asks again.
+
 ## Applying a change
 
 | You changed | What applies it |

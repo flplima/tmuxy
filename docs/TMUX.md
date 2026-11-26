@@ -8,6 +8,8 @@ See [TMUX-COMMAND-STRINGS.md](TMUX-COMMAND-STRINGS.md) for these sections: `list
 
 See [TMUX-CONFIG.md](TMUX-CONFIG.md) for these sections: Dedicated Server Socket; Session groups: two GUI windows over one session; tmux Configuration; Key Tables Are the Client's.
 
+See [TMUX-KEYS.md](TMUX-KEYS.md) for the bytes a program receives for a key, extended keys, and what differs by tmux version.
+
 ## Control Mode Architecture
 
 Tmuxy communicates with tmux through **control mode** (`tmux -CC`), which provides real-time event notifications and command execution through a single stdin/stdout connection. No polling is required.
