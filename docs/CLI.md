@@ -144,7 +144,7 @@ Usage: tmuxy tab list [--json]
 ### `tmuxy tab create`
 
 ```text
-Usage: tmuxy tab create [name] [--json]
+Usage: tmuxy tab create [--json] [--] [name]
 ```
 
 ### `tmuxy tab kill`

@@ -59,10 +59,16 @@ cmd_tab() {
       ;;
 
     create)
-      local name=""
+      # After `--` a word is the name, a leading dash and all.
+      local name="" named=false
       for arg in "$@"; do
+        if [ "$named" = true ]; then
+          [ -n "$name" ] || name="$arg"
+          continue
+        fi
         case "$arg" in
-          --help|-h) echo "Usage: tmuxy tab create [name] [--json]"; return ;;
+          --help|-h) echo "Usage: tmuxy tab create [--json] [--] [name]"; return ;;
+          --) named=true ;;
           -*) _die_usage "invalid argument '$arg'" ;;
           *) [ -z "$name" ] && name="$arg" ;;
         esac
