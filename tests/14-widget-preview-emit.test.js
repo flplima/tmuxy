@@ -33,7 +33,7 @@ function previewLineCommand(paneId, line) {
   ).join('');
   const buffer = `tmuxy-preview-${paneId.slice(1)}`;
   return (
-    `set-buffer -b ${buffer} "${quoted}"\n` +
+    `set-buffer -b ${buffer} -- "${quoted}"\n` +
     `if-shell -F -t ${paneId} '#{==:#{@tmuxy-pane-widget},preview}' ` +
     `{ paste-buffer -d -b ${buffer} -t ${paneId} } { delete-buffer -b ${buffer} }`
   );

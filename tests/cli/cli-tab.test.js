@@ -147,7 +147,7 @@ describe('CLI tab subcommands', () => {
       expect(exitCode).toBe(0);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        `tmux -L ${SOCKET} rename-window 'new-name'`,
+        `tmux -L ${SOCKET} rename-window -- 'new-name'`,
       ]);
     });
 
@@ -163,7 +163,23 @@ describe('CLI tab subcommands', () => {
       // became a stray argument.
       const { exitCode, tmuxCalls } = runCLI(['tab', 'rename', 'my tab']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L ${SOCKET} rename-window 'my tab'`]);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        `tmux -L ${SOCKET} rename-window -- 'my tab'`,
+      ]);
+    });
+
+    test.each([
+      [['-1'], '-1'],
+      [['--', '--x'], '--x'],
+    ])('a name that starts with a dash is the name, after `--`: %j', (words, name) => {
+      // tmux reads options until `--`: a bare `-1` was "unknown flag -1".
+      const { exitCode, tmuxCalls } = runCLI(['tab', 'rename', ...words]);
+      expect(exitCode).toBe(0);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        `tmux -L ${SOCKET} rename-window -- '${name}'`,
+      ]);
     });
 
     test('escapes quotes and doubles # in a name', () => {
@@ -173,7 +189,7 @@ describe('CLI tab subcommands', () => {
       expect(exitCode).toBe(0);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        `tmux -L ${SOCKET} rename-window 'it'\\''s ##1'`,
+        `tmux -L ${SOCKET} rename-window -- 'it'\\''s ##1'`,
       ]);
     });
   });

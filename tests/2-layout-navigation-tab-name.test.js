@@ -1,10 +1,12 @@
 /**
  * A tab is named for its pane's directory, or for its program when tmux cannot
  * read the directory (a root process such as `top` or `sudo` on macOS). The strip hides a tab named "", so a tab whose directory
- * cannot be read must still be in it, with a name.
+ * cannot be read must still be in it, with a name. A name the user gives it
+ * from the shell is the name, a leading dash and all.
  */
 
 const { describeE2E, typeInTerminal, pressEnter, waitForCondition } = require('./helpers');
+const { TMUXY_CLI } = require('./helpers/cli');
 
 describeE2E(
   'Scenario: a tab whose directory cannot be read keeps its place in the strip',
@@ -52,3 +54,28 @@ describeE2E(
     }, 90000);
   },
 );
+
+describeE2E('Scenario: a tab renamed from its shell', {}, (ctx) => {
+  test('`tmuxy tab rename -- -1` names the tab -1 in the strip', async () => {
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    // The name is rename-window's operand. Without `--` before it, tmux
+    // read `-1` as a flag and refused the rename ("unknown flag -1").
+    await typeInTerminal(page, `${TMUXY_CLI} tab rename -- -1`);
+    await pressEnter(page);
+    const shown = () =>
+      page.$eval('.tab-name[data-window-id] .tab-name-label', (el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 ? el.textContent.trim() : null;
+      });
+    await waitForCondition(
+      page,
+      async () => (await shown()) === '-1',
+      15000,
+      async () => {
+        return `the tab to show "-1" (shows ${JSON.stringify(await shown())})`;
+      },
+    );
+  }, 60000);
+});

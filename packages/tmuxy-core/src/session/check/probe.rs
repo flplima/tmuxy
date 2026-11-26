@@ -154,7 +154,7 @@ impl Probe {
     /// What tmux says of an option called `name`: nothing when it has one
     /// (an unambiguous prefix counts, as it does to `set`), else its words.
     pub(super) fn option_error(&self, name: &str) -> Option<String> {
-        let (ok, said) = self.ask(&["show-options", "-g", name])?;
+        let (ok, said) = self.ask(&["show-options", "-g", "--", name])?;
         let said = said.trim();
         let refused = ["invalid option", "unknown option", "ambiguous option"]
             .iter()

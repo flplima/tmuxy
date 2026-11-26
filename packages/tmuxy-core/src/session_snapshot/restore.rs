@@ -174,6 +174,7 @@ fn session_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<
             "rename-window",
             "-t",
             &target(s, placeholder),
+            "--",
             &first.name,
         ])));
         if first.index != placeholder {
@@ -256,6 +257,7 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
                 "select-layout",
                 "-t",
                 &target(s, w.index),
+                "--",
                 &restorable_layout(&w.layout),
             ])));
         }
@@ -392,6 +394,7 @@ fn hidden_member_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mu
                 "select-layout",
                 "-t",
                 &target(s, w.index),
+                "--",
                 &restorable_layout(&w.layout),
             ])));
         }

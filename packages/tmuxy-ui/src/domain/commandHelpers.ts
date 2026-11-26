@@ -33,6 +33,22 @@ function hasControlCharacter(text: string): boolean {
   return false;
 }
 
+/**
+ * Free text as the first operand of a tmux command, after `--`.
+ *
+ * tmux reads a command's options until the first word that does not start
+ * with a dash, or until `--`. Free text standing where the operand goes (a
+ * paste, typed text, a window's new name) that starts with a dash (`-1`,
+ * `--help`) is read as flags instead, and tmux refuses the whole command
+ * ("unknown flag -1"). Every command that takes free text as its first
+ * operand spells it through here; `freeText.test.ts` runs every op with such
+ * text through a model of tmux's option parser. A flag's own argument
+ * (`-n name`, `-T title`) needs none: tmux takes the next word whole.
+ */
+export function operand(text: string, quoted: (text: string) => string = quote): string {
+  return `-- ${quoted(text)}`;
+}
+
 export function target(name: string): string {
   return /^[\w.@%:-]+$/.test(name) ? name : quote(name);
 }
@@ -115,9 +131,8 @@ export function list(commands: ReadonlyArray<string>): string {
  * literal would end the `send-keys` there and run the rest of the text as tmux
  * commands of its own — `run-shell` included.
  *
- * `--` ends the options: without it, text starting with a dash (`-la`, or the
- * `-$` of `"line-$i"` when fast typing batches it so) is read as flags, tmux
- * rejects the command, and the text is lost.
+ * The text goes as an `operand`: fast typing batches `"line-$i"` so that one
+ * send starts with `-$`, which tmux would otherwise read as flags.
  *
  * `to` is a pane id, or — before the client knows one — the session name,
  * which goes through `inputTarget`.
@@ -128,7 +143,7 @@ export function literalText(to: string, text: string): string {
   const commands: string[] = [];
   lines.forEach((line, i) => {
     for (let j = 0; j < line.length; j += LITERAL_CHUNK_SIZE) {
-      commands.push(`send-keys -t ${at} -l -- ${quote(line.slice(j, j + LITERAL_CHUNK_SIZE))}`);
+      commands.push(`send-keys -t ${at} -l ${operand(line.slice(j, j + LITERAL_CHUNK_SIZE))}`);
     }
     if (i < lines.length - 1) commands.push(`send-keys -t ${at} Enter`);
   });
@@ -215,14 +230,17 @@ export function pastedText(to: string, text: string): string {
   return commands.join('\n');
 }
 
-/** `text` put in tmux buffer `buffer`, control characters dropped, in chunks. */
+/**
+ * `text` put in tmux buffer `buffer`, control characters dropped, in chunks.
+ * Every chunk is an `operand`: a later one may start with a dash as well.
+ */
 function staged(buffer: string, text: string): string[] {
   const chars = Array.from(withoutControls(text).replace(/\r\n/g, '\n'));
   const commands: string[] = [];
   for (let i = 0; i < chars.length; i += LITERAL_CHUNK_SIZE) {
     const chunk = chars.slice(i, i + LITERAL_CHUNK_SIZE).join('');
     const append = i === 0 ? '' : '-a ';
-    commands.push(`set-buffer ${append}-b ${buffer} ${tmuxDoubleQuoted(chunk)}`);
+    commands.push(`set-buffer ${append}-b ${buffer} ${operand(chunk, tmuxDoubleQuoted)}`);
   }
   return commands;
 }

@@ -58,7 +58,8 @@ else
   exit 1
 fi
 
-echo "$selected"
+# printf, not echo: a session named `-n` or `-e` is echo's option.
+printf '%s\n' "$selected"
 
 # switch-client acts on the calling client, so it must stay a direct call —
 # run-shell would run without a client context and can't switch anything.

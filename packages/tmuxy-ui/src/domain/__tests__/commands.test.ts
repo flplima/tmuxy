@@ -75,7 +75,7 @@ const cases: Array<[TmuxOp, string]> = [
   ],
   [
     TmuxOp.PasteText({ target: pid('%3'), text: 'ls -la' }),
-    `set-buffer -b tmuxy-paste "ls -la"\n${PASTE_INTO_3}`,
+    `set-buffer -b tmuxy-paste -- "ls -la"\n${PASTE_INTO_3}`,
   ],
   [TmuxOp.SendKeys({ target: 'main', keys: 'Up' }), "send-keys -t '=main:' Up"],
   [TmuxOp.SendText({ target: pid('%3'), text: "it's" }), "send-keys -t %3 -l -- 'it'\\''s'"],
@@ -281,7 +281,7 @@ describe('toTmuxCommand', () => {
   it('pastes multi-line text as ONE paste, so a bracketed-paste program inserts every line', () => {
     const text = 'line one\r\nline two\nline three';
     expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')).toEqual([
-      'set-buffer -b tmuxy-paste "line one\\012line two\\012line three"',
+      'set-buffer -b tmuxy-paste -- "line one\\012line two\\012line three"',
       PASTE_INTO_3,
     ]);
   });
@@ -292,7 +292,7 @@ describe('toTmuxCommand', () => {
     const text = 'echo $HOME; ls #{x}\n~ "q" \\ é';
     const [stage] = toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n');
     expect(stage).toBe(
-      'set-buffer -b tmuxy-paste ' +
+      'set-buffer -b tmuxy-paste -- ' +
         '"echo \\044HOME\\073 ls \\043\\173x\\175\\012\\176 \\042q\\042 \\134 \\303\\251"',
     );
   });
@@ -301,25 +301,25 @@ describe('toTmuxCommand', () => {
     const stage = (text: string) =>
       toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')[0];
     expect(stage('safe\x1b[201~rm -rf ~\x1b[200~')).toBe(
-      'set-buffer -b tmuxy-paste "safe[201\\176rm -rf \\176[200\\176"',
+      'set-buffer -b tmuxy-paste -- "safe[201\\176rm -rf \\176[200\\176"',
     );
     // A parser that reads CSI parameters as numbers ends the
     // paste at `ESC [ 0201 ~` as well, and at the 8-bit C1 CSI (U+009B).
     expect(stage('echo safe\x1b[0201~; touch /tmp/pwned')).toBe(
-      'set-buffer -b tmuxy-paste "echo safe[0201\\176\\073 touch /tmp/pwned"',
+      'set-buffer -b tmuxy-paste -- "echo safe[0201\\176\\073 touch /tmp/pwned"',
     );
     expect(stage('echo safe\x9b201~; touch /tmp/pwned')).toBe(
-      'set-buffer -b tmuxy-paste "echo safe201\\176\\073 touch /tmp/pwned"',
+      'set-buffer -b tmuxy-paste -- "echo safe201\\176\\073 touch /tmp/pwned"',
     );
     // NUL, ESC, the rest of C0, DEL and all of C1 go; tab, newline and CR stay.
     expect(stage('a\x00b\x03c\x7fd\x80e\x9ff\tg\nh\ri')).toBe(
-      'set-buffer -b tmuxy-paste "abcdef\\011g\\012h\\015i"',
+      'set-buffer -b tmuxy-paste -- "abcdef\\011g\\012h\\015i"',
     );
   });
 
   it('pastes into a session target alone: a name never reaches the shell the synced paste runs in', () => {
     expect(toTmuxCommand(TmuxOp.PasteText({ target: "x'; touch y; '", text: 'a' }))).toBe(
-      `set-buffer -b tmuxy-paste "a"\npaste-buffer -p -d -b tmuxy-paste -t '=x'\\''; touch y; '\\'':'`,
+      `set-buffer -b tmuxy-paste -- "a"\npaste-buffer -p -d -b tmuxy-paste -t '=x'\\''; touch y; '\\'':'`,
     );
   });
 
@@ -333,7 +333,7 @@ describe('toTmuxCommand', () => {
       TmuxOp.SendPreviewLine({ paneId: pid('%7'), json: '{"emit":{"x":"$(rm -rf ~)"}}' }),
     ).split('\n');
     expect(lines).toEqual([
-      'set-buffer -b tmuxy-preview-7 ' +
+      'set-buffer -b tmuxy-preview-7 -- ' +
         '"\\173\\042emit\\042:\\173\\042x\\042:\\042\\044(rm -rf \\176)\\042\\175\\175\\012"',
       `if-shell -F -t %7 '${PANE_PREVIEWS}' ` +
         '{ paste-buffer -d -b tmuxy-preview-7 -t %7 } { delete-buffer -b tmuxy-preview-7 }',
@@ -348,7 +348,7 @@ describe('toTmuxCommand', () => {
     const json = JSON.stringify({ input: 'note', value: 'a\u2028b\u009bc\u007fé😀' });
     const [stage] = toTmuxCommand(TmuxOp.SendPreviewLine({ paneId: pid('%2'), json })).split('\n');
     const typed = stage
-      .replace(/^set-buffer -b tmuxy-preview-2 "/, '')
+      .replace(/^set-buffer -b tmuxy-preview-2 -- "/, '')
       .replace(/"$/, '')
       .replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
     expect(typed.endsWith('\n')).toBe(true);
@@ -360,12 +360,14 @@ describe('toTmuxCommand', () => {
     expect(toTmuxCommand(TmuxOp.SendPreviewLine({ paneId: 'main' as never, json: '{}' }))).toBe('');
   });
 
-  it('stages a long paste in chunks, appending each after the first', () => {
-    const text = 'x'.repeat(1200);
+  it('stages a long paste in chunks, appending each after the first, every one after `--`', () => {
+    // A chunk that starts with a dash is read by tmux as flags unless `--`
+    // comes first ("unknown flag -1"), the first chunk or any later one.
+    const text = '-1' + 'x'.repeat(498) + '-a -b' + 'x'.repeat(495) + 'x'.repeat(200);
     expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')).toEqual([
-      `set-buffer -b tmuxy-paste "${'x'.repeat(500)}"`,
-      `set-buffer -a -b tmuxy-paste "${'x'.repeat(500)}"`,
-      `set-buffer -a -b tmuxy-paste "${'x'.repeat(200)}"`,
+      `set-buffer -b tmuxy-paste -- "-1${'x'.repeat(498)}"`,
+      `set-buffer -a -b tmuxy-paste -- "-a -b${'x'.repeat(495)}"`,
+      `set-buffer -a -b tmuxy-paste -- "${'x'.repeat(200)}"`,
       PASTE_INTO_3,
     ]);
   });

@@ -202,6 +202,15 @@ shquote() {
   printf '%s' "${out# }"
 }
 
+# A free-text operand for a `_run_safe` command string: `--`, then the text
+# `shquote`d. tmux reads a command's options until the first word that does
+# not start with a dash, or until `--`, so a name like `-1` standing where the
+# operand goes would be read as flags and the command refused. A flag's own
+# argument (`-n name`, `-t target`) needs none: tmux takes the next word whole.
+operand() {
+  printf -- '-- %s' "$(shquote "$1")"
+}
+
 # shellcheck source=_contract
 source "$SCRIPTS_DIR/_contract"
 

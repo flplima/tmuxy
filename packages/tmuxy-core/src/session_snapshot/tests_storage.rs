@@ -14,7 +14,7 @@ fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() 
         },
     ));
     assert!(!lines.iter().any(|l| l.starts_with("run: new-session")));
-    assert_eq!(lines[0], "run: rename-window -t work:0 main");
+    assert_eq!(lines[0], "run: rename-window -t work:0 -- main");
     // With `base-index 1` the placeholder sits at 1 and must be moved to
     // the snapshot's first index — the failure the first real restore hit.
     let based = joined(&plan(
@@ -25,7 +25,7 @@ fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() 
             ..Default::default()
         },
     ));
-    assert_eq!(based[0], "run: rename-window -t work:1 main");
+    assert_eq!(based[0], "run: rename-window -t work:1 -- main");
     assert_eq!(based[1], "run: move-window -s work:1 -t work:0");
     assert!(
         !lines.iter().any(|l| l.starts_with("run: move-window")),
@@ -296,4 +296,44 @@ fn pruning_keeps_five_however_old_and_everything_recent() {
     assert_eq!(left.len(), KEEP_AT_LEAST, "{left:?}");
     assert!(left.last().unwrap().to_str().unwrap().contains(&stamp(now)));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A window's name and a pane's command come back from a file, and either
+/// may start with a dash. Each goes after `--`, where tmux reads it as the
+/// operand it is: before, `rename-window -t work:0 -1` was "unknown flag -1".
+#[test]
+fn a_name_or_command_that_starts_with_a_dash_comes_back_as_itself() {
+    let mut snapshot = fixture();
+    snapshot.windows[0].name = "-1".into();
+    snapshot.windows[0].panes[1].restore_command = Some("-x --help".into());
+    let steps = plan(
+        &snapshot,
+        &RestoreOptions {
+            onto_existing_window: true,
+            run: true,
+            ..Default::default()
+        },
+    );
+    let reads: Vec<(String, Vec<String>)> = steps
+        .iter()
+        .filter_map(|step| match step {
+            Step::Run(argv) => Some(argv),
+            Step::Ask { .. } => None,
+        })
+        .filter(|argv| {
+            matches!(
+                argv.first().map(String::as_str),
+                Some("rename-window" | "send-keys" | "select-layout")
+            )
+        })
+        .flat_map(|argv| crate::argv::as_tmux_reads(argv).unwrap())
+        .collect();
+    assert!(
+        reads.contains(&("rename-window".into(), vec!["-1".into()])),
+        "{reads:?}"
+    );
+    assert!(
+        reads.contains(&("send-keys".into(), vec!["-x --help".into()])),
+        "{reads:?}"
+    );
 }

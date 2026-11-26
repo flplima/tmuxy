@@ -27,6 +27,7 @@ import {
   target,
   inputTarget,
   sessionTarget,
+  operand,
   quote,
 } from './commandHelpers';
 import { LEFT_SIDEBAR_WIDGET, SHELL_IN_FRONT, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
@@ -344,8 +345,8 @@ export function toTmuxCommand(op: TmuxOp): string {
       ]);
     case 'RenameWindow':
       return op.target
-        ? `rename-window -t ${op.target} -- ${quote(op.name)}`
-        : `rename-window -- ${quote(op.name)}`;
+        ? `rename-window -t ${op.target} ${operand(op.name)}`
+        : `rename-window ${operand(op.name)}`;
     case 'MoveWindow':
       return `move-window -${op.placement === 'before' ? 'b' : 'a'} -s ${op.windowId} -t ${op.anchorId}`;
     case 'SelectLayout':
@@ -402,8 +403,8 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `switch-client -t ${sessionTarget(op.session)}`;
     case 'RenameSession':
       return op.session === null
-        ? `rename-session -- ${quote(op.name)}`
-        : `rename-session -t ${sessionTarget(op.session)} -- ${quote(op.name)}`;
+        ? `rename-session ${operand(op.name)}`
+        : `rename-session -t ${sessionTarget(op.session)} ${operand(op.name)}`;
     case 'SourceConfig':
       return `source-file ${CONFIG_FILE}`;
     case 'ClearFocusRequest':
@@ -426,20 +427,21 @@ export function toTmuxCommand(op: TmuxOp): string {
  * What the user types into a prompt, as one double-quoted argument: tmux
  * puts it in place of `%%%` with its quotes, `\`, `$`, `;` and `~` escaped,
  * so a name with a quote in it stays a name. A single-quoted `'%%'` let a
- * typed `'` end the quote and run the rest as commands.
+ * typed `'` end the quote and run the rest as commands. It is an `operand`,
+ * after `--`, so a typed `-1` is the name and not a flag.
  */
-const PROMPT_RESPONSE = '"%%%"';
+const PROMPT_RESPONSE = operand('%%%', () => '"%%%"');
 
 export const renameWindowPrompt = (): TmuxOp =>
   TmuxOp.CommandPrompt({
     prompt: null,
     initial: '#W',
-    template: `rename-window -- ${PROMPT_RESPONSE}`,
+    template: `rename-window ${PROMPT_RESPONSE}`,
   });
 
 export const renameSessionPrompt = (): TmuxOp =>
   TmuxOp.CommandPrompt({
     prompt: null,
     initial: '#S',
-    template: `rename-session -- ${PROMPT_RESPONSE}`,
+    template: `rename-session ${PROMPT_RESPONSE}`,
   });

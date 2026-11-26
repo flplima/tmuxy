@@ -4,7 +4,7 @@ This document covers how tmuxy interacts with tmux: control mode architecture, c
 
 See [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) for these sections: tmux Version; `new-window` Crashes Control Mode; Tauri Desktop App: `new-window` Handling; `%unlinked-window-close` Events; `pane_in_mode` Is Not "In Copy Mode"; Flow Control; tmux 3.7a Format Expansion (Critical).
 
-See [TMUX-COMMAND-STRINGS.md](TMUX-COMMAND-STRINGS.md) for these sections: `list-keys` Reports Aliases Already Expanded; Client-Side Placeholder Substitution; Bash Variable Conflicts.
+See [TMUX-COMMAND-STRINGS.md](TMUX-COMMAND-STRINGS.md) for these sections: `list-keys` Reports Aliases Already Expanded; Client-Side Placeholder Substitution; Free Text Goes After `--`; Bash Variable Conflicts.
 
 See [TMUX-CONFIG.md](TMUX-CONFIG.md) for these sections: Dedicated Server Socket; Session groups: two GUI windows over one session; tmux Configuration; Key Tables Are the Client's.
 

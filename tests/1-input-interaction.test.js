@@ -256,6 +256,38 @@ describeE2E('Scenario 2b: Browser Paste', {}, (ctx) => {
     await waitForTerminalText(ctx.page, "it's $x #{session_name} ; a\\;b done_QS9");
   }, 60000);
 
+  test('a paste that starts with a dash, or whose next chunk does, is pasted, not refused by tmux', async () => {
+    await ctx.setupPage();
+    await focusPage(ctx.page);
+
+    // The paste is staged with `set-buffer`, its text the command's operand.
+    // Without `--` first, tmux read a leading dash as flags and refused the
+    // command ("unknown flag -1"): the paste was lost and the snackbar said
+    // so. A paste longer than 500 characters is staged in chunks, and a
+    // later chunk that starts with a dash was refused the same way. `read`
+    // takes each paste as one line, and the shell prints what it got.
+    await typeInTerminal(ctx.page, 'read -r x; echo "GOT[$x]"');
+    await pressEnter(ctx.page);
+    await pasteText(ctx.page, '-1');
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'GOT[-1]');
+
+    // The shell compares the line with the same text built locally.
+    await typeInTerminal(
+      ctx.page,
+      `read -r x; [ "$x" = "$(printf 'a%.0s' $(seq 500))-2 end" ] && echo DASH_CHUNK_OK_\${#x}`,
+    );
+    await pressEnter(ctx.page);
+    await pasteText(ctx.page, `${'a'.repeat(500)}-2 end`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'DASH_CHUNK_OK_506');
+
+    const notices = await ctx.page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="snackbar-item"]')].map((el) => el.textContent),
+    );
+    expect(notices.filter((text) => /flag|parse error/.test(text))).toEqual([]);
+  }, 60000);
+
   test('a multi-line paste reaches a bracketed-paste program as ONE paste, not a Return per line', async () => {
     await ctx.setupPage();
     await focusPage(ctx.page);

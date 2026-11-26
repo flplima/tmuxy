@@ -110,10 +110,11 @@ cmd_tab() {
 
     rename)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy tab rename <name>"; return ;;
-        "") _die_usage "name required" ;;
+        --help|-h) echo "Usage: tmuxy tab rename [--] <name>"; return ;;
+        --) shift ;;
       esac
-      _run_safe "rename-window$CALLER_T $(shquote "$1")"
+      [ -n "${1:-}" ] || _die_usage "name required"
+      _run_safe "rename-window$CALLER_T $(operand "$1")"
       _done "name=$(json_string "$1")"
       ;;
 

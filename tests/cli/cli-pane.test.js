@@ -305,6 +305,14 @@ describe('CLI pane subcommands', () => {
       expect(stdout).toMatch(/mock-server-started send --target %3 .* --paste -- hello world$/m);
     });
 
+    test('paste takes `--` as the end of its options, not as text', () => {
+      const { exitCode, stdout } = runCLI(['pane', 'paste', '-t', '%3', '--', '-1'], {
+        env: IN_PANE_1,
+      });
+      expect(exitCode).toBe(0);
+      expect(stdout).toMatch(/mock-server-started send --target %3 .* --paste -- -1$/m);
+    });
+
     test.each([
       [['pane', 'send'], 'keys required'],
       [['pane', 'paste'], 'text required'],

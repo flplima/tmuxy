@@ -114,7 +114,7 @@ impl Float {
             argv.extend(["-c".into(), cwd.clone()]);
         }
         argv.extend(["-P".into(), "-F".into(), "#{pane_id}".into()]);
-        argv.extend(self.command.clone());
+        argv.extend(crate::argv::operands(self.command.clone()));
         let at = self.at.as_str();
         let mut then = |cmd: &[&str]| {
             argv.push(";".into());
@@ -305,7 +305,7 @@ mod tests {
         };
         assert_eq!(
             float.argv().join(" "),
-            "split-window -t %3 -P -F #{pane_id} fzf \
+            "split-window -t %3 -P -F #{pane_id} -- fzf \
              ; break-pane -d -n float -t $1:7 \
              ; set-option -w -t $1:7 @tmuxy-window-type float \
              ; set-option -w -t $1:7 @tmuxy-float-parent @2 \
@@ -315,6 +315,23 @@ mod tests {
              ; resize-window -t $1:7 -x 60 \
              ; select-pane -t %3 \
              ; display-message -p -t $1:7 #{pane_id} #{window_id}"
+        );
+    }
+
+    /// The command is split-window's operand, after `--`: one that starts
+    /// with a dash is the float's command, not split-window's flags.
+    #[test]
+    fn a_command_that_starts_with_a_dash_is_the_floats_command() {
+        let float = Float {
+            from_pane: Some("%3".into()),
+            command: Some("-x --help".into()),
+            at: "$1:7".into(),
+            ..Float::default()
+        };
+        let reads = crate::argv::as_tmux_reads(&float.argv()).unwrap();
+        assert_eq!(
+            reads[0],
+            ("split-window".to_string(), vec!["-x --help".to_string()])
         );
     }
 
