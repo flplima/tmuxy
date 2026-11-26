@@ -50,6 +50,8 @@ export const wirePane = (over: Partial<WirePaneEncoded> = {}): WirePaneEncoded =
   copy_cursor_y: 0,
   alternate_on: false,
   mouse_any_flag: false,
+  mouse_all_flag: false,
+  mouse_pixels_flag: false,
   history_size: 0,
   selection_present: false,
   selection_start_x: 0,

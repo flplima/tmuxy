@@ -400,6 +400,8 @@ mod tests_capture_cursor;
 #[cfg(test)]
 mod tests_hyperlinks;
 #[cfg(test)]
+mod tests_mouse_modes;
+#[cfg(test)]
 mod tests_panes;
 #[cfg(test)]
 mod tests_program_status;

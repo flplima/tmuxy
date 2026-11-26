@@ -1,6 +1,6 @@
 use super::*;
 use crate::constants::tmux_formats::{Row, StashColumn};
-use crate::{GroupId, PaneContent, PaneId, TmuxPane, TmuxState, TmuxWindow, WindowId};
+use crate::{GroupId, PaneId, TmuxPane, TmuxState, TmuxWindow, WindowId};
 
 /// Prepare capture-pane bytes for vt100: strip the trailing newline (which
 /// would push the cursor past the last row and scroll) and expand `\n` to
@@ -40,40 +40,11 @@ pub(super) struct StashMember {
 /// member's tab; its content streams once it is swapped into view.
 fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
     TmuxPane {
-        id: 0,
-        tmux_id: pane_id.clone(),
-        window_id: member.window_id.clone(),
-        content: std::sync::Arc::new(PaneContent::default()),
-        cursor_x: 0,
-        cursor_y: 0,
-        width: 0,
-        height: 0,
-        x: 0,
-        y: 0,
-        active: false,
         command: member.command.clone(),
         title: member.title.clone(),
-        border_title: String::new(),
         group_id: Some(member.group_id.clone()),
         group_pos: member.group_pos,
-        in_mode: false,
-        copy_cursor_x: 0,
-        copy_cursor_y: 0,
-        alternate_on: false,
-        mouse_any_flag: false,
-        marked: false,
-        history_size: 0,
-        selection_present: false,
-        selection_start_x: 0,
-        selection_start_y: 0,
-        images: Vec::new(),
-        cursor_shape: 0,
-        cursor_hidden: false,
-        pane_state: None,
-        pane_status: None,
-        pane_ask: None,
-        pane_widget: None,
-        pane_restore: None,
+        ..TmuxPane::blank(pane_id.clone(), member.window_id.clone())
     }
 }
 

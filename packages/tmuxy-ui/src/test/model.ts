@@ -37,6 +37,8 @@ export const modelPane = (
   copyCursorY: 0,
   alternateOn: false,
   mouseAnyFlag: false,
+  mouseAllFlag: false,
+  mousePixelsFlag: false,
   historySize: 0,
   selectionPresent: false,
   selectionStartX: 0,

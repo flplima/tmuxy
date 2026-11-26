@@ -35,9 +35,8 @@ interface ScrollCommandOptions {
   lines: number;
   alternateOn: boolean;
   mouseAnyFlag: boolean;
-  /** 0-based cell, for the SGR report. */
-  cellX?: number;
-  cellY?: number;
+  /** Where the SGR report says the pointer is, 1-based; the first cell by default. */
+  at?: { x: number; y: number };
 }
 
 /**
@@ -46,7 +45,7 @@ interface ScrollCommandOptions {
  * screen without mouse tracking gets Up/Down. False for a pane that is neither.
  */
 export function sendScrollLines(opts: ScrollCommandOptions): boolean {
-  const { send, paneId, lines, alternateOn, mouseAnyFlag, cellX = 0, cellY = 0 } = opts;
+  const { send, paneId, lines, alternateOn, mouseAnyFlag, at = { x: 1, y: 1 } } = opts;
 
   if (lines === 0) return true;
 
@@ -59,7 +58,7 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
     // SGR wheel buttons: 64 up, 65 down.
     const button = isScrollUp ? 64 : 65;
     // One op for the whole flick: a report a row, in a single command.
-    const report = { button, x: cellX + 1, y: cellY + 1, release: false };
+    const report = { button, x: at.x, y: at.y, release: false };
     send({
       type: 'DISPATCH_OP',
       op: TmuxOp.SendMouse({ paneId, reports: Array.from({ length: absLines }, () => report) }),

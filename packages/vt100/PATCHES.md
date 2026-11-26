@@ -125,6 +125,11 @@ Covered by `tests/terminal_fidelity.rs` and
   the application last asked for, `Screen::cursor_shape`. tmuxy draws the
   cursor itself and used to scan the raw bytes for the sequence beside the
   parser; the parser is where every other escape is read.
+- **SGR-Pixels mouse encoding** (`CSI ? 1016 h` / `l`):
+  `MouseProtocolEncoding::SgrPixels`, set and cleared like 1006. A program
+  that sets it wants SGR mouse reports with the position in pixels, so
+  tmuxy-core tells the UI to send them that way. Upstream ignored the mode.
+  Covered by the `sgr_pixels_*` tests in tmuxy-core.
 
 ## Removed: the serializers
 

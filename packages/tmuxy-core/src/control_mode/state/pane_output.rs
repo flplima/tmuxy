@@ -63,9 +63,12 @@ impl PaneState {
         // From the parser, not the list-panes poll: it changes the moment the
         // program sends the escape.
         self.alternate_on = self.terminal.screen().alternate_screen();
-        self.mouse_any_flag = !matches!(
-            self.terminal.screen().mouse_protocol_mode(),
-            vt100::MouseProtocolMode::None
+        let mouse_mode = self.terminal.screen().mouse_protocol_mode();
+        self.mouse_any_flag = !matches!(mouse_mode, vt100::MouseProtocolMode::None);
+        self.mouse_all_flag = matches!(mouse_mode, vt100::MouseProtocolMode::AnyMotion);
+        self.mouse_pixels_flag = matches!(
+            self.terminal.screen().mouse_protocol_encoding(),
+            vt100::MouseProtocolEncoding::SgrPixels
         );
         self.cursor_hidden = self.terminal.screen().hide_cursor();
         // An OSC 0/2 title, applied now: tmux reports `pane_title` only on
@@ -201,8 +204,9 @@ impl PaneState {
     /// exclusive).
     ///
     /// Any tracking mode makes the flag true, so plain `?1000h` restores it
-    /// whichever variant (1000/1002/1003) the program chose; a later `?1000l`
-    /// still clears it.
+    /// for 1000 and 1002; a later `?1000l` still clears it. Any-motion
+    /// (1003) and SGR-Pixels (1016) come back as themselves, since the UI
+    /// sends hover and pixel reports only while they hold.
     fn fresh_terminal(&self) -> vt100::Parser<super::osc::OscRequests> {
         let mut terminal = vt100::Parser::new_with_callbacks(
             crate::grid_side(self.height),
@@ -213,8 +217,13 @@ impl PaneState {
         if self.alternate_on {
             terminal.process(b"\x1b[?1049h");
         }
-        if self.mouse_any_flag {
+        if self.mouse_all_flag {
+            terminal.process(b"\x1b[?1003h");
+        } else if self.mouse_any_flag {
             terminal.process(b"\x1b[?1000h");
+        }
+        if self.mouse_pixels_flag {
+            terminal.process(b"\x1b[?1016h");
         }
         // A hidden cursor is a mode too: rebuilt without it, a full-screen
         // program that hid its cursor long ago (an image viewer, a pager)
@@ -223,6 +232,17 @@ impl PaneState {
             terminal.process(b"\x1b[?25l");
         }
         terminal
+    }
+
+    /// tmux says the pane tracks no mouse: the program that asked for pixels
+    /// is gone or reset its modes. The parser forgets the encoding too, or
+    /// the pane's next output would bring the flag back for a program that
+    /// never asked for it.
+    pub(in crate::control_mode::state) fn forget_mouse_pixels(&mut self) {
+        if self.mouse_pixels_flag {
+            self.mouse_pixels_flag = false;
+            self.terminal.process(b"\x1b[?1016l");
+        }
     }
 
     /// The commands that tell tmux what the pane's program last reported

@@ -111,6 +111,10 @@ impl StateAggregator {
         }
         pane.alternate_on = row.flag(PaneColumn::AlternateOn);
         pane.mouse_any_flag = row.flag(PaneColumn::MouseAnyFlag);
+        pane.mouse_all_flag = row.flag(PaneColumn::MouseAllFlag);
+        if !pane.mouse_any_flag {
+            pane.forget_mouse_pixels();
+        }
         pane.marked = row.flag(PaneColumn::Marked);
         pane.selection_present = row.flag(PaneColumn::SelectionPresent);
         pane.selection_start_x = number(PaneColumn::SelectionStartX);

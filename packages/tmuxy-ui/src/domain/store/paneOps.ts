@@ -117,6 +117,8 @@ export function makePlaceholderPane(
     copyCursorY: 0,
     alternateOn: false,
     mouseAnyFlag: false,
+    mouseAllFlag: false,
+    mousePixelsFlag: false,
     marked: false,
     historySize: 0,
     selectionPresent: false,

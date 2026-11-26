@@ -268,6 +268,8 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
         copy_cursor_y: 0,
         alternate_on: false,
         mouse_any_flag: false,
+        mouse_all_flag: false,
+        mouse_pixels_flag: false,
         marked: false,
         history_size: 0,
         selection_present: false,

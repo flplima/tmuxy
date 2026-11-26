@@ -94,6 +94,10 @@ pub struct PaneDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mouse_any_flag: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub mouse_all_flag: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mouse_pixels_flag: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub marked: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_size: Option<u64>,

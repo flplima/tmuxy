@@ -180,6 +180,8 @@ row_table! {
         // Written by the host from checked reports, but an option anything
         // can set: read as free text, so a comma in it shifts no field.
         Status => Field::Text(tmux_options::PANE_STATUS),
+        // Last: a row that stops short of it reads it as off.
+        MouseAllFlag => Field::Var("mouse_all_flag"),
     }
 }
 

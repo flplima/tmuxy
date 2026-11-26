@@ -115,6 +115,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     charWidth,
     charHeight,
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
+    mouseAllFlag: pane?.mouseAllFlag ?? false,
+    mousePixelsFlag: pane?.mousePixelsFlag ?? false,
     alternateOn: pane?.alternateOn ?? false,
     inMode: pane?.inMode ?? false,
     scrollbackMode: copyState?.mode ?? null,
@@ -204,6 +206,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
       data-pane-command={pane.command}
       data-alternate-on={pane.alternateOn}
       data-mouse-any-flag={pane.mouseAnyFlag}
+      data-mouse-all-flag={pane.mouseAllFlag}
+      data-mouse-pixels-flag={pane.mousePixelsFlag}
       // Not a Tab stop: Tab inside a pane is the terminal's.
       tabIndex={-1}
       onMouseDown={(e) => {

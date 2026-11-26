@@ -67,6 +67,10 @@ export const TmuxPane = Schema.mutable(
     alternateOn: withDefault('alternate_on', Schema.Boolean, () => false),
     /** The application has turned mouse tracking on. */
     mouseAnyFlag: withDefault('mouse_any_flag', Schema.Boolean, () => false),
+    /** The application asked for every pointer move, no button held too (`?1003h`). */
+    mouseAllFlag: withDefault('mouse_all_flag', Schema.Boolean, () => false),
+    /** The application asked for mouse reports in pixels, not cells (SGR-Pixels, `?1016h`). */
+    mousePixelsFlag: withDefault('mouse_pixels_flag', Schema.Boolean, () => false),
     /**
      * True if this is tmux's marked pane (`select-pane -m`, `#{pane_marked}`).
      * Absent means false. `swap-pane` / `join-pane` without a source act on it.
