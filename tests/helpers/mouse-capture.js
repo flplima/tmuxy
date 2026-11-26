@@ -39,13 +39,18 @@ function describePaneCommands(ctx) {
  * starts in the active tiled pane — so a capture meant for the dock ran in
  * the pane instead, and the dock's clicks reached a shell that reports
  * nothing.
+ *
+ * `modes` replaces the script's default mouse modes (1000, 1002, 1006), as
+ * DEC private mode numbers: `[1003, 1006, 1016]` asks for every move, in
+ * pixels.
  */
-async function startMouseCapture(ctx, { terminal } = {}) {
+async function startMouseCapture(ctx, { terminal, modes } = {}) {
   try {
     fs.unlinkSync(MOUSE_LOG);
   } catch {}
   if (!terminal) await focusPage(ctx.page);
-  await typeInTerminal(ctx.page, `python3 ${MOUSE_CAPTURE_SCRIPT}`, { target: terminal });
+  const modeArg = modes ? ` --modes ${modes.join(',')}` : '';
+  await typeInTerminal(ctx.page, `python3 ${MOUSE_CAPTURE_SCRIPT}${modeArg}`, { target: terminal });
   await pressEnter(ctx.page);
   // The log file says READY before the raw-mode screen may have drawn it.
   await waitForCondition(

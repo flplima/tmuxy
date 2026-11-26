@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-Turns on SGR mouse tracking (modes 1000, 1002 and 1006), reads raw terminal
-input, and writes every SGR mouse report it gets to stdout and a log file, so
-an E2E test can check what the UI sent to the pane.
+Turns on SGR mouse tracking (modes 1000, 1002 and 1006 by default), reads
+raw terminal input, and writes every SGR mouse report it gets to stdout and a
+log file, so an E2E test can check what the UI sent to the pane.
 
 Usage:
-    python3 mouse-capture.py [logfile]
+    python3 mouse-capture.py [logfile] [--modes 1003,1006,1016]
 
-The logfile defaults to /tmp/mouse-events.log.
+The logfile defaults to /tmp/mouse-events.log. `--modes` names the DEC
+private modes to set instead of the default ones: 1003 for every pointer
+move, 1016 for positions in pixels.
 
 Output format (one event per line):
     press:btn=0:x=10:y=5
     release:btn=0:x=10:y=5
     drag:btn=0:x=12:y=5
+    move:btn=3:x=14:y=6          (a move with no button held)
     scroll_up:btn=64:x=10:y=5
     scroll_down:btn=65:x=10:y=5
 
@@ -25,7 +28,15 @@ import sys
 import termios
 import tty
 
-LOGFILE = sys.argv[1] if len(sys.argv) > 1 else '/tmp/mouse-events.log'
+args = sys.argv[1:]
+MODES = [1000, 1002, 1006]
+if '--modes' in args:
+    at = args.index('--modes')
+    MODES = [int(m) for m in args[at + 1].split(',')]
+    del args[at:at + 2]
+LOGFILE = args[0] if args else '/tmp/mouse-events.log'
+SET_MODES = ''.join(f'\033[?{m}h' for m in MODES).encode()
+RESET_MODES = ''.join(f'\033[?{m}l' for m in reversed(MODES)).encode()
 
 fd = sys.stdin.fileno()
 old_attrs = termios.tcgetattr(fd)
@@ -36,8 +47,10 @@ try:
     # Enable SGR mouse tracking:
     # 1000 = button event tracking (press/release)
     # 1002 = button motion tracking (drag while button held)
+    # 1003 = any motion tracking (moves with no button held too)
     # 1006 = SGR extended encoding (\033[<...M/m instead of legacy encoding)
-    os.write(1, b'\033[?1000h\033[?1002h\033[?1006h')
+    # 1016 = SGR with positions in pixels
+    os.write(1, SET_MODES)
 
     with open(LOGFILE, 'w') as log:
         log.write('READY\n')
@@ -111,8 +124,8 @@ try:
                 elif btn >= 64:
                     evt = 'scroll_up' if btn == 64 else 'scroll_down'
                 elif btn >= 32:
-                    evt = 'drag'
                     btn -= 32  # +32 is the motion flag
+                    evt = 'move' if btn == 3 else 'drag'
                 else:
                     evt = 'press'
 
@@ -125,5 +138,5 @@ try:
                 break
 
 finally:
-    os.write(1, b'\033[?1000l\033[?1002l\033[?1006l')
+    os.write(1, RESET_MODES)
     termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)

@@ -41,6 +41,14 @@ pub struct TmuxPane {
     /// SGR sequences.
     #[serde(default)]
     pub mouse_any_flag: bool,
+    /// The application asked for every pointer move, with no button held
+    /// too (`?1003h`): the UI sends a motion report on hover.
+    #[serde(default)]
+    pub mouse_all_flag: bool,
+    /// The application asked for mouse reports in pixels (SGR-Pixels,
+    /// `?1016h`): the UI sends the pointer's pixel position, not its cell.
+    #[serde(default)]
+    pub mouse_pixels_flag: bool,
     /// True if this is tmux's marked pane (`select-pane -m`). The UI shows an
     /// indicator and offers swap/join with it.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -96,6 +104,52 @@ pub struct TmuxPane {
     /// program declaring it is a change the session snapshot follows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_restore: Option<String>,
+}
+
+impl TmuxPane {
+    /// A pane with nothing known about it but where it is: no size, no
+    /// content, no modes, no tags. A caller sets what it knows on top, with
+    /// struct update syntax.
+    pub fn blank(tmux_id: PaneId, window_id: WindowId) -> Self {
+        Self {
+            id: 0,
+            tmux_id,
+            window_id,
+            content: std::sync::Arc::new(PaneContent::default()),
+            cursor_x: 0,
+            cursor_y: 0,
+            width: 0,
+            height: 0,
+            x: 0,
+            y: 0,
+            active: false,
+            command: String::new(),
+            title: String::new(),
+            border_title: String::new(),
+            group_id: None,
+            group_pos: None,
+            in_mode: false,
+            copy_cursor_x: 0,
+            copy_cursor_y: 0,
+            alternate_on: false,
+            mouse_any_flag: false,
+            mouse_all_flag: false,
+            mouse_pixels_flag: false,
+            marked: false,
+            history_size: 0,
+            selection_present: false,
+            selection_start_x: 0,
+            selection_start_y: 0,
+            images: Vec::new(),
+            cursor_shape: 0,
+            cursor_hidden: false,
+            pane_state: None,
+            pane_status: None,
+            pane_ask: None,
+            pane_widget: None,
+            pane_restore: None,
+        }
+    }
 }
 
 /// Window type discriminator. Floats and sidebars carry it as the

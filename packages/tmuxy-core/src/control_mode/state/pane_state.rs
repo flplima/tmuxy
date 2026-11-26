@@ -74,6 +74,12 @@ pub struct PaneState {
 
     pub alternate_on: bool,
     pub mouse_any_flag: bool,
+    /// The program asked for every pointer move, button held or not
+    /// (`?1003h`). tmux reports it as `mouse_all_flag`.
+    pub mouse_all_flag: bool,
+    /// The program asked for SGR mouse reports in pixels (`?1016h`). tmux
+    /// does not track this mode, so only the parser sees it.
+    pub mouse_pixels_flag: bool,
 
     /// tmux's marked pane (`select-pane -m`, `#{pane_marked}`). At most one
     /// pane per server carries it; `swap-pane`/`join-pane` without a source
@@ -185,6 +191,8 @@ impl PaneState {
             tmux_cursor_y: 0,
             alternate_on: false,
             mouse_any_flag: false,
+            mouse_all_flag: false,
+            mouse_pixels_flag: false,
             marked: false,
             selection_present: false,
             selection_start_x: 0,
@@ -328,6 +336,8 @@ impl PaneState {
             copy_cursor_y: self.copy_cursor_y,
             alternate_on: self.alternate_on,
             mouse_any_flag: self.mouse_any_flag,
+            mouse_all_flag: self.mouse_all_flag,
+            mouse_pixels_flag: self.mouse_pixels_flag,
             marked: self.marked,
             history_size: self.history_size,
             selection_present: self.selection_present,

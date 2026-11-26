@@ -139,8 +139,7 @@ describe('sendScrollLines', () => {
       lines: -1,
       alternateOn: false,
       mouseAnyFlag: true,
-      cellX: 4,
-      cellY: 7,
+      at: { x: 5, y: 8 },
     });
     expect(events).toHaveLength(1);
     const cmd = wire(events[0]);
@@ -156,8 +155,7 @@ describe('sendScrollLines', () => {
       lines: 1,
       alternateOn: false,
       mouseAnyFlag: true,
-      cellX: 0,
-      cellY: 0,
+      at: { x: 1, y: 1 },
     });
     expect(events).toHaveLength(1);
     const cmd = wire(events[0]);
@@ -173,8 +171,7 @@ describe('sendScrollLines', () => {
       lines: 3,
       alternateOn: false,
       mouseAnyFlag: true,
-      cellX: 0,
-      cellY: 0,
+      at: { x: 1, y: 1 },
     });
     const down = '1b 5b 3c 36 35 3b 31 3b 31 4d';
     expect(events.map(wire)).toEqual([`send-keys -t %1 -H ${down} ${down} ${down}`]);
@@ -191,8 +188,7 @@ describe('sendScrollLines', () => {
       lines: -2,
       alternateOn: true,
       mouseAnyFlag: true,
-      cellX: 0,
-      cellY: 0,
+      at: { x: 1, y: 1 },
     });
     const up = '1b 5b 3c 36 34 3b 31 3b 31 4d';
     expect(events.map(wire)).toEqual([`send-keys -t %1 -H ${up} ${up}`]);

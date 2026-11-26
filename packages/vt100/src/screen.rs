@@ -46,6 +46,10 @@ pub enum MouseProtocolEncoding {
 
     /// SGR-like encoding.
     Sgr,
+
+    /// SGR-like encoding with the position in pixels instead of cells
+    /// (mode 1016).
+    SgrPixels,
     // Urxvt,
 }
 
@@ -1066,6 +1070,9 @@ impl Screen {
                 [1006] => {
                     self.set_mouse_encoding(MouseProtocolEncoding::Sgr);
                 }
+                [1016] => {
+                    self.set_mouse_encoding(MouseProtocolEncoding::SgrPixels);
+                }
                 [1049] => {
                     self.decsc();
                     self.alternate_grid.clear();
@@ -1102,6 +1109,9 @@ impl Screen {
                 }
                 [1006] => {
                     self.clear_mouse_encoding(MouseProtocolEncoding::Sgr);
+                }
+                [1016] => {
+                    self.clear_mouse_encoding(MouseProtocolEncoding::SgrPixels);
                 }
                 [1049] => {
                     self.exit_alternate_grid();

@@ -9,7 +9,11 @@ import {
   DRAG_THROTTLE_MS,
   getGridRect,
   handlePaneWheel,
+  HOVER_BUTTON,
   mouseOp,
+  reportPosition,
+  samePosition,
+  type ReportPosition,
   type UsePaneMouseOptions,
 } from './paneMouseHelpers';
 import { dot, PANE_HEADER } from '../../infra/dom/terminalDom';
@@ -20,6 +24,8 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     charWidth,
     charHeight,
     mouseAnyFlag,
+    mouseAllFlag,
+    mousePixelsFlag,
     alternateOn,
     inMode,
     scrollbackMode,
@@ -42,13 +48,24 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   const lastDragTimeRef = useRef(0);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
 
+  /** The position of the last report sent: a hover in the same place is not sent again. */
+  const lastReportAtRef = useRef<ReportPosition | null>(null);
+  /** A motion report in pixels waiting for the next frame, and that frame. */
+  const pendingMotionRef = useRef<{ button: number; at: ReportPosition } | null>(null);
+  const motionFrameRef = useRef<number | null>(null);
+
   const autoScrollTimerRef = useRef<number | null>(null);
   const autoScrollColRef = useRef(0);
   const documentMouseUpRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     const autoScrollTimer = autoScrollTimerRef;
     const documentMouseUp = documentMouseUpRef;
+    const motionFrame = motionFrameRef;
     return () => {
+      if (motionFrame.current !== null) {
+        cancelAnimationFrame(motionFrame.current);
+        motionFrame.current = null;
+      }
       if (autoScrollTimer.current !== null) {
         clearInterval(autoScrollTimer.current);
         autoScrollTimer.current = null;
@@ -121,6 +138,54 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     [charWidth, charHeight, contentRef, scrollRef],
   );
 
+  const mouseAt = useCallback(
+    (e: React.MouseEvent): ReportPosition =>
+      reportPosition(
+        e,
+        scrollRef.current,
+        contentRef.current,
+        charWidth,
+        charHeight,
+        mousePixelsFlag,
+      ),
+    [charWidth, charHeight, contentRef, scrollRef, mousePixelsFlag],
+  );
+
+  /** Send a report now, and drop a motion still waiting for its frame: it would land after it. */
+  const sendReport = useCallback(
+    (button: number, at: ReportPosition, release: boolean) => {
+      if (motionFrameRef.current !== null) {
+        cancelAnimationFrame(motionFrameRef.current);
+        motionFrameRef.current = null;
+      }
+      pendingMotionRef.current = null;
+      lastReportAtRef.current = at;
+      send({ type: 'DISPATCH_OP', op: mouseOp(paneId, button, at, release) });
+    },
+    [send, paneId],
+  );
+
+  /**
+   * A motion report in pixels: at most one a frame, the latest, and only
+   * when the pointer moved since the last report. A pixel position changes
+   * on nearly every mousemove, many times a frame.
+   */
+  const sendPixelMotion = useCallback(
+    (button: number, at: ReportPosition) => {
+      pendingMotionRef.current = { button, at };
+      if (motionFrameRef.current !== null) return;
+      motionFrameRef.current = requestAnimationFrame(() => {
+        motionFrameRef.current = null;
+        const motion = pendingMotionRef.current;
+        pendingMotionRef.current = null;
+        if (!motion || samePosition(lastReportAtRef.current, motion.at)) return;
+        lastReportAtRef.current = motion.at;
+        send({ type: 'DISPATCH_OP', op: mouseOp(paneId, motion.button, motion.at, false) });
+      });
+    },
+    [send, paneId],
+  );
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -146,9 +211,8 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       }
 
       if (mouseAnyFlag) {
-        const cell = pixelToCell(e);
         mouseButtonRef.current = e.button;
-        send({ type: 'DISPATCH_OP', op: mouseOp(paneId, e.button, cell, false) });
+        sendReport(e.button, mouseAt(e), false);
         return;
       }
 
@@ -174,7 +238,17 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         document.addEventListener('mouseup', cleanupDrag);
       }
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, alternateOn, pixelToCell, cleanupDrag],
+    [
+      send,
+      paneId,
+      mouseAnyFlag,
+      copyModeActive,
+      alternateOn,
+      pixelToCell,
+      mouseAt,
+      sendReport,
+      cleanupDrag,
+    ],
   );
 
   const handleMouseUp = useCallback(
@@ -182,8 +256,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       if (mouseButtonRef.current === null) return;
 
       if (mouseAnyFlag) {
-        const cell = pixelToCell(e);
-        send({ type: 'DISPATCH_OP', op: mouseOp(paneId, mouseButtonRef.current, cell, true) });
+        sendReport(mouseButtonRef.current, mouseAt(e), true);
         mouseButtonRef.current = null;
         return;
       }
@@ -205,18 +278,28 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
 
       cleanupDrag();
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, cleanupDrag],
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, mouseAt, sendReport, cleanupDrag],
   );
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (mouseButtonRef.current === null) return;
+      if (mouseButtonRef.current === null) {
+        // Any-motion tracking: the program hears the pointer with no button
+        // held too, though not over the pane's header.
+        if (!mouseAnyFlag || !mouseAllFlag) return;
+        if ((e.target as HTMLElement).closest(dot(PANE_HEADER))) return;
+        const at = mouseAt(e);
+        if (mousePixelsFlag) sendPixelMotion(HOVER_BUTTON, at);
+        else if (!samePosition(lastReportAtRef.current, at)) sendReport(HOVER_BUTTON, at, false);
+        return;
+      }
 
       if (mouseAnyFlag) {
-        const cell = pixelToCell(e);
         // SGR motion: the button code plus 32.
         const dragButton = mouseButtonRef.current + 32;
-        send({ type: 'DISPATCH_OP', op: mouseOp(paneId, dragButton, cell, false) });
+        const at = mouseAt(e);
+        if (mousePixelsFlag) sendPixelMotion(dragButton, at);
+        else sendReport(dragButton, at, false);
         return;
       }
 
@@ -280,8 +363,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       send,
       paneId,
       mouseAnyFlag,
+      mouseAllFlag,
+      mousePixelsFlag,
       copyModeActive,
       pixelToCell,
+      mouseAt,
+      sendReport,
+      sendPixelMotion,
       gridRect,
       options.paneHeight,
       startAutoScroll,
@@ -325,7 +413,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         mouseAnyFlag,
         scrollbackOpen,
         inMode,
-        pixelToCell,
+        mouseAt,
         scrollEl: scrollRef.current,
         historySize,
         forwardScrollToParent,
@@ -340,7 +428,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       mouseAnyFlag,
       scrollbackOpen,
       inMode,
-      pixelToCell,
+      mouseAt,
       scrollRef,
       historySize,
       forwardScrollToParent,

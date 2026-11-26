@@ -5,18 +5,27 @@ import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { TmuxOp } from '../../domain/commands';
 import type { PaneId } from '../../domain/ids';
 
-/** A mouse report at a 0-based cell, as the 1-based SGR coordinates (never row 0). */
+/** A mouse report at `at`, already in SGR's 1-based coordinates (see `reportPosition`). */
 export function mouseOp(
   paneId: PaneId,
   button: number,
-  cell: { x: number; y: number },
+  at: ReportPosition,
   release: boolean,
 ): TmuxOp {
-  return TmuxOp.SendMouse({
-    paneId,
-    reports: [{ button, x: cell.x + 1, y: Math.max(1, cell.y + 1), release }],
-  });
+  return TmuxOp.SendMouse({ paneId, reports: [{ button, x: at.x, y: at.y, release }] });
 }
+
+/** SGR's button code for the pointer moving with no button held: 32 for motion, 3 for none. */
+export const HOVER_BUTTON = 35;
+
+/** Where a mouse report says the pointer is: 1-based, a cell or a CSS pixel. */
+export interface ReportPosition {
+  x: number;
+  y: number;
+}
+
+export const samePosition = (a: ReportPosition | null, b: ReportPosition): boolean =>
+  a !== null && a.x === b.x && a.y === b.y;
 
 export interface UsePaneMouseOptions {
   paneId: PaneId;
@@ -25,6 +34,10 @@ export interface UsePaneMouseOptions {
   /** px */
   charHeight: number;
   mouseAnyFlag: boolean;
+  /** The program hears the pointer move with no button held (`?1003h`). */
+  mouseAllFlag: boolean;
+  /** The program wants positions in pixels (SGR-Pixels, `?1016h`). */
+  mousePixelsFlag: boolean;
   alternateOn: boolean;
   /** tmux's `pane_in_mode`: any tmux mode, not only copy mode. */
   inMode: boolean;
@@ -53,6 +66,23 @@ export function getGridRect(
   return (scrollEl ?? contentEl)?.getBoundingClientRect();
 }
 
+/**
+ * The pointer's offset in CSS pixels from the top-left corner of the cell
+ * grid, or null with no grid. A scrollTop off the row grid shifts the
+ * rendered rows up, so it is added back.
+ */
+function gridOffset(
+  e: { clientX: number; clientY: number },
+  scrollEl: HTMLDivElement | null,
+  contentEl: HTMLDivElement | null,
+  charHeight: number,
+): { x: number; y: number } | null {
+  const rect = getGridRect(scrollEl, contentEl);
+  if (!rect) return null;
+  const subLineOffset = scrollEl ? scrollEl.scrollTop % charHeight : 0;
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top + subLineOffset };
+}
+
 // Y is not clamped: a row above or below the grid starts the drag's auto-scroll.
 export function clientToCell(
   e: { clientX: number; clientY: number },
@@ -61,17 +91,36 @@ export function clientToCell(
   charWidth: number,
   charHeight: number,
 ): { x: number; y: number } {
-  const rect = getGridRect(scrollEl, contentEl);
-  if (!rect) return { x: 0, y: 0 };
-  const relX = e.clientX - rect.left;
-  let relY = e.clientY - rect.top;
-  // A scrollTop off the row grid shifts the rendered rows up.
-  const subLineOffset = scrollEl ? scrollEl.scrollTop % charHeight : 0;
-  relY += subLineOffset;
+  const offset = gridOffset(e, scrollEl, contentEl, charHeight);
+  if (!offset) return { x: 0, y: 0 };
   return {
-    x: Math.max(0, Math.floor(relX / charWidth)),
-    y: Math.floor(relY / charHeight),
+    x: Math.max(0, Math.floor(offset.x / charWidth)),
+    y: Math.floor(offset.y / charHeight),
   };
+}
+
+/**
+ * The position a mouse report carries, 1-based as SGR counts: the cell under
+ * the pointer, or with SGR-Pixels the CSS pixel, counted from the cell grid's
+ * top-left corner (its first pixel is 1, as its first cell is). Never below 1.
+ */
+export function reportPosition(
+  e: { clientX: number; clientY: number },
+  scrollEl: HTMLDivElement | null,
+  contentEl: HTMLDivElement | null,
+  charWidth: number,
+  charHeight: number,
+  pixels: boolean,
+): ReportPosition {
+  if (pixels) {
+    const offset = gridOffset(e, scrollEl, contentEl, charHeight) ?? { x: 0, y: 0 };
+    return {
+      x: Math.max(1, Math.floor(offset.x) + 1),
+      y: Math.max(1, Math.floor(offset.y) + 1),
+    };
+  }
+  const cell = clientToCell(e, scrollEl, contentEl, charWidth, charHeight);
+  return { x: cell.x + 1, y: Math.max(1, cell.y + 1) };
 }
 
 export interface PaneWheelContext {
@@ -82,7 +131,8 @@ export interface PaneWheelContext {
   mouseAnyFlag: boolean;
   scrollbackOpen: boolean;
   inMode: boolean;
-  pixelToCell: (e: React.MouseEvent) => { x: number; y: number };
+  /** Where a wheel report says the pointer is (`reportPosition`). */
+  mouseAt: (e: React.MouseEvent) => ReportPosition;
   scrollEl: HTMLDivElement | null;
   historySize: number;
   forwardScrollToParent?: boolean;
@@ -98,7 +148,7 @@ export function handlePaneWheel(e: React.WheelEvent, ctx: PaneWheelContext): voi
     mouseAnyFlag,
     scrollbackOpen,
     inMode,
-    pixelToCell,
+    mouseAt,
     scrollEl,
     historySize,
     forwardScrollToParent,
@@ -124,15 +174,13 @@ export function handlePaneWheel(e: React.WheelEvent, ctx: PaneWheelContext): voi
     wheelRemainder.current = remainder;
     if (lines === 0) return;
 
-    const cell = mouseAnyFlag ? pixelToCell(e as unknown as React.MouseEvent) : { x: 0, y: 0 };
     sendScrollLines({
       send,
       paneId,
       lines,
       alternateOn,
       mouseAnyFlag,
-      cellX: cell.x,
-      cellY: cell.y,
+      at: mouseAnyFlag ? mouseAt(e as unknown as React.MouseEvent) : undefined,
     });
     return;
   }

@@ -190,7 +190,7 @@ carried into the next event rather than painted, so the container always rests o
 the top row is never half drawn. That matches the rest of the pane: copy mode moves a cursor that
 lives on a row, and a full-screen application is sent rows. `onScroll` reports the new top row
 via `COPY_MODE_SCROLL`. Mouse-tracking applications (`mouse_any_flag`, e.g. nvim/htop) receive
-forwarded SGR mouse sequences instead — that path is unchanged.
+SGR mouse reports instead ([MOUSE.md](MOUSE.md)).
 
 A **swipe that opens a view** outlives the DOM it started on, so two rules hold: the live screen
 stays mounted (hidden) behind an open view rather than being replaced, because a touch is dispatched

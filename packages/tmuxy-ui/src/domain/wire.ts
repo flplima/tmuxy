@@ -31,6 +31,22 @@ export type WindowType = Schema.Schema.Type<typeof WindowType>;
 
 const OptionalNull = <S extends Schema.Schema.Any>(s: S) => Schema.optional(Schema.NullOr(s));
 
+/** The pane's fields a full state may leave out, and a delta carries when they changed. */
+const PaneOptionalFields = {
+  alternate_on: Schema.optional(Schema.Boolean),
+  mouse_any_flag: Schema.optional(Schema.Boolean),
+  mouse_all_flag: Schema.optional(Schema.Boolean),
+  mouse_pixels_flag: Schema.optional(Schema.Boolean),
+  marked: Schema.optional(Schema.Boolean),
+  history_size: Schema.optional(Schema.Number),
+  selection_present: Schema.optional(Schema.Boolean),
+  selection_start_x: Schema.optional(Schema.Number),
+  selection_start_y: Schema.optional(Schema.Number),
+  images: Schema.optional(Images),
+  cursor_shape: Schema.optional(Schema.Number),
+  cursor_hidden: Schema.optional(Schema.Boolean),
+};
+
 export const WirePane = Schema.Struct({
   id: Schema.Number,
   tmux_id: PaneId,
@@ -51,16 +67,7 @@ export const WirePane = Schema.Struct({
   in_mode: Schema.Boolean,
   copy_cursor_x: Schema.Number,
   copy_cursor_y: Schema.Number,
-  alternate_on: Schema.optional(Schema.Boolean),
-  mouse_any_flag: Schema.optional(Schema.Boolean),
-  marked: Schema.optional(Schema.Boolean),
-  history_size: Schema.optional(Schema.Number),
-  selection_present: Schema.optional(Schema.Boolean),
-  selection_start_x: Schema.optional(Schema.Number),
-  selection_start_y: Schema.optional(Schema.Number),
-  images: Schema.optional(Images),
-  cursor_shape: Schema.optional(Schema.Number),
-  cursor_hidden: Schema.optional(Schema.Boolean),
+  ...PaneOptionalFields,
   pane_state: OptionalNull(Schema.String),
   /** What the pane's program reported behind its state (OSC 7501); see `domain/paneStatus.ts`. */
   pane_status: OptionalNull(Schema.String),
@@ -181,16 +188,7 @@ export const PaneDelta = Schema.Struct({
   in_mode: Schema.optional(Schema.Boolean),
   copy_cursor_x: Schema.optional(Schema.Number),
   copy_cursor_y: Schema.optional(Schema.Number),
-  alternate_on: Schema.optional(Schema.Boolean),
-  mouse_any_flag: Schema.optional(Schema.Boolean),
-  marked: Schema.optional(Schema.Boolean),
-  history_size: Schema.optional(Schema.Number),
-  selection_present: Schema.optional(Schema.Boolean),
-  selection_start_x: Schema.optional(Schema.Number),
-  selection_start_y: Schema.optional(Schema.Number),
-  images: Schema.optional(Images),
-  cursor_shape: Schema.optional(Schema.Number),
-  cursor_hidden: Schema.optional(Schema.Boolean),
+  ...PaneOptionalFields,
   pane_state: OptionalNull(Schema.String),
   pane_ask: OptionalNull(Schema.String),
   pane_widget: OptionalNull(Schema.String),

@@ -134,6 +134,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 
 | Document | What it covers | When to read it |
 | --- | --- | --- |
+| [MOUSE.md](MOUSE.md) | Mouse reports to a program in a pane: the modes it can ask for (1000 to 1003, SGR, SGR-Pixels), where the UI learns them, what it sends | Working on mouse forwarding, hover or pixel positions |
 | [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (iTerm2, Kitty, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
 | [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) | Why every glyph must land on tmux's cell grid, and how widths are kept in agreement | Fonts, wide characters, anything that measures a cell |
 | [RICH-RENDERING-TESTING.md](RICH-RENDERING-TESTING.md) | How to try each rich-rendering protocol by hand, and the tests that cover them | Testing images, links or OSC sequences |
