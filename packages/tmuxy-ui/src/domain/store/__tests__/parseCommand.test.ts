@@ -204,6 +204,15 @@ describe('parseCommandToOp', () => {
     );
   });
 
+  it('a prompt with a quote in its words comes back the op it was', () => {
+    const op = TmuxOp.CommandPrompt({
+      prompt: 'say "hi"',
+      initial: 'a\\b "c"',
+      template: 'rename-window -- "%%%"',
+    });
+    expect(parseCommandToOp(toTmuxCommand(op))).toEqual(op);
+  });
+
   // `display-message` is tmux's to run, so tmux expands its formats and
   // answers with a `%message` the snackbar shows. A window by index, a plain
   // resize and the nav script's next/prev have no geometry the client could
