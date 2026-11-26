@@ -79,6 +79,7 @@ impl PaneState {
         }
         let status = self.terminal.callbacks_mut().take_status();
         self.program_status.read(status);
+        self.size_queries = self.terminal.callbacks_mut().take_size_queries();
 
         let screen = self.terminal.screen();
         let (row, col) = screen.cursor_position();

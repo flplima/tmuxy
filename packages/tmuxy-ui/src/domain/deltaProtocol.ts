@@ -144,6 +144,7 @@ export function applyDelta(state: ServerState, delta: ServerDelta): ServerState 
     focus_request: delta.focus_request ?? state.focus_request,
     plugins_rev: delta.plugins_rev ?? state.plugins_rev,
     theme_rev: delta.theme_rev ?? state.theme_rev,
+    cell_px: delta.cell_px ?? state.cell_px,
     total_width: delta.total_width ?? state.total_width,
     total_height: delta.total_height ?? state.total_height,
     panes:

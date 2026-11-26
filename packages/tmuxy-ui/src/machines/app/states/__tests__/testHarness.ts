@@ -27,8 +27,11 @@ export interface MountOptions {
 /** What a slice's actions are: the app machine's own action creators. */
 type SliceActions = Record<string, ReturnType<typeof act> | ReturnType<typeof assignCtx>>;
 
+/** A transition's actions: one name, or several in order. */
+type Actions = { readonly actions: string | ReadonlyArray<string> };
+
 export function mountState(
-  stateConfig: { on: Record<string, { actions: string }> },
+  stateConfig: { on: Record<string, Actions> },
   actions: SliceActions,
   overrideContext: Partial<AppMachineContext> = {},
   options: MountOptions = {},
@@ -63,7 +66,7 @@ export function mountState(
     ].map((id) => ({ id, src: id as never })),
     states: {
       active: {
-        on: stateConfig.on as Record<string, { actions: string }>,
+        on: stateConfig.on as Record<string, { actions: string | string[] }>,
       },
     },
   });

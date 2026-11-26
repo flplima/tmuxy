@@ -220,6 +220,11 @@ export type TmuxOp = Data.TaggedEnum<{
   SourceConfig: NoFields;
   /** Clear the one-shot focus request a shell helper queued. */
   ClearFocusRequest: { readonly session: string };
+  /**
+   * Tell programs in panes this client's cell size, in CSS pixels
+   * (`formatCellPx`: `9x24`): global, so every session's panes read it.
+   */
+  AnnounceCellSize: { readonly size: string };
 
   /** A plugin's action on a pane (`tmuxy plugin action`); `token` carries a selection. */
   PluginAction: {
@@ -409,6 +414,8 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `source-file ${CONFIG_FILE}`;
     case 'ClearFocusRequest':
       return `set-option -u -t ${sessionTarget(op.session)} @tmuxy-focus-request`;
+    case 'AnnounceCellSize':
+      return `set-option -g @tmuxy-cell-px ${op.size}`;
     case 'PluginAction':
       return pluginAction(op);
     case 'CommandPrompt':

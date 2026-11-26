@@ -158,6 +158,12 @@ export const ServerState = Schema.Struct({
    */
   theme_rev: Schema.optional(Schema.String),
   /**
+   * `@tmuxy-cell-px`: the cell size in CSS pixels (`9x24`) the client that
+   * measured last announced, which programs in panes are told. Pixel mouse
+   * reports are scaled to it (docs/MOUSE.md).
+   */
+  cell_px: Schema.optional(Schema.String),
+  /**
    * The stream's counter when this state was taken: the delta that follows
    * it carries `seq + 1`, so a delta lost right after a full state or an
    * adopted answer is a gap like any other. Absent from a state no stream
@@ -231,6 +237,8 @@ export const ServerDelta = Schema.Struct({
   plugins_rev: Schema.optional(Schema.String),
   /** See `ServerState.theme_rev`; `''` when gone. */
   theme_rev: Schema.optional(Schema.String),
+  /** See `ServerState.cell_px`; `''` when gone. */
+  cell_px: Schema.optional(Schema.String),
   total_width: Schema.optional(Schema.Number),
   total_height: Schema.optional(Schema.Number),
 });

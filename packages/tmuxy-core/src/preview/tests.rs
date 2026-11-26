@@ -307,6 +307,7 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
             focus_request: None,
             plugins_rev: None,
             theme_rev: None,
+            cell_px: None,
             seq: 1,
         },
     };

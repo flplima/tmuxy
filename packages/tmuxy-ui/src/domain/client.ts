@@ -219,6 +219,8 @@ const ClientSession = Schema.Struct({
   pluginsRev: withDefault('plugins_rev', Schema.String, () => ''),
   /** See `ServerState.theme_rev`; `''` before the theme is known. */
   themeRev: withDefault('theme_rev', Schema.String, () => ''),
+  /** See `ServerState.cell_px`; `''` while no client announced one. */
+  cellPx: withDefault('cell_px', Schema.String, () => ''),
 });
 
 export type ClientState = Schema.Schema.Type<typeof ClientSession> & {

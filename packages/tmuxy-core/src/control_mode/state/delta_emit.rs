@@ -75,6 +75,9 @@ impl StateAggregator {
         if current.theme_rev != prev.theme_rev {
             delta.theme_rev = Some(current.theme_rev.clone().unwrap_or_default());
         }
+        if current.cell_px != prev.cell_px {
+            delta.cell_px = Some(current.cell_px.clone().unwrap_or_default());
+        }
 
         let prev_panes: HashMap<&PaneId, &crate::TmuxPane> =
             prev.panes.iter().map(|p| (&p.tmux_id, p)).collect();

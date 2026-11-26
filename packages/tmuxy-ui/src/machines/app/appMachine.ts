@@ -228,7 +228,12 @@ export const appMachine = setup({
         ...commandEntry,
         TMUX_STATE_UPDATE: relayState,
         TMUX_MODEL_UPDATE: {
-          actions: ['layout_modelUpdate', 'keyboard_markPrompts', 'palette_land'],
+          actions: [
+            'layout_modelUpdate',
+            'keyboard_markPrompts',
+            'palette_land',
+            'viewport_announceCellSize',
+          ],
         },
         TMUX_ERROR: {
           actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),

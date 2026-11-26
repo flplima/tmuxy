@@ -4,6 +4,8 @@ import { PHONE_COLS, PHONE_ROWS } from '../../../infra/dom/phoneLayout';
 import { fittedGridCell } from '../helpers';
 import { gridExtent } from '../../../domain/paneGeometry';
 import { fixedGridSize } from '../../../domain/gridFit';
+import { cellSizeClaim, formatCellPx } from '../../../domain/cellSize';
+import { TmuxOp } from '../../../domain/commands';
 
 /**
  * Bring tmux's window to `target`, the size this client asks for: report it
@@ -61,7 +63,35 @@ function askedSize(
   return fixedGridSize(context.sizePolicy) ?? { cols: measured.cols, rows: measured.rows };
 }
 
+/**
+ * Tell programs in panes this client's cell size (`@tmuxy-cell-px`) when the
+ * rule in `cellSizeClaim` says so: once a connection has a state, if the
+ * option is unset or differs, and then each time this client's own cell
+ * changes. The cell is the grid's, the one pixel mouse reports count in.
+ */
+function announceCellSize(
+  context: Pick<
+    Ctx,
+    'connected' | 'panes' | 'charWidth' | 'charHeight' | 'cellPx' | 'cellPxClaimed'
+  >,
+  enqueue: EnqueueAction,
+): void {
+  if (!context.connected || context.panes.length === 0) return;
+  const own = formatCellPx(context.charWidth, context.charHeight);
+  const { write, claimed } = cellSizeClaim(own, context.cellPx, context.cellPxClaimed);
+  if (claimed !== context.cellPxClaimed) enqueue(assign({ cellPxClaimed: claimed }));
+  if (write) {
+    enqueue(
+      sendTo('tmux', { type: 'SEND_OP' as const, op: TmuxOp.AnnounceCellSize({ size: own }) }),
+    );
+  }
+}
+
 export const viewportActions = {
+  viewport_announceCellSize: act(({ context, enqueue }) => announceCellSize(context, enqueue)),
+
+  viewport_unclaimCellSize: assignCtx({ cellPxClaimed: null }),
+
   viewport_setCharSize: assignCtx(({ context, event }) => {
     if (event.type !== 'SET_CHAR_SIZE') return {};
     const measuredCell = {

@@ -220,6 +220,9 @@ pub struct TmuxDelta {
     /// The theme or its mode changed; `Some("")` when neither is set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme_rev: Option<String>,
+    /// The announced cell size changed; `Some("")` when none is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell_px: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_width: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -244,6 +247,7 @@ impl TmuxDelta {
             focus_request,
             plugins_rev,
             theme_rev,
+            cell_px,
             total_width,
             total_height,
         } = self;
@@ -256,6 +260,7 @@ impl TmuxDelta {
             && focus_request.is_none()
             && plugins_rev.is_none()
             && theme_rev.is_none()
+            && cell_px.is_none()
             && total_width.is_none()
             && total_height.is_none()
     }

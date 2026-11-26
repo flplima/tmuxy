@@ -1,5 +1,5 @@
 use super::parser::ControlModeEvent;
-use super::{images, osc, program_status};
+use super::{cell_size, images, osc, program_status};
 use crate::{PaneId, WindowId};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
@@ -257,6 +257,10 @@ pub struct StateAggregator {
     /// the client to read the theme settings again, so a theme picked on one
     /// client is drawn by all of them.
     theme_rev: Option<String>,
+    /// The cell size `@tmuxy-cell-px` announces, as its subscription reports
+    /// it (`tmux_formats::subscribe_cell_px_command`): shipped to every
+    /// client, and what a `CSI 16 t` in a pane is answered with.
+    cell_px: Option<cell_size::CellPx>,
     prev_state: Option<crate::TmuxState>,
     /// Panes on no client's screen, sent less often (`hidden_panes`).
     hidden_panes: hidden_panes::HiddenPanes,
@@ -320,6 +324,7 @@ impl StateAggregator {
             focus_request: None,
             plugins_rev: None,
             theme_rev: None,
+            cell_px: None,
             even_out_pending: Vec::new(),
             prev_state: None,
             hidden_panes: hidden_panes::HiddenPanes::default(),
@@ -397,6 +402,8 @@ mod tests_border_row;
 mod tests_capture;
 #[cfg(test)]
 mod tests_capture_cursor;
+#[cfg(test)]
+mod tests_cell_size;
 #[cfg(test)]
 mod tests_hyperlinks;
 #[cfg(test)]

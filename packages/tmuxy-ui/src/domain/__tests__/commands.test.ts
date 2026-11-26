@@ -244,6 +244,7 @@ const cases: Array<[TmuxOp, string]> = [
     TmuxOp.ClearFocusRequest({ session: 'tmuxy' }),
     "set-option -u -t '=tmuxy' @tmuxy-focus-request",
   ],
+  [TmuxOp.AnnounceCellSize({ size: '8.5x17' }), 'set-option -g @tmuxy-cell-px 8.5x17'],
 
   [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \\"%%%\\""'],
   [renameSessionPrompt(), 'command-prompt -I "#S" "rename-session -- \\"%%%\\""'],

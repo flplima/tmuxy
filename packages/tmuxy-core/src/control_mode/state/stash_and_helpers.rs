@@ -271,6 +271,7 @@ impl StateAggregator {
             focus_request: self.focus_request.clone(),
             plugins_rev: self.plugins_rev.clone(),
             theme_rev: self.theme_rev.clone(),
+            cell_px: self.cell_px.map(|cell| cell.to_option_value()),
             seq: self.delta_seq,
         }
     }

@@ -54,6 +54,8 @@ export interface AppTestView {
   pluginActions: string[];
   /** Every window the client holds, and what it is (`@tmuxy-window-type`; null for a foreign one). */
   windows: { id: WindowId; kind: WindowType | null }[];
+  /** The cell size programs in panes were told (`@tmuxy-cell-px`); `''` before one is. */
+  cellPx: string;
 }
 
 /** `window.app`: the app's actor, and what a test asks of it. */
@@ -98,5 +100,6 @@ export function selectTestView(context: AppMachineContext): AppTestView {
       : null,
     windows: context.windows.map((w) => ({ id: w.id, kind: w.windowType })),
     pluginActions: context.plugins.flatMap((p) => p.actions.map((a) => `${p.name}:${a.id}`)),
+    cellPx: context.cellPx,
   };
 }

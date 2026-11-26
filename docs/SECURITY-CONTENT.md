@@ -80,6 +80,10 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 7. **Forged Pane Status (OSC 7501)**: see [RICH-RENDERING.md](RICH-RENDERING.md#program-status-osc-7501).
 
+8. **Replies Typed Into a Pane (`CSI 16 t`, `CSI 14 t`)**
+   - _Vector:_ Pane output that asks the terminal for its cell size gets an answer typed into the pane as input (`send-keys -H`). A `cat` of a file full of queries, or a program asking in a loop, could fill the pane's input, and a reply that carried bytes from the output would be input a program chose for another.
+   - _Policy:_ Only the bare `CSI 16 t` and `CSI 14 t` are answered, only into the pane that asked, and only on a tmux that does not answer them itself (before 3.4). The reply holds `ESC [`, a fixed lead digit, the numbers and `;` and `t`: the numbers come from `@tmuxy-cell-px` (read as two numbers up to 1000 with two decimals, anything else is no size) and the pane's size, never from the output. A pane gets at most four replies a second (`cell_size::MAX_REPLIES`); the rest are dropped, not queued. With no size announced, nothing is answered. See [MOUSE.md](MOUSE.md#the-cell-size).
+
 ### What Fuzz Tests Must Guarantee
 
 Automated fuzzing over terminal parsers and sequence handlers must verify:

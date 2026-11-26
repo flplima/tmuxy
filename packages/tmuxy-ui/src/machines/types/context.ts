@@ -74,6 +74,19 @@ export interface AppMachineContext {
    * grid never comes to match, and the same size is not sent again.
    */
   reportedSize: { cols: number; rows: number } | null;
+  /**
+   * The cell size programs in panes are told (`@tmuxy-cell-px`, `9x24`), as
+   * whichever client measured last announced it; `''` while none has. Pixel
+   * mouse reports are scaled to it (domain/cellSize.ts).
+   */
+  cellPx: string;
+  /**
+   * The cell size this client last announced, or found already announced,
+   * on this connection; null until it has. Only a change of this client's
+   * own cell is announced again, never a change of `cellPx`: two clients
+   * with different fonts would otherwise rewrite it at each other forever.
+   */
+  cellPxClaimed: string | null;
   drag: DragState | null;
   resize: ResizeState | null;
   resizeActive: boolean;

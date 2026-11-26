@@ -64,6 +64,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   const gridCell = useAppSelector(selectCharSize);
   const charWidth = cellSize?.width ?? gridCell.charWidth;
   const charHeight = cellSize?.height ?? gridCell.charHeight;
+  const announcedCell = useAppSelector((ctx) => ctx.cellPx);
   const paneHoldsKeyboard = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const holdsKeyboard = isActive ?? paneHoldsKeyboard;
   const contentRef = useRef<HTMLDivElement>(null);
@@ -117,6 +118,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     mouseAllFlag: pane?.mouseAllFlag ?? false,
     mousePixelsFlag: pane?.mousePixelsFlag ?? false,
+    announcedCell,
     alternateOn: pane?.alternateOn ?? false,
     inMode: pane?.inMode ?? false,
     scrollbackMode: copyState?.mode ?? null,

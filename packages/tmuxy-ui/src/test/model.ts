@@ -76,7 +76,7 @@ export const modelUpdate = (
   panes: TmuxPane[],
   windows: TmuxWindow[],
   active: { paneId: PaneId | null; windowId: WindowId },
-  extra: { ops?: PendingOp[]; sessionName?: string } = {},
+  extra: { ops?: PendingOp[]; sessionName?: string; cellPx?: string } = {},
 ) => {
   const activePane = panes.find((p) => p.tmuxId === active.paneId);
   const snapshot: TmuxSnapshot = {
@@ -90,6 +90,7 @@ export const modelUpdate = (
     focusRequest: '',
     pluginsRev: '',
     themeRev: '',
+    cellPx: extra.cellPx ?? '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,

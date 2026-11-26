@@ -32,6 +32,11 @@ export interface TmuxSnapshot {
    * theme settings, so a theme picked on one client reaches every client.
    */
   readonly themeRev: string;
+  /**
+   * The cell size programs in panes are told (`@tmuxy-cell-px`, `9x24`), as
+   * the client that measured last announced it; `''` while none is.
+   */
+  readonly cellPx: string;
 }
 
 export const EMPTY_SNAPSHOT: TmuxSnapshot = {
@@ -45,6 +50,7 @@ export const EMPTY_SNAPSHOT: TmuxSnapshot = {
   focusRequest: '',
   pluginsRev: '',
   themeRev: '',
+  cellPx: '',
 };
 
 export type OpId = string & { readonly __brand: 'OpId' };

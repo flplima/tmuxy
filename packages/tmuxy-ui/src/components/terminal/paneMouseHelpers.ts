@@ -4,6 +4,7 @@ import type { ScrollbackMode } from '../../domain/copyMode';
 import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { TmuxOp } from '../../domain/commands';
 import type { PaneId } from '../../domain/ids';
+import { scaleToAnnounced } from '../../domain/cellSize';
 
 /** A mouse report at `at`, already in SGR's 1-based coordinates (see `reportPosition`). */
 export function mouseOp(
@@ -38,6 +39,11 @@ export interface UsePaneMouseOptions {
   mouseAllFlag: boolean;
   /** The program wants positions in pixels (SGR-Pixels, `?1016h`). */
   mousePixelsFlag: boolean;
+  /**
+   * The cell size programs were told (`@tmuxy-cell-px`), `''` while none
+   * was: pixel reports are counted in it (`scaleToAnnounced`).
+   */
+  announcedCell: string;
   alternateOn: boolean;
   /** tmux's `pane_in_mode`: any tmux mode, not only copy mode. */
   inMode: boolean;
@@ -103,6 +109,8 @@ export function clientToCell(
  * The position a mouse report carries, 1-based as SGR counts: the cell under
  * the pointer, or with SGR-Pixels the CSS pixel, counted from the cell grid's
  * top-left corner (its first pixel is 1, as its first cell is). Never below 1.
+ * A pixel is counted in the `announced` cell, the one programs were told,
+ * when this client's own differs (`scaleToAnnounced`).
  */
 export function reportPosition(
   e: { clientX: number; clientY: number },
@@ -111,9 +119,14 @@ export function reportPosition(
   charWidth: number,
   charHeight: number,
   pixels: boolean,
+  announced = '',
 ): ReportPosition {
   if (pixels) {
-    const offset = gridOffset(e, scrollEl, contentEl, charHeight) ?? { x: 0, y: 0 };
+    const offset = scaleToAnnounced(
+      gridOffset(e, scrollEl, contentEl, charHeight) ?? { x: 0, y: 0 },
+      { width: charWidth, height: charHeight },
+      announced,
+    );
     return {
       x: Math.max(1, Math.floor(offset.x) + 1),
       y: Math.max(1, Math.floor(offset.y) + 1),
