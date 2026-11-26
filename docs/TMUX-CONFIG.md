@@ -71,6 +71,8 @@ No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it 
 
 OSC 8 hyperlinks are read by tmuxy's own emulator (the vendored `packages/vt100`), so no `terminal-features` setting is required either.
 
+The defaults turn extended keys on for programs that ask; [TMUX-KEYS.md](TMUX-KEYS.md) says how to turn them off.
+
 ### The config chain, and where a user's own `~/.tmux.conf` fits
 
 tmux starts with `-f tmuxy.entry.conf`, a file the app generates in its state dir, so a user's `~/.tmux.conf` is NOT read by default. That is deliberate — it is also the single loudest first-hour complaint from a tmux user, because their prefix, their status line and their plugins all vanish on tmuxy's socket with nothing saying why.

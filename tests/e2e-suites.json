@@ -54,7 +54,7 @@
     },
     {
       "name": "tmux-3.4",
-      "path": "tests/(snapshots/|8-tui-alternate-screen|7-regression-bugs-run-shell)",
+      "path": "tests/(snapshots/|8-tui-alternate-screen|7-regression-bugs-run-shell|1-input-interaction-extended-keys)",
       "tmux": "3.4"
     },
     {

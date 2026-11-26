@@ -183,6 +183,39 @@ fn every_shipped_config_parses() {
     }
 }
 
+/// The defaults on a tmux server that is already running: they load with no
+/// error on every tmux the nightly matrix runs, turn extended keys on for
+/// programs that ask, and pick the CSI u form where tmux has a choice (3.5
+/// and later; older tmux has only that form). A line sourced after them, as
+/// the user's `tmuxy.conf` is, turns it off.
+#[test]
+fn the_defaults_turn_extended_keys_on_and_a_later_file_turns_them_off() {
+    let server = common::ScratchServer::new("conf-keys");
+    server.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", "keys"]);
+    let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let load = || {
+        for conf in ["tmuxy.essentials.conf", "tmuxy.defaults.conf"] {
+            server.tmux(&["source-file", &assets.join(conf).display().to_string()]);
+        }
+    };
+    let option = |name: &str| server.tmux(&["show-options", "-sqv", name]);
+    assert_eq!(option("extended-keys"), "off", "a bare server");
+    load();
+    assert_eq!(option("extended-keys"), "on");
+    let version = server.tmux(&["display-message", "-p", "#{version}"]);
+    let has_format = tmuxy_core::tmux_check::parse_version(&format!("tmux {version}"))
+        .is_none_or(|v| v >= (3, 5));
+    assert_eq!(
+        option("extended-keys-format"),
+        if has_format { "csi-u" } else { "" },
+        "tmux {version}"
+    );
+    let own = server.home.join("tmuxy.conf");
+    std::fs::write(&own, "set -s extended-keys off\n").unwrap();
+    server.tmux(&["source-file", &own.display().to_string()]);
+    assert_eq!(option("extended-keys"), "off");
+}
+
 /// The client keys that give way to a binding (`YIELDING_CLIENT_KEYS` in
 /// tmuxy-ui's `domain/keyTables.ts`: Go to, the command palette, the activity
 /// inbox) are answered by the client only while tmux binds nothing on them.

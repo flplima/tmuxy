@@ -77,6 +77,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md) | The two sidebar columns, `tmuxy pane send -t` and `tmuxy pane ask`, all built on the tags | The tree, the dock, cross-pane sends, questions to the person |
 | [TMUX-CONFIG.md](TMUX-CONFIG.md) | The dedicated socket, the config chain, session groups, servers and client-side key tables | The socket, the config chain and pins, PANE/TAB modes, remote servers |
 | [PROFILES.md](PROFILES.md) | Named sets of the menus' settings, one per tmux session, and the Default Profile that changes nothing | Profiles; settings that differ by session |
+| [TMUX-KEYS.md](TMUX-KEYS.md) | The bytes a program in a pane receives for a key: extended keys, by tmux version | Shift+Enter or another modified key not reaching a program |
 | [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) | Version-specific tmux behaviour tmuxy depends on or works around, 3.2 to HEAD | A bug that shows on one tmux version |
 | [TMUX-COMMAND-STRINGS.md](TMUX-COMMAND-STRINGS.md) | What a command string goes through: aliases read back expanded, the client's placeholders, free text after `--`, shell names to avoid | A binding the client does not predict, a placeholder in a command, a script run by `run-shell` |
 | [PROMPT-MARKS.md](PROMPT-MARKS.md) | The shell's prompts (OSC 133): how their rows are read from tmux, the marks and the jump in the scrollback, Copy Last Output | Working on prompt marks, the jump between prompts, or Copy Last Output |
