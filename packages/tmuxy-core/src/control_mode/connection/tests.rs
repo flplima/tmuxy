@@ -159,3 +159,29 @@ async fn control_mode_connects_on_its_opening_block_and_hands_on_what_follows() 
     );
     connection.graceful_close().await;
 }
+
+#[tokio::test]
+async fn what_tmuxy_writes_never_comes_back_as_tmuxs_output() {
+    // [invariant: X12] Over ssh the terminal is ssh's to set, and an ssh
+    // window's client rides a master connection, which forwards tmux's
+    // lines before the client has left echo mode. The stand-in never leaves
+    // it. tmux's `%begin` line arrives without its newline, as the remote
+    // pty can write it, then tmuxy writes a command: a terminal that echoed
+    // put the command inside the guard, and the block never closed.
+    let script = format!(
+        r"{OPENER}; printf '%%end 1700000000 1 1\n%%begin 1700000000 2 1'; read line; printf '\n%%end 1700000000 2 1\n'; read line"
+    );
+    let mut connection = open_fake_tmux(&script).await.expect("connected");
+    connection
+        .send_commands(&["list-keys -T prefix"])
+        .await
+        .expect("written");
+    let answer = tokio::time::timeout(Duration::from_secs(5), connection.recv()).await;
+    let seen = connection.recent_output.lock().await.join("\n");
+    assert!(
+        matches!(answer, Ok(Some(ControlModeEvent::CommandResponse { success: true, ref output })) if output.is_empty()),
+        "the block closes: {answer:?}, the stream read: {seen:?}"
+    );
+    assert!(!seen.contains("list-keys"), "{seen:?}");
+    connection.graceful_close().await;
+}

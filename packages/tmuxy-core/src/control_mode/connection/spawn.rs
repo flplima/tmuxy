@@ -305,26 +305,6 @@ impl ControlModeConnection {
         })
     }
 
-    pub(super) fn allocate_pty(
-        log: Option<&Arc<dyn LogSink>>,
-    ) -> Result<(pty_process::Pty, pty_process::Pts), TmuxError> {
-        let (pty, pts) = pty_process::open().map_err(|e| {
-            let msg = format!("Failed to open pty: {}", e);
-            log_to(log, LogKind::Error, msg.clone());
-            TmuxError::other(msg)
-        })?;
-        pty.resize(pty_process::Size::new(
-            INITIAL_PTY_ROWS as u16,
-            INITIAL_PTY_COLS as u16,
-        ))
-        .map_err(|e| {
-            let msg = format!("Failed to set pty size: {}", e);
-            log_to(log, LogKind::Error, msg.clone());
-            TmuxError::other(msg)
-        })?;
-        Ok((pty, pts))
-    }
-
     /// Sets `TERM` and `LANG` when absent: launchd hands an `.app` started
     /// from Finder a sparse environment.
     pub(super) fn spawn_tmux(
