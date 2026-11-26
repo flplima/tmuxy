@@ -1,3 +1,4 @@
+use super::open_block::OpenBlockWatch;
 use super::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -101,20 +102,23 @@ fn opening_of(event: ControlModeEvent) -> (Opening, Option<ControlModeEvent>) {
 /// Parse the PTY master's lines into events on `tx`, settling `opening` on
 /// the first one. A line before control mode opens that is not control mode's
 /// (tmux's error on its way out, or ssh's warnings) is no event. Every line
-/// also goes to `recent_output` (the last 200): pty-process merges the
-/// child's stdout and stderr into the PTY stream, so whatever tmux says on
-/// its way out lands there for error messages.
+/// is counted in `lines` (`LinkReads`), and goes to `recent_output` (the
+/// last 200): pty-process merges the child's stdout and stderr into the PTY
+/// stream, so whatever tmux says on its way out lands there for error
+/// messages.
 pub(super) fn spawn_parser_task(
     reader: pty_process::OwnedReadPty,
     tx: mpsc::Sender<ControlModeEvent>,
     opening: tokio::sync::oneshot::Sender<Opening>,
     recent_output: Arc<Mutex<Vec<String>>>,
+    lines: Arc<super::line_count::LineCount>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut buf_reader = BufReader::new(reader);
         let mut parser = Parser::new();
         let mut buf = Vec::with_capacity(4096);
         let mut opening = Some(opening);
+        let mut watch = OpenBlockWatch::default();
 
         loop {
             buf.clear();
@@ -136,8 +140,9 @@ pub(super) fn spawn_parser_task(
                     }
                     break;
                 }
-                Ok(_) if buf.is_empty() => {}
+                Ok(_) if buf.is_empty() => lines.line(std::time::Instant::now()),
                 Ok(_) => {
+                    lines.line(std::time::Instant::now());
                     while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
                         buf.pop();
                     }
@@ -160,7 +165,9 @@ pub(super) fn spawn_parser_task(
                         Some(_) => buf.strip_prefix(CONTROL_MODE_DCS).unwrap_or(&buf),
                         None => &buf[..],
                     };
-                    let Some(mut event) = parser.parse_line(bytes) else {
+                    let parsed = parser.parse_line(bytes);
+                    watch.after_line(parser.open_guard_fields(), std::time::Instant::now());
+                    let Some(mut event) = parsed else {
                         continue;
                     };
                     if let Some(settle) = opening.take() {

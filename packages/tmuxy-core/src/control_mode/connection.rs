@@ -1,8 +1,11 @@
 #[cfg(target_os = "linux")]
 mod appimage_env;
+mod line_count;
+mod open_block;
 mod spawn;
 
 use super::log::{LogKind, LogSink};
+use super::monitor_core::LinkReads;
 use super::parser::{ControlModeEvent, Parser};
 use crate::error::TmuxError;
 #[cfg(target_os = "linux")]
@@ -75,6 +78,9 @@ pub struct ControlModeConnection {
     /// Bounded buffer of recent raw lines from the PTY master, for error
     /// messages: tmux's stderr comes through the same merged PTY stream.
     recent_output: Arc<Mutex<Vec<String>>>,
+
+    /// Every line the PTY reader has read (`LinkReads`).
+    lines: Arc<line_count::LineCount>,
 }
 
 impl ControlModeConnection {
@@ -136,13 +142,21 @@ impl ControlModeConnection {
         let recent_output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel(1000);
         let (opening_tx, opening_rx) = tokio::sync::oneshot::channel();
-        let reader = spawn_parser_task(pty_reader, tx, opening_tx, recent_output.clone());
+        let lines = Arc::new(line_count::LineCount::new(std::time::Instant::now()));
+        let reader = spawn_parser_task(
+            pty_reader,
+            tx,
+            opening_tx,
+            recent_output.clone(),
+            lines.clone(),
+        );
 
         let mut connection = Self {
             child,
             pty_writer,
             event_rx: rx,
             recent_output,
+            lines,
         };
         connection
             .wait_for_control_mode(opening_rx, reader, session_name, &shell_desc, log)
@@ -191,6 +205,11 @@ impl ControlModeConnection {
         }
 
         Ok(())
+    }
+
+    /// What the PTY reader has read from tmux so far.
+    pub fn reads(&self) -> LinkReads {
+        self.lines.reads()
     }
 
     /// Receive the next event from control mode.

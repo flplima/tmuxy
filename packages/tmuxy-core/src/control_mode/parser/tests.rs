@@ -403,3 +403,20 @@ fn before_tmux_3_8_a_notification_inside_a_reply_is_its_body() {
         other => panic!("expected the reply, got {other:?}"),
     }
 }
+
+/// What the PTY reader's open-block warning reads: a block's guard as tmux
+/// writes it has three fields, one that other text ran into has more, and a
+/// closed block has none.
+#[test]
+fn an_open_block_tells_how_many_fields_its_guard_has() {
+    let mut parser = Parser::new();
+    assert_eq!(parser.open_guard_fields(), None);
+    assert!(parser.parse_line("%begin 1234567890 9 1").is_none());
+    assert_eq!(parser.open_guard_fields(), Some(3));
+    assert!(parser.parse_line("%end 1234567890 9 1").is_some());
+    assert_eq!(parser.open_guard_fields(), None);
+    assert!(parser
+        .parse_line("%begin 1234567890 10 1list-keys -T prefix")
+        .is_none());
+    assert_eq!(parser.open_guard_fields(), Some(5));
+}

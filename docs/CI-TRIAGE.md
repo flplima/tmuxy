@@ -67,6 +67,7 @@ A phase more than one job runs is a composite action under `.github/actions/`, s
 - `v86-probe-timings-*`: `tests/perf/v86-probe-timings.json`
 - `storybook-*-artifacts`: screenshots, DOM dumps, stack traces
 - `v86-storybook-log-*`: Storybook startup/runtime logs
+- `desktop-attempt-<n>`: a failed `desktop` job's app log (`tmuxy.log`), action trace (`trace.ndjson`, with its `.1` backup) and the Tauri suite's output (`tauri-e2e-output.log`)
 - `e2e-<suite>-attempt-<n>`: a failed E2E shard's action trace (`tmuxy-e2e-trace.ndjson`, read with `tmuxy trace --check --window "<file> › <test> › start" <file>`), server log and Jest output
 - Annotations titled **Silent shell pane** on any E2E job: the trace health check found a shell pane that never showed a byte — even on a green run
 
@@ -76,6 +77,7 @@ A phase more than one job runs is a composite action under `.github/actions/`, s
 - tmux version drift: CI pins one tmux (`bin/toolchain tmux-version`); the nightly matrix runs the others.
 - Environment mismatch for browser/driver/Xvfb jobs.
 - Tests asserting internals instead of user-visible behavior (see `docs/TESTS.md`).
+- A control-mode connection that connected, then timed out every reply and never closed. The app's log tells two causes apart. A `parser task: a control-mode block is still open` warning means tmux's lines kept coming into a block that never closed; a `guard_fields` above 3 means other text ran into its `%begin` line. Without it, tmux's lines either stopped or were read and matched no reply: each `command reply timed out` warning says which, with `lines_since` (the lines from tmux after the command went out, 0 for a link gone quiet) and `last_line_ago`.
 
 ## Related
 

@@ -1,6 +1,15 @@
 use super::{ControlModeEvent, Parser};
 
 impl Parser {
+    /// The open block's guard, as a count of its fields, or `None` outside
+    /// a block. tmux writes three (time, command number, flags): more means
+    /// text that was not tmux's ran into the `%begin` line, and no `%end`
+    /// will ever repeat it.
+    pub fn open_guard_fields(&self) -> Option<usize> {
+        self.in_response
+            .then(|| self.response_guard.split_whitespace().count())
+    }
+
     pub(super) fn handle_begin(&mut self, line: &str) -> Option<ControlModeEvent> {
         // Format: %begin timestamp command-number flags
         let parts: Vec<&str> = line.split_whitespace().collect();

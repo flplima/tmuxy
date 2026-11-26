@@ -3,7 +3,7 @@ mod event_loop;
 mod sync;
 
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
-use super::monitor_core::{Action, CommandReply, MonitorCore};
+use super::monitor_core::{Action, CommandReply, LinkReads, MonitorCore};
 use super::parser::ControlModeEvent;
 use super::state::{ChangeType, Notice};
 use crate::error::TmuxError;
@@ -162,6 +162,11 @@ pub trait ControlLink: Send {
     /// The next control-mode event; `None` once the link is closed.
     fn recv(&mut self) -> impl Future<Output = Option<ControlModeEvent>> + Send;
     fn graceful_close(&mut self) -> impl Future<Output = ()> + Send;
+    /// What the link has read from tmux, every line counted; `None` for a
+    /// link that does not count. Only a timed-out reply's warning reads it.
+    fn reads(&self) -> Option<LinkReads> {
+        None
+    }
 }
 
 impl ControlLink for ControlModeConnection {
@@ -176,6 +181,9 @@ impl ControlLink for ControlModeConnection {
     }
     async fn graceful_close(&mut self) {
         ControlModeConnection::graceful_close(self).await
+    }
+    fn reads(&self) -> Option<LinkReads> {
+        Some(ControlModeConnection::reads(self))
     }
 }
 
