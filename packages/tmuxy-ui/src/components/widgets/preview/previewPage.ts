@@ -132,7 +132,11 @@ html { background: var(--tmuxy-background); color: var(--tmuxy-foreground); font
 a { color: var(--tmuxy-accent); }
 code, kbd, pre, samp { font-family: var(--tmuxy-font-mono), monospace; }
 pre, code { background: var(--tmuxy-surface); }
-hr, table, th, td { border-color: var(--tmuxy-border); }`;
+hr, table, th, td { border-color: var(--tmuxy-border); }
+body { overflow-wrap: break-word; }
+img, video, canvas, svg, picture, iframe, embed, object { max-width: 100%; }
+img, video, canvas { height: auto; }
+pre, table { display: block; max-width: 100%; overflow-x: auto; }`;
 }
 
 /**

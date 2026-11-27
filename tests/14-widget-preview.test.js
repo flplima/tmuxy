@@ -22,28 +22,12 @@ const {
 } = require('./helpers');
 const { tmuxPanes } = require('./helpers/tmux-read');
 const { tmuxExec } = require('./helpers/tmux-socket');
-const { activePreview, openPreview, previewFrame } = require('./helpers/preview-widget');
+const { activePreview, openPreview, paneType, previewFrame } = require('./helpers/preview-widget');
 
 const PIXEL = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 );
-
-/**
- * The terminal type of the pane holding `selector`: the size the pane's
- * terminal is drawn at (`--tmuxy-font-size`, which the phone fits to its
- * grid) in the app's mono family. Runs in the page.
- */
-function paneType(selector) {
-  const probe = document.createElement('span');
-  probe.style.fontSize = 'var(--tmuxy-font-size)';
-  probe.style.fontFamily = 'var(--font-mono)';
-  document.querySelector(selector).parentElement.append(probe);
-  const style = getComputedStyle(probe);
-  const type = { size: style.fontSize, family: style.fontFamily };
-  probe.remove();
-  return type;
-}
 
 const lines = (n) => Array.from({ length: n }, (_, i) => `Line ${i + 1}`).join('\n\n');
 
@@ -355,6 +339,7 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     fs.writeFileSync(path.join(site, 'style.css'), 'h1 { letter-spacing: 7px; }\n');
     fs.writeFileSync(path.join(site, '.hidden.css'), 'h1 { color: rgb(255, 0, 0); }\n');
     fs.writeFileSync(path.join(dir, 'outside.png'), PIXEL);
+    fs.writeFileSync(path.join(site, 'pixel.png'), PIXEL);
     const page = path.join(site, 'index.html');
     const write = (heading) =>
       fs.writeFileSync(
@@ -366,7 +351,7 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
   fetch('https://example.com/').then(() => { window.netResult = 'online'; }, () => { window.netResult = 'offline'; });
   document.addEventListener('copy', () => { const f = document.activeElement; window.copied = f.tagName === 'INPUT' ? f.value.slice(f.selectionStart, f.selectionEnd) : String(getSelection()); });
 </script></head>
-<body><h1>${heading}</h1><input value="Field Text"><img id="outside" src="../outside.png"><div style="height: 4000px"></div></body></html>\n`,
+<body><h1>${heading}</h1><input value="Field Text"><img id="outside" src="../outside.png"><img id="wide" src="pixel.png" width="5000" height="50"><div style="height: 4000px"></div></body></html>\n`,
       );
     write('First Heading');
     await openPreview(ctx, page);
@@ -394,6 +379,11 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
           fontSize: getComputedStyle(document.body).fontSize,
           fontFamily: getComputedStyle(document.body).fontFamily,
           outsideWidth: document.getElementById('outside').naturalWidth,
+          wideRight: document.getElementById('wide').getBoundingClientRect().right,
+          pageWidth: document.documentElement.clientWidth,
+          wideRatio:
+            document.getElementById('wide').getBoundingClientRect().width /
+            document.getElementById('wide').getBoundingClientRect().height,
           net: window.netResult,
           scrollY: window.scrollY,
         };
@@ -410,6 +400,10 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     expect(page1.spacing).toBe('7px');
     expect(page1.color).not.toBe('rgb(255, 0, 0)');
     expect(page1.outsideWidth).toBe(0);
+    // An image wider than the pane, with no CSS of the page's to say so,
+    // fits it and keeps its own shape (a square pixel here).
+    expect(page1.wideRight).toBeLessThanOrEqual(page1.pageWidth);
+    expect(page1.wideRatio).toBeCloseTo(1, 1);
     expect(page1.net).toBe('offline');
     // Drawn in the theme.
     expect(page1.background).not.toBe('rgba(0, 0, 0, 0)');

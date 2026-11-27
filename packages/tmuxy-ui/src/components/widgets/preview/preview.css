@@ -49,6 +49,7 @@
      (the phone fits a smaller one to its grid). */
   font-size: var(--tmuxy-font-size, 15px);
   line-height: 1.6;
+  overflow-wrap: break-word;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   user-select: text;
@@ -203,8 +204,12 @@
 }
 
 .preview-markdown table {
+  /* A table wider than the pane scrolls inside it, not the document. */
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
-  width: 100%;
   margin: 0 0 16px;
 }
 
@@ -227,7 +232,22 @@
 
 .preview-markdown img {
   max-width: 100%;
+  height: auto;
   border-radius: var(--radius-md);
+}
+
+/* Nothing in a document is wider than its pane. */
+.preview-markdown video,
+.preview-markdown canvas,
+.preview-markdown svg,
+.preview-markdown picture,
+.preview-markdown iframe {
+  max-width: 100%;
+}
+
+.preview-markdown video,
+.preview-markdown canvas {
+  height: auto;
 }
 
 .preview-image-blocked {

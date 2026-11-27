@@ -50,4 +50,20 @@ async function openPreview(ctx, file) {
   await pressEnter(ctx.page);
 }
 
-module.exports = { activePreview, openPreview, previewFrame };
+/**
+ * The terminal type of the pane holding `selector`: the size the pane's
+ * terminal is drawn at (`--tmuxy-font-size`, which the phone fits to its
+ * grid) in the app's mono family. Runs in the page.
+ */
+function paneType(selector) {
+  const probe = document.createElement('span');
+  probe.style.fontSize = 'var(--tmuxy-font-size)';
+  probe.style.fontFamily = 'var(--font-mono)';
+  document.querySelector(selector).parentElement.append(probe);
+  const style = getComputedStyle(probe);
+  const type = { size: style.fontSize, family: style.fontFamily };
+  probe.remove();
+  return type;
+}
+
+module.exports = { activePreview, openPreview, paneType, previewFrame };
