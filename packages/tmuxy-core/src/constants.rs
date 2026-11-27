@@ -28,6 +28,15 @@ pub mod tmux_options;
 /// [`tmux_options::PANE_WIDGET`] agrees). Generated into the UI and the CLI.
 pub const WIDGET_MARKER: &str = "__TMUXY_WIDGET__:";
 
+/// What the `browser` script (`$BROWSER` in every pane) puts before a URL,
+/// hex-encoded, in the `display-message` it aims at the client to open it in
+/// the user's browser. Hex, so neither tmux's format expansion nor the
+/// `%message` cleaning can change a byte of it. Generated into the CLI.
+pub const OPEN_URL_MARKER: &str = "__TMUXY_OPEN_URL__:";
+
+/// The longest URL, in bytes, the `browser` script hands to a client.
+pub const MAX_OPEN_URL_BYTES: usize = 8192;
+
 /// The lines `tmuxy-widget-preview` prints for the client's preview (the
 /// UI's `domain/preview.ts`): the page keeps its own colours, the file's
 /// name, and a value that changes with the file. Generated into the UI and

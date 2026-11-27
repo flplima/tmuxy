@@ -106,6 +106,9 @@ pub(crate) struct ProcessEventResult {
     /// Notices for the person: a `%message`, or something the aggregator
     /// did on their behalf (a view mode it closed).
     pub messages: Vec<String>,
+    /// URLs a pane's program asked to open in the user's browser
+    /// (`ControlModeEvent::OpenUrl`).
+    pub open_urls: Vec<String>,
     /// A pane tmux paused (flow control), to be resumed at once.
     pub resume: Option<PaneId>,
 }
@@ -157,6 +160,10 @@ pub enum Notice {
     },
     /// A notice shown like a `%message`.
     Message(String),
+    /// A URL a pane's program asked to open in the user's browser (the
+    /// `browser` script, `$BROWSER` in every pane), as it arrived: what opens
+    /// it checks it first.
+    OpenUrl(String),
     /// A command tmux refused, or a link that failed.
     Error(String),
 }

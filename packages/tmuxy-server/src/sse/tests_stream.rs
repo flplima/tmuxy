@@ -200,3 +200,34 @@ async fn the_last_client_leaving_keeps_the_monitor_through_the_grace_period() {
         "the monitor was torn down before the grace period elapsed"
     );
 }
+
+/// A pane's request to open a URL reaches one stream — the client used last —
+/// so a session open in two browsers opens it in one; a replay keeps it so.
+#[tokio::test]
+async fn an_open_url_is_framed_for_the_client_used_last_alone() {
+    use tmuxy_core::control_mode::StateEmitter;
+    let state = Arc::new(AppState::default());
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    super::tests_sessions::watched_with(&state, "s", tx, &[1, 2]).await;
+    for conn in [1, 2] {
+        let cmd = ClientCommand::SetClientSize { cols: 80, rows: 24 };
+        handle_command(cmd, "s", &state, Some(conn)).await.unwrap();
+    }
+    let (runtime, broadcast) = {
+        let sessions = state.sessions.read().await;
+        let conns = &sessions["s"];
+        (Arc::clone(&conns.runtime), Arc::clone(&conns.broadcast))
+    };
+    runtime.note_activity(1).await;
+    runtime.open_url("https://example.com/x".to_string());
+
+    let (_, frame) = broadcast.replay_since(0).pop().expect("a frame");
+    assert_eq!(frame.name, "open-url");
+    assert_eq!(
+        &*frame.data,
+        r#"{"event":"open-url","data":{"url":"https://example.com/x"}}"#
+    );
+    assert!(frame.is_for(1));
+    assert!(!frame.is_for(2));
+}

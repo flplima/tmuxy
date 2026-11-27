@@ -2,6 +2,7 @@ import { useAppSelector, useAppSend, useAppState } from '../machines/appHooks';
 import { selectNotifications, selectOwnTmuxNotice } from '../machines/selectors/ui';
 import { OwnTmuxNotice } from './OwnTmuxNotice';
 import { ReconnectNotice } from './ReconnectNotice';
+import { openExternalUrl } from '../infra/openUrl';
 import './Snackbar.css';
 
 export function Snackbar() {
@@ -23,6 +24,21 @@ export function Snackbar() {
           data-testid="snackbar-item"
         >
           <span className="snackbar-text">{n.text}</span>
+          {n.openUrl && (
+            <span className="snackbar-actions">
+              <button
+                type="button"
+                className="snackbar-action is-primary"
+                data-testid="snackbar-open-url"
+                onClick={() => {
+                  if (n.openUrl) openExternalUrl(n.openUrl);
+                  send({ type: 'DISMISS_NOTIFICATION', id: n.id });
+                }}
+              >
+                Open
+              </button>
+            </span>
+          )}
           <button
             type="button"
             className="snackbar-close"

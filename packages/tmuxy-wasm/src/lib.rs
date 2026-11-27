@@ -24,6 +24,8 @@ export interface Feed {
   clipboard: { paneId: string | null; text: string }[];
   /** Notices for the person. */
   messages: string[];
+  /** URLs a pane's program asked to open in the user's browser (`$BROWSER`). */
+  openUrls: string[];
   /** Commands tmux refused. */
   errors: string[];
   /** Answers to the commands run with a reply id. */
@@ -75,6 +77,8 @@ struct Feed {
     changed: bool,
     clipboard: Vec<Clipboard>,
     messages: Vec<String>,
+    #[serde(rename = "openUrls")]
+    open_urls: Vec<String>,
     errors: Vec<String>,
     replies: Vec<Reply>,
     ended: Option<Ended>,
@@ -165,6 +169,7 @@ impl Session {
                     })
                 }
                 Action::Notify(Notice::Message(text)) => out.messages.push(text),
+                Action::Notify(Notice::OpenUrl(url)) => out.open_urls.push(url),
                 Action::Notify(Notice::Error(error)) => out.errors.push(error),
                 Action::Answer(id, reply) => out.replies.push(Reply {
                     id,

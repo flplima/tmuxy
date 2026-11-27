@@ -304,6 +304,11 @@ impl StateAggregator {
                 ..Default::default()
             },
 
+            ControlModeEvent::OpenUrl { url } => ProcessEventResult {
+                open_urls: vec![url],
+                ..Default::default()
+            },
+
             // Flow control (tmux 3.2+ `pause-after`): a paused pane is resumed
             // at once (`Batch::Resume`), so nothing in the state says it was
             // ever paused.

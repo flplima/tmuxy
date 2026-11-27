@@ -17,6 +17,7 @@ import {
   KeyBindings,
   LogEvent,
   MessageFrame,
+  OpenUrlEvent,
   ThemeSettings,
   TmuxMessageEvent,
 } from '../../domain/wire';
@@ -67,6 +68,8 @@ export const HOST_EVENTS = {
     TransportEvent.Clipboard({ paneId: data.pane_id, text: data.text }),
   ),
   'tmux-message': spec(TmuxMessageEvent, (data) => TransportEvent.Message({ text: data.text })),
+  // Sent only to the client used last; opened or noticed by `openPaneUrl`.
+  'open-url': spec(OpenUrlEvent, (data) => TransportEvent.OpenUrl({ url: data.url })),
 };
 
 export type HostEventName = keyof typeof HOST_EVENTS;

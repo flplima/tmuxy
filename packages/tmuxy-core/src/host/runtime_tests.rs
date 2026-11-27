@@ -225,6 +225,44 @@ async fn a_clipboard_write_is_sent_and_one_over_the_cap_is_not() {
     );
 }
 
+/// A pane's request to open a URL goes to the one client used last, so a
+/// session open in two browsers opens it once; with none known, to every
+/// client, and the stream of a client that left is no target.
+#[tokio::test]
+async fn an_open_url_goes_to_the_client_used_last() {
+    let (runtime, sink) = runtime();
+    let (tx, _resizes) = resizing_monitor();
+    runtime.connected(tx).await;
+    let target = |sink: &Recorded| match sink.0.lock().unwrap().pop() {
+        Some(event @ HostEvent::OpenUrl { .. }) => event.only_for(),
+        other => panic!("expected OpenUrl, got {other:?}"),
+    };
+
+    runtime.open_url("https://example.com/a".into());
+    assert_eq!(target(&sink), None);
+
+    runtime.set_client_size(1, 80, 24).await;
+    runtime.set_client_size(2, 100, 30).await;
+    runtime.note_activity(1).await;
+    runtime.open_url("https://example.com/b".into());
+    assert_eq!(target(&sink), Some(1));
+
+    runtime.client_left(1).await;
+    runtime.open_url("https://example.com/c".into());
+    assert_eq!(target(&sink), None);
+
+    // Anything can write the script's marker: only a link a click could
+    // open leaves the host.
+    for refused in [
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://e.com/ x",
+    ] {
+        runtime.open_url(refused.into());
+    }
+    assert!(sink.0.lock().unwrap().is_empty());
+}
+
 #[test]
 fn a_greeting_carries_the_bindings_once_they_are_known() {
     let (runtime, _) = runtime();

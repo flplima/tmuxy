@@ -95,6 +95,8 @@ A `source-file` in `tmuxy.conf` whose target is missing stops tmux at that line.
 
 Before any layer it publishes `TMUXY_DATA_DIR` (the data dir) and `TMUXY_ENTRY_CONF` (itself) into tmux's global environment. Every bundled script is named `$TMUXY_DATA_DIR/bin/tmuxy/…` — the essentials' aliases, the client's script commands, a restored sidebar — which tmux's parser expands in double quotes or a bare word, and a shell in single quotes, from that environment. So a data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves every script path, and the mirror is the same bytes anywhere. It comes first because tmux expands an alias's variable when a binding names it. `${VAR:-default}` is not used: tmux's parser rejects it in double quotes, and fish knows it nowhere.
 
+It also sets `BROWSER` to the `browser` script, so a pane's program opens a URL in the user's browser through the app ([SECURITY-CONTENT.md](SECURITY-CONTENT.md#a-pane-opens-a-url-in-your-browser)); `set-environment -g BROWSER` in `tmuxy.conf` overrides it. A pane started earlier keeps its old environment. The user's own server and a remote one over SSH never read this file.
+
 ### Menu choices, and the options `tmuxy.conf` pins
 
 The menus change five options — `@tmuxy-theme`, `@tmuxy-theme-mode`, `@tmuxy-transparency`, `@tmuxy-cursor-blink`, `@tmuxy-send-ask` — and remember each choice in `tmuxy.state.json` in the state dir, which the monitor puts back after the chain on every connect, every reload and after a client's own `source-file` (a sourced defaults file would reset them).

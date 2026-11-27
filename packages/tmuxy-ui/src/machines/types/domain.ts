@@ -216,6 +216,8 @@ export interface AppNotification {
   text: string;
   kind: NotificationKind;
   timestamp: number;
+  /** A URL a pane asked to open, behind the notice's Open button (`openPaneUrl`). */
+  openUrl?: string;
 }
 
 /** An entry of the log the connection overlay shows under Details. */

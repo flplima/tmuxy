@@ -60,6 +60,7 @@ export interface EngineSink {
   onClipboard(paneId: string | null, text: string): void;
   /** A notice for the person (`%message`, a command's printout). */
   onMessage(text: string): void;
+  onOpenUrl(url: string): void;
   /** A command tmux refused. */
   onError(message: string): void;
   /** The control-mode stream ended (`%exit`): the tmux server died or the
@@ -497,6 +498,7 @@ export abstract class GuestEngine {
     for (const { id, output, error } of out.replies) this.replies.resolve(id, { output, error });
     for (const { paneId, text } of out.clipboard) this.sink?.onClipboard(paneId, text);
     for (const text of out.messages) this.sink?.onMessage(text);
+    for (const url of out.openUrls) this.sink?.onOpenUrl(url);
     for (const message of out.errors) this.sink?.onError(message);
     if (out.ended) {
       this.attached = false;

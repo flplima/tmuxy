@@ -236,7 +236,9 @@ pub async fn sse_handler(
             let replay = session_broadcast.replay_since(last_event_id.unwrap_or(0));
             for (seq, frame) in replay {
                 last_replayed = seq;
-                yield Ok(sse_frame(Some(seq), &frame));
+                if frame.is_for(conn_id) {
+                    yield Ok(sse_frame(Some(seq), &frame));
+                }
             }
         }
 
@@ -260,7 +262,9 @@ pub async fn sse_handler(
                                 continue;
                             }
                             last_replayed = seq;
-                            yield Ok(sse_frame(Some(seq), &frame));
+                            if frame.is_for(conn_id) {
+                                yield Ok(sse_frame(Some(seq), &frame));
+                            }
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             // A gap past the ring is seen by the client's
@@ -270,7 +274,9 @@ pub async fn sse_handler(
                             warn!(conn_id, lagged = n, "client lagged; replaying ring buffer");
                             for (seq, frame) in session_broadcast.replay_since(last_replayed) {
                                 last_replayed = seq;
-                                yield Ok(sse_frame(Some(seq), &frame));
+                                if frame.is_for(conn_id) {
+                                    yield Ok(sse_frame(Some(seq), &frame));
+                                }
                             }
                         }
                         Err(broadcast::error::RecvError::Closed) => {

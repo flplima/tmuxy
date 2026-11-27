@@ -89,6 +89,15 @@ pub enum HostEvent {
     Message {
         text: String,
     },
+    /// A pane's program asked for `url` to open in the user's browser (the
+    /// `browser` script, `$BROWSER` in every pane). `client` is the one that
+    /// should act — the client used last (`SessionRuntime::latest_client`) —
+    /// so a session open in two browsers opens it once; `None` is every
+    /// client. It is the host's routing, never part of the payload.
+    OpenUrl {
+        url: String,
+        client: Option<u64>,
+    },
 }
 
 impl HostEvent {
@@ -106,12 +115,21 @@ impl HostEvent {
             Self::Detached { .. } => "detached",
             Self::Clipboard { .. } => "clipboard",
             Self::Message { .. } => "tmux-message",
+            Self::OpenUrl { .. } => "open-url",
         }
     }
 
     /// The payload, as a Tauri event carries it and an SSE frame's `data`.
     pub fn data(&self) -> EventData<'_> {
         EventData(self)
+    }
+
+    /// The only client this event is for; `None` is every client.
+    pub fn only_for(&self) -> Option<u64> {
+        match self {
+            Self::OpenUrl { client, .. } => *client,
+            _ => None,
+        }
     }
 }
 
@@ -154,6 +172,11 @@ impl Serialize for EventData<'_> {
             HostEvent::Message { text } => {
                 let mut s = serializer.serialize_struct("Message", 1)?;
                 s.serialize_field("text", text)?;
+                s.end()
+            }
+            HostEvent::OpenUrl { url, .. } => {
+                let mut s = serializer.serialize_struct("OpenUrl", 1)?;
+                s.serialize_field("url", url)?;
                 s.end()
             }
         }

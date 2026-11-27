@@ -136,6 +136,7 @@ export class GuestTmuxAdapter implements TransportDriver {
         this.events.emit(TransportEvent.Clipboard({ paneId: source, text }));
       },
       onMessage: (text) => this.events.emit(TransportEvent.Message({ text })),
+      onOpenUrl: (url) => this.events.emit(TransportEvent.OpenUrl({ url })),
       onError: (message) => this.events.emit(TransportEvent.Error({ message })),
       onFatal: (message) => this.events.emit(TransportEvent.Fatal({ message })),
     };

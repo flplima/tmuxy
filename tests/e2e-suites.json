@@ -25,7 +25,7 @@
     },
     {
       "name": "rendering-text",
-      "path": "tests/3-rendering-protocols-(links|unicode)\\.test\\.js"
+      "path": "tests/3-rendering-protocols-(browser|links|unicode)\\.test\\.js"
     },
     {
       "name": "rendering-images",

@@ -11,6 +11,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 | R3 | Unicode, wide and faint text | — | — | — | — | — | `tests/3-rendering-protocols-unicode.test.js` |
 | R4 | OSC 52 clipboard and OSC 2 titles | — | — | — | — | — | `tests/3-rendering-protocols.test.js` |
 | R5 | An icon per program | — | — | — | — | `@tmuxy-icon-*` | `tests/22-process-icons.test.js` |
+| R6 | A program in a pane opens a URL in your browser (`$BROWSER`): at once right after a click or key, else in a notice with an Open button | click Open | — | — | — | `BROWSER` | `tests/3-rendering-protocols-browser.test.js` |
 
 ## The desktop and phone apps
 

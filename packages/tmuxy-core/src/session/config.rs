@@ -56,6 +56,17 @@ pub const CONFIG_DIR_OPTION: &str = "@tmuxy-config-dir";
 /// over for whatever `tmux` the script's PATH finds first.
 pub const TMUX_BIN_ENV: &str = "TMUX_BIN";
 
+/// The variable a program reads to find the browser to open a URL in
+/// (Claude Code, `gh`, Python's `webbrowser`). Set in tmux's global
+/// environment by the entry file, so every pane created afterwards opens a
+/// URL through tmuxy (the `browser` script) in the user's browser, not on
+/// the machine the pane runs on. Not set on the user's own tmux server
+/// ([`adopted_conf`]), whose panes are shared with ordinary terminals.
+pub const BROWSER_ENV: &str = "BROWSER";
+
+/// The script [`BROWSER_ENV`] names, under the data dir's `bin/tmuxy/`.
+const BROWSER_SCRIPT: &str = "browser";
+
 pub(super) fn is_symlink(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
@@ -183,7 +194,7 @@ pub fn init_user_conf(layout: &Layout) -> Result<PathBuf, String> {
 }
 
 /// The chain, in order, after the two paths it publishes ([`DATA_DIR_ENV`],
-/// [`ENTRY_CONF_ENV`]) — first, because tmux expands `$TMUXY_DATA_DIR` in an
+/// [`ENTRY_CONF_ENV`]) and [`BROWSER_ENV`] — first, because tmux expands `$TMUXY_DATA_DIR` in an
 /// alias when a binding names it, and a file is parsed when it is sourced:
 ///
 /// 1. `tmuxy.essentials.conf` — the command-aliases every binding resolves
@@ -206,6 +217,8 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path, tmux: &str) -> 
     };
     format!(
         "{preamble}\
+         # A program in a pane opens a URL in the browser of whoever uses tmuxy.\n\
+         set-environment -g {BROWSER_ENV} {browser}\n\
          # The chain tmux is started with and every reload sources, in order.\n\
          source-file {essentials}\n\
          source-file {defaults}\n\
@@ -213,6 +226,7 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path, tmux: &str) -> 
          source-file -q {user}\n\
          source-file {essentials}\n",
         preamble = conf_preamble(layout, &layout.entry_conf(), tmux),
+        browser = quote(&layout.scripts().join(BROWSER_SCRIPT)),
         defaults = quote(&layout.path(&paths::DEFAULTS_CONF)),
         user = quote(user),
     )

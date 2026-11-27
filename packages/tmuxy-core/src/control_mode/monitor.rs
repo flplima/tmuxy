@@ -83,6 +83,10 @@ pub trait StateEmitter: super::log::LogSink {
     /// tmux's own notices), already cleaned by the parser.
     fn show_message(&self, _text: String) {}
 
+    /// Called when a pane's program asked for a URL to open in the user's
+    /// browser (the `browser` script); not yet checked as openable.
+    fn open_url(&self, _url: String) {}
+
     /// Called after initial state sync completes (config sourced, settings enforced).
     fn on_initial_sync_complete(&self) {}
 }

@@ -28,6 +28,20 @@ A restore puts back only the options capture writes (the float and sidebar `@tmu
 
 What `ps` finds in a sidebar (the helper the widget sleeps in) is never recorded, and what it finds elsewhere is held to an age: a foreground program younger than two seconds is a prompt's helper (`git status`, `id -Gn`) as often as a program the user just started, so it is left out and the keeper looks again once that age has passed. While a restore is rebuilding a session the autosave is held, and a shutdown in that window skips its last save: half a session must never become the latest snapshot. A snapshot file that does not parse, or claims a newer format, is logged and ignored and the session starts fresh: it can never stop the server from starting.
 
+## A Pane Opens a URL in Your Browser
+
+Every pane tmuxy runs has `BROWSER` pointing at the `browser` script (`tmuxy-cli/bin/tmuxy/browser`), so a program that opens a URL (Claude Code, `gh`, Python's `webbrowser`) opens it in the browser of whoever uses tmuxy rather than on the machine the pane runs on. Any program in a pane can run it, with any argument, at any moment: left alone that is a pane opening tabs on its own, to pages of its choosing.
+
+| Risk | Mitigation |
+| --- | --- |
+| A scheme a browser or the OS acts on (`file:`, `javascript:`, a custom handler) | Only what a clicked link may open: http(s) and mailto with nothing a URL must percent-encode (`is_openable_url`), checked by the script, by the host before the event leaves it (`host/runtime/emitter.rs`) and by the client again (`isOpenableUrl`). |
+| Tabs opened with nobody there | The client opens a URL directly only within five seconds of a click or key in the app (Chrome's transient user activation lasts about as long), and one URL per interaction. Otherwise, and whenever `navigator.userActivation` says a popup blocker would refuse the tab, it shows the URL in a notice with an Open button the person clicks (`tmuxy-ui/src/infra/paneUrls.ts`). |
+| A flood of requests | Five URLs per ten seconds are opened or noticed; the rest are dropped. |
+| Every browser on a shared session opening it | The host sends it to the client used last alone (`SessionRuntime::latest_client`, a stream filter on the web), so it opens once. |
+| Something other than the script writing its marker | The marker is a `display-message` any tmux client can send. It carries nothing the script could not: the same checks apply, and the URL is hex-encoded so neither tmux's format expansion nor the message cleaning changes it. |
+
+A URL in a notice is shown in full before anything opens, and the page opens `noopener,noreferrer`, so it gets no handle on the app.
+
 ## Pane Output Threat Model
 
 Bytes emitted by any command running in a pane reach parsers, image decoders, and link handlers in a browser or webview context. Unlike commands entered by the user, terminal output is frequently untrusted: displaying a file (`cat untrusted.txt`), running a test suite, fetching logs, or inspecting untrusted git repositories can output arbitrary byte streams to stdout or stderr.

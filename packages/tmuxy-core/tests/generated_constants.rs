@@ -23,6 +23,8 @@ mod crate_graph;
 mod dev_loop;
 #[path = "generated/guest_keys.rs"]
 mod guest_keys;
+#[path = "generated/open_url.rs"]
+mod open_url;
 #[path = "generated/ts_literal.rs"]
 mod ts_literal;
 
@@ -352,6 +354,7 @@ fn shell_ui_shared(out: &mut String) {
         "\n# What tmuxy-widget prints before a widget's name, for the client to draw it.\nWIDGET_MARKER={}",
         quoted(tmuxy_core::constants::WIDGET_MARKER)
     );
+    open_url::shell(out);
 }
 
 fn shell() -> String {

@@ -27,6 +27,7 @@ vi.mock('../controlMode', async (importOriginal) => {
     changed,
     clipboard: [],
     messages: [],
+    openUrls: [],
     errors: [],
     replies: [],
     ended: null,
