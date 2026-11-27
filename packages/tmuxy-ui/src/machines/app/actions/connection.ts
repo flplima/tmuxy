@@ -1,13 +1,31 @@
 import { assign, sendTo } from 'xstate';
-import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
+import { act, assignCtx, type Ctx, type EnqueueAction, type Evt } from '../actionTypes';
 import { takeKeyboard } from '../helpers';
 import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
 import { copyForProgram } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import { invokeEvent } from '../../actors/tmuxActor';
 import { profileRequest } from '../../../domain/backendCalls';
-import { memorableSessionName } from '../../../domain/sessionNames';
+import { exitEndedSession, memorableSessionName } from '../../../domain/sessionNames';
 import { isTauri } from '../../../infra/platform';
+
+/**
+ * The name a new session takes: the one the user typed (offered only when no
+ * session has it), else one no session in the last poll has, nor the attached
+ * one, nor a snapshot the switcher offers to restore (a session made under a
+ * snapshot's name would be saved over it).
+ */
+function newSessionName(context: Ctx, event: Evt): string {
+  const typed = event.type === 'NEW_SESSION' ? event.name : undefined;
+  return (
+    typed ??
+    memorableSessionName([
+      context.sessionName,
+      ...context.sessions.map((session) => session.sessionName),
+      ...context.restorableSessions.map((session) => session.name),
+    ])
+  );
+}
 
 function fetchThemes(enqueue: EnqueueAction): void {
   enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
@@ -199,22 +217,17 @@ export const connectionActions = {
   // Create a session AND switch to it, so the action has a visible effect. On
   // web the switch reconnects with ?session=<name>, and the server's attach
   // creates the session if the create has not landed yet; on Tauri the create
-  // must precede switch-client, which the two raised events keep in order. The
-  // name is the one the user typed (the palette offers it only when no session
-  // has it), else one no session in the last poll has, nor the attached one,
-  // nor a snapshot the switcher offers to restore (a session made under a
-  // snapshot's name would be saved over it).
+  // must precede switch-client, which the two raised events keep in order.
   connection_newSession: act(({ context, event, enqueue }) => {
-    const typed = event.type === 'NEW_SESSION' ? event.name : undefined;
-    const sessionName =
-      typed ??
-      memorableSessionName([
-        context.sessionName,
-        ...context.sessions.map((session) => session.sessionName),
-        ...context.restorableSessions.map((session) => session.name),
-      ]);
+    const sessionName = newSessionName(context, event);
     enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.NewSession({ name: sessionName }) });
     enqueue.raise({ type: 'SWITCH_SESSION' as const, sessionName });
+  }),
+
+  // Detached, there is no control-mode connection to carry a `new-session`:
+  // the switch's attach creates the session on its own.
+  connection_newSessionDetached: act(({ context, event, enqueue }) => {
+    enqueue.raise({ type: 'SWITCH_SESSION' as const, sessionName: newSessionName(context, event) });
   }),
 
   connection_switchSession: act(({ event, enqueue }) => {
@@ -269,7 +282,14 @@ export const connectionActions = {
   // the client measured).
   connection_onConnected: act(({ context, enqueue }) => {
     enqueue(
-      assign({ connected: true, error: null, fatalError: null, heldCommands: [], heldOverflow: 0 }),
+      assign({
+        connected: true,
+        error: null,
+        fatalError: null,
+        heldCommands: [],
+        heldOverflow: 0,
+        sessionEnded: false,
+      }),
     );
     enqueue.raise({ type: 'CELL_SIZE_UNCLAIMED' as const });
     enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
@@ -327,7 +347,7 @@ export const connectionActions = {
   // last frame until a keystroke. The sequencer reopened on the new stream,
   // so the answer is adopted as the starting state.
   connection_onReconnected: act(({ context, enqueue }) => {
-    enqueue(assign({ connected: true, error: null, fatalError: null }));
+    enqueue(assign({ connected: true, error: null, fatalError: null, sessionEnded: false }));
     enqueue.raise({ type: 'CELL_SIZE_UNCLAIMED' as const });
     fetchThemes(enqueue);
     fetchStateAtViewport(context, enqueue);
@@ -342,8 +362,9 @@ export const connectionActions = {
   ),
 
   /** The stream is gone (given up, or this client detached): nothing animates over the dead frame. */
-  connection_lost: act(({ enqueue }) => {
-    enqueue(assign({ connected: false }));
+  connection_lost: act(({ event, enqueue }) => {
+    const sessionEnded = event.type === 'TMUX_DETACHED' && exitEndedSession(event.reason);
+    enqueue(assign({ connected: false, sessionEnded }));
     enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' as const });
   }),
 

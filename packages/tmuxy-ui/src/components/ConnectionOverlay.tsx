@@ -1,6 +1,7 @@
 /**
  * What the pane area shows while there is nothing live to show: the first
- * load, a fatal (the backend stopped retrying) or a detach. A dropped channel
+ * load, a fatal (the backend stopped retrying), a detach, or the end of the
+ * attached session. A dropped channel
  * after a frame was shown is not an overlay: the panes stay usable and the
  * snackbar says so (ReconnectNotice).
  */
@@ -21,6 +22,8 @@ export interface ConnectionOverlayProps {
   fatalError: string | null;
   log: LogEntry[];
   onRetry: () => void;
+  /** In `detached` mode: the session ended, rather than this client detaching from it. */
+  sessionEnded?: boolean;
   /** What `detached` mode puts on the scrim: the session switcher. */
   children?: ReactNode;
 }
@@ -36,6 +39,19 @@ function formatLog(log: LogEntry[]): string {
     .join('\n');
 }
 
+/** After a detach the session still runs; after it ended there is none to step back in to. */
+function overlayTitle(mode: ConnectionOverlayMode, sessionEnded: boolean): string {
+  if (mode === 'fatal') return 'Cannot connect to tmux';
+  if (mode === 'connecting') return 'Connecting…';
+  return sessionEnded ? 'The session ended.' : 'Detached';
+}
+
+function detachedNote(sessionEnded: boolean): string {
+  return sessionEnded
+    ? 'Start a new one, or pick another.'
+    : 'tmux is still running. Pick a session to step back in.';
+}
+
 export function ConnectionOverlay({
   mode,
   hasLayout,
@@ -43,6 +59,7 @@ export function ConnectionOverlay({
   fatalError,
   log,
   onRetry,
+  sessionEnded = false,
   children,
 }: ConnectionOverlayProps) {
   const isFatal = mode === 'fatal';
@@ -68,14 +85,8 @@ export function ConnectionOverlay({
         {/* Detached is not a wait: there is nothing to spin for, and the way
             back in is the switcher below rather than a retry. */}
         {!isFatal && !isDetached && <span className="connection-spinner" aria-hidden="true" />}
-        <p className="connection-overlay-text">
-          {isFatal ? 'Cannot connect to tmux' : isDetached ? 'Detached' : 'Connecting…'}
-        </p>
-        {isDetached && (
-          <p className="connection-overlay-note">
-            tmux is still running. Pick a session to step back in.
-          </p>
-        )}
+        <p className="connection-overlay-text">{overlayTitle(mode, sessionEnded)}</p>
+        {isDetached && <p className="connection-overlay-note">{detachedNote(sessionEnded)}</p>}
         {isDetached && children}
         {!isFatal && !isDetached && error && <p className="connection-overlay-note">{error}</p>}
         {isFatal && (

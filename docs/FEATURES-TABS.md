@@ -22,7 +22,7 @@ Part of the capability catalog; [FEATURES.md](FEATURES.md) says how to read a ro
 
 | Id | Feature | Mouse / UI | Menu | Keybinding | CLI | Config / Tag | Enforced by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| S1 | New session | — | `session-new` | — | `tmuxy session new` | — | `tests/4-session-connectivity-multi.test.js` `tests/cli/cli-session.test.js` |
+| S1 | New session | the detached overlay | `session-new` | — | `tmuxy session new` | — | `tests/4-session-connectivity-multi.test.js` `tests/4-session-connectivity-last-pane.test.js` `tests/cli/cli-session.test.js` |
 | S2 | Rename the session | — | `session-rename` | — | `tmuxy session rename` | — | `tests/cli/cli-session.test.js` |
 | S3 | Detach (the desktop app) | — | `session-detach` | — | — | — | — |
 | S4 | Kill the session, after a confirmation (the CLI names the session, with no confirmation) | — | `session-kill` | — | `tmuxy session kill` | — | `tests/cli/cli-session.test.js` |

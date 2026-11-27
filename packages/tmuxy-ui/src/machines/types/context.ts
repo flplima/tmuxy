@@ -373,6 +373,12 @@ export interface AppMachineContext {
   currentServerId: string | null;
   /** Sessions a snapshot could bring back; see {@link RestorableSession}. */
   restorableSessions: RestorableSession[];
+  /**
+   * The attached session ended: tmux closed this client for a reason other
+   * than a detach (its last pane exited, it was killed). Cleared on the next
+   * connection. A detach leaves it false: that session is still running.
+   */
+  sessionEnded: boolean;
   /** The launch notice about the user's own tmux server, while it is on screen. */
   ownTmuxNotice: OwnTmuxNotice | null;
 }

@@ -201,8 +201,9 @@ export class FixtureAdapter implements TransportDriver {
         }
         return null;
       }
+      // What the desktop host says for a detach it was asked for.
       case 'detach_client':
-        this.events.emit(TransportEvent.Detached({ reason: null }));
+        this.events.emit(TransportEvent.Detached({ reason: 'detached' }));
         return null;
       case 'get_trace_settings':
         return { ...this.traceSettings };

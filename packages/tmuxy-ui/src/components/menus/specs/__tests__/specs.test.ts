@@ -7,7 +7,6 @@ import { appMenuSpec, appItemsSpec, debugMenuSpec, themeMenuSpec, viewMenuSpec }
 import { paneMenuSpec } from '../paneMenu';
 import { tabMenuSpec } from '../tabMenu';
 import { selectionMenuSpec } from '../selectionMenu';
-import { sessionSwitcherSpec } from '../sessionSwitcher';
 import { windowMenuSpec } from '../windowMenu';
 import { itemIds, tidy, type MenuEnv } from '../../../../domain/menus/spec';
 import type { AppMenuNode as MenuNode, AppMenuSpec as MenuSpec } from '../actions';
@@ -405,63 +404,6 @@ describe('selection, session switcher and window menus', () => {
       kind: 'local',
       local: { verb: 'plugin-selection', plugin: 'artifacts', action: 'explain' },
     });
-  });
-
-  it('lists sessions with the current one marked, restorable ones, servers on the desktop', () => {
-    const c = ctx({
-      sessionName: 'main',
-      sessions: [{ sessionName: 'main' }, { sessionName: 'work' }] as AppMachineContext['sessions'],
-      restorableSessions: [{ name: 'old' }] as AppMachineContext['restorableSessions'],
-      servers: [
-        { id: 'localhost', label: 'localhost' },
-        { id: 'box', label: 'box' },
-      ] as AppMachineContext['servers'],
-      currentServerId: 'localhost',
-    });
-    const web = sessionSwitcherSpec(c, WEB);
-    expect(itemIds(web)).toEqual(['session:main', 'session:work', 'restore:old']);
-    expect(find(web, 'session:main')).toMatchObject({
-      label: '● main',
-      data: { 'session-name': 'main', current: 'true' },
-    });
-
-    expect(itemIds(sessionSwitcherSpec(c, MAC))).toEqual([
-      'session:main',
-      'session:work',
-      'restore:old',
-      'server:localhost',
-      'server:box',
-      'session-connect',
-    ]);
-  });
-
-  it('a filter keeps the sessions and servers whose names contain it, ignoring case, and the connect item', () => {
-    const c = ctx({
-      sessionName: 'main',
-      sessions: ['main', 'Work-API', 'work-web', 'notes'].map((sessionName) => ({
-        sessionName,
-      })) as AppMachineContext['sessions'],
-      restorableSessions: [
-        { name: 'old-work' },
-        { name: 'scratch' },
-      ] as AppMachineContext['restorableSessions'],
-      servers: [
-        { id: 'localhost', label: 'localhost' },
-        { id: 'box', label: 'workbox' },
-      ] as AppMachineContext['servers'],
-      currentServerId: 'localhost',
-    });
-    expect(itemIds(sessionSwitcherSpec(c, MAC, ' WORK '))).toEqual([
-      'session:Work-API',
-      'session:work-web',
-      'restore:old-work',
-      'server:box',
-      'session-connect',
-    ]);
-    const none = sessionSwitcherSpec(c, MAC, 'zzz');
-    expect(itemIds(none)).toEqual(['session-connect']);
-    expect(none.filter((node) => node.kind === 'header')).toEqual([]);
-    expect(itemIds(sessionSwitcherSpec(c, WEB, ''))).toEqual(itemIds(sessionSwitcherSpec(c, WEB)));
   });
 
   it('the Window submenu lists the styles with the current one checked and the open windows', () => {

@@ -252,8 +252,9 @@ const BLIND_WAIT_CEILING = {
   // Shared machinery. A blind wait here is multiplied by every test that calls
   // the helper, so this is the number that matters most.
   'tests/helpers': 0,
-  // Test bodies. Each one affects a single test.
-  tests: 3,
+  // Test bodies. Each one affects a single test. The fourth is the last-pane
+  // test's wait past MIN_HEALTHY_RUN, a server rule with no event to wait on.
+  tests: 4,
   // Stories over real tmux wait on it instead (src/stories/tmuxBarrier.ts).
   'v86 stories': 0,
   stories: 14,
