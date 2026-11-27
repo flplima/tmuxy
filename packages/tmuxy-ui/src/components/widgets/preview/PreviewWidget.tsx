@@ -38,7 +38,7 @@ export function PreviewWidget({ paneId, lines }: WidgetProps) {
   const onEmit = useCallback((json: string) => onInput(`{"emit":${json}}`), [onInput]);
 
   if (!doc.value) {
-    return <div className="preview-message">{doc.error ?? 'Reading the file…'}</div>;
+    return <div className="preview-message">{doc.error ?? 'Loading...'}</div>;
   }
   return (
     <div ref={setBox} className="preview" data-preview-kind={doc.value.kind}>
