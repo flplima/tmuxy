@@ -3,6 +3,7 @@
 //! `capture-pane`.
 
 // Sans-IO, so these also build for wasm.
+mod cell_size;
 pub mod images;
 mod log;
 mod octal;

@@ -90,6 +90,7 @@ export const OP_TRAITS = {
   RenameSession: NONE,
   SourceConfig: NONE,
   ClearFocusRequest: NONE,
+  AnnounceCellSize: NONE,
   PluginAction: NONE,
   CommandPrompt: NONE,
   // A raw string (a key binding's, an essentials alias expanded), by the

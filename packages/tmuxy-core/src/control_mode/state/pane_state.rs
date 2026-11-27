@@ -126,6 +126,11 @@ pub struct PaneState {
     /// When this pane last had an OSC 52 write honoured; see
     /// `MIN_CLIPBOARD_INTERVAL`.
     pub last_clipboard_write: Option<Instant>,
+    /// The cell size queries (`CSI 16 t`, `CSI 14 t`) the last output asked,
+    /// for the aggregator to answer: only it knows the announced cell.
+    pub(super) size_queries: Vec<cell_size::SizeQuery>,
+    /// How many of them this pane was answered lately (`cell_size::MAX_REPLIES`).
+    pub(super) size_replies: cell_size::ReplyBudget,
 
     /// The copy-mode capture, kept apart from the live grid.
     pub copy_mode_content: Option<std::sync::Arc<PaneContent>>,
@@ -206,6 +211,8 @@ impl PaneState {
             pane_restore: None,
             output_bytes: 0,
             last_clipboard_write: None,
+            size_queries: Vec::new(),
+            size_replies: Default::default(),
             copy_mode_content: None,
             cursor_shape: 0,
             cursor_hidden: false,

@@ -1,10 +1,12 @@
 //! What a pane's program asks of the terminal beyond drawing: a title
-//! (OSC 0 / OSC 2), a clipboard write (OSC 52) and its own status (OSC 7501,
-//! with the shell's prompt mark, OSC 133 ; A, that ends a command's). vt100
+//! (OSC 0 / OSC 2), a clipboard write (OSC 52), its own status (OSC 7501,
+//! with the shell's prompt mark, OSC 133 ; A, that ends a command's) and the
+//! size of a cell in pixels (`CSI 16 t`, `CSI 14 t`). vt100
 //! reads the sequences (with the rest of the pane's output: hyperlinks and
 //! text sizes are cell attributes there) and calls these; the pane drains
 //! them after each write.
 
+use super::cell_size::{SizeQuery, MAX_REPLIES};
 use super::program_status::Report;
 
 /// Upper bound on an OSC 0 / OSC 2 pane title accepted from terminal output.
@@ -29,6 +31,9 @@ pub(crate) struct OscRequests {
     title: Option<String>,
     clipboard: Option<String>,
     status: Vec<StatusEvent>,
+    /// Size queries since the last take, no more than a pane may be answered
+    /// in a second: what is past that would be dropped anyway.
+    size_queries: Vec<SizeQuery>,
 }
 
 impl vt100::Callbacks for OscRequests {
@@ -69,6 +74,22 @@ impl vt100::Callbacks for OscRequests {
             _ => {}
         }
     }
+
+    fn unhandled_csi(
+        &mut self,
+        _: &mut vt100::Screen,
+        i1: Option<u8>,
+        _i2: Option<u8>,
+        params: &[&[u16]],
+        c: char,
+    ) {
+        if c != 't' || i1.is_some() || self.size_queries.len() >= usize::from(MAX_REPLIES) {
+            return;
+        }
+        if let Some(query) = SizeQuery::from_params(params) {
+            self.size_queries.push(query);
+        }
+    }
 }
 
 impl OscRequests {
@@ -85,6 +106,11 @@ impl OscRequests {
     /// The program status reports and prompt marks since the last call.
     pub(crate) fn take_status(&mut self) -> Vec<StatusEvent> {
         std::mem::take(&mut self.status)
+    }
+
+    /// The cell size queries since the last call, in order.
+    pub(crate) fn take_size_queries(&mut self) -> Vec<SizeQuery> {
+        std::mem::take(&mut self.size_queries)
     }
 }
 

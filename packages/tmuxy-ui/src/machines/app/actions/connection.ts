@@ -271,6 +271,7 @@ export const connectionActions = {
     enqueue(
       assign({ connected: true, error: null, fatalError: null, heldCommands: [], heldOverflow: 0 }),
     );
+    enqueue.raise({ type: 'CELL_SIZE_UNCLAIMED' as const });
     enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
     fetchThemes(enqueue);
     // Typed while the page attached: sent now, in the order typed, ahead of
@@ -327,6 +328,7 @@ export const connectionActions = {
   // so the answer is adopted as the starting state.
   connection_onReconnected: act(({ context, enqueue }) => {
     enqueue(assign({ connected: true, error: null, fatalError: null }));
+    enqueue.raise({ type: 'CELL_SIZE_UNCLAIMED' as const });
     fetchThemes(enqueue);
     fetchStateAtViewport(context, enqueue);
   }),

@@ -324,6 +324,12 @@ pub struct TmuxState {
     /// or its mode does, on any client, which then reads the theme settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_rev: Option<String>,
+    /// The global `@tmuxy-cell-px`: the size of a cell in CSS pixels
+    /// (`9x24`), as the client that measured last announced it. What
+    /// programs in panes are told, so a client scales its pixel mouse
+    /// reports to it (docs/MOUSE.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_px: Option<String>,
     /// The emission counter this state was taken at: the delta that follows
     /// it carries `seq + 1`, so a client can tell a delta lost right after a
     /// full state or an initial-state answer from the next one. 0 for a

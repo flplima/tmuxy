@@ -191,6 +191,10 @@ pub const PANE_PREVIEW_NET: &str = "@tmuxy-pane-preview-net";
 pub const THEME: &str = "@tmuxy-theme";
 /// Theme mode: `dark` / `light` / `auto` (follow the OS).
 pub const THEME_MODE: &str = "@tmuxy-theme-mode";
+/// Global: the size of a cell in CSS pixels, `<width>x<height>` (`9x24`), as
+/// the client that measured it last wrote it. A program in a pane reads it to
+/// turn a mouse pixel into a cell; the server answers `CSI 16 t` from it.
+pub const CELL_PX: &str = "@tmuxy-cell-px";
 /// `@tmuxy-css-<variable> <value>`: one CSS variable set on the page over
 /// the theme file (`@tmuxy-css-term-background '#101010'` is
 /// `--term-background: #101010`). One option per variable, so a script in

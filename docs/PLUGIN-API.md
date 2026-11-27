@@ -105,7 +105,8 @@ A plugin may read the `@tmuxy-*` options documented in
 [TMUX-TAGS.md](TMUX-TAGS.md) and set `@tmuxy-pane-state` and `@tmuxy-label` on
 its own pane (through the CLI: `tmuxy pane state`, `tmuxy pane run --label`).
 `@tmuxy-plugins` and `@tmuxy-plugins-rev` are tmuxy's own; a plugin never
-writes them.
+writes them. A plugin may read `@tmuxy-cell-px`, the size of a cell in CSS
+pixels, to turn a mouse pixel into a cell ([MOUSE.md](MOUSE.md#the-cell-size)).
 
 ## Held by
 

@@ -54,6 +54,28 @@ fn swap_is_announced(server: &common::ScratchServer) -> bool {
     announced
 }
 
+/// A program in a pane asks for the cell size (`CSI 16 t`), and whether any
+/// answer comes back. The pane writes what it reads to a file; only a tmux
+/// that never answers (before 3.4) waits out the five seconds; one that
+/// answers is done as soon as its answer is read.
+fn cell_size_query_is_answered(server: &common::ScratchServer) -> bool {
+    let answer = server.home.join("cell-size-answer");
+    let _ = std::fs::remove_file(&answer);
+    let program = format!(
+        "stty raw -echo; printf '\\033[16t'; dd bs=1 count=3 of={} 2>/dev/null",
+        answer.display()
+    );
+    server.tmux(&["new-window", "-d", "-t", "caps", &program]);
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_secs(5) {
+        if std::fs::read(&answer).is_ok_and(|bytes| bytes.len() == 3) {
+            return std::fs::read(&answer).unwrap() == b"\x1b[6";
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
 #[test]
 fn the_version_tmux_reports_is_read_as_its_own_and_its_swaps_as_caps_say() {
     let server = common::ScratchServer::new("caps");
@@ -85,6 +107,11 @@ fn the_version_tmux_reports_is_read_as_its_own_and_its_swaps_as_caps_say() {
     assert_eq!(
         swap_is_announced(&server),
         caps.announces_pane_swaps(),
+        "tmux {version}"
+    );
+    assert_eq!(
+        cell_size_query_is_answered(&server),
+        caps.answers_pixel_size_queries(),
         "tmux {version}"
     );
 }

@@ -83,10 +83,58 @@ A program that asked for neither 1003 nor 1016 gets the bytes it always got:
 `tests/1-input-interaction-mouse-pixels.test.js` holds both modes on a real
 tmux.
 
+## The cell size
+
+A pixel is only of use to a program that knows how big a cell is. The pane's
+`TIOCGWINSZ` cannot say: tmux fills it with 16 by 32 pixels a cell, its
+default for a client that has no terminal of its own, and a control-mode
+client has no way to give it another. So the UI tells programs its cell
+another way.
+
+**Announced.** Each client writes the cell it draws, in the CSS pixels its
+reports count in (the grid's `charWidth` and `charHeight`), to the global
+option `@tmuxy-cell-px`, as `9x24` (up to two decimals: `8.5x17`). A program
+reads it with `tmuxy run display-message -p '#{@tmuxy-cell-px}'`. Global, so
+a pane of any session reads it; the server watches it with a subscription of
+its own, as it watches the theme, and ships it to every client in the state
+(`cell_px`).
+
+**When a client writes it** (`cellSizeClaim` in `domain/cellSize.ts`): once
+a connection has a state, if the option is unset or holds another size; and
+again each time its own cell changes (a font, a line height, a browser zoom,
+a grid fitted to another client's window). Never because the option changed:
+two clients with different fonts would rewrite it at each other forever. The
+last client to measure wins.
+
+**Scaled reports.** A program counts pixels in the announced cell, so a client
+whose own cell differs scales its pixel reports to it: each axis of the
+pointer's offset times the announced side over its own, then rounded down,
+plus 1. With the announced cell 9 by 24 and this client's 10 by 26, a pointer
+15 px into the grid is 13.5 announced pixels, reported as 14. With no size
+announced, or with this client's own (as written, so 8.5333 is 8.53), a report
+is the client's own pixel, as before. The dock, drawn in a smaller font,
+scales from its own cell the same way. Cell reports are never scaled.
+
+**Asked.** A program can ask the terminal: `CSI 16 t` for the cell, answered
+`CSI 6 ; height ; width t`, and `CSI 14 t` for the pane's text area, answered
+`CSI 4 ; rows × height ; columns × width t`, whole pixels, rounded, height
+first, as xterm has it. tmux 3.4 and later answer both themselves, from their
+16 by 32, and nothing stops that answer reaching the program; so tmuxy answers
+only on tmux 3.2 and 3.3, which do not, and only with a size announced. The
+reply is typed into the pane that asked with `send-keys -H`, by the first
+member of a session group only (two desktop windows share a pane, and each
+monitor reads its output). A pane gets four replies a second at most. On tmux
+3.4 and later the option is the one way to learn the real size.
+`control_mode/cell_size.rs` holds the rules; [SECURITY-CONTENT.md](SECURITY-CONTENT.md)
+says what pane output may cause here.
+
+`tests/1-input-interaction-cell-size.test.js` holds the option and the
+queries on a real tmux, against the cell and grid the page draws;
+`cellSize.test.ts` (the domain's and the machine's) holds the write rule with
+two clients, and `usePaneMouseReports.test.tsx` the scaling.
+
 ## Not sent
 
 - Modifier bits (shift, alt, ctrl) on a report.
-- The cell's size in pixels (`CSI 16 t`): a program that wants to map pixels
-  to cells has no way to ask yet.
 - Touch: a tap or a swipe on a phone is not turned into reports
   (`usePaneTouch.ts`).

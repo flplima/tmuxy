@@ -16,6 +16,7 @@ const session = (overrides: Partial<ClientState>): ClientState => ({
   focusRequest: '',
   pluginsRev: '',
   themeRev: '',
+  cellPx: '',
   panes: [],
   windows: [],
   ...overrides,

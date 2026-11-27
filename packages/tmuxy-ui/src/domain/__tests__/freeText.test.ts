@@ -221,6 +221,10 @@ const ROWS = {
     op: (text) => TmuxOp.ClearFocusRequest({ session: text }),
     fields: { session: firstTarget },
   },
+  AnnounceCellSize: {
+    op: () => TmuxOp.AnnounceCellSize({ size: '9x24' }),
+    fields: { size: 'a size the client measured (`formatCellPx`): digits, a dot and an x' },
+  },
   PluginAction: {
     op: () =>
       TmuxOp.PluginAction({ plugin: 'git', action: 'blame', paneId: pid('%1'), token: null }),

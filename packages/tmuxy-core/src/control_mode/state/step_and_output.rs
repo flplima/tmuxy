@@ -134,6 +134,33 @@ impl StateAggregator {
         due
     }
 
+    /// The replies to the cell size queries `pane_id`'s last output asked
+    /// (`cell_size`): none while no size is announced, none on a tmux that
+    /// answers them itself, and no more than the pane's budget allows.
+    pub(in crate::control_mode) fn size_reply_commands(
+        &mut self,
+        pane_id: &PaneId,
+        now: Instant,
+    ) -> Vec<String> {
+        let cell = self.cell_px;
+        let answers_itself = self.caps.answers_pixel_size_queries();
+        let Some(pane) = self.panes.get_mut(pane_id) else {
+            return Vec::new();
+        };
+        let queries = std::mem::take(&mut pane.size_queries);
+        let Some(cell) = cell.filter(|_| !answers_itself) else {
+            return Vec::new();
+        };
+        queries
+            .into_iter()
+            .filter(|_| pane.size_replies.take(now))
+            .map(|query| {
+                let reply = query.reply(cell, pane.width, pane.height);
+                cell_size::reply_command(pane_id, &reply)
+            })
+            .collect()
+    }
+
     pub(super) fn output_result(&mut self, pane_id: PaneId, content: &[u8]) -> ProcessEventResult {
         let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, content);
         let new_images = if new_imgs.is_empty() {
@@ -147,11 +174,13 @@ impl StateAggregator {
             .filter(|_| self.clipboard_write_due(&pane_id, Instant::now()))
             .map(|text| vec![(Some(pane_id.clone()), text)])
             .unwrap_or_default();
-        let commands = self
+        let now = Instant::now();
+        let mut commands = self
             .panes
             .get_mut(&pane_id)
-            .map(|pane| pane.status_commands(Instant::now()))
+            .map(|pane| pane.status_commands(now))
             .unwrap_or_default();
+        commands.extend(self.size_reply_commands(&pane_id, now));
         ProcessEventResult {
             state_changed: changed,
             panes_needing_refresh: Vec::new(),

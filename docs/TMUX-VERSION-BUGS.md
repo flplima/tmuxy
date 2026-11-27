@@ -37,6 +37,7 @@ Until the answer comes, every workaround stays on: an unknown version counts as 
 | Capability | From | What it changes |
 | --- | --- | --- |
 | `announces_pane_swaps` | 3.3 | No pane re-list behind a `swap-pane`: the `%layout-change` brings it (tmux queues it, so it can come after the next reply) |
+| `answers_pixel_size_queries` | 3.4 | tmux answers `CSI 14 t` and `CSI 16 t` itself, from its default 16 by 32 a cell (a control-mode client cannot give it a size), so tmuxy does not answer them from `@tmuxy-cell-px`; before 3.4 nothing answers and tmuxy does ([MOUSE.md](MOUSE.md#the-cell-size)). An unknown version is taken to answer: two answers are worse than none |
 
 `tests/tmux_caps.rs` checks each row against the tmux it runs on, so the nightly matrix checks it on every supported version.
 

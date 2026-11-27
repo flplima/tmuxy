@@ -76,9 +76,10 @@ impl<W> MonitorCore<W> {
         let relist = self.aggregator.markers().window_relist_commands().to_vec();
         commands.extend(self.reads_out(relist, now));
         // Title changes have no notification of their own; this asks tmux to
-        // send one. Nor does a theme change.
+        // send one. Nor does a theme change, or a cell size announced.
         commands.push(tmux_formats::subscribe_pane_titles_command().to_string());
         commands.push(tmux_formats::subscribe_theme_command().to_string());
+        commands.push(tmux_formats::subscribe_cell_px_command());
         commands.push(tmux_formats::subscribe_window_meta_command());
         commands.push(tmux_formats::subscribe_session_meta_command());
         commands

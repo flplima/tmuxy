@@ -134,6 +134,8 @@ export type AppMachineEvent =
     }
   | { type: 'SET_PHONE_LAYOUT'; phone: boolean; landscape: boolean }
   | { type: 'REFIT_GRID' }
+  /** A new connection: this client's cell is announced again if it differs. */
+  | { type: 'CELL_SIZE_UNCLAIMED' }
   /** A double tap on the phone's terminal: at the point tapped. */
   | { type: 'TOGGLE_PHONE_ZOOM'; x?: number; y?: number }
   /** The bar between the phone's terminal and its bottom view, released. */

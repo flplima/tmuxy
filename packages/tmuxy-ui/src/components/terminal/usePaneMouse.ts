@@ -26,6 +26,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     mouseAnyFlag,
     mouseAllFlag,
     mousePixelsFlag,
+    announcedCell,
     alternateOn,
     inMode,
     scrollbackMode,
@@ -147,8 +148,9 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         charWidth,
         charHeight,
         mousePixelsFlag,
+        announcedCell,
       ),
-    [charWidth, charHeight, contentRef, scrollRef, mousePixelsFlag],
+    [charWidth, charHeight, contentRef, scrollRef, mousePixelsFlag, announcedCell],
   );
 
   /** Send a report now, and drop a motion still waiting for its frame: it would land after it. */

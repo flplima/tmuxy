@@ -34,6 +34,8 @@ interface Flags {
   mouseAnyFlag?: boolean;
   mouseAllFlag?: boolean;
   mousePixelsFlag?: boolean;
+  /** The cell programs were told (`@tmuxy-cell-px`); `''` for none. */
+  announcedCell?: string;
 }
 
 /** Animation frames, run by hand: `requestAnimationFrame` is stubbed. */
@@ -72,6 +74,7 @@ function setup(flags: Flags) {
       mouseAnyFlag: flags.mouseAnyFlag ?? true,
       mouseAllFlag: flags.mouseAllFlag ?? false,
       mousePixelsFlag: flags.mousePixelsFlag ?? false,
+      announcedCell: flags.announcedCell ?? '',
       alternateOn: true,
       inMode: false,
       scrollbackMode: null,
@@ -181,6 +184,29 @@ describe('usePaneMouse reports', () => {
     h.handleMouseDown(at(GRID.left + 60, GRID.top + 60));
     runFrame();
     expect(reportsOf(events)).toEqual(['^[[<35;4;6M', '^[[<0;61;61M']);
+  });
+
+  it('a pixel is counted in the announced cell when this client draws a different one', () => {
+    // Programs were told 6 by 27; this client draws 8 by 18. A pointer 20 px
+    // right and 36 px down, two and a half cells across and two rows down,
+    // is 15 and 54 px in the announced cell, so 16 and 55, 1-based.
+    const { result, events, at } = setup({ mousePixelsFlag: true, announcedCell: '6x27' });
+    result.current.handleMouseDown(at(GRID.left + 20, GRID.top + 36));
+    // Cells are cells whatever the size: only pixels are scaled.
+    const cells = setup({ announcedCell: '6x27' });
+    cells.result.current.handleMouseDown(cells.at(GRID.left + 20, GRID.top + 36));
+    expect([...reportsOf(events), ...reportsOf(cells.events)]).toEqual([
+      '^[[<0;16;55M',
+      '^[[<0;3;3M',
+    ]);
+  });
+
+  it('with no cell announced, or the one this client draws, a pixel report is as it was', () => {
+    for (const announcedCell of ['', `${CHAR_W}x${CHAR_H}`, 'not a size']) {
+      const { result, events, at } = setup({ mousePixelsFlag: true, announcedCell });
+      result.current.handleMouseDown(at(GRID.left + 17.6, GRID.top + 37.2));
+      expect(reportsOf(events), announcedCell).toEqual(['^[[<0;18;38M']);
+    }
   });
 
   it('no hover report reaches a program that did not ask for any motion', () => {

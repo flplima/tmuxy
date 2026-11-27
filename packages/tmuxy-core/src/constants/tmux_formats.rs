@@ -449,6 +449,18 @@ pub fn relists_windows(subscription: &str) -> bool {
 /// file stem and a mode is `dark`/`light`/`auto`, so neither holds a `:`.
 pub const THEME_SUBSCRIPTION_NAME: &str = "tmuxy-theme";
 
+/// The control-mode subscription that reports `@tmuxy-cell-px`, the cell
+/// size the client that measured last announced. Global, like the theme, so
+/// it is watched the same way: tmux announces no change to a global option.
+pub const CELL_PX_SUBSCRIPTION_NAME: &str = "tmuxy-cell-px";
+
+pub fn subscribe_cell_px_command() -> String {
+    format!(
+        "refresh-client -B '{CELL_PX_SUBSCRIPTION_NAME}::{}'",
+        Field::Var(tmux_options::CELL_PX).format()
+    )
+}
+
 pub fn subscribe_theme_command() -> String {
     format!(
         "refresh-client -B '{THEME_SUBSCRIPTION_NAME}::{}:{}'",

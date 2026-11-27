@@ -63,6 +63,13 @@ impl TmuxCaps {
         }
     }
 
+    /// tmux answers `CSI 14 t` and `CSI 16 t` itself (3.4), with its own
+    /// pixel size, so tmuxy must not answer them too. A version not known
+    /// is taken to answer: two answers to one query are worse than none.
+    pub fn answers_pixel_size_queries(self) -> bool {
+        self.version == Version::Unknown || self.at_least(3, 4)
+    }
+
     /// `swap-pane` is followed by a `%layout-change` (3.3; 3.2 sends none).
     pub fn announces_pane_swaps(self) -> bool {
         self.at_least(3, 3)

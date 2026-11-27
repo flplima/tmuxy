@@ -34,6 +34,7 @@ const snapshot = (over: Partial<TmuxSnapshot> = {}): TmuxSnapshot => ({
   focusRequest: '',
   pluginsRev: '',
   themeRev: '',
+  cellPx: '',
   sessionName: 'tmuxy',
   ...over,
 });

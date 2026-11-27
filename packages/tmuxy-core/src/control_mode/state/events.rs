@@ -167,6 +167,22 @@ impl StateAggregator {
                     ..Default::default()
                 }
             }
+            // A client announced its cell size. A value that is no size
+            // (written by hand, or unset) is no size known.
+            ControlModeEvent::SessionSubscriptionChanged { name, value }
+                if name == crate::constants::tmux_formats::CELL_PX_SUBSCRIPTION_NAME =>
+            {
+                let cell_px = cell_size::CellPx::parse(&value);
+                if self.cell_px == cell_px {
+                    return ProcessEventResult::default();
+                }
+                self.cell_px = cell_px;
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Other,
+                    ..Default::default()
+                }
+            }
             ControlModeEvent::SessionSubscriptionChanged { .. } => ProcessEventResult::default(),
 
             // %pane-mode-changed says only that a mode came or went, for
