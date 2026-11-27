@@ -7,6 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import { pid } from '../../../test/wire';
 import { FixtureAdapter, asFixture } from '../FixtureAdapter';
+import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
+import { commandLane } from '../../../infra/transport/commandLane';
 import panes from '../gen/panes.json';
 
 const fixture = asFixture(panes);
@@ -70,6 +72,38 @@ describe('FixtureAdapter', () => {
     await adapter.send({ cmd: 'run_tmux_command', args: { command: 'split-window -h' } });
     // Generous slack for timer jitter: only that the delay applied matters.
     expect(performance.now() - start).toBeGreaterThanOrEqual(70);
+  });
+
+  it("answers the app's own cell-size announce at once, so a story's command does not wait behind it", async () => {
+    const adapter = new FixtureAdapter({ fixture, start: 'one', commandDelayMs: 400 });
+    const announce = toTmuxCommand(TmuxOp.AnnounceCellSize({ size: '9x24' }));
+    const start = performance.now();
+    await adapter.send({ cmd: 'run_tmux_command', args: { command: announce } });
+    // Far under the delay: only that it did not apply matters.
+    expect(performance.now() - start).toBeLessThan(200);
+    expect(adapter.commands).toEqual([announce]);
+  });
+
+  it('a refused command right after the announce is refused one delay later, not two', async () => {
+    // What a story that kills a pane as soon as the app is up does: the app's
+    // announce is still unanswered, and every command waits for the one before.
+    const delay = 150;
+    const adapter = new FixtureAdapter({
+      fixture,
+      start: 'side-by-side',
+      commandDelayMs: delay,
+      failCommand: (cmd) => (cmd.startsWith('kill-pane') ? "can't kill pane: busy" : false),
+    });
+    const lane = commandLane((call) => adapter.send(call));
+    const start = performance.now();
+    void lane.run(TmuxOp.AnnounceCellSize({ size: '9x24' }));
+    await expect(lane.run(TmuxOp.RawCommand({ command: 'kill-pane' }))).rejects.toMatchObject({
+      error: "can't kill pane: busy",
+    });
+    const took = performance.now() - start;
+    expect(took).toBeGreaterThanOrEqual(delay - 10);
+    expect(took).toBeLessThan(delay * 2 - 20);
+    lane.close();
   });
 
   it('refuses a command as tmux does (kind tmux) when failCommand names a reason', async () => {
