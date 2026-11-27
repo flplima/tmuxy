@@ -84,7 +84,14 @@ describeE2E('Scenario: the last pane closes', {}, (ctx) => {
       15000,
       'the detached overlay to be drawn',
     );
-    expect(tmuxSessions()).not.toContain(ended);
+    // The client hears `%exit` before tmux is done freeing the session: a
+    // slow runner can still list it for a moment.
+    await waitForCondition(
+      page,
+      async () => !tmuxSessions().includes(ended),
+      15000,
+      'tmux to forget the session that ended',
+    );
     expect(seen.text).toBe('The session ended.');
     expect(seen.options[0]).toMatchObject({ label: 'New session', visible: true, selected: true });
     expect(seen.options.map((o) => o.label).join('\n')).not.toContain(ended);
