@@ -443,22 +443,39 @@ function createTauriTestContext() {
     // Wait until the session is gone, not just killed: every test reuses the
     // name, and a next app that attaches to the dying one reads a stale
     // multi-pane baseline, then collapses to a fresh 1-pane session mid-test.
+    // A later window's member of its group (`<name>+<n>`) goes too: a test
+    // that failed before closing that window leaves it, and the next test's
+    // window would reattach it. Names match exactly (`=`), since tmux takes a
+    // bare name as a prefix and finds the member once the base is gone.
     if (state.sessionName) {
       const target = state.sessionName;
-      const gone = () => {
+      const ours = () => {
+        let names = '';
         try {
-          tmux(`has-session -t ${target}`);
-          return false;
+          names = execSync(`${tmuxCmd()} list-sessions -F '#{session_name}'`, {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+            env: tmuxEnv(),
+          });
         } catch {
-          return true;
+          // No server: nothing is left.
         }
+        return names
+          .split('\n')
+          .filter(
+            (n) =>
+              n === target ||
+              (n.startsWith(`${target}+`) && /^\d+$/.test(n.slice(target.length + 1))),
+          );
       };
-      try {
-        tmux(`kill-session -t ${target}`);
-      } catch {
-        // Already gone.
+      for (const name of ours()) {
+        try {
+          tmux(`kill-session -t '=${name}'`);
+        } catch {
+          // Already gone.
+        }
       }
-      await waitUntil(gone, 5000, `tmux session ${target} to be gone`);
+      await waitUntil(() => ours().length === 0, 5000, `tmux session ${target} to be gone`);
       state.sessionName = null;
     }
 
