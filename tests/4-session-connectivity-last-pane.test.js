@@ -17,6 +17,7 @@ const {
   waitForTerminalText,
   splitPaneKeyboard,
   waitForCondition,
+  delay,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
@@ -60,6 +61,7 @@ describeE2E('Scenario: the last pane closes', {}, (ctx) => {
     await ctx.setupPage();
     await focusPage(page);
     await waitForShellPrompt(page);
+    const attachedAt = Date.now();
     const ended = ctx.session.name;
     const before = tmuxSessions().filter((name) => name !== ended);
     let fresh = null;
@@ -71,6 +73,10 @@ describeE2E('Scenario: the last pane closes', {}, (ctx) => {
     await typeInTerminal(page, 'exit');
     await pressEnter(page);
     await waitForPaneCount(page, 1);
+    // A session that dies within MIN_HEALTHY_RUN (2 s, host/supervise.rs) of
+    // its first connect is taken for a failed start, and the server creates
+    // it again. A user's session has run longer than that; this one must too.
+    await delay(Math.max(0, attachedAt + 3000 - Date.now()));
     await typeInTerminal(page, 'exit');
     await pressEnter(page);
 
@@ -84,14 +90,7 @@ describeE2E('Scenario: the last pane closes', {}, (ctx) => {
       15000,
       'the detached overlay to be drawn',
     );
-    // The client hears `%exit` before tmux is done freeing the session: a
-    // slow runner can still list it for a moment.
-    await waitForCondition(
-      page,
-      async () => !tmuxSessions().includes(ended),
-      15000,
-      'tmux to forget the session that ended',
-    );
+    expect(tmuxSessions()).not.toContain(ended);
     expect(seen.text).toBe('The session ended.');
     expect(seen.options[0]).toMatchObject({ label: 'New session', visible: true, selected: true });
     expect(seen.options.map((o) => o.label).join('\n')).not.toContain(ended);
