@@ -11,15 +11,52 @@
 
 import type { AppMachineContext } from '../../../machines/types/context';
 import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
+import { sessionNameFrom } from '../../../domain/sessionNames';
 import { event, type AppMenuNode, type AppMenuSpec } from './actions';
 
-export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query = ''): AppMenuSpec {
-  const { sessionName, sessions, servers, currentServerId, restorableSessions } = ctx;
+export const NEW_SESSION_ID = 'session-new';
+
+export interface SessionSwitcherOptions {
+  /** Offer a new session first: the detached overlay, where nothing else may be left. */
+  withNewSession?: boolean;
+}
+
+/**
+ * What the filter box holds becomes the new session's name, when no session
+ * or snapshot has it yet; else a free name is picked (`connection_newSession`).
+ */
+function newSessionItem(ctx: AppMachineContext, running: string[], query: string): AppMenuNode {
+  const typed = sessionNameFrom(query);
+  const taken =
+    typed === null ||
+    running.includes(typed) ||
+    ctx.restorableSessions.some((r) => r.name === typed) ||
+    (typed === ctx.sessionName && !ctx.sessionEnded);
+  const name = taken ? undefined : typed;
+  return {
+    kind: 'item',
+    id: NEW_SESSION_ID,
+    label: name ? `New session “${name}”` : 'New session',
+    icon: 'new',
+    testId: 'session-menu-new',
+    action: event({ type: 'NEW_SESSION', ...(name ? { name } : {}) }),
+  };
+}
+
+export function sessionSwitcherSpec(
+  ctx: AppMachineContext,
+  env: MenuEnv,
+  query = '',
+  { withNewSession = false }: SessionSwitcherOptions = {},
+): AppMenuSpec {
+  const { sessionName, sessions, servers, currentServerId, restorableSessions, sessionEnded } = ctx;
   const needle = query.trim().toLowerCase();
   const matches = (name: string) => name.toLowerCase().includes(needle);
-  // Before the poll has answered — and on a sandbox that enumerates nothing —
-  // the attached session is still the one we know for certain.
-  const running = sessions.length > 0 ? sessions.map((s) => s.sessionName) : [sessionName];
+  // Before the poll has answered, and on a sandbox that enumerates nothing,
+  // the attached session is still the one we know for certain. Unless it
+  // ended: then the last poll's word on it is stale, and it is not offered.
+  const polled = sessions.length > 0 ? sessions.map((s) => s.sessionName) : [sessionName];
+  const running = sessionEnded ? polled.filter((name) => name !== sessionName) : polled;
   const names = running.filter(matches);
   // A session that is not running but has a snapshot is offered beside the
   // ones that are: choosing it rebuilds the session and then switches to it.
@@ -33,6 +70,8 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query 
   const showServers = shownServers.length > 0;
 
   return tidy([
+    withNewSession && newSessionItem(ctx, running, query),
+    withNewSession && (names.length > 0 || exited.length > 0) && separator,
     (names.length > 0 || exited.length > 0) && { kind: 'header', label: 'Sessions' },
     ...names.map((name): AppMenuNode => {
       const current = name === sessionName;

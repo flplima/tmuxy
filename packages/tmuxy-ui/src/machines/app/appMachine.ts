@@ -280,6 +280,7 @@ export const appMachine = setup({
         TMUX_RECONNECTED: { target: 'idle', actions: 'connection_onReconnected' },
         TMUX_STATE_UPDATE: relayState,
         TMUX_RECONNECTING: { target: 'reconnecting' },
+        NEW_SESSION: { actions: 'connection_newSessionDetached' },
       },
     },
 

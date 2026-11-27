@@ -65,4 +65,38 @@ describe('detached state', () => {
     actor.send({ type: 'TMUX_RECONNECTING' });
     expect(actor.getSnapshot().matches('reconnecting')).toBe(true);
   });
+
+  it('tells a detach from the session ending by what tmux said on its way out', () => {
+    // A detach: the session goes on running, and the switcher keeps it.
+    for (const reason of ['detached', 'detached (from session main)']) {
+      const actor = createActor(appMachine).start();
+      actor.send({ type: 'TMUX_DETACHED', reason });
+      expect(actor.getSnapshot().context.sessionEnded).toBe(false);
+    }
+    // Its last pane exited, or it or the server was killed.
+    for (const reason of [null, 'exited', 'server exited']) {
+      const actor = createActor(appMachine).start();
+      actor.send({ type: 'TMUX_DETACHED', reason });
+      expect(actor.getSnapshot().context.sessionEnded).toBe(true);
+      actor.send({ type: 'TMUX_CONNECTED' });
+      expect(actor.getSnapshot().context.sessionEnded).toBe(false);
+    }
+  });
+
+  it('a new session from the overlay is the switch alone, with no command for a connection that is gone', () => {
+    const seen: string[] = [];
+    const actor = createActor(appMachine, {
+      inspect: (e) => {
+        if (e.type === '@xstate.event')
+          seen.push(`${(e.actorRef as { id?: string }).id}:${e.event.type}`);
+      },
+    }).start();
+    actor.send({ type: 'TMUX_DETACHED', reason: null });
+    actor.send({ type: 'NEW_SESSION', name: 'fresh' });
+    expect(actor.getSnapshot().context.sessionName).toBe('fresh');
+    // The transport is asked to switch, and the store is handed no op: on the
+    // web the switch's attach is what creates the session.
+    expect(seen).toContain('tmux:SWITCH_SESSION');
+    expect(seen).not.toContain('tmuxStore:STORE_DISPATCH');
+  });
 });

@@ -91,6 +91,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const cellMetrics = useAppSelector(selectCellMetrics);
   const isConnecting = useAppState('connecting');
   const isDetached = useAppState('detached');
+  const sessionEnded = useAppSelector((ctx) => ctx.sessionEnded);
   const tabOverviewOpen = useAppSelector((ctx) => ctx.tabOverviewOpen);
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const cursorBlink = useAppSelector(selectCursorBlink);
@@ -196,6 +197,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           fatalError={fatalError}
           log={log}
           onRetry={retry}
+          sessionEnded={sessionEnded}
         >
           <SessionList />
         </ConnectionOverlay>

@@ -84,3 +84,14 @@ export const Fatal: Story = {
     expect(canvas.getByTestId('status-log')).toHaveTextContent('SSE closed: server stopped');
   },
 };
+
+export const SessionEnded: Story = {
+  args: { mode: 'detached', hasLayout: true, sessionEnded: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.getByTestId('loading-display')).toHaveAttribute('data-mode', 'detached');
+    expect(canvas.getByText('The session ended.')).toBeVisible();
+    expect(canvas.getByText('Start a new one, or pick another.')).toBeVisible();
+    expect(canvas.queryByText(/tmux is still running/)).toBeNull();
+  },
+};

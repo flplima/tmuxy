@@ -39,7 +39,13 @@ export const DetachThenPickASession: Story = {
     const list = canvasElement.querySelector('.session-picker') as HTMLElement;
     expect(list).not.toBeNull();
     expect(within(list).getByRole('combobox', { name: /filter sessions/i })).toBeVisible();
+    // A detach leaves the session running: it is still offered, after the
+    // way to a new one, and the highlight is on it.
+    const options = within(list).getAllByRole('option');
+    expect(options[0]).toHaveTextContent('New session');
+    expect(options[0].getBoundingClientRect().height).toBeGreaterThan(0);
     const session = within(list).getByRole('option', { name: /demo/ });
+    expect(session).toHaveAttribute('aria-selected', 'true');
     const box = session.getBoundingClientRect();
     expect(box.width).toBeGreaterThan(0);
     expect(box.height).toBeGreaterThan(0);

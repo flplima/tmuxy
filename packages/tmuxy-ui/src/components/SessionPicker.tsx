@@ -6,7 +6,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useAppSelector } from '../machines/appHooks';
-import { sessionSwitcherSpec } from './menus/specs/sessionSwitcher';
+import { NEW_SESSION_ID, sessionSwitcherSpec } from './menus/specs/sessionSwitcher';
 import type { AppMenuNode } from './menus/specs/actions';
 import { ComboboxInput } from './ComboboxInput';
 import { MenuIcon } from './menus/MenuIcons';
@@ -19,31 +19,44 @@ export type SwitcherItem = Extract<AppMenuNode, { kind: 'item' }>;
 
 const CONNECT_ID = 'session-connect';
 
+/** A session or server the filter matched, not one of the fixed items. */
+const isNamed = (item: SwitcherItem) => item.id !== CONNECT_ID && item.id !== NEW_SESSION_ID;
+
 interface SessionPickerProps {
   onChoose: (item: SwitcherItem) => void;
   /** Escape in the filter box. The overlay leaves it out: it has nothing to close. */
   onEscape?: () => void;
   /** False on the detached overlay: the connect flow opens a float, which needs a session. */
   withConnect?: boolean;
+  /** True on the detached overlay: a new session is offered first. */
+  withNewSession?: boolean;
 }
 
-export function SessionPicker({ onChoose, onEscape, withConnect = true }: SessionPickerProps) {
+export function SessionPicker({
+  onChoose,
+  onEscape,
+  withConnect = true,
+  withNewSession = false,
+}: SessionPickerProps) {
   const env = useMenuEnv();
   const [query, setQuery] = useState('');
-  const spec = useAppSelector((ctx) => sessionSwitcherSpec(ctx, env, query));
+  const spec = useAppSelector((ctx) => sessionSwitcherSpec(ctx, env, query, { withNewSession }));
   const nodes = withConnect
     ? spec
     : spec.filter((n) => !(n.kind === 'item' && n.id === CONNECT_ID));
   const items = nodes.filter((n): n is SwitcherItem => n.kind === 'item');
 
   // The highlight starts on the session you are on, so the arrows step from
-  // where you are; once you type, it moves to the first match.
+  // where you are; once you type, it moves to the first match. The new
+  // session is first in the list but never the match a filter lands on:
+  // Enter after a few letters picks that session, not one named after them.
   const [activeId, setActiveId] = useState<string | null>(
     () => items.find((item) => item.data?.current)?.id ?? null,
   );
+  const startIndex = query.trim() === '' ? 0 : items.findIndex(isNamed);
   const activeIndex = Math.max(
     0,
-    items.findIndex((item) => item.id === activeId),
+    activeId === null ? startIndex : items.findIndex((item) => item.id === activeId),
   );
   const active: SwitcherItem | undefined = items[activeIndex];
 
@@ -82,7 +95,7 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
     event.stopPropagation();
   };
 
-  const named = items.some((item) => item.id !== CONNECT_ID);
+  const named = items.some(isNamed);
 
   return (
     <div className="session-picker">

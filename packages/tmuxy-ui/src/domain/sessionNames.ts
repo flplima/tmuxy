@@ -47,3 +47,14 @@ export function sessionNameFrom(text: string): string | null {
     .replace(/^-+|-+$/g, '');
   return name === '' ? null : name;
 }
+
+/**
+ * Whether tmux closed this client because its session is gone, from the
+ * reason it gave on `%exit`. A detach says `detached` (or `detached (from
+ * session …)`), and the session goes on running. Anything else, no reason at
+ * all included, is the session ending: its last pane exited, or it or the
+ * server was killed.
+ */
+export function exitEndedSession(reason: string | null): boolean {
+  return !(reason ?? '').startsWith('detached');
+}
