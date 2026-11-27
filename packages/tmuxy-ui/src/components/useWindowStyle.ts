@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isTauri } from '../infra/platform';
 import { getWindowStyle } from '../infra/guiWindows';
+import { listenToThisWindow } from '../infra/desktop';
 import type { WindowStyleSlug } from '../domain/guiWindows';
 
 /**
@@ -17,12 +18,10 @@ export function useWindowStyle(): WindowStyleSlug {
     void getWindowStyle().then((s) => {
       if (!gone) setStyle(s);
     });
-    void import('@tauri-apps/api/event').then(({ listen }) =>
-      listen<WindowStyleSlug>('window-style', (e) => setStyle(e.payload)).then((off) => {
-        if (gone) off();
-        else unlisten = off;
-      }),
-    );
+    void listenToThisWindow<WindowStyleSlug>('window-style', setStyle).then((off) => {
+      if (gone) off();
+      else unlisten = off;
+    });
     return () => {
       gone = true;
       unlisten?.();

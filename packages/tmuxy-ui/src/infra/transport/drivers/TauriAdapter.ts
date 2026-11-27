@@ -12,6 +12,7 @@ import {
   type HostEventName,
 } from '../hostEvents';
 import { tauriSchemeUrl } from '../../platform';
+import { listenToThisWindow } from '../../desktop';
 
 /**
  * Every client command goes to the desktop's one `dispatch` IPC command as
@@ -43,8 +44,6 @@ export class TauriAdapter implements SequencedDriver {
 
   async connect(): Promise<void> {
     try {
-      const { listen } = await import('@tauri-apps/api/event');
-
       // The monitor runs in this process, so its tmux connection is the link: it is down
       // from a `reconnecting` until the next state arrives, and a state is
       // the ONLY signal that a deliberate detach has ended (the monitor
@@ -81,7 +80,10 @@ export class TauriAdapter implements SequencedDriver {
         if (published) this.events.emit(published);
       };
       for (const name of HOST_EVENT_NAMES) {
-        const unlisten = await listen<unknown>(name, (event) => receive(name, event.payload));
+        // This window's monitor only: another window's is another session.
+        const unlisten = await listenToThisWindow<unknown>(name, (payload) =>
+          receive(name, payload),
+        );
         this.unlistenFns.push(unlisten);
       }
 
