@@ -126,8 +126,9 @@ function themeCss(raw: PreviewTheme): string {
   --tmuxy-surface: ${theme.surface};
   --tmuxy-border: ${theme.border};
   --tmuxy-font-mono: ${theme.fontMono};
+  --tmuxy-font-size: ${theme.fontSize};
 }
-html { background: var(--tmuxy-background); color: var(--tmuxy-foreground); font-family: system-ui, sans-serif; }
+html { background: var(--tmuxy-background); color: var(--tmuxy-foreground); font-family: var(--tmuxy-font-mono, monospace); font-size: var(--tmuxy-font-size); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 a { color: var(--tmuxy-accent); }
 code, kbd, pre, samp { font-family: var(--tmuxy-font-mono), monospace; }
 pre, code { background: var(--tmuxy-surface); }

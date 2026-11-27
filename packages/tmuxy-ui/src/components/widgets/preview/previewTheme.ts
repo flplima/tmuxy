@@ -6,7 +6,7 @@
  * stylesheet finishing its load.
  */
 
-import { useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 export interface PreviewTheme {
   mode: 'dark' | 'light';
@@ -18,6 +18,8 @@ export interface PreviewTheme {
   surface: string;
   border: string;
   fontMono: string;
+  /** The pane's font size: the root's here, the pane's own once the widget reads it (`usePaneFontSize`). */
+  fontSize: string;
 }
 
 const TOKENS: Record<Exclude<keyof PreviewTheme, 'mode'>, string> = {
@@ -28,6 +30,7 @@ const TOKENS: Record<Exclude<keyof PreviewTheme, 'mode'>, string> = {
   surface: '--bg-medium',
   border: '--border-medium',
   fontMono: '--font-mono',
+  fontSize: '--tmuxy-font-size',
 };
 
 let cached: { key: string; theme: PreviewTheme } | null = null;
@@ -63,4 +66,27 @@ function subscribe(onChange: () => void): () => void {
 
 export function usePreviewTheme(): PreviewTheme {
   return useSyncExternalStore(subscribe, snapshot);
+}
+
+/**
+ * `theme` with the font size of the pane `el` sits in. The phone fits its own
+ * type to its grid on an element below the root, so the root's size is not
+ * the one the pane's terminal is drawn in. Read again when the element is
+ * resized (a new fit) and when the theme is (the root's size changed).
+ */
+export function usePaneTheme(theme: PreviewTheme, el: HTMLElement | null): PreviewTheme {
+  const [fontSize, setFontSize] = useState('');
+  useEffect(() => {
+    if (!el) return;
+    const read = () =>
+      setFontSize(getComputedStyle(el).getPropertyValue('--tmuxy-font-size').trim());
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el, theme]);
+  return useMemo(
+    () => (fontSize && fontSize !== theme.fontSize ? { ...theme, fontSize } : theme),
+    [theme, fontSize],
+  );
 }

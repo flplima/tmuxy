@@ -23,6 +23,7 @@ const stubTheme: PreviewTheme = {
   surface: '#1d1d1d',
   border: '#333333',
   fontMono: 'monospace',
+  fontSize: '15px',
 };
 
 function renderMarkdown(markdown: string, net = false, onInput?: (json: string) => void) {
