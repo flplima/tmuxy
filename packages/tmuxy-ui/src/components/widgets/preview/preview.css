@@ -43,8 +43,12 @@
   box-sizing: border-box;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 14px;
+  /* The pane's own type, so a document reads at the size its terminal does
+     (the phone fits a smaller one to its grid). */
+  font-size: var(--tmuxy-font-size, 15px);
   line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   user-select: text;
   -webkit-user-select: text;
   cursor: text;

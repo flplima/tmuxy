@@ -5,11 +5,11 @@
  * failed read.
  */
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { HtmlPreview } from './HtmlPreview';
 import { MarkdownPreview } from './MarkdownPreview';
 import { usePreviewSource } from './previewSource';
-import { usePreviewTheme } from './previewTheme';
+import { usePaneTheme, usePreviewTheme } from './previewTheme';
 import { useKeyedRequest } from './useKeyedRequest';
 import { useSwallowedTyping } from '../useSwallowedTyping';
 import type { WidgetProps } from '../registry';
@@ -24,7 +24,8 @@ export function PreviewWidget({ paneId, lines }: WidgetProps) {
 
   const send = useAppSend();
   const source = usePreviewSource(paneId);
-  const theme = usePreviewTheme();
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const theme = usePaneTheme(usePreviewTheme(), box);
   const active = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const doc = useKeyedRequest(rev || null, source.readDocument);
   useSwallowedTyping(active);
@@ -40,7 +41,7 @@ export function PreviewWidget({ paneId, lines }: WidgetProps) {
     return <div className="preview-message">{doc.error ?? 'Reading the file…'}</div>;
   }
   return (
-    <div className="preview" data-preview-kind={doc.value.kind}>
+    <div ref={setBox} className="preview" data-preview-kind={doc.value.kind}>
       {doc.error && <div className="preview-error-banner">{doc.error}</div>}
       {doc.value.kind === 'markdown' ? (
         <MarkdownPreview

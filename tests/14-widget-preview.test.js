@@ -29,6 +29,22 @@ const PIXEL = Buffer.from(
   'base64',
 );
 
+/**
+ * The terminal type of the pane holding `selector`: the size the pane's
+ * terminal is drawn at (`--tmuxy-font-size`, which the phone fits to its
+ * grid) in the app's mono family. Runs in the page.
+ */
+function paneType(selector) {
+  const probe = document.createElement('span');
+  probe.style.fontSize = 'var(--tmuxy-font-size)';
+  probe.style.fontFamily = 'var(--font-mono)';
+  document.querySelector(selector).parentElement.append(probe);
+  const style = getComputedStyle(probe);
+  const type = { size: style.fontSize, family: style.fontFamily };
+  probe.remove();
+  return type;
+}
+
 const lines = (n) => Array.from({ length: n }, (_, i) => `Line ${i + 1}`).join('\n\n');
 
 async function pressPrefixed(page, key) {
@@ -143,6 +159,13 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     });
     expect(htmlControls.heights.every((h) => h > 0)).toBe(true);
     expect(htmlControls.scriptRan).toBe(false);
+
+    // The document's text is set in its pane's terminal type, size and family.
+    const mdType = await ctx.page.evaluate(() => {
+      const style = getComputedStyle(document.querySelector('.pane-wrapper .preview-markdown p'));
+      return { size: style.fontSize, family: style.fontFamily };
+    });
+    expect(mdType).toEqual(await ctx.page.evaluate(paneType, '.pane-wrapper .preview-markdown'));
 
     await ctx.page.click('.preview-markdown input[name="label"]');
     await ctx.page.keyboard.type('jk');
@@ -368,6 +391,8 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
           spacing: style.letterSpacing,
           color: style.color,
           background: getComputedStyle(document.documentElement).backgroundColor,
+          fontSize: getComputedStyle(document.body).fontSize,
+          fontFamily: getComputedStyle(document.body).fontFamily,
           outsideWidth: document.getElementById('outside').naturalWidth,
           net: window.netResult,
           scrollY: window.scrollY,
@@ -388,6 +413,10 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
     expect(page1.net).toBe('offline');
     // Drawn in the theme.
     expect(page1.background).not.toBe('rgba(0, 0, 0, 0)');
+    // Its text in the pane's terminal type, where the page's CSS says nothing.
+    expect({ size: page1.fontSize, family: page1.fontFamily }).toEqual(
+      await ctx.page.evaluate(paneType, 'iframe.preview-frame'),
+    );
 
     // Scroll it, change the file: the new page opens where the reader was.
     const frameBox = await (await ctx.page.$('iframe.preview-frame')).boundingBox();

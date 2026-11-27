@@ -12,6 +12,7 @@ const THEME: PreviewTheme = {
   surface: '#282828',
   border: '#3c3836',
   fontMono: 'monospace',
+  fontSize: '15px',
 };
 
 const CHANNEL = { token: 'test-token', targetOrigin: '*' };
@@ -136,6 +137,22 @@ describe('composing a page for its frame', () => {
     expect(first[0].textContent).toContain('--tmuxy-background: #1d2021');
     expect(first[1].tagName).toBe('SCRIPT');
     expect(first[1].textContent).toContain('{"x":0,"y":200}');
+  });
+
+  it("sets the page's text in the pane's font and size, under the page's own CSS", async () => {
+    const { read } = folder({});
+    const page = parse(
+      await composePage('<p>x</p>', read, {
+        theme: { ...THEME, fontSize: '11px' },
+        scroll: { x: 0, y: 0 },
+        channel: CHANNEL,
+      }),
+    );
+    const theme = page.querySelector('style[data-tmuxy-theme]')?.textContent ?? '';
+    expect(theme).toContain('--tmuxy-font-size: 11px');
+    expect(theme).toMatch(
+      /html \{[^}]*font-family: var\(--tmuxy-font-mono, monospace\)[^}]*font-size: var\(--tmuxy-font-size\)/,
+    );
   });
 
   it('draws the page in its own colours when opened with --no-theme', async () => {
