@@ -23,6 +23,17 @@ import type { CommandFailure, KeyBindings, ServerStateEncoded } from '../../doma
 import type { Types } from 'effect';
 import type { TraceSettings } from '../../domain/wireSettings';
 import { answerThemeCall, isThemeCall } from '../../infra/prefs';
+import { TmuxOp, toTmuxCommand } from '../../domain/commands';
+
+/**
+ * The command the app sends on its own account when it connects, and again
+ * when its cell changes: the cell size it announces (`AnnounceCellSize`). It
+ * is no story's subject. A command waits for the answer to the one before
+ * it, so a story that times a command's round trip would time this one too
+ * if it took the artificial delay: it is answered at once.
+ */
+const CELL_SIZE_ANNOUNCE = toTmuxCommand(TmuxOp.AnnounceCellSize({ size: '' }));
+const isAppsOwn = (command: string): boolean => command.startsWith(CELL_SIZE_ANNOUNCE);
 
 /** A recording: the grid it was made at, the bindings in force, and a state per step. */
 export interface Fixture {
@@ -75,7 +86,8 @@ export interface FixtureAdapterOptions {
   transitions?: ReadonlyArray<Transition>;
   /**
    * How long every command takes to answer, so a story can watch the app
-   * between sending one and tmux answering it.
+   * between sending one and tmux answering it. The app's own cell-size
+   * announce is the exception: it is answered at once.
    */
   commandDelayMs?: number;
   /**
@@ -211,7 +223,9 @@ export class FixtureAdapter implements TransportDriver {
     if (!command) return;
     this.commands.push(command);
     const refusal = this.failCommand?.(command);
-    if (this.commandDelayMs > 0) await new Promise((r) => setTimeout(r, this.commandDelayMs));
+    if (this.commandDelayMs > 0 && !isAppsOwn(command)) {
+      await new Promise((r) => setTimeout(r, this.commandDelayMs));
+    }
     if (typeof refusal === 'string') {
       throw { error: refusal, kind: 'tmux' } satisfies CommandFailure;
     }
