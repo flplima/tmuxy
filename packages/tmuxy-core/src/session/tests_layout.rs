@@ -312,7 +312,14 @@ fn the_chain_is_in_the_state_dir_and_publishes_the_data_dir_first() {
             a.layout.config.display()
         )
     );
-    assert!(lines[5].starts_with("source-file ") && lines[5].ends_with("tmuxy.essentials.conf'"));
+    assert_eq!(
+        lines[5],
+        format!(
+            "set-environment -g BROWSER '{}'",
+            a.layout.scripts().join("browser").display()
+        )
+    );
+    assert!(lines[6].starts_with("source-file ") && lines[6].ends_with("tmuxy.essentials.conf'"));
 }
 
 /// On the user's own tmux server the chain is the essentials and nothing of
@@ -358,4 +365,26 @@ fn the_chain_for_the_users_own_server_sources_the_essentials_alone() {
         .as_str()]
     );
     assert_ne!(s.layout.adopted_conf(), s.layout.entry_conf());
+}
+
+/// Every pane of a tmuxy server opens a URL through tmuxy: the entry file
+/// points `BROWSER` at the mirrored `browser` script. The user's own server
+/// is left alone — its panes are ordinary terminals' too.
+#[test]
+fn the_entry_file_points_browser_at_the_mirrored_script() {
+    let s = Scratch::new("browser-env");
+    s.launch();
+
+    let script = s.layout.scripts().join("browser");
+    let entry = read(&s.layout.entry_conf());
+    assert!(
+        entry.contains(&format!("BROWSER '{}'", script.display())),
+        "{entry}"
+    );
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(&script).unwrap().permissions().mode();
+    assert_ne!(mode & 0o111, 0, "the browser script is not executable");
+
+    let adopted = super::config::adopted_conf(&s.layout, "/usr/bin/tmux");
+    assert!(!adopted.contains("BROWSER"), "{adopted}");
 }

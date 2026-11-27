@@ -1,0 +1,87 @@
+#!/bin/bash
+set -euo pipefail
+# shellcheck source=_lib
+source "${0%/*}/_lib"
+
+# `$BROWSER` in every pane tmuxy runs (tmuxy.entry.conf sets it): a program
+# that opens a URL (Claude Code, `gh`, Python's `webbrowser`) runs this with
+# the URL, and the URL opens in the browser of the person using tmuxy — not
+# on the machine the pane runs on, which on the web build is the server.
+#
+# Each URL is checked with the rule a clicked link is (`is_openable_url`):
+# http(s) and mailto only, nothing a URL must percent-encode. It goes to the
+# tmuxy client attached to this pane's session that was used last, as a
+# `display-message` aimed at it (`%message`, tmux 3.4+) carrying the URL
+# hex-encoded after OPEN_URL_MARKER. The app opens it, or shows it with an
+# Open button when nobody touched the app in the last few seconds.
+#
+# Exit 0 when every URL reached a client. Otherwise non-zero with the reason
+# on stderr, so the calling program prints its own fallback (the URL).
+
+usage() {
+  echo "Usage: \$BROWSER URL..."
+  echo ""
+  echo "Open each URL in the browser of the tmuxy client attached to this pane's"
+  echo "session. Only http(s) and mailto links are opened."
+}
+
+case "${1:-}" in
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  "")
+    usage >&2
+    exit "$EXIT_USAGE"
+    ;;
+esac
+
+# The client-side check is core's (`is_openable_url`); the values come
+# generated from it (`_options`).
+openable_url() {
+  local url="$1" lower scheme
+  [ "${#url}" -le "$MAX_OPEN_URL_BYTES" ] || return 1
+  [[ "$url" =~ [[:space:][:cntrl:]] ]] && return 1
+  case "$url" in *["$URL_FORBIDDEN_CHARS"]*) return 1 ;; esac
+  lower=$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')
+  for scheme in $OPENABLE_URL_SCHEMES; do
+    case "$lower" in "$scheme"*) return 0 ;; esac
+  done
+  return 1
+}
+
+for url in "$@"; do
+  openable_url "$url" || _fail "$EXIT_USAGE" "not opening '$url': only http(s) and mailto links"
+done
+
+# `%message` reaches a control-mode client from tmux 3.4 on; before that the
+# message would be dropped and the program told it opened.
+version=$(_tmux display-message -p '#{version}' 2>/dev/null || true)
+if [[ "$version" =~ ([0-9]+)\.([0-9]+) ]]; then
+  major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}"
+  if [ "$major" -lt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -lt 4 ]; }; then
+    _fail "$EXIT_FAILED" "opening a URL in the tmuxy app needs tmux 3.4 or later (this is $version)"
+  fi
+fi
+
+# This pane's session, and its group: a desktop window's client is attached
+# to a session grouped with the others, all holding the same panes.
+IFS='|' read -r own_session own_group < <(
+  _tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_name}|#{session_group}'
+)
+
+client="" latest=-1
+while IFS='|' read -r control activity session group name; do
+  [ "$control" = 1 ] || continue
+  [ "$session" = "$own_session" ] || { [ -n "$own_group" ] && [ "$group" = "$own_group" ]; } || continue
+  if [ "$activity" -gt "$latest" ]; then
+    latest="$activity" client="$name"
+  fi
+done < <(_tmux list-clients -F '#{client_control_mode}|#{client_activity}|#{session_name}|#{session_group}|#{client_name}')
+
+[ -n "$client" ] || _fail "$EXIT_FAILED" "no tmuxy app is attached to session '$own_session' to open the URL in"
+
+for url in "$@"; do
+  hex=$(printf '%s' "$url" | od -An -v -tx1 | tr -d ' \n')
+  _run_safe "display-message -c $(shquote "$client") $(shquote "$OPEN_URL_MARKER$hex")"
+done

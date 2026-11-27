@@ -201,6 +201,10 @@ fn every_other_event() -> Vec<HostEvent> {
         HostEvent::Message {
             text: "build done".to_string(),
         },
+        HostEvent::OpenUrl {
+            url: "https://example.com/artifact".to_string(),
+            client: Some(3),
+        },
     ]
 }
 

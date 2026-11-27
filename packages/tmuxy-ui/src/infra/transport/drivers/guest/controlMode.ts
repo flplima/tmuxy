@@ -17,6 +17,7 @@ export interface Feed {
   changed: boolean;
   clipboard: { paneId: string | null; text: string }[];
   messages: string[];
+  openUrls: string[];
   errors: string[];
   replies: { id: number; output: string; error: string | null }[];
   ended: { reason: string | null } | null;

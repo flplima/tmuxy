@@ -42,8 +42,14 @@ export function safeHref(url: string): string | undefined {
   return isOpenableUrl(url) ? url : undefined;
 }
 
-export function openExternalUrl(url: string): void {
-  if (!isOpenableUrl(url)) return;
+/**
+ * Open `url` in the user's browser. `false` when it was not opened: not an
+ * openable link, or a browser tab its popup blocker would refuse — the page
+ * has no transient user activation (`navigator.userActivation`). A tab opened
+ * `noopener` is never handed back, so that is the one way to know beforehand.
+ */
+export function openExternalUrl(url: string): boolean {
+  if (!isOpenableUrl(url)) return false;
   // What was checked is what is opened.
   const link = url.trim();
   if (isTauri()) {
@@ -52,9 +58,11 @@ export function openExternalUrl(url: string): void {
       { request: { cmd: 'open_url', args: { url: link } } },
       { traced: { cmd: 'open_url' } },
     ).catch(failing('open_url'));
-    return;
+    return true;
   }
+  if (navigator.userActivation?.isActive === false) return false;
   window.open(link, '_blank', 'noopener,noreferrer');
+  return true;
 }
 
 /** The event a link click is announced as, for a plugin to take (`usePluginLinks`). */

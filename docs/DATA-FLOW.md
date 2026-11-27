@@ -14,10 +14,11 @@ The web client uses two HTTP endpoints on the Axum server:
 - `css-changed` — A stylesheet under the user's config dir (`themes/*.css`, `custom.css`) was saved; the client re-fetches its stylesheets and the themes list. No payload
 - `state-update` — full state snapshots and deltas
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
-- `tmux-message` — `{ text }`, a `display-message` tmux showed this client (its `%message` notification), shown in the snackbar. Named `tmux-message`, never `message`: that is `EventSource`'s default event type, which `onmessage` receives too. The desktop app emits the same name.
+- `tmux-message` — `{ text }`, a `display-message` tmux showed this client (its `%message` notification), shown in the snackbar. Named `tmux-message`, never `message`: that is `EventSource`'s default event type, which `onmessage` receives too. The desktop emits the same name.
+- `open-url` — `{ url }` a pane asked to open (`$BROWSER`), to the client used last alone (SECURITY-CONTENT.md)
 - `ping` — keepalive on an idle stream, once a second; the client times a silent link out by it (Reconnecting, below)
 - `reconnecting` — the tmux connection is being retried: logged on the web, the link going down on the desktop
-- `log`, `tmux-error`, `fatal` — Diagnostic and error notifications; `tmux-error` is never about the link. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
+- `log`, `tmux-error`, `fatal` — Diagnostics and errors; `tmux-error` is never about the link, and never named `error`, which the browser hands to `EventSource.onerror` as a dropped connection.
 
 **`POST /commands?session=<name>`** (client-to-server):
 

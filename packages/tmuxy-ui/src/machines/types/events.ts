@@ -328,7 +328,7 @@ export type AppMachineEvent =
   | { type: 'COMMAND_MODE_CANCEL' }
   | { type: 'SHOW_STATUS_MESSAGE'; text: string }
   | { type: 'CLEAR_STATUS_MESSAGE' }
-  | { type: 'NOTIFY'; text: string; kind?: NotificationKind }
+  | { type: 'NOTIFY'; text: string; kind?: NotificationKind; openUrl?: string }
   | { type: 'DISMISS_NOTIFICATION'; id: number }
 
   // Focus events

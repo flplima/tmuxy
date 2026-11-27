@@ -258,6 +258,12 @@ impl SessionRuntime {
         }
     }
 
+    /// The client used last (a command or a new size), while it is still
+    /// connected: the one a pane's request to open a URL goes to.
+    pub fn latest_client(&self) -> Option<ClientId> {
+        self.lock_sizes().latest
+    }
+
     pub async fn client_left(&self, client: ClientId) {
         let had_size = {
             let mut sizes = self.lock_sizes();

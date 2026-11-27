@@ -370,6 +370,9 @@ export const DetachedEvent = Schema.Struct({ reason: Schema.NullishOr(Schema.Str
 /** A message tmux showed this client (`display-message`): SSE and desktop `tmux-message`. */
 export const TmuxMessageEvent = Schema.Struct({ text: Schema.String });
 
+/** A URL a program in a pane asked to open in the user's browser (`$BROWSER`): `open-url`. */
+export const OpenUrlEvent = Schema.Struct({ url: Schema.String });
+
 /** The pane a clipboard write came from; the paste-buffer mirror has none and sends `''`. */
 const ClipboardSource = Schema.transform(
   Schema.Union(Schema.Literal(''), PaneId),

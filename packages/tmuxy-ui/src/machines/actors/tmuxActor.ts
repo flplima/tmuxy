@@ -27,6 +27,7 @@ import {
   type PromptRunners,
 } from './promptActions';
 import { LIST_ACTIVITY_COMMAND, parseActivity, type ActivityTarget } from '../../domain/activity';
+import { openPaneUrl, trackUserActivation } from '../../infra/paneUrls';
 
 export type TmuxActorEvent =
   /**
@@ -189,7 +190,12 @@ export function createTmuxActor(runtime: AppRuntime) {
       Clipboard: ({ paneId, text }) => parent.send({ type: 'TMUX_CLIPBOARD', paneId, text }),
       // `display-message` output: a notice in the snackbar, not an error.
       Message: ({ text }) => parent.send({ type: 'NOTIFY', text, kind: 'info' }),
+      // A program in a pane asked for a URL (`$BROWSER`): opened when the
+      // person just used the app, else offered in a notice.
+      OpenUrl: ({ url }) =>
+        openPaneUrl(url, (notice) => parent.send({ type: 'NOTIFY', ...notice })),
     });
+    const untrackActivation = trackUserActivation();
 
     logInfo('Connecting to tmux backend...');
 
@@ -468,6 +474,7 @@ export function createTmuxActor(runtime: AppRuntime) {
     });
 
     return () => {
+      untrackActivation();
       // Stop forwarding, drop pending scrollback fetches so they don't send
       // to a dead parent, and close the connection.
       runtime.runFork(Fiber.interrupt(session));

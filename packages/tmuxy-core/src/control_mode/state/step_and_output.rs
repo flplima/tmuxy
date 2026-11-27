@@ -50,6 +50,9 @@ impl StateAggregator {
         for text in std::mem::take(&mut result.messages) {
             effects.push(SideEffect::Notify(Notice::Message(text)));
         }
+        for url in std::mem::take(&mut result.open_urls) {
+            effects.push(SideEffect::Notify(Notice::OpenUrl(url)));
+        }
         if !result.commands.is_empty() {
             effects.push(send(Batch::Own, std::mem::take(&mut result.commands)));
         }

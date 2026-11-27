@@ -19,6 +19,39 @@ fn a_message_is_kept_as_tmux_wrote_it_less_control_characters() {
     assert!(long.ends_with('…'));
 }
 
+/// The `browser` script's request: the URL, hex-encoded after the marker,
+/// comes back whole — `#` and `&` and all, past the message's length cap —
+/// and nothing that does not decode or is longer than the script sends.
+#[test]
+fn an_open_url_request_is_decoded_and_checked() {
+    let mut parser = Parser::new();
+    let hex = |url: &str| url.bytes().map(|b| format!("{b:02x}")).collect::<String>();
+    let request = |url: &str| format!("%message {}{}", crate::constants::OPEN_URL_MARKER, hex(url));
+    let long = format!("https://example.com/{}#top?a=1&b=2", "x".repeat(600));
+    for url in [
+        "https://example.com/a#h",
+        "mailto:me@example.com",
+        long.as_str(),
+    ] {
+        match parser.parse_line(request(url)) {
+            Some(ControlModeEvent::OpenUrl { url: got }) => assert_eq!(got, url),
+            other => panic!("expected OpenUrl for {url}, got {other:?}"),
+        }
+    }
+    let too_long = format!(
+        "https://e.com/{}",
+        "x".repeat(crate::constants::MAX_OPEN_URL_BYTES)
+    );
+    assert!(parser.parse_line(request(&too_long)).is_none());
+    let marker = crate::constants::OPEN_URL_MARKER;
+    for garbage in [
+        format!("%message {marker}zz"),
+        format!("%message {marker}abc"),
+    ] {
+        assert!(parser.parse_line(&garbage).is_none(), "{garbage}");
+    }
+}
+
 #[test]
 fn test_parse_output() {
     let mut parser = Parser::new();

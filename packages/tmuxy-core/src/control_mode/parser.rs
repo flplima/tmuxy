@@ -106,6 +106,13 @@ pub enum ControlModeEvent {
         text: String,
     },
 
+    /// A `%message` the `browser` script sent: a pane's program asked for
+    /// `url` to open in the user's browser (`OPEN_URL_MARKER`). Decoded, not
+    /// yet checked: the host opens only what `is_openable_url` allows.
+    OpenUrl {
+        url: String,
+    },
+
     /// Control mode client exiting
     Exit {
         reason: Option<String>,
@@ -328,8 +335,13 @@ impl Parser {
         }
 
         // %message text
-        if let Some(text) = message_line(line) {
-            return Some(ControlModeEvent::Message { text });
+        if let Some(raw) = line.strip_prefix(crate::constants::control_events::MESSAGE) {
+            if let Some(url) = raw.strip_prefix(crate::constants::OPEN_URL_MARKER) {
+                return open_url_request(url).map(|url| ControlModeEvent::OpenUrl { url });
+            }
+            return Some(ControlModeEvent::Message {
+                text: clean_message(raw),
+            });
         }
 
         // %exit [reason]
@@ -478,6 +490,29 @@ pub const MAX_MESSAGE_CHARS: usize = 500;
 pub fn message_line(line: &str) -> Option<String> {
     line.strip_prefix(crate::constants::control_events::MESSAGE)
         .map(clean_message)
+}
+
+/// The URL an open request carries, hex-encoded after `OPEN_URL_MARKER`;
+/// `None` (logged) for one that does not decode or is too long.
+fn open_url_request(hex: &str) -> Option<String> {
+    let hex = hex.trim_end();
+    let url = (hex.len().is_multiple_of(2)
+        && hex.len() <= 2 * crate::constants::MAX_OPEN_URL_BYTES)
+        .then(|| {
+            (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+                .collect::<Option<Vec<u8>>>()
+        })
+        .flatten()
+        .and_then(|bytes| String::from_utf8(bytes).ok());
+    if url.is_none() {
+        tracing::warn!(
+            len = hex.len(),
+            "dropped an open-url request that does not decode"
+        );
+    }
+    url
 }
 
 /// A `%message` body as it can be shown: a tab becomes a space, every other

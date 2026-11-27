@@ -93,6 +93,19 @@ impl StateEmitter for Arc<SessionRuntime> {
         self.emit(HostEvent::Message { text });
     }
 
+    /// Only a link a click could open (`is_openable_url`) leaves the host:
+    /// anything can write the marker the script uses.
+    fn open_url(&self, url: String) {
+        if !crate::host::command::is_openable_url(&url) {
+            tracing::warn!(target: "tmuxy_core::host", "dropped a pane's request to open a link tmuxy does not open");
+            return;
+        }
+        self.emit(HostEvent::OpenUrl {
+            url,
+            client: self.latest_client(),
+        });
+    }
+
     /// The bindings and theme are read again now: the prefix read before the
     /// sync is tmux's default on a server that already existed. Read off the
     /// monitor loop, whose own connection answers them.

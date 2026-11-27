@@ -230,6 +230,7 @@ pub(super) fn notify<E: StateEmitter>(emitter: &E, notice: Notice) {
         Notice::Images { pane_id, images } => emitter.store_images(&pane_id, images),
         Notice::Clipboard { pane_id, text } => emitter.write_clipboard(pane_id.as_ref(), text),
         Notice::Message(text) => emitter.show_message(text),
+        Notice::OpenUrl(url) => emitter.open_url(url),
         Notice::Error(error) => emitter.emit_error(error),
     }
 }

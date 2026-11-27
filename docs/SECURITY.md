@@ -95,6 +95,10 @@ tmuxy runs `git` in directories the user merely stands in (the tree's branch and
 
 **Impact:** No forensic trail if unauthorized access occurs.
 
+### 7. A Pane Opens URLs in Your Browser (Low)
+
+How `$BROWSER` is held to a click: [SECURITY-CONTENT.md](SECURITY-CONTENT.md#a-pane-opens-a-url-in-your-browser).
+
 ## LLM-Assisted Development Risks
 
 When using AI coding assistants (Claude, Copilot, etc.) with tmuxy running:

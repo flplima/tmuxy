@@ -39,9 +39,18 @@ pub const EVENT_BUFFER_MAX_BYTES: usize = 16 * 1024 * 1024;
 pub struct Frame {
     pub name: &'static str,
     pub data: Arc<str>,
+    /// The one stream this frame is for (`HostEvent::only_for`); `None` is
+    /// every stream. A replayed frame keeps it, and a client that reconnects
+    /// gets a new id, so it is never acted on twice.
+    pub only: Option<u64>,
 }
 
 impl Frame {
+    /// Whether the stream of connection `conn_id` sends this frame.
+    pub fn is_for(&self, conn_id: u64) -> bool {
+        self.only.is_none_or(|only| only == conn_id)
+    }
+
     /// The frame a stream sends for `event`; `None`, logged, when it does not
     /// serialise.
     pub fn of(event: &HostEvent) -> Option<Self> {
@@ -49,6 +58,7 @@ impl Frame {
             Ok(data) => Some(Self {
                 name: event.name(),
                 data: data.into(),
+                only: event.only_for(),
             }),
             Err(e) => {
                 tracing::error!(error = %e, event = event.name(), "failed to serialize an event");
@@ -98,6 +108,7 @@ impl SessionBroadcast {
         self.broadcast_frame(Frame {
             name,
             data: Arc::from(payload),
+            only: None,
         })
     }
 

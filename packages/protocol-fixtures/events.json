@@ -129,5 +129,11 @@
       "text": "build done"
     },
     "event": "tmux-message"
+  },
+  {
+    "data": {
+      "url": "https://example.com/artifact"
+    },
+    "event": "open-url"
   }
 ]

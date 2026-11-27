@@ -58,6 +58,13 @@ DEFAULT_SESSION='tmuxy'
 # What tmuxy-widget prints before a widget's name, for the client to draw it.
 WIDGET_MARKER='__TMUXY_WIDGET__:'
 
+# How the browser script hands a URL to the client (`OPEN_URL_MARKER`), and
+# which URLs it hands over (`host::command::is_openable_url`).
+OPEN_URL_MARKER='__TMUXY_OPEN_URL__:'
+MAX_OPEN_URL_BYTES=8192
+OPENABLE_URL_SCHEMES='http:// https:// mailto:'
+URL_FORBIDDEN_CHARS=$'"\'<>^`{}|\\'
+
 # `tmuxy server`'s default port, and Vite's behind it in the dev loop.
 DEFAULT_PORT=9000
 VITE_PORT=9001

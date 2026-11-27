@@ -266,6 +266,7 @@ pub fn effect_kind(effect: &SideEffect) -> &'static str {
         SideEffect::Notify(Notice::Images { .. }) => "Notify(Images)",
         SideEffect::Notify(Notice::Clipboard { .. }) => "Notify(Clipboard)",
         SideEffect::Notify(Notice::Message(_)) => "Notify(Message)",
+        SideEffect::Notify(Notice::OpenUrl(_)) => "Notify(OpenUrl)",
         SideEffect::Notify(Notice::Error(_)) => "Notify(Error)",
         SideEffect::Reply { .. } => "Reply",
         SideEffect::Emit(_) => "Emit",

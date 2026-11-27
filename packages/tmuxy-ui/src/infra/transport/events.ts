@@ -38,6 +38,8 @@ export type TransportEvent = Data.TaggedEnum<{
   Clipboard: { readonly paneId: PaneId | null; readonly text: string };
   /** A message tmux showed this client (`display-message`). */
   Message: { readonly text: string };
+  /** A program in a pane asked for `url` to open in the user's browser (`$BROWSER`). */
+  OpenUrl: { readonly url: string };
 }>;
 
 export const TransportEvent = Data.taggedEnum<TransportEvent>();
