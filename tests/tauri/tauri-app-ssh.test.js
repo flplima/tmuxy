@@ -21,6 +21,7 @@ const {
   openSplashWindow,
   splashField,
   splashButton,
+  waitForShownPane,
   closeThisWindow,
 } = require('./helpers/splash');
 const { sshKnownHosts } = require('./helpers/tauri-driver');
@@ -81,7 +82,7 @@ async function signInAndRun(driver, fill, marker) {
   expect(question).toContain(`ED25519 ${host.fingerprint}`);
   await (await splashButton(driver, 'Trust and connect')).click();
 
-  await (await driver.$('.pane-layout-item')).waitForDisplayed({ timeout: 40000 });
+  await waitForShownPane(driver, 40000);
   await typeKeys(driver, `echo ${marker}_$(whoami)`);
   await pressKey(driver, 'Enter');
   await waitForTerminalText(driver, `${marker}_${host.user}`, 20000);
@@ -117,7 +118,7 @@ describe('ssh windows', () => {
     await password.clearValue();
     await password.setValue(host.password);
     await (await splashButton(driver, 'Connect')).click();
-    await (await driver.$('.pane-layout-item')).waitForDisplayed({ timeout: 40000 });
+    await waitForShownPane(driver, 40000);
     await typeKeys(driver, 'echo PASSWORD_$(whoami)');
     await pressKey(driver, 'Enter');
     await waitForTerminalText(driver, `PASSWORD_${host.user}`, 20000);

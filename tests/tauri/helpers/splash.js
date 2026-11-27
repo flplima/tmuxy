@@ -44,6 +44,24 @@ function splashButton(driver, text) {
 }
 
 /**
+ * Wait until the window the driver is on shows a pane: the active one, drawn
+ * with a size. Any `.pane-layout-item` will not do: the other tabs' panes stay
+ * mounted with `display: none`, sorted with this tab's by pane id, so the first
+ * one in the page is a hidden tab's whenever its id sorts first (`%10` before
+ * `%9`).
+ *
+ * @param {WebdriverIO.Browser} driver
+ * @param {number} timeout
+ */
+async function waitForShownPane(driver, timeout) {
+  const pane = await driver.$('.pane-layout-item.pane-active');
+  await pane.waitForDisplayed({ timeout });
+  const { width, height } = await pane.getSize();
+  expect(width).toBeGreaterThan(0);
+  expect(height).toBeGreaterThan(0);
+}
+
+/**
  * Close the window the driver is on and go back to `mainHandle`. The window
  * closes under the script that asked, so no answer comes back.
  */
@@ -52,4 +70,10 @@ async function closeThisWindow(driver, mainHandle) {
   await driver.switchToWindow(mainHandle);
 }
 
-module.exports = { openSplashWindow, splashField, splashButton, closeThisWindow };
+module.exports = {
+  openSplashWindow,
+  splashField,
+  splashButton,
+  waitForShownPane,
+  closeThisWindow,
+};

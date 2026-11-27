@@ -16,7 +16,7 @@ const {
 } = require('./helpers/wdio-client');
 const { tmuxCmd, tmuxExec } = require('../helpers/tmux-socket');
 const { waitForCondition } = require('../helpers/browser');
-const { openSplashWindow, closeThisWindow } = require('./helpers/splash');
+const { openSplashWindow, closeThisWindow, waitForShownPane } = require('./helpers/splash');
 
 const ctx = createTauriTestContext();
 let driver = null;
@@ -91,7 +91,7 @@ describe('GUI windows', () => {
 
     // A click on the session attaches the window: the app replaces the page.
     await row.click();
-    await (await driver.$('.pane-layout-item')).waitForDisplayed({ timeout: 30000 });
+    await waitForShownPane(driver, 30000);
     await driver.switchToWindow(mainHandle);
 
     // tmux's side of it: a second session, grouped with the first, so the
@@ -168,7 +168,7 @@ describe('GUI windows', () => {
     const cleanUp = () => execSync(`${tmuxCmd()} kill-session -t ${name}`, { stdio: 'ignore' });
     try {
       await (await driver.$('//button[normalize-space()="Create"]')).click();
-      await (await driver.$('.pane-layout-item')).waitForDisplayed({ timeout: 30000 });
+      await waitForShownPane(driver, 30000);
 
       // A session of its own: in no group, and the window named by it.
       let sessions = '';
