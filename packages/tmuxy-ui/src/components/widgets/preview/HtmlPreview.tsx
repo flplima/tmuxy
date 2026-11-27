@@ -153,7 +153,7 @@ export function HtmlPreview({
   }, []);
 
   if (!page.value) {
-    return <div className="preview-message">{page.error ?? 'Composing the page…'}</div>;
+    return <div className="preview-message">{page.error ?? 'Loading...'}</div>;
   }
   return (
     <iframe

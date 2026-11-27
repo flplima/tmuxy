@@ -20,7 +20,9 @@
   height: 100%;
   padding: 0 24px;
   color: var(--text-muted);
-  font-style: italic;
+  /* The pane's terminal type: a widget's box sets no font of its own. */
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
   text-align: center;
 }
 
