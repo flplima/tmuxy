@@ -130,7 +130,9 @@ pub fn run(args: ConfigArgs) {
 }
 
 /// `tmuxy config reload`: refused, with the line, while tmux cannot parse
-/// the config; else the marker every running app watches is touched.
+/// the config; else the marker every running app watches is touched. An app
+/// with no window open watches nothing, and needs nothing: every connect
+/// sources the chain, so the next one applies it.
 fn reload(layout: &Layout, answer: &Answer) {
     let blockers = tmuxy_core::session::reload_blockers(layout);
     if !blockers.is_empty() {
@@ -154,7 +156,7 @@ fn reload(layout: &Layout, answer: &Answer) {
     answer.done(
         &[("file", cli_json::string(&conf.display().to_string()))],
         &format!(
-            "Reloading {} — the app re-applies it within a second.",
+            "Reloading {} — an open tmuxy window applies it within a second; with none open, the next one to open applies it.",
             conf.display()
         ),
     );
