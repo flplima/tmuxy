@@ -9,6 +9,12 @@ import { WIDGET_MARKER } from './tmuxyConstants.gen';
 export interface PaneWidget {
   name: string;
   lines: string[];
+  /**
+   * Named by the tag alone, its marker not seen yet: a pane collapsed in a
+   * stack before the client ever saw it open (selectors/paneWidget.ts). Its
+   * header and tree row are the widget's; its body waits for the marker.
+   */
+  pending?: true;
 }
 
 const rowText = (row: PaneContent[number]): string => row.map((cell) => cell.c).join('');

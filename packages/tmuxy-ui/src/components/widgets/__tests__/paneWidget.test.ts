@@ -121,8 +121,37 @@ describe('paneWidgetOf', () => {
     expect(at(lines(''), 1)).toEqual(shown);
     expect(at(lines(MARKER, 'file:a.md', 'rev:1'), 24)).toEqual(shown);
     // The latch holds only while the tag does: a pane whose widget ended is a
-    // terminal, collapsed or not.
+    // terminal, collapsed or not, and a tag set again holds none of the old
+    // lines.
     expect(at(lines(''), 1, null)).toBeNull();
-    expect(at(lines(''), 1)).toBeNull();
+    expect(at(lines(''), 1)).toMatchObject({ name: 'preview', lines: [], pending: true });
+  });
+
+  /**
+   * A page loaded with the stack already collapsed never saw the marker: the
+   * tag names the widget for its header and tree row, and its body waits for
+   * the marker, which expanding the pane brings back from the history.
+   */
+  it('names a pane first seen collapsed by its tag, and confirms it by the marker once expanded', () => {
+    const tmuxId = pid('%902');
+    const at = (content: PaneContent, height: number, paneWidget: string | null = 'preview') =>
+      paneWidgetOf({ tmuxId, content, paneWidget, height });
+    expect(at(lines(''), 1)).toMatchObject({ name: 'preview', lines: [], pending: true });
+    const open = at(lines(MARKER, 'file:a.md', 'rev:1'), 24);
+    expect(open?.name).toBe('preview');
+    expect(open?.pending).toBeUndefined();
+    expect(open?.lines).toEqual(['file:a.md', 'rev:1']);
+    // Collapsed again, it is the confirmed widget that is held.
+    expect(at(lines(''), 1)).toEqual(open);
+  });
+
+  it('draws a stale tag over a shell as the terminal once the pane is open', () => {
+    const tmuxId = pid('%903');
+    const at = (content: PaneContent, height: number) =>
+      paneWidgetOf({ tmuxId, content, paneWidget: 'preview', height });
+    expect(at(lines(''), 1)?.pending).toBe(true);
+    expect(at(lines('$ ls', 'a.md'), 24)).toBeNull();
+    // Collapsed after being seen as a shell, the tag names it again.
+    expect(at(lines(''), 1)?.pending).toBe(true);
   });
 });
