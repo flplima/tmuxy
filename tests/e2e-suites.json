@@ -68,7 +68,7 @@
     },
     {
       "name": "permissions",
-      "path": "tests/1[34]-(send-permission|pane-ask|widget-authorisation|widget-preview|widget-preview-emit)\\.test\\.js"
+      "path": "tests/1[34]-(send-permission|pane-ask|widget-authorisation|widget-preview|widget-preview-emit|widget-preview-stack)\\.test\\.js"
     },
     {
       "name": "personalization-plugins",

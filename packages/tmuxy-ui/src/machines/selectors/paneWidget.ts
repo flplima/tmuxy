@@ -11,9 +11,17 @@
  * returns, a full-pane blink twice over. The latch holds only while the tag
  * is unchanged, so an untagged pane never inherits a widget from an earlier
  * pane that had its id.
+ *
+ * Latched too while the pane is collapsed (`isCollapsedPane`, a stacked
+ * window's other rows): one row cannot hold the marker and the lines below
+ * it, so tmux pushes them into the history and the screen holds only the
+ * cursor's empty row. Read as "terminal", the collapsed preview's tree row
+ * and header fell back to `bash`, and the widget unmounted, so expanding the
+ * pane mounted it afresh and read its document again.
  */
 
 import { notCapturedYet } from '../../domain/deltaProtocol';
+import { isCollapsedPane } from '../../domain/paneGeometry';
 import { findPaneWidget, type PaneWidget } from '../../domain/paneWidget';
 import type { TmuxPane } from '../../domain/client';
 import type { PaneId } from '../../domain/ids';
@@ -27,15 +35,15 @@ interface Latch {
 const latches = new Map<PaneId, Latch>();
 
 export function selectPaneWidget(
-  pane: Pick<TmuxPane, 'tmuxId' | 'content' | 'paneWidget'> | null | undefined,
+  pane: Pick<TmuxPane, 'tmuxId' | 'content' | 'paneWidget' | 'height'> | null | undefined,
 ): PaneWidget | null {
   if (!pane) return null;
   const last = latches.get(pane.tmuxId);
   const authorized = pane.paneWidget ?? null;
   const sameTag = last !== undefined && last.authorized === authorized;
-  if (notCapturedYet(pane.content)) return sameTag ? last.widget : null;
-  if (sameTag && last.content === pane.content) return last.widget;
-  const widget = findPaneWidget(pane.content, authorized);
+  const held = notCapturedYet(pane.content) || isCollapsedPane(pane);
+  if (sameTag && (held || last.content === pane.content)) return last.widget;
+  const widget = held ? null : findPaneWidget(pane.content, authorized);
   latches.set(pane.tmuxId, { content: pane.content, authorized, widget });
   return widget;
 }
