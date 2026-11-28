@@ -1,33 +1,32 @@
 /**
- * The phone's split, upright: the terminal and the keys above, the bottom
- * view (the menu, the tree, the side pane) below, and a bar between them
- * that a finger drags (components/phone/PhoneDivider.tsx).
+ * The phone's split, upright: the page — the terminal and the keys — and the
+ * bottom view (the menu, the tree, the side pane) under it as a sheet, its
+ * handle along its top (components/phone/PhoneDivider.tsx).
  *
- * Dragged down, the terminal grows as one picture: the panes, their headers
- * and tmux's status line scale together from the top-left corner, as far as
- * the bottom view has room to give. Dragged up from the terminal's own size,
- * past a threshold, the terminal and the keys fold away and the bottom view
- * takes the whole height; dragged down past it again, they come back.
+ * The handle moves along one line. Dragged down from rest, the terminal grows
+ * as one picture: the panes, their headers and tmux's status line scale
+ * together from the top-left corner, the keys and the sheet moving down with
+ * them, as far as the sheet has room to give. Dragged up from the terminal's
+ * own size, the sheet rises over the page, which keeps its size and fades to
+ * dark under it; released past a quarter of the way, or flicked, it covers
+ * the page (`collapsed`), anything less goes back down. Covered, a drag down
+ * lowers it, by the same rule the other way.
  *
  * The zoom is the one a double tap sets (twice the size, or back), so the
- * bar moves with it. Both are kept per device (infra/prefs.ts). */
+ * handle moves with it. Both are kept per device (infra/prefs.ts). */
+
+import { sheetCloses } from './sheetSwipe';
 
 /** The zoom a double tap jumps to. */
 export const PHONE_ZOOM_STEP = 2;
 
-/** How far up (or back down) the bar is dragged to fold the terminal away (or back). */
-export const COLLAPSE_PX = 60;
-
 /** A release this close to the terminal's own size settles on it. */
 export const SNAP_PX = 12;
-
-/** How close to its own size the terminal must be for a drag up to fold it. */
-const FOLD_SLACK_PX = 4;
 
 export interface PhoneSplit {
   /** The terminal's scale: 1 is its own size, the 80 columns across the screen. */
   zoom: number;
-  /** The terminal and the keys folded away, the bottom view the whole height. */
+  /** The sheet raised over the whole page, the terminal and the keys under it. */
   collapsed: boolean;
 }
 
@@ -38,26 +37,47 @@ export interface SplitDrag {
   start: PhoneSplit;
   /** The terminal's height at its own size, px. */
   base: number;
-  /** The most the terminal can grow to: its height and the bottom view's, px. */
+  /** The most the terminal can grow to: its height and the sheet's, px. */
   room: number;
+  /** The page's height (the terminal and the keys): how far the sheet rises, px. */
+  cover: number;
 }
 
-/** The split while the bar is `dy` px below where the finger landed. */
-export function dragSplit(drag: SplitDrag, dy: number): PhoneSplit {
-  const { start, base, room } = drag;
-  if (base <= 0) return start;
-  if (start.collapsed) return dy > COLLAPSE_PX ? DEFAULT_SPLIT : start;
-  if (dy < -COLLAPSE_PX && start.zoom * base <= base + FOLD_SLACK_PX) {
-    return { zoom: 1, collapsed: true };
+/** Where the handle is while a finger has it. */
+export interface SplitPosition {
+  zoom: number;
+  /** How far the sheet is raised over the page, px. */
+  lift: number;
+}
+
+/** The handle's place on its line: below rest it is the zoom, above it the lift. */
+const placeOf = (split: PhoneSplit, base: number, cover: number) =>
+  split.collapsed ? -cover : (split.zoom - 1) * base;
+
+/** Where the handle is `dy` px below where the finger landed. */
+export function dragSplit(drag: SplitDrag, dy: number): SplitPosition {
+  const { start, base, room, cover } = drag;
+  if (base <= 0) return { zoom: start.zoom, lift: start.collapsed ? cover : 0 };
+  const most = Math.max(0, room - base);
+  const at = Math.min(most, Math.max(-cover, placeOf(start, base, cover) + dy));
+  return { zoom: 1 + Math.max(0, at) / base, lift: Math.max(0, -at) };
+}
+
+/**
+ * Where a drag released at `pos`, moving down at `speed` px/ms, settles: a
+ * raised sheet up or down as a pulled sheet decides (sheetSwipe.ts), a zoom
+ * on the terminal's own size when it is that close.
+ */
+export function releaseSplit(drag: SplitDrag, pos: SplitPosition, speed: number): PhoneSplit {
+  const { start, base, cover } = drag;
+  if (pos.lift > 0) {
+    const covers = start.collapsed
+      ? !sheetCloses(cover - pos.lift, speed, cover)
+      : sheetCloses(pos.lift, -speed, cover);
+    return covers ? { zoom: 1, collapsed: true } : DEFAULT_SPLIT;
   }
-  const most = Math.max(1, room / base);
-  return { zoom: Math.min(most, Math.max(1, (start.zoom * base + dy) / base)), collapsed: false };
-}
-
-/** Where a released drag settles: on the terminal's own size when it is that close. */
-export function releaseSplit(split: PhoneSplit, base: number): PhoneSplit {
-  if (split.collapsed || split.zoom * base >= base + SNAP_PX) return split;
-  return { zoom: 1, collapsed: false };
+  if (pos.zoom * base >= base + SNAP_PX) return { zoom: pos.zoom, collapsed: false };
+  return DEFAULT_SPLIT;
 }
 
 /** A double tap: twice the size, or back to its own. */

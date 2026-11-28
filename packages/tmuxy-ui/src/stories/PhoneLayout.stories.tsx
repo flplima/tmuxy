@@ -109,8 +109,8 @@ export const PhoneKeyboardDown: Story = {
       { timeout: 8000 },
     );
 
-    // Top to bottom: the grid, the status line, the keys, the bar, then the
-    // bottom view's card (the tab bar along its top, the tree under it).
+    // Top to bottom: the grid, the status line, the keys, then the bottom
+    // view's sheet (its handle, the tab bar, the tree under them).
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
     const status = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
     const keys = box(canvasElement.querySelector('.key-row'));
@@ -120,15 +120,15 @@ export const PhoneKeyboardDown: Story = {
     const tree = box(canvasElement.querySelector('.phone-tree'));
     expect(status.top).toBeGreaterThanOrEqual(grid.bottom - 1);
     expect(keys.top).toBeGreaterThanOrEqual(status.bottom - 1);
-    expect(bar.top).toBeCloseTo(keys.bottom, 0);
-    expect(lower.top).toBeCloseTo(bar.bottom, 0);
-    expect(tabBar.top).toBeCloseTo(lower.top, 0);
+    expect(lower.top).toBeCloseTo(keys.bottom, 0);
+    expect(bar.top).toBeCloseTo(lower.top, 0);
+    expect(tabBar.top).toBeCloseTo(bar.bottom, 0);
     expect(tree.top).toBeGreaterThanOrEqual(tabBar.bottom - 1);
     expect(tree.height).toBeGreaterThan(100);
     expect(lower.bottom).toBeCloseTo(box(canvasElement.querySelector('.app-container')).bottom, 0);
     const radius = (sel: string, corner: string) =>
       parseFloat(getComputedStyle(canvasElement.querySelector(sel)!).getPropertyValue(corner));
-    expect(radius('.phone-top', 'border-bottom-left-radius')).toBeGreaterThan(0);
+    expect(radius('.phone-top', 'border-bottom-left-radius')).toBe(0);
     expect(radius('.phone-top', 'border-top-left-radius')).toBe(0);
     expect(radius('.phone-lower', 'border-top-right-radius')).toBeGreaterThan(0);
     expect(radius('.phone-lower', 'border-bottom-right-radius')).toBe(0);

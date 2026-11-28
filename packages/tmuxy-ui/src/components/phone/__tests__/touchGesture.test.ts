@@ -5,6 +5,8 @@ import {
   isDoubleTap,
   isTap,
   releaseSpeed,
+  scrollEdges,
+  slidesPastEdge,
   TAP_SLOP_PX,
 } from '../touchGesture';
 
@@ -47,5 +49,28 @@ describe('releaseSpeed', () => {
     expect(releaseSpeed([at(100, 0, 0), at(60, 0, 80)])).toBe(-0.5);
     expect(releaseSpeed([at(0, 0, 0)])).toBe(0);
     expect(releaseSpeed([at(0, 0, 5), at(10, 0, 5)])).toBe(0);
+  });
+});
+
+describe('a zoomed terminal at the end of its view', () => {
+  const view = (scrollLeft: number) => ({ scrollLeft, clientWidth: 390, scrollWidth: 780 });
+
+  it('reads which ends of its sideways scroll the view is at', () => {
+    expect(scrollEdges(view(0))).toEqual({ left: true, right: false });
+    expect(scrollEdges(view(195))).toEqual({ left: false, right: false });
+    expect(scrollEdges(view(390))).toEqual({ left: false, right: true });
+    expect(scrollEdges(null)).toEqual({ left: true, right: true });
+  });
+
+  it('slides between tabs only toward an end it has reached', () => {
+    const atLeft = scrollEdges(view(0));
+    const atRight = scrollEdges(view(390));
+    const between = scrollEdges(view(195));
+    expect(slidesPastEdge(atLeft, 40)).toBe(true);
+    expect(slidesPastEdge(atLeft, -40)).toBe(false);
+    expect(slidesPastEdge(atRight, -40)).toBe(true);
+    expect(slidesPastEdge(atRight, 40)).toBe(false);
+    expect(slidesPastEdge(between, 40)).toBe(false);
+    expect(slidesPastEdge(between, -40)).toBe(false);
   });
 });
