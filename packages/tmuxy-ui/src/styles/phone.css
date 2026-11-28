@@ -1,12 +1,15 @@
-/* Upright, two cards on a black gutter: the terminal and the key row on top,
-   rounded below; the bar a finger drags (PhoneDivider); the bottom view,
-   rounded above. The bottom view takes what is left and is the first to give
-   when the phone's keyboard comes up; then the terminal is cut short and
-   scrolled to keep the cursor's row in view
-   (components/phone/usePhoneViewport.ts). The rounding is the phone's alone:
-   every other corner of the app is square. App.tsx sets the grid's geometry
-   (`--phone-rows`, `--phone-container-padding`, `--phone-status-row`,
-   `--phone-landscape-keys`) on the app body. */
+/* Upright, the page and a sheet over it: the terminal and the key row on
+   top, edge to edge, then the bottom view as a sheet rounded above, its
+   handle along its top (PhoneDivider). The sheet takes what is left and is
+   the first to give when the phone's keyboard comes up; then the terminal is
+   cut short and scrolled to keep the cursor's row in view
+   (components/phone/usePhoneViewport.ts). Raised (`is-collapsed`, or
+   `--phone-sheet-lift` while a finger has the handle), the sheet rises over
+   the page by a negative margin, so the page keeps its size, and the page
+   fades to the black under it by `--phone-sheet-cover`. The rounding is the
+   phone's alone: every other corner of the app is square. App.tsx sets the
+   grid's geometry (`--phone-rows`, `--phone-container-padding`,
+   `--phone-status-row`, `--phone-landscape-keys`) on the app body. */
 .app-body-phone {
   --phone-card-radius: 16px;
   flex-direction: column;
@@ -35,19 +38,56 @@
   height: calc(var(--tmuxy-font-size, 15px) * 1.27 + 2 * var(--spacing-md));
 }
 
+.app-body-phone:not(.is-landscape) {
+  --phone-sheet-lift: 0px;
+  --phone-sheet-cover: 0;
+  --phone-sheet-settle: 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.app-body-phone.is-collapsed:not(.is-landscape) {
+  --phone-sheet-lift: var(--phone-top-height, 0px);
+  --phone-sheet-cover: 1;
+}
+
 .phone-top {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  border-radius: 0 0 var(--phone-card-radius) var(--phone-card-radius);
   background-color: var(--bg-dark);
+  opacity: calc(1 - var(--phone-sheet-cover));
+  transition: opacity var(--phone-sheet-settle);
 }
 
-/* Folded away under a dragged-up bar: the bottom view takes the height. */
 .app-body-phone.is-collapsed .phone-top {
-  flex: 0 0 0;
+  pointer-events: none;
+}
+
+.phone-lower {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: calc(-1 * var(--phone-sheet-lift));
+  overflow: hidden;
+  border-radius: var(--phone-card-radius) var(--phone-card-radius) 0 0;
+  background-color: rgb(var(--window-bg-rgb));
+  transition: margin-top var(--phone-sheet-settle);
+}
+
+/* The finger moves them; the transitions settle a release. */
+.app-body-phone[data-sheet-dragging] :is(.phone-top, .phone-lower),
+.app-no-animations .app-body-phone :is(.phone-top, .phone-lower) {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-body-phone :is(.phone-top, .phone-lower) {
+    transition: none;
+  }
 }
 
 .phone-divider {
@@ -69,16 +109,6 @@
 
 .phone-divider[data-dragging] .phone-divider-handle {
   background-color: var(--theme-accent);
-}
-
-.phone-lower {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  border-radius: var(--phone-card-radius) var(--phone-card-radius) 0 0;
-  background-color: rgb(var(--window-bg-rgb));
 }
 
 /* Held sideways, flat on the window's background as a desktop is: the tree

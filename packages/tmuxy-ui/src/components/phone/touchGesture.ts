@@ -60,3 +60,29 @@ export function releaseSpeed(samples: readonly TouchPoint[]): number {
   if (dt <= 0) return 0;
   return (last.x - first.x) / dt;
 }
+
+/** Which ends of its sideways scroll a zoomed terminal's view is at. */
+export interface ScrollEdges {
+  left: boolean;
+  right: boolean;
+}
+
+/** A scroller's edges, within a pixel; both for none (nothing to scroll). */
+export function scrollEdges(
+  el: Pick<Element, 'scrollLeft' | 'scrollWidth' | 'clientWidth'> | null,
+): ScrollEdges {
+  if (!el) return { left: true, right: true };
+  return {
+    left: el.scrollLeft <= 1,
+    right: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1,
+  };
+}
+
+/**
+ * Zoomed, the finger pans the terminal; a sideways slide that starts at the
+ * end of the view it pulls toward, with nothing more to pan that way, slides
+ * between tabs instead: `dx` > 0 pulls in what is left of the view.
+ */
+export function slidesPastEdge(edges: ScrollEdges, dx: number): boolean {
+  return dx > 0 ? edges.left : dx < 0 && edges.right;
+}

@@ -13,7 +13,9 @@
  *   (`tapRaisesKeyboard`) is the one pane of its view, so a tap on it brings
  *   the keyboard up for it whatever had it, or, already up for it, away.
  * - A double tap zooms the terminal in the browser, around the tap, and
- *   again puts it back. Zoomed, the finger pans: nothing here claims it.
+ *   again puts it back. Zoomed, the finger pans: nothing here claims it,
+ *   but a sideways slide begun at the end of the view it pulls toward,
+ *   with nothing more to pan that way, still slides between tabs.
  * - A hold selects the word under the finger in copy mode, and dragging on
  *   extends the selection; the Copy and Cancel buttons over the pane
  *   (components/terminal/TouchSelectionBar) end it.
@@ -41,12 +43,18 @@ import {
   isDoubleTap,
   isTap,
   releaseSpeed,
+  scrollEdges,
+  slidesPastEdge,
+  type ScrollEdges,
   type TouchIntent,
   type TouchPoint,
 } from '../phone/touchGesture';
 import type { PaneId } from '../../domain/ids';
 import { OWN_TOUCH } from '../../infra/dom/terminalDom';
 import { isPinchZoomed } from '../phone/usePhoneViewport';
+
+/** The box a zoomed phone terminal scrolls sideways in (App.tsx). */
+const PHONE_ZOOM_VIEWPORT = '.phone-zoom-viewport';
 
 const nextFrame = Effect.async<number>((resume) => {
   const id = requestAnimationFrame((t) => resume(Effect.succeed(t)));
@@ -122,6 +130,8 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   const lastTapRef = useRef<TouchPoint | null>(null);
   const lastTapToggledRef = useRef(false);
   const holdTimerRef = useRef<number | null>(null);
+  // Zoomed: which ends of its sideways scroll the view was at as the finger landed.
+  const edgesRef = useRef<ScrollEdges>({ left: true, right: true });
   // The finger on the screen started a gesture this hook is following.
   const gestureRef = useRef(false);
 
@@ -253,6 +263,10 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       lastTouchYRef.current = touch.clientY;
       velocitySamplesRef.current = [{ t: e.timeStamp, y: touch.clientY }];
       slideSamplesRef.current = [start];
+      if (phoneZoomed) {
+        const view = e.target instanceof Element ? e.target.closest(PHONE_ZOOM_VIEWPORT) : null;
+        edgesRef.current = scrollEdges(view);
+      }
 
       // Pinch-zoomed, a finger is left to the browser: on iOS a first finger
       // whose touchstart was cancelled takes the whole gesture from it, so a
@@ -278,13 +292,17 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       const now = point(touch, e.timeStamp);
       const start = startRef.current ?? now;
 
-      // Zoomed in, the browser pans the terminal, whichever way the finger goes.
-      if (phoneZoomed) {
-        if (decideIntent(start, now, false) !== 'undecided') {
+      // Zoomed in, the browser pans the terminal, whichever way the finger
+      // goes, unless it slides sideways past the end of the view.
+      if (phoneZoomed && intentRef.current !== 'swipe') {
+        if (intentRef.current === 'undecided') {
+          const intent = decideIntent(start, now, canSwipe);
+          if (intent === 'undecided') return;
           cancelHold();
-          intentRef.current = 'scroll';
+          const past = intent === 'swipe' && slidesPastEdge(edgesRef.current, now.x - start.x);
+          intentRef.current = past ? 'swipe' : 'scroll';
         }
-        return;
+        if (intentRef.current !== 'swipe') return;
       }
 
       if (intentRef.current === 'undecided') {
@@ -308,7 +326,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           return;
         }
         case 'swipe': {
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           const samples = slideSamplesRef.current;
           samples.push(now);
           if (samples.length > VELOCITY_SAMPLES + 1) {

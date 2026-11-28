@@ -7,7 +7,7 @@
  */
 
 import { useRef, useState, type PointerEvent } from 'react';
-import { sheetCloses } from './sheetSwipe';
+import { sheetCloses } from '../../domain/sheetSwipe';
 
 interface Drag {
   id: number;

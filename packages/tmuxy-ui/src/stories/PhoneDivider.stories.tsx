@@ -1,10 +1,11 @@
 /**
- * The bar between the phone's terminal and its bottom view, at a 390 × 844
- * phone's width (components/phone/PhoneDivider.tsx, domain/phoneSplit.ts): dragged
- * down it zooms the terminal — the panes, their headers and tmux's status
- * line as one picture — as far as the bottom view gives room; dragged up from
- * the terminal's own size it folds the terminal and the keys away, and down
- * again brings them back. The split is kept for the device's next load.
+ * The handle along the top of the phone's bottom sheet, at a 390 × 844
+ * phone's width (components/phone/PhoneDivider.tsx, domain/phoneSplit.ts):
+ * dragged down it zooms the terminal — the panes, their headers and tmux's
+ * status line as one picture — as far as the sheet gives room; dragged up
+ * from the terminal's own size it raises the sheet over the page, which
+ * keeps its size and fades to dark, and down again lowers it. The split is
+ * kept for the device's next load.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -68,7 +69,7 @@ export const DragTheBarToZoomOrFold: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'Dragged down 150px, the bar zooms the terminal by the height it gives it: the grid and tmux’s status line grow together from the top-left corner, the keys stay under them and the bottom view gives up the room. Dragged back up, the terminal settles on its own size; dragged up past that, the terminal and the keys fold away and the bottom view takes the screen, the bar along its top; dragged down again, they come back. Each release is kept for the next load.',
+          'Dragged down 150px, the handle zooms the terminal by the height it gives it: the grid and tmux’s status line grow together from the top-left corner, the keys stay under them and the sheet gives up the room. Dragged back up, the terminal settles on its own size; dragged up past that, the sheet rises over the terminal and the keys, which keep their size and fade to dark, and covers the screen under the tab strip; dragged down again, it goes back under the keys. Each release is kept for the next load.',
       },
     },
   },
@@ -111,30 +112,40 @@ export const DragTheBarToZoomOrFold: Story = {
         collapsed: false,
       });
 
-      // 2. Back up past the start: the terminal settles on its own size.
-      await dragBar(bar, -300);
+      // 2. Back up a little past the start: the terminal settles on its own
+      //    size, and a lift that short lets the sheet back down.
+      await dragBar(bar, -(box(bar).top - barTop) - 10);
       await waitFor(() => {
         expect(ctx().phoneZoom).toBe(1);
         expect(box(bar).top).toBeCloseTo(barTop, 0);
       });
 
-      // 3. Up from its own size: folded away, the bottom view the screen
-      //    under the tab strip.
-      await dragBar(bar, -90);
+      // 3. Up from its own size: the sheet rises over the page, which keeps
+      //    its size and fades out, and covers the screen under the tab strip.
+      const page = q('.phone-top');
+      const keys = q('.key-row');
+      await dragBar(bar, -300);
       await waitFor(() => {
         expect(ctx().phoneCollapsed).toBe(true);
-        expect(q('.phone-top').height).toBe(0);
-        expect(box(bar).top).toBeCloseTo(q('[data-testid="phone-tab-strip"]').bottom, 0);
+        expect(q('.phone-top').height).toBeCloseTo(page.height, 0);
+        expect(q('.phone-pty .pane-container').height).toBeCloseTo(grid.height, 0);
+        const fade = getComputedStyle(canvasElement.querySelector('.phone-top')!).opacity;
+        expect(Number(fade)).toBe(0);
+        expect(q('.phone-lower').top).toBeCloseTo(q('[data-testid="phone-tab-strip"]').bottom, 0);
+        expect(box(bar).top).toBeCloseTo(q('.phone-lower').top, 0);
         expect(q('.phone-lower').bottom).toBeCloseTo(screen.bottom, 0);
         expect(q('.phone-tabs').top).toBeCloseTo(box(bar).bottom, 0);
       });
 
-      // 4. Down again past the threshold: back, at the terminal's own size
-      //    (released where it came back, the drag going on from there).
-      await dragBar(bar, 70);
+      // 4. Down again: back under the keys, the page as it was.
+      await dragBar(bar, 300);
       await waitFor(() => {
         expect(ctx().phoneCollapsed).toBe(false);
-        expect(q('.phone-pty .pane-container').height).toBeCloseTo(grid.height, 0);
+        expect(ctx().phoneZoom).toBe(1);
+        expect(q('.phone-lower').top).toBeCloseTo(keys.bottom, 0);
+        expect(Number(getComputedStyle(canvasElement.querySelector('.phone-top')!).opacity)).toBe(
+          1,
+        );
       });
     } finally {
       forgetPhoneSplitPref();

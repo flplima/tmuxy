@@ -70,7 +70,10 @@ export const AppMenuFromTheMenuTab: Story = {
     const tabs = [...canvasElement.querySelectorAll<HTMLElement>('.phone-tabs [role="tab"]')];
     expect(tabs.map((t) => t.textContent)).toEqual(['Menu', 'Tree', 'Side pane']);
     expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
-    expect(box(tabs[0]).top).toBeCloseTo(box(canvasElement.querySelector('.phone-lower')).top, 0);
+    expect(box(tabs[0]).top).toBeCloseTo(
+      box(canvasElement.querySelector('[data-testid="phone-divider"]')).bottom,
+      0,
+    );
     for (const t of tabs) {
       const icon = box(t.querySelector('svg'));
       const name = box(t.querySelector('.phone-tab-label'));

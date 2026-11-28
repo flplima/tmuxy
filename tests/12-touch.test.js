@@ -134,9 +134,9 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
     // 4px of padding each side: the grid's outer borders stay on screen.
     expect(layout.grid.containerWidth).toBeCloseTo(PHONE.width - 8, 0);
     expect(layout.pane.left).toBeGreaterThanOrEqual(1);
-    // Top to bottom: the grid, tmux's line as its 25th row, the keys, the
-    // bar, then the tab bar — the menu, the tree in front, the side pane —
-    // and the tree under it down to the screen's bottom.
+    // Top to bottom: the grid, tmux's line as its 25th row, the keys, then
+    // the sheet: its handle, the tab bar — the menu, the tree in front, the
+    // side pane — and the tree under it down to the screen's bottom.
     expectOnScreen(layout.status, 'the status line');
     expect(layout.status.left).toBeCloseTo(0, 0);
     expect(layout.status.width).toBeCloseTo(PHONE.width, 0);
@@ -151,7 +151,7 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
     expect(layout.keyHeights).toHaveLength(12);
     expect(Math.min(...layout.keyHeights)).toBeGreaterThanOrEqual(30);
     expect(Math.max(...layout.keyHeights)).toBeLessThanOrEqual(33);
-    expectOnScreen(layout.bar, 'the bar');
+    expectOnScreen(layout.bar, "the sheet's handle");
     expect(layout.bar.top).toBeCloseTo(layout.keys.top + layout.keys.height, 0);
     expectOnScreen(layout.tabs, 'the tab bar');
     expect(layout.tabNames).toEqual(['Menu', 'Tree*', 'Side pane']);

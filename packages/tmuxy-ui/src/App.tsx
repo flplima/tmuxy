@@ -108,6 +108,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const ptyRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
   const lowerRef = useRef<HTMLDivElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
   const phoneZoom = useAppSelector(selectPhoneZoom);
   const phoneZoomed = useAppSelector(selectPhoneZoomed);
   const phoneZoomAt = useAppSelector((ctx) => ctx.phoneZoomAt);
@@ -205,8 +206,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
-  // The tab strip stays above all of this (PhoneTabStrip). Upright, the bar
-  // under the keys zooms the terminal or folds it and the keys away
+  // The tab strip stays above all of this (PhoneTabStrip). Upright, the page
+  // is the terminal and the keys, and the bottom view a sheet under them
+  // whose handle zooms the terminal or raises the sheet over the page
   // (PhoneDivider).
   const phoneKeys = showLayout && <KeyRow />;
   // The grid and tmux's status line are one picture: zoomed (`phoneZoom`
@@ -241,12 +243,12 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </>
   ) : (
     <>
-      <div className="phone-top" data-testid="phone-top">
+      <div ref={topRef} className="phone-top" data-testid="phone-top">
         {phonePty}
         {phoneKeys}
       </div>
-      <PhoneDivider ptyRef={ptyRef} lowerRef={lowerRef} />
       <div ref={lowerRef} className="phone-lower">
+        <PhoneDivider topRef={topRef} ptyRef={ptyRef} lowerRef={lowerRef} />
         {showLayout && <PhoneBottomView />}
       </div>
     </>

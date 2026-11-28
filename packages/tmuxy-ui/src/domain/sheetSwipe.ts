@@ -1,7 +1,9 @@
 /**
- * When a sheet dragged down by its top bar closes on release
- * (components/phone/ComposeSheet.tsx): past a quarter of its height, or
- * flicked down, as a phone's own sheets close. Anything less springs back.
+ * When a sheet pulled across its height lets go on release: the compose
+ * sheet dragged down by its bar (components/phone/ComposeSheet.tsx), and the
+ * phone's bottom sheet raised or lowered by its handle (domain/phoneSplit.ts).
+ * Past a quarter of its height, or flicked, as a phone's own sheets go.
+ * Anything less springs back.
  */
 
 /** Dragged this share of the sheet's height, it closes however slowly. */

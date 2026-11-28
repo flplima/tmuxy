@@ -1,12 +1,12 @@
 /**
- * The bar between the phone's terminal and its bottom view, by a finger
+ * The handle along the top of the phone's bottom sheet, by a finger
  * (components/phone/PhoneDivider.tsx, domain/phoneSplit.ts). Dragged down it
  * zooms the terminal — the panes, their headers and tmux's status line as one
- * picture, from the top-left corner — as far as the bottom view gives room,
- * and the zoom is kept for the next load. Dragged back up it settles on the
- * terminal's own size; up past that, the terminal and the keys fold away and
- * the bottom view takes the screen under the tab strip; down again, they come
- * back.
+ * picture, from the top-left corner — as far as the sheet gives room, and the
+ * zoom is kept for the next load. Dragged back up it settles on the
+ * terminal's own size; up past that, the sheet rises over the terminal and
+ * the keys, which keep their size and fade to dark, and covers the screen
+ * under the tab strip; down again, it goes back under the keys.
  *
  * Every assertion is about boxes on screen.
  */
@@ -14,7 +14,7 @@
 const { PHONE, phoneContext, drag, boxOf, waitForPhoneGrid } = require('./helpers/phone');
 const { describeE2E, waitForCondition } = require('./helpers');
 
-/** What the split draws: the bar, the picture, the keys, the bottom view. */
+/** What the split draws: the handle, the picture, the keys, the sheet. */
 const splitState = (page) =>
   page.evaluate(() => {
     const box = (sel) => {
@@ -32,14 +32,15 @@ const splitState = (page) =>
       lower: box('.phone-lower'),
       tabs: box('.phone-tabs'),
       strip: box('[data-testid="phone-tab-strip"]'),
+      fade: Number(getComputedStyle(document.querySelector('[data-testid="phone-top"]')).opacity),
     };
   });
 
 describeE2E(
-  'Phone width (390px) with a touchscreen: the bar under the keys',
+  'Phone width (390px) with a touchscreen: the bottom sheet under the keys',
   { context: phoneContext(PHONE) },
   (ctx) => {
-    test('a drag down zooms the terminal as one picture and is kept for the next load; back up it settles; up past it folds the terminal away; down brings it back', async () => {
+    test('a drag down zooms the terminal as one picture and is kept for the next load; back up it settles; up past it raises the sheet over the fading terminal; down lowers it', async () => {
       await ctx.setupPage();
       await waitForPhoneGrid(ctx.page);
       const page = ctx.page;
@@ -57,8 +58,8 @@ describeE2E(
         await drag(page, from, { x: from.x, y: from.y + dy });
       };
 
-      // 0. At rest: the terminal at its own size, the bar right under the
-      //    keys, the tab bar right under it.
+      // 0. At rest: the terminal at its own size, the sheet and its handle
+      //    right under the keys, the tab bar right under the handle.
       const rest = await splitState(page);
       expect(rest.bar.top).toBeCloseTo(rest.keys.bottom, 0);
       expect(rest.tabs.top).toBeCloseTo(rest.bar.bottom, 0);
@@ -90,28 +91,36 @@ describeE2E(
         'the zoom kept',
       );
 
-      // 3. Back up past where it started: the terminal at its own size.
-      await dragBar(-300);
+      // 3. Back up a little past where it started: the terminal at its own
+      //    size, the sheet back where it rests (a lift that short goes back).
+      await dragBar(-(zoomed.bar.top - rest.bar.top) - 10);
       await until(
         (s) =>
           Math.abs(s.grid.height - rest.grid.height) < 1 && Math.abs(s.bar.top - rest.bar.top) < 1,
         'the own size',
       );
 
-      // 4. Up from its own size: the terminal and the keys fold away, the
-      //    bottom view the whole screen under the tab strip and the bar.
-      await dragBar(-90);
-      await until((s) => s.top.height === 0, 'the terminal folded away');
-      expect(state.bar.top).toBeCloseTo(state.strip.bottom, 0);
+      // 4. Up from its own size: the sheet rises over the terminal and the
+      //    keys, which keep their size and fade out, and covers the screen
+      //    under the tab strip.
+      await dragBar(-300);
+      await until(
+        (s) => s.fade === 0 && Math.abs(s.lower.top - s.strip.bottom) < 1,
+        'the sheet over the page',
+      );
+      expect(state.top.height).toBeCloseTo(rest.top.height, 0);
+      expect(state.grid.height).toBeCloseTo(rest.grid.height, 0);
+      expect(state.bar.top).toBeCloseTo(state.lower.top, 0);
       expect(state.lower.bottom).toBeCloseTo(PHONE.height, 0);
       expect(state.tabs.top).toBeCloseTo(state.bar.bottom, 0);
 
-      // 5. Down again: back at its own size, as at rest.
-      await dragBar(70);
+      // 5. Down again: back under the keys, the page as at rest.
+      await dragBar(300);
       await until(
-        (s) => s.top.height > 0 && Math.abs(s.grid.height - rest.grid.height) < 1,
-        'the terminal back',
+        (s) => s.fade === 1 && Math.abs(s.lower.top - rest.lower.top) < 1,
+        'the sheet back under the keys',
       );
+      expect(state.grid.height).toBeCloseTo(rest.grid.height, 0);
       expect(state.keys.top).toBeCloseTo(rest.keys.top, 0);
     }, 120000);
   },

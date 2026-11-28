@@ -2,7 +2,7 @@
  * One finger on the phone's terminal (components/terminal/usePaneTouch.ts): a double tap
  * zooms the grid in the browser and a finger pans it; a hold selects the word
  * under it, with Copy and Cancel over the pane; a sideways swipe switches
- * tabs. The layout itself is tests/12-touch.test.js.
+ * tabs, zoomed too once the view has no more to pan that way. The layout itself is tests/12-touch.test.js.
  *
  * As there, every assertion is about boxes on screen.
  */
@@ -204,6 +204,51 @@ describeE2E(
         async () => (await selectedTab()) === 1,
         10000,
         'a swipe to the left to go on to the second tab',
+      );
+
+      // 4. Zoomed, a slide pans the view, and switches nothing while there is
+      //    view to pan; once the view is at its left end, a slide right brings
+      //    the previous tab in after all.
+      await waitForCondition(
+        ctx.page,
+        async () => ctx.page.evaluate(() => !document.querySelector('.pane-swipe-neighbor')),
+        10000,
+        'the slide to come to rest',
+      );
+      await doubleTapTerminal(ctx.page);
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const z = await measureZoom();
+          return z.zoomed && z.scrollLeft > 20;
+        },
+        5000,
+        'the double tap to zoom, the view off its left end',
+      );
+      let left = null;
+      for (let i = 0; i < 4 && left !== 0; i++) {
+        await swipeSideways(ctx.page, centre.y, 60, 330);
+        left = null;
+        await waitForCondition(
+          ctx.page,
+          async () => {
+            const now = (await measureZoom()).scrollLeft;
+            const still = left === now;
+            left = now;
+            return still;
+          },
+          10000,
+          'the panned view to come to rest',
+        );
+        expect(await selectedTab()).toBe(1);
+      }
+      expect(left).toBe(0);
+      await swipeSideways(ctx.page, centre.y, 60, 330);
+      await waitForCondition(
+        ctx.page,
+        async () => (await selectedTab()) === 0,
+        10000,
+        "a swipe to the right past the zoomed view's left end to bring the first tab back",
       );
     }, 240000);
   },

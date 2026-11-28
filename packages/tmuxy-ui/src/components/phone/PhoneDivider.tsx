@@ -1,41 +1,104 @@
 /**
- * PhoneDivider — the bar between the phone's terminal (with its keys) and the
- * bottom view, upright. Dragged down it zooms the terminal, the panes, their
- * headers and tmux's status line growing together as one picture from the
- * top-left corner, as far as the bottom view has room to give; dragged up
- * from the terminal's own size it folds the terminal and the keys away and
- * the bottom view takes the whole height, and dragged down again it brings
- * them back. The rules are domain/phoneSplit.ts.
+ * PhoneDivider — the handle along the top of the phone's bottom sheet, upright
+ * (the rules are domain/phoneSplit.ts). Dragged down it zooms the terminal,
+ * the panes, their headers and tmux's status line growing together as one
+ * picture from the top-left corner, as far as the sheet has room to give.
+ * Dragged up it raises the sheet over the page, which keeps its size and
+ * fades to dark under it; let go, the sheet settles covering the page or back
+ * under the keys, and dragged down again it goes back.
  *
- * While the finger has it the bar writes the zoom and the fold straight onto
- * the page (the `--phone-zoom` the stylesheet scales by, and the classes the
- * state draws), so the drag moves with the finger without a render per
- * step; on release the split goes to the machine, which keeps it per device
- * and draws the same thing.
+ * While the finger has it the handle writes the zoom and the lift straight
+ * onto the page (`--phone-zoom`, and `--phone-sheet-lift` and
+ * `--phone-sheet-cover` that styles/phone.css raises the sheet and fades the
+ * page by), so the drag moves with the finger without a render per step; on
+ * release the split goes to the machine, which keeps it per device and draws
+ * the same thing, the stylesheet animating the sheet the rest of the way.
  */
 
-import { memo, useRef, type PointerEvent, type RefObject } from 'react';
+import { memo, useEffect, useRef, type PointerEvent, type RefObject } from 'react';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
-import { dragSplit, releaseSplit, type PhoneSplit, type SplitDrag } from '../../domain/phoneSplit';
+import {
+  dragSplit,
+  releaseSplit,
+  type PhoneSplit,
+  type SplitDrag,
+  type SplitPosition,
+} from '../../domain/phoneSplit';
 
 interface Drag extends SplitDrag {
   pointerId: number;
-  /** Where the finger was when the drag (or its last fold) began. */
+  /** Where the finger was when the drag began. */
   y0: number;
-  now: PhoneSplit;
+  now: SplitPosition;
+  lastY: number;
+  lastAt: number;
+  /** Downward speed at the last move, px/ms. */
+  speed: number;
 }
 
-/** Draw a split on the page, as the state would. */
-function paint(pty: HTMLElement, split: PhoneSplit) {
+const LIFT = '--phone-sheet-lift';
+const COVER = '--phone-sheet-cover';
+/** The page's height, which a covering sheet rises by. */
+const PAGE_HEIGHT = '--phone-top-height';
+
+/** Draw a position while the finger has the handle. */
+function paint(pty: HTMLElement, body: HTMLElement | null, pos: SplitPosition, cover: number) {
+  pty.style.setProperty('--phone-zoom', String(pos.zoom));
+  pty.classList.toggle('is-zoomed', pos.zoom > 1);
+  body?.style.setProperty(LIFT, `${pos.lift}px`);
+  body?.style.setProperty(COVER, String(cover > 0 ? Math.min(1, pos.lift / cover) : 0));
+}
+
+/** Hand the page back to the state's classes, which animate from where the finger left it. */
+function settle(pty: HTMLElement, body: HTMLElement | null, split: PhoneSplit) {
   pty.style.setProperty('--phone-zoom', String(split.zoom));
   pty.classList.toggle('is-zoomed', split.zoom > 1);
-  pty.closest('.app-body')?.classList.toggle('is-collapsed', split.collapsed);
+  if (!body) return;
+  body.style.removeProperty(LIFT);
+  body.style.removeProperty(COVER);
+  body.classList.toggle('is-collapsed', split.collapsed);
+  delete body.dataset.sheetDragging;
+}
+
+/** The terminal's height at its own size, the most it can grow to, and the page's height. */
+function measure(
+  top: HTMLElement | null,
+  pty: HTMLElement | null,
+  lower: HTMLElement | null,
+  handle: HTMLElement,
+): Pick<SplitDrag, 'base' | 'room' | 'cover'> | null {
+  const picture = pty?.querySelector<HTMLElement>('.phone-picture');
+  if (!pty || !picture) return null;
+  return {
+    base: picture.offsetHeight,
+    room: pty.clientHeight + Math.max(0, (lower?.clientHeight ?? 0) - handle.offsetHeight),
+    cover: top?.offsetHeight ?? 0,
+  };
+}
+
+/** A covering sheet rises by the page's height, which a keyboard changes: kept on the app body. */
+function usePageHeight(topRef: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const top = topRef.current;
+    const body = top?.closest<HTMLElement>('.app-body');
+    if (!top || !body) return;
+    const observer = new ResizeObserver(() =>
+      body.style.setProperty(PAGE_HEIGHT, `${top.offsetHeight}px`),
+    );
+    observer.observe(top);
+    return () => {
+      observer.disconnect();
+      body.style.removeProperty(PAGE_HEIGHT);
+    };
+  }, [topRef]);
 }
 
 export const PhoneDivider = memo(function PhoneDivider({
+  topRef,
   ptyRef,
   lowerRef,
 }: {
+  topRef: RefObject<HTMLDivElement | null>;
   ptyRef: RefObject<HTMLDivElement | null>;
   lowerRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -44,38 +107,40 @@ export const PhoneDivider = memo(function PhoneDivider({
   const collapsed = useAppSelector((ctx) => ctx.phoneCollapsed);
   const dragRef = useRef<Drag | null>(null);
 
-  /** The terminal's height at its own size, and the most it can grow to. */
-  const measure = (): { base: number; room: number } | null => {
-    const pty = ptyRef.current;
-    const picture = pty?.querySelector<HTMLElement>('.phone-picture');
-    if (!pty || !picture) return null;
-    return {
-      base: picture.offsetHeight,
-      room: pty.clientHeight + (lowerRef.current?.clientHeight ?? 0),
-    };
-  };
+  usePageHeight(topRef);
+
+  const body = () => ptyRef.current?.closest<HTMLElement>('.app-body') ?? null;
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    const box = measure();
+    const box = measure(topRef.current, ptyRef.current, lowerRef.current, e.currentTarget);
     if (!box) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const start = { zoom, collapsed };
-    dragRef.current = { ...box, start, now: start, pointerId: e.pointerId, y0: e.clientY };
+    dragRef.current = {
+      ...box,
+      start,
+      now: { zoom, lift: collapsed ? box.cover : 0 },
+      pointerId: e.pointerId,
+      y0: e.clientY,
+      lastY: e.clientY,
+      lastAt: e.timeStamp,
+      speed: 0,
+    };
     e.currentTarget.dataset.dragging = 'true';
+    const b = body();
+    if (b) b.dataset.sheetDragging = 'true';
   };
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     const pty = ptyRef.current;
     if (!drag || !pty || e.pointerId !== drag.pointerId) return;
-    const next = dragSplit(drag, e.clientY - drag.y0);
-    paint(pty, next);
-    drag.now = next;
-    // Folded or unfolded: the drag goes on from here, measured anew.
-    if (next.collapsed !== drag.start.collapsed) {
-      const box = measure();
-      dragRef.current = { ...drag, ...(box ?? {}), start: next, y0: e.clientY };
-    }
+    if (e.timeStamp > drag.lastAt)
+      drag.speed = (e.clientY - drag.lastY) / (e.timeStamp - drag.lastAt);
+    drag.lastY = e.clientY;
+    drag.lastAt = e.timeStamp;
+    drag.now = dragSplit(drag, e.clientY - drag.y0);
+    paint(pty, body(), drag.now, drag.cover);
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
@@ -84,8 +149,8 @@ export const PhoneDivider = memo(function PhoneDivider({
     if (!drag || e.pointerId !== drag.pointerId) return;
     dragRef.current = null;
     delete e.currentTarget.dataset.dragging;
-    const split = releaseSplit(drag.now, drag.base);
-    if (pty) paint(pty, split);
+    const split = releaseSplit(drag, drag.now, drag.speed);
+    if (pty) settle(pty, body(), split);
     send({ type: 'SET_PHONE_SPLIT', zoom: split.zoom, collapsed: split.collapsed });
   };
 
@@ -95,7 +160,7 @@ export const PhoneDivider = memo(function PhoneDivider({
       data-testid="phone-divider"
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Drag to zoom the terminal, or up to fold it away"
+      aria-label="Drag down to zoom the terminal, or up to raise this sheet over it"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
