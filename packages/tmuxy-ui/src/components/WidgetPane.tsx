@@ -67,7 +67,9 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
   const WidgetComponent = definition.component;
   // A collapsed pane of a stack shows only its header, as a terminal does
   // (TerminalPane). The widget stays mounted under it, hidden, so expanding
-  // the pane shows what it already drew: a preview is not read again.
+  // the pane shows what it already drew: a preview is not read again. One
+  // named by its tag alone (`pending`) has nothing to draw until its marker
+  // is seen.
   const collapsed = isCollapsedPane(pane);
 
   return (
@@ -99,7 +101,7 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
           pointerEvents: gestureInFlight ? 'none' : undefined,
         }}
       >
-        <WidgetComponent paneId={paneId} lines={widget.lines} />
+        {!widget.pending && <WidgetComponent paneId={paneId} lines={widget.lines} />}
       </div>
     </div>
   );

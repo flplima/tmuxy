@@ -1,6 +1,8 @@
 /**
  * `tmuxy open` in a stacked window: a preview collapsed to its header is still
- * a preview, and expanding it shows the page it already drew.
+ * a preview, and expanding it shows the page it already drew; loaded with the
+ * preview already collapsed, the tree still names it, and expanding it opens
+ * the document.
  */
 
 const fs = require('fs');
@@ -146,5 +148,41 @@ describeE2E('Scenario: a preview in a pane stack', {}, (ctx) => {
     expect(back.same).toBe(true);
     expect(Math.abs(back.scrollTop - readTo)).toBeLessThanOrEqual(2);
     expect((await treeRow(page, previewId)).name).toBe('preview');
+
+    // Collapsed again and the page loaded anew: the client never sees the
+    // marker, which sits in the history, yet the tree names it preview, and
+    // its header, clicked, opens the document.
+    await page.click(`.pane-wrapper[data-pane-id="${shellId}"] .pane-header`);
+    await waitForCondition(
+      page,
+      async () =>
+        String(
+          await ctx.session.runCommand(`display-message -p -t '${previewId}' '#{pane_height}'`),
+        ).trim() === '1',
+      10000,
+      "the preview's row to collapse again",
+    );
+    await page.reload();
+    await waitForShellPrompt(page);
+    if (!(await sidebarShown(page, 'left'))) {
+      await pressPrefixed(page, 's');
+    }
+    await waitForCondition(
+      page,
+      async () => {
+        row = await treeRow(page, previewId);
+        return row?.visible && row.name === 'preview';
+      },
+      15000,
+      () => `the tree to name the preview collapsed at load (${JSON.stringify(row)})`,
+    );
+    expect(row).toMatchObject({ icon: '\uf0f6', title: 'stacked.md' });
+    await page.click(`.pane-wrapper[data-pane-id="${previewId}"] .pane-header`);
+    await waitForCondition(
+      page,
+      async () => (shown = await activePreview(page)).heading === 'Stacked',
+      30000,
+      () => `the document after expanding (${JSON.stringify(shown)})`,
+    );
   }, 120000);
 });

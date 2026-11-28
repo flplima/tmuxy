@@ -18,6 +18,13 @@
  * cursor's empty row. Read as "terminal", the collapsed preview's tree row
  * and header fell back to `bash`, and the widget unmounted, so expanding the
  * pane mounted it afresh and read its document again.
+ *
+ * A pane already collapsed when the client first sees it has no widget to
+ * hold, and its marker is out of view: it is named by its tag alone, a
+ * `pending` widget whose header and tree row are the widget's and whose body
+ * is drawn once expanding the pane brings the marker back. A stale tag over a
+ * shell reads as that widget only while collapsed; expanded, the marker check
+ * applies again.
  */
 
 import { notCapturedYet } from '../../domain/deltaProtocol';
@@ -41,9 +48,18 @@ export function selectPaneWidget(
   const last = latches.get(pane.tmuxId);
   const authorized = pane.paneWidget ?? null;
   const sameTag = last !== undefined && last.authorized === authorized;
-  const held = notCapturedYet(pane.content) || isCollapsedPane(pane);
-  if (sameTag && (held || last.content === pane.content)) return last.widget;
-  const widget = held ? null : findPaneWidget(pane.content, authorized);
+  const notCaptured = notCapturedYet(pane.content);
+  const collapsed = isCollapsedPane(pane);
+  if (sameTag && (notCaptured || last.content === pane.content)) return last.widget;
+  if (sameTag && collapsed && last.widget) return last.widget;
+  const widget = notCaptured
+    ? null
+    : (findPaneWidget(pane.content, authorized) ?? (collapsed ? tagOnly(authorized) : null));
   latches.set(pane.tmuxId, { content: pane.content, authorized, widget });
   return widget;
+}
+
+/** A collapsed pane's widget as its tag names it, before its marker is seen. */
+function tagOnly(authorized: string | null): PaneWidget | null {
+  return authorized ? { name: authorized, lines: [], pending: true } : null;
 }
