@@ -16,13 +16,17 @@ const {
   waitForShellPrompt,
   waitForCondition,
   waitForTerminalText,
-  getPrefixKey,
-  waitForPrefixActive,
-  waitForPrefixConsumed,
 } = require('./helpers');
 const { tmuxPanes } = require('./helpers/tmux-read');
 const { tmuxExec } = require('./helpers/tmux-socket');
-const { activePreview, openPreview, paneType, previewFrame } = require('./helpers/preview-widget');
+const {
+  activePreview,
+  openPreview,
+  paneType,
+  pressPrefixed,
+  previewFrame,
+  treeRow,
+} = require('./helpers/preview-widget');
 
 const PIXEL = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -30,29 +34,6 @@ const PIXEL = Buffer.from(
 );
 
 const lines = (n) => Array.from({ length: n }, (_, i) => `Line ${i + 1}`).join('\n\n');
-
-async function pressPrefixed(page, key) {
-  const prefix = await getPrefixKey(page);
-  await page.keyboard.press(prefix.modifier ? `${prefix.modifier}+${prefix.key}` : prefix.key);
-  await waitForPrefixActive(page);
-  await page.keyboard.press(key);
-  await waitForPrefixConsumed(page);
-}
-
-function treeRow(page, paneId) {
-  return page.evaluate((id) => {
-    const el = document.querySelector(`[data-testid="tree-pane-${id}"]`);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    const text = (sel) => el.querySelector(sel)?.textContent ?? null;
-    return {
-      visible: r.width > 0 && r.height > 0 && r.left >= 0,
-      icon: text('.sidebar-tree-icon'),
-      name: text('.sidebar-tree-name'),
-      title: text('.sidebar-tree-title'),
-    };
-  }, paneId);
-}
 
 async function tabPaneCount(page) {
   return tmuxPanes(await page.evaluate(() => window.app.view().activeTabId)).length;

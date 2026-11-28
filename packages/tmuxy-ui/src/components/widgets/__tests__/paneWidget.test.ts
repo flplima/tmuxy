@@ -16,7 +16,12 @@ let paneNumber = 0;
  * pane each time).
  */
 const detectWidget = (content: PaneContent, paneWidget: string | null | undefined) => {
-  const widget = paneWidgetOf({ tmuxId: pid(`%${paneNumber++}`), content, paneWidget });
+  const widget = paneWidgetOf({
+    tmuxId: pid(`%${paneNumber++}`),
+    content,
+    paneWidget,
+    height: content.length,
+  });
   return widget && { widgetName: widget.name, contentLines: widget.lines };
 };
 
@@ -93,11 +98,31 @@ describe('paneWidgetOf', () => {
   it('holds its answer across a pane with no rows captured yet', () => {
     const tmuxId = pid('%900');
     const at = (content: PaneContent, paneWidget: string | null = 'preview') =>
-      paneWidgetOf({ tmuxId, content, paneWidget })?.name ?? null;
+      paneWidgetOf({ tmuxId, content, paneWidget, height: 24 })?.name ?? null;
     expect(at(lines(MARKER, 'x'))).toBe('preview');
     expect(at([])).toBe('preview');
     expect(at(lines('$ '))).toBeNull();
     expect(at(lines(MARKER, 'x'))).toBe('preview');
     expect(at([], null)).toBeNull();
+  });
+
+  /**
+   * A stacked window's other rows collapse to one line: tmux pushes the
+   * marker into the history and the screen holds the cursor's empty row.
+   * The pane is still the widget — its tree row and header keep its name and
+   * icon, and the widget stays mounted, so expanding it is not a reload.
+   */
+  it('holds its answer, lines included, while the pane is collapsed to one row', () => {
+    const tmuxId = pid('%901');
+    const at = (content: PaneContent, height: number, paneWidget: string | null = 'preview') =>
+      paneWidgetOf({ tmuxId, content, paneWidget, height });
+    const shown = at(lines(MARKER, 'file:a.md', 'rev:1'), 24);
+    expect(shown?.name).toBe('preview');
+    expect(at(lines(''), 1)).toEqual(shown);
+    expect(at(lines(MARKER, 'file:a.md', 'rev:1'), 24)).toEqual(shown);
+    // The latch holds only while the tag does: a pane whose widget ended is a
+    // terminal, collapsed or not.
+    expect(at(lines(''), 1, null)).toBeNull();
+    expect(at(lines(''), 1)).toBeNull();
   });
 });

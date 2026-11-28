@@ -4,7 +4,13 @@
  */
 
 const { TMUXY_CLI } = require('./config');
-const { typeInTerminal, pressEnter } = require('./keyboard');
+const {
+  typeInTerminal,
+  pressEnter,
+  getPrefixKey,
+  waitForPrefixActive,
+  waitForPrefixConsumed,
+} = require('./keyboard');
 
 /** The active pane's preview, as the user sees it: the document or the page's frame. */
 function activePreview(page) {
@@ -66,4 +72,29 @@ function paneType(selector) {
   return type;
 }
 
-module.exports = { activePreview, openPreview, paneType, previewFrame };
+/** The prefix, then `key`, as the user presses them. */
+async function pressPrefixed(page, key) {
+  const prefix = await getPrefixKey(page);
+  await page.keyboard.press(prefix.modifier ? `${prefix.modifier}+${prefix.key}` : prefix.key);
+  await waitForPrefixActive(page);
+  await page.keyboard.press(key);
+  await waitForPrefixConsumed(page);
+}
+
+/** A pane's row in the sidebar tree, as the user sees it; null while there is none. */
+function treeRow(page, paneId) {
+  return page.evaluate((id) => {
+    const el = document.querySelector(`[data-testid="tree-pane-${id}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const text = (sel) => el.querySelector(sel)?.textContent ?? null;
+    return {
+      visible: r.width > 0 && r.height > 0 && r.left >= 0,
+      icon: text('.sidebar-tree-icon'),
+      name: text('.sidebar-tree-name'),
+      title: text('.sidebar-tree-title'),
+    };
+  }, paneId);
+}
+
+module.exports = { activePreview, openPreview, paneType, pressPrefixed, previewFrame, treeRow };

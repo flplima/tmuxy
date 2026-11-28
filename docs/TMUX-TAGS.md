@@ -74,6 +74,8 @@ A window tagged `@tmuxy-collapsible` keeps only the **first-level** row that hol
 
 The backend owns the reshaping (`tmuxy-core/src/layout.rs`, `collapsible_layout_commands` in `control_mode/state.rs`): it parses the layout string, edits the first-level heights, re-serialises it with tmux's checksum and sends `select-layout`. It runs on focus changes, layout changes and option changes, and is idempotent, so the `%layout-change` its own command causes never echoes another. Zoomed windows are left alone.
 
+A widget in a collapsed row is still one. One row cannot hold the marker `tmuxy-widget` printed, so tmux pushes it into the history; the client keeps the widget it last saw under the same `@tmuxy-pane-widget` while the pane is collapsed (`machines/selectors/paneWidget.ts`), so the tree and the header keep its name and icon, and keeps the widget mounted, hidden, under the header (`components/WidgetPane.tsx`), so expanding a preview shows it where the reader left it instead of reading it again.
+
 PANE mode's `s` (`tmuxy-stack`) sets the option and adds a full-width row below (`split-window -v -f`); its `S` (`tmuxy-stack-toggle`) flips it, and turning it off evens the first-level rows back out. The tab's context menu toggles the same option.
 
 ### The marked pane

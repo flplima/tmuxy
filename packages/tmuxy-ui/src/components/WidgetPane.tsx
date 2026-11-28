@@ -13,6 +13,7 @@ import { useFramedPaneFocus } from './useFramedPaneFocus';
 import { selectPaneHoldsKeyboard } from '../machines/selectors/keyboard';
 import type { PaneId } from '../domain/ids';
 import { TmuxOp } from '../domain/commands';
+import { isCollapsedPane } from '../domain/paneGeometry';
 
 interface WidgetPaneProps {
   paneId: PaneId;
@@ -64,6 +65,10 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
   if (!pane) return null;
 
   const WidgetComponent = definition.component;
+  // A collapsed pane of a stack shows only its header, as a terminal does
+  // (TerminalPane). The widget stays mounted under it, hidden, so expanding
+  // the pane shows what it already drew: a preview is not read again.
+  const collapsed = isCollapsedPane(pane);
 
   return (
     <div
@@ -85,9 +90,12 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
           one is in flight. */}
       <div
         className="pane-content pane-content-widget"
+        data-collapsed={collapsed || undefined}
+        inert={collapsed}
         style={{
           flex: 1,
           overflow: 'hidden',
+          visibility: collapsed ? 'hidden' : undefined,
           pointerEvents: gestureInFlight ? 'none' : undefined,
         }}
       >
